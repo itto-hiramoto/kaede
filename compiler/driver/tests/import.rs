@@ -1009,3 +1009,68 @@ fn import_function_with_non_public_generic_struct() {
 
     test(58, &[module1.path(), module2.path()], &tempdir).unwrap();
 }
+
+#[test]
+fn import_generic_struct_and_impl_with_use_declaration() {
+    let tempdir = assert_fs::TempDir::new().unwrap();
+
+    let module1 = tempdir.child("dir/m.kd");
+    module1
+        .write_str(
+            r#"pub enum Apple<T> {
+                Ringo(T),
+                Mango,
+            }
+            impl<T> Apple<T> {
+                pub fn get_size(self): T {
+                    return match self {
+                        Apple::Ringo(s) => s,
+                        Apple::Mango => 123,
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+
+    let module2 = tempdir.child("m2.kd");
+    module2
+        .write_str(
+            r#"import dir.m
+            use m.Apple
+
+            pub struct Test<T> {
+                age: Apple<T>,
+            }
+
+            impl<T> Test<T> {
+                pub fn new(): Test<T> {
+                    let apple = Apple<T>::Ringo(58)
+                    return Test<T> { age: apple }
+                }
+
+                pub fn get_age(self): Apple<T> {
+                    return self.age
+                }
+            }"#,
+        )
+        .unwrap();
+
+    let module3 = tempdir.child("m3.kd");
+    module3
+        .write_str(
+            r#"import m2
+            fn main(): i32 {
+                let test = m2.Test<i32>::new()
+                let age = test.get_age()
+                return age.get_size()
+            }"#,
+        )
+        .unwrap();
+
+    test(
+        58,
+        &[module1.path(), module2.path(), module3.path()],
+        &tempdir,
+    )
+    .unwrap();
+}
