@@ -417,6 +417,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "kaede_ir"
+version = "0.1.0"
+dependencies = [
+ "kaede_symbol",
+ "kaede_type",
+]
+
+[[package]]
 name = "kaede_lex"
 version = "0.1.0"
 dependencies = [
@@ -434,6 +442,19 @@ dependencies = [
  "kaede_span",
  "kaede_symbol",
  "kaede_type",
+ "thiserror",
+]
+
+[[package]]
+name = "kaede_semantic"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kaede_ast",
+ "kaede_ir",
+ "kaede_parse",
+ "kaede_span",
+ "kaede_symbol",
  "thiserror",
 ]
 

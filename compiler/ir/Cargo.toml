@@ -1,0 +1,8 @@
+[package]
+name = "kaede_ir"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kaede_symbol = { path = "../symbol" }
+kaede_type = { path = "../type" }

@@ -164,6 +164,7 @@ pub enum TopLevelKind {
     Extern(Extern),
     Use(Use),
 
+    // TODO: 中間言語の導入が完了したら削除する
     // Internal use
     GenericFnInstance(GenericFnInstance),
     ExternalImpl(ExternalImpl),

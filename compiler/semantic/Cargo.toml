@@ -1,0 +1,14 @@
+[package]
+name = "kaede_semantic"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.68"
+thiserror = "1.0.38"
+
+kaede_ast = { path = "../ast" }
+kaede_ir = { path = "../ir" }
+kaede_symbol = { path = "../symbol" }
+kaede_span = { path = "../span" }
+kaede_parse = { path = "../parse" }
