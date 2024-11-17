@@ -4,7 +4,8 @@ use kaede_symbol::Symbol;
 
 use crate::{
     symbol_table::{
-        GenericFuncInfo, GenericInfo, GenericStructInfo, SymbolTableValue, SymbolTableValueKind,
+        self, GenericEnumInfo, GenericFuncInfo, GenericInfo, GenericStructInfo, SymbolTableValue,
+        SymbolTableValueKind,
     },
     SemanticAnalyzer,
 };
@@ -29,9 +30,9 @@ impl SemanticAnalyzer {
         match top_level.kind {
             TopLevelKind::Fn(node) => self.analyze_fn(node),
             TopLevelKind::Struct(node) => self.analyze_struct(node),
+            TopLevelKind::Enum(node) => self.analyze_enum(node),
             TopLevelKind::Import(_) => unimplemented!(),
             TopLevelKind::Impl(_) => unimplemented!(),
-            TopLevelKind::Enum(_) => unimplemented!(),
             TopLevelKind::Extern(_) => unimplemented!(),
             TopLevelKind::Use(_) => unimplemented!(),
 
@@ -136,6 +137,50 @@ impl SemanticAnalyzer {
             .insert(mangled_name, symbol_table_value, node.span)?;
 
         Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Struct(
+            ir,
+        )))
+    }
+
+    fn analyze_enum(&mut self, node: ast::top::Enum) -> anyhow::Result<TopLevelAnalysisResult> {
+        let mangled_name = self.mangle_enum_name(node.name.as_str());
+        let span = node.span;
+
+        // For generic
+        if node.generic_params.is_some() {
+            let symbol_table_value = SymbolTableValue::new(
+                SymbolTableValueKind::Generic(GenericInfo::Enum(GenericEnumInfo::new(node))),
+                self,
+            );
+
+            self.get_current_symbol_table()
+                .insert(mangled_name, symbol_table_value, span)?;
+
+            // Generics are not created immediately, but are created when they are used.
+            return Ok(TopLevelAnalysisResult::GenericTopLevel);
+        }
+
+        let variants = node
+            .variants
+            .into_iter()
+            .map(|variant| ir::top::EnumVariant {
+                name: variant.name.symbol(),
+                ty: variant.ty,
+                offset: variant.offset,
+            })
+            .collect();
+
+        let ir = Rc::new(ir::top::Enum {
+            name: mangled_name,
+            variants,
+        });
+
+        let symbol_table_value =
+            SymbolTableValue::new(SymbolTableValueKind::Enum(ir.clone()), self);
+
+        self.get_current_symbol_table()
+            .insert(mangled_name, symbol_table_value, span)?;
+
+        Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Enum(
             ir,
         )))
     }

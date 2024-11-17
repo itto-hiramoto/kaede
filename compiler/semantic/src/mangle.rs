@@ -30,4 +30,8 @@ impl SemanticAnalyzer {
     pub fn mangle_struct_name(&self, name: &str) -> Symbol {
         format!("{}.{}", self.current_module_path.mangle(), name).into()
     }
+
+    pub fn mangle_enum_name(&self, name: &str) -> Symbol {
+        format!("{}.{}", self.current_module_path.mangle(), name).into()
+    }
 }

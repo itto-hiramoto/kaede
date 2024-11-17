@@ -126,7 +126,7 @@ pub enum SymbolTableValueKind {
     // Variable((PointerValue<'ctx>, Rc<Ty> /* Variable type */)),
     Function(Rc<ir::top::Fn>),
     Struct(Rc<ir::top::Struct>),
-    // Enum(EnumInfo<'ctx>),
+    Enum(Rc<ir::top::Enum>),
     Generic(GenericInfo),
     // Module(Symbol),
 }
