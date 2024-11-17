@@ -3,9 +3,10 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 use kaede_span::Span;
 use kaede_symbol::Symbol;
 
-use crate::error::SemanticError;
+use crate::{error::SemanticError, mangle::ModulePath, SemanticAnalyzer};
 
 use kaede_ast as ast;
+use kaede_ir as ir;
 
 // #[derive(Debug)]
 // pub struct FunctionInfo<'ctx> {
@@ -14,14 +15,7 @@ use kaede_ast as ast;
 //     pub param_types: Vec<Rc<Ty>>,
 // }
 
-// #[derive(Debug)]
-// pub struct StructInfo<'ctx> {
-//     pub mangled_name: Symbol,
-//     pub ty: StructType<'ctx>,
-//     pub fields: HashMap<Symbol, StructField>,
-//     pub is_external: Option<Vec<Ident>>,
-// }
-
+//
 // #[derive(Debug, Clone)]
 // pub struct EnumVariantInfo {
 //     pub name: Ident,
@@ -128,13 +122,28 @@ pub enum GenericInfo {
 }
 
 #[derive(Debug)]
-pub enum SymbolTableValue {
+pub enum SymbolTableValueKind {
     // Variable((PointerValue<'ctx>, Rc<Ty> /* Variable type */)),
-    // Function(FunctionInfo<'ctx>),
-    // Struct(StructInfo<'ctx>),
+    Function(Rc<ir::top::Fn>),
+    Struct(Rc<ir::top::Struct>),
     // Enum(EnumInfo<'ctx>),
     Generic(GenericInfo),
     // Module(Symbol),
+}
+
+#[derive(Debug)]
+pub struct SymbolTableValue {
+    kind: SymbolTableValueKind,
+    module_path: ModulePath,
+}
+
+impl SymbolTableValue {
+    pub fn new(kind: SymbolTableValueKind, analyzer: &SemanticAnalyzer) -> Self {
+        Self {
+            kind,
+            module_path: analyzer.current_module_path.clone(),
+        }
+    }
 }
 
 pub struct SymbolTable {

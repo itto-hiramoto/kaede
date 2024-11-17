@@ -1,24 +1,34 @@
+use std::rc::Rc;
+
 use kaede_symbol::Symbol;
 
 use crate::{
-    symbol_table::{GenericFuncInfo, GenericInfo, SymbolTableValue},
+    symbol_table::{
+        GenericFuncInfo, GenericInfo, GenericStructInfo, SymbolTableValue, SymbolTableValueKind,
+    },
     SemanticAnalyzer,
 };
 
 use kaede_ast as ast;
 use kaede_ir as ir;
 
+/// If a top-level is generic, there is no IR that can be generated immediately, so this enum is used.
+pub enum TopLevelAnalysisResult {
+    GenericTopLevel,
+    TopLevel(ir::top::TopLevel),
+}
+
 impl SemanticAnalyzer {
     /// Returns `None` if a top-level item is a generic.
     pub fn analyze_top_level(
         &mut self,
         top_level: ast::top::TopLevel,
-    ) -> anyhow::Result<Option<ir::top::TopLevel>> {
+    ) -> anyhow::Result<TopLevelAnalysisResult> {
         use ast::top::TopLevelKind;
 
         match top_level.kind {
             TopLevelKind::Fn(node) => self.analyze_fn(node),
-            TopLevelKind::Struct(_) => unimplemented!(),
+            TopLevelKind::Struct(node) => self.analyze_struct(node),
             TopLevelKind::Import(_) => unimplemented!(),
             TopLevelKind::Impl(_) => unimplemented!(),
             TopLevelKind::Enum(_) => unimplemented!(),
@@ -30,7 +40,7 @@ impl SemanticAnalyzer {
     }
 
     /// Returns `None` if a function is generic.
-    fn analyze_fn(&mut self, node: ast::top::Fn) -> anyhow::Result<Option<ir::top::TopLevel>> {
+    fn analyze_fn(&mut self, node: ast::top::Fn) -> anyhow::Result<TopLevelAnalysisResult> {
         assert_eq!(node.decl.self_, None);
 
         let mangled_name = if node.decl.name.as_str() == "main" {
@@ -44,14 +54,16 @@ impl SemanticAnalyzer {
         if node.decl.generic_params.is_some() {
             let span = node.span;
 
-            self.get_root_symbol_table().insert(
-                mangled_name,
-                SymbolTableValue::Generic(GenericInfo::Func(GenericFuncInfo { ast: node })),
-                span,
-            )?;
+            let symbol_table_value = SymbolTableValue::new(
+                SymbolTableValueKind::Generic(GenericInfo::Func(GenericFuncInfo { ast: node })),
+                self,
+            );
+
+            self.get_root_symbol_table()
+                .insert(mangled_name, symbol_table_value, span)?;
 
             // Generic functions are not generated immediately, but are generated when they are used.
-            return Ok(None);
+            return Ok(TopLevelAnalysisResult::GenericTopLevel);
         }
 
         let fn_decl = ir::top::FnDecl {
@@ -70,11 +82,61 @@ impl SemanticAnalyzer {
             return_ty: node.decl.return_ty,
         };
 
-        let fn_ = ir::top::Fn {
+        let fn_ = Rc::new(ir::top::Fn {
             decl: fn_decl,
             body: self.analyze_block(&node.body)?,
-        };
+        });
 
-        Ok(Some(ir::top::TopLevel::Fn(fn_)))
+        let symbol_table_value =
+            SymbolTableValue::new(SymbolTableValueKind::Function(fn_.clone()), self);
+
+        self.get_root_symbol_table()
+            .insert(mangled_name, symbol_table_value, node.span)?;
+
+        Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Fn(fn_)))
+    }
+
+    fn analyze_struct(&mut self, node: ast::top::Struct) -> anyhow::Result<TopLevelAnalysisResult> {
+        let mangled_name = self.mangle_struct_name(node.name.as_str()).into();
+        let span = node.span;
+
+        // For generic
+        if node.generic_params.is_some() {
+            let symbol_table_value = SymbolTableValue::new(
+                SymbolTableValueKind::Generic(GenericInfo::Struct(GenericStructInfo::new(node))),
+                self,
+            );
+
+            self.get_root_symbol_table()
+                .insert(mangled_name, symbol_table_value, span)?;
+
+            // Generic structs are not created immediately, but are created when they are used.
+            return Ok(TopLevelAnalysisResult::GenericTopLevel);
+        }
+
+        let fields = node
+            .fields
+            .into_iter()
+            .map(|field| ir::top::StructField {
+                name: field.name.symbol(),
+                ty: field.ty,
+                offset: field.offset,
+            })
+            .collect();
+
+        let ir = Rc::new(ir::top::Struct {
+            name: mangled_name,
+            fields,
+        });
+
+        let symbol_table_value =
+            SymbolTableValue::new(SymbolTableValueKind::Struct(ir.clone()), self);
+
+        self.get_root_symbol_table()
+            .insert(mangled_name, symbol_table_value, node.span)?;
+
+        Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Struct(
+            ir,
+        )))
     }
 }

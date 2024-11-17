@@ -2,6 +2,7 @@ use kaede_symbol::Symbol;
 
 use crate::SemanticAnalyzer;
 
+#[derive(Debug, Clone)]
 pub struct ModulePath {
     modules_from_root: Vec<Symbol>,
 }
@@ -23,6 +24,10 @@ impl ModulePath {
 
 impl SemanticAnalyzer {
     pub fn mangle_fn_name(&self, name: &str) -> Symbol {
+        format!("{}.{}", self.current_module_path.mangle(), name).into()
+    }
+
+    pub fn mangle_struct_name(&self, name: &str) -> Symbol {
         format!("{}.{}", self.current_module_path.mangle(), name).into()
     }
 }

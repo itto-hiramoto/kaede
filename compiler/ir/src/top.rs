@@ -59,8 +59,8 @@ pub struct Extern {
 
 #[derive(Debug)]
 pub enum TopLevel {
-    Fn(Fn),
-    Struct(Struct),
-    Enum(Enum),
+    Fn(Rc<Fn>),
+    Struct(Rc<Struct>),
+    Enum(Rc<Enum>),
     Extern(Extern),
 }

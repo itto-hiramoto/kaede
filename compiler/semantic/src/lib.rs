@@ -12,6 +12,7 @@ mod top;
 
 use kaede_ast as ast;
 use kaede_ir as ir;
+use top::TopLevelAnalysisResult;
 
 struct SemanticAnalyzer {
     symbol_tables: Vec<SymbolTable>,
@@ -48,7 +49,9 @@ impl SemanticAnalyzer {
         let mut top_level_irs = vec![];
 
         for top_level in compile_unit.top_levels {
-            if let Some(top_level) = self.analyze_top_level(top_level)? {
+            if let TopLevelAnalysisResult::TopLevel(top_level) =
+                self.analyze_top_level(top_level)?
+            {
                 top_level_irs.push(top_level);
             }
         }
