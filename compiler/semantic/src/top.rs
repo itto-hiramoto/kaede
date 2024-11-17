@@ -20,7 +20,6 @@ pub enum TopLevelAnalysisResult {
 }
 
 impl SemanticAnalyzer {
-    /// Returns `None` if a top-level item is a generic.
     pub fn analyze_top_level(
         &mut self,
         top_level: ast::top::TopLevel,
@@ -40,7 +39,6 @@ impl SemanticAnalyzer {
         }
     }
 
-    /// Returns `None` if a function is generic.
     fn analyze_fn(&mut self, node: ast::top::Fn) -> anyhow::Result<TopLevelAnalysisResult> {
         assert_eq!(node.decl.self_, None);
 
