@@ -8,7 +8,9 @@ anyhow = "1.0.68"
 thiserror = "1.0.38"
 
 kaede_ast = { path = "../ast" }
+kaede_ast_type = { path = "../ast_type" }
 kaede_ir = { path = "../ir" }
+kaede_ir_type = { path = "../ir_type" }
 kaede_symbol = { path = "../symbol" }
 kaede_span = { path = "../span" }
 kaede_parse = { path = "../parse" }

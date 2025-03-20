@@ -1,9 +1,12 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
+use kaede_ir_type as ir_type;
+
+use kaede_ir_type::ModulePath;
 use kaede_span::Span;
 use kaede_symbol::Symbol;
 
-use crate::{error::SemanticError, mangle::ModulePath, SemanticAnalyzer};
+use crate::{error::SemanticError, SemanticAnalyzer};
 
 use kaede_ast as ast;
 use kaede_ir as ir;
@@ -122,8 +125,13 @@ pub enum GenericInfo {
 }
 
 #[derive(Debug)]
+pub struct VariableInfo {
+    pub ty: Rc<ir_type::Ty>,
+}
+
+#[derive(Debug)]
 pub enum SymbolTableValueKind {
-    // Variable((PointerValue<'ctx>, Rc<Ty> /* Variable type */)),
+    Variable(VariableInfo),
     Function(Rc<ir::top::Fn>),
     Struct(Rc<ir::top::Struct>),
     Enum(Rc<ir::top::Enum>),
@@ -133,15 +141,15 @@ pub enum SymbolTableValueKind {
 
 #[derive(Debug)]
 pub struct SymbolTableValue {
-    kind: SymbolTableValueKind,
-    module_path: ModulePath,
+    pub kind: SymbolTableValueKind,
+    pub module_path: ModulePath,
 }
 
 impl SymbolTableValue {
     pub fn new(kind: SymbolTableValueKind, analyzer: &SemanticAnalyzer) -> Self {
         Self {
             kind,
-            module_path: analyzer.current_module_path.clone(),
+            module_path: analyzer.current_module_path().clone(),
         }
     }
 }
@@ -179,5 +187,21 @@ impl SymbolTable {
         }
 
         Ok(())
+    }
+}
+
+pub struct GenericArgumentTable {
+    map: HashMap<Symbol, Rc<ir_type::Ty>>,
+}
+
+impl GenericArgumentTable {
+    pub fn new() -> Self {
+        Self {
+            map: HashMap::new(),
+        }
+    }
+
+    pub fn lookup(&self, symbol: Symbol) -> Option<Rc<ir_type::Ty>> {
+        self.map.get(&symbol).cloned()
     }
 }

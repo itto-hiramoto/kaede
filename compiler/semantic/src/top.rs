@@ -4,7 +4,7 @@ use kaede_symbol::Symbol;
 
 use crate::{
     symbol_table::{
-        self, GenericEnumInfo, GenericFuncInfo, GenericInfo, GenericStructInfo, SymbolTableValue,
+        GenericEnumInfo, GenericFuncInfo, GenericInfo, GenericStructInfo, SymbolTableValue,
         SymbolTableValueKind,
     },
     SemanticAnalyzer,
@@ -65,20 +65,27 @@ impl SemanticAnalyzer {
             return Ok(TopLevelAnalysisResult::GenericTopLevel);
         }
 
+        let params = node
+            .decl
+            .params
+            .v
+            .into_iter()
+            .map(|p| -> anyhow::Result<ir::top::Param> {
+                Ok(ir::top::Param {
+                    name: p.name.symbol(),
+                    ty: self.analyze_type(&p.ty)?.into(),
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
         let fn_decl = ir::top::FnDecl {
             name: mangled_name,
             is_var_args: node.decl.params.is_var_args,
-            params: node
-                .decl
-                .params
-                .v
-                .into_iter()
-                .map(|p| ir::top::Param {
-                    name: p.name.symbol(),
-                    ty: p.ty,
-                })
-                .collect(),
-            return_ty: node.decl.return_ty,
+            params,
+            return_ty: match &node.decl.return_ty {
+                None => None,
+                Some(ty) => Some(self.analyze_type(ty)?.into()),
+            },
         };
 
         let fn_ = Rc::new(ir::top::Fn {
@@ -116,12 +123,14 @@ impl SemanticAnalyzer {
         let fields = node
             .fields
             .into_iter()
-            .map(|field| ir::top::StructField {
-                name: field.name.symbol(),
-                ty: field.ty,
-                offset: field.offset,
+            .map(|field| -> anyhow::Result<ir::top::StructField> {
+                Ok(ir::top::StructField {
+                    name: field.name.symbol(),
+                    ty: self.analyze_type(&field.ty)?.into(),
+                    offset: field.offset,
+                })
             })
-            .collect();
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
         let ir = Rc::new(ir::top::Struct {
             name: mangled_name,
@@ -160,12 +169,17 @@ impl SemanticAnalyzer {
         let variants = node
             .variants
             .into_iter()
-            .map(|variant| ir::top::EnumVariant {
-                name: variant.name.symbol(),
-                ty: variant.ty,
-                offset: variant.offset,
+            .map(|variant| -> anyhow::Result<ir::top::EnumVariant> {
+                Ok(ir::top::EnumVariant {
+                    name: variant.name.symbol(),
+                    ty: match variant.ty {
+                        None => None,
+                        Some(ty) => Some(self.analyze_type(&ty)?),
+                    },
+                    offset: variant.offset,
+                })
             })
-            .collect();
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
         let ir = Rc::new(ir::top::Enum {
             name: mangled_name,

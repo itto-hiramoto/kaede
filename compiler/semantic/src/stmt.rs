@@ -17,6 +17,9 @@ impl SemanticAnalyzer {
             stmts.push(self.analyze_stmt(stmt)?);
         }
 
-        Ok(ir::stmt::Block { body: stmts })
+        Ok(ir::stmt::Block {
+            body: stmts,
+            last_expr: None,
+        })
     }
 }

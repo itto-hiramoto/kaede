@@ -1,14 +1,19 @@
 use std::{cell::RefCell, rc::Rc};
 
-use kaede_symbol::Symbol;
-use mangle::ModulePath;
-use symbol_table::{SymbolTable, SymbolTableValue};
+use context::AnalysisContext;
+use kaede_ir_type as ir_type;
 
+use kaede_symbol::Symbol;
+use symbol_table::{GenericArgumentTable, SymbolTable, SymbolTableValue};
+
+mod context;
 mod error;
+mod expr;
 mod mangle;
 mod stmt;
 mod symbol_table;
 mod top;
+mod ty;
 
 use kaede_ast as ast;
 use kaede_ir as ir;
@@ -16,14 +21,16 @@ use top::TopLevelAnalysisResult;
 
 struct SemanticAnalyzer {
     symbol_tables: Vec<SymbolTable>,
-    current_module_path: ModulePath,
+    context: AnalysisContext,
+    generic_argument_table: GenericArgumentTable,
 }
 
 impl SemanticAnalyzer {
     pub fn new() -> Self {
         Self {
             symbol_tables: vec![SymbolTable::new()],
-            current_module_path: ModulePath::new(vec![]),
+            context: AnalysisContext::new(),
+            generic_argument_table: GenericArgumentTable::new(),
         }
     }
 
@@ -35,6 +42,10 @@ impl SemanticAnalyzer {
         }
 
         None
+    }
+
+    pub fn lookup_generic_argument(&self, symbol: Symbol) -> Option<Rc<ir_type::Ty>> {
+        self.generic_argument_table.lookup(symbol)
     }
 
     pub fn get_root_symbol_table(&mut self) -> &mut SymbolTable {

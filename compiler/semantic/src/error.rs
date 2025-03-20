@@ -56,6 +56,13 @@ pub enum SemanticError {
         span: Span,
     },
 
+    #[error("{}:{}:{} no method named `{}` in `{}`", span.file, span.start.line, span.start.column, method_name, parent_name)]
+    NoMethod {
+        method_name: Symbol,
+        parent_name: Symbol,
+        span: Span,
+    },
+
     #[error("{}:{}:{} no variant named `{}` in `{}`", span.file, span.start.line, span.start.column, variant_name, parent_name)]
     NoVariant {
         variant_name: Symbol,
