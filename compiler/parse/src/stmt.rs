@@ -4,9 +4,9 @@ use kaede_ast::{
     expr::Expr,
     stmt::{Assign, AssignKind, Block, Let, LetKind, NormalLet, Stmt, StmtKind, TupleUnpack},
 };
+use kaede_ast_type::Ty;
 use kaede_lex::token::TokenKind;
 use kaede_span::Location;
-use kaede_type::Ty;
 
 use crate::{
     error::{ParseError, ParseResult},
@@ -114,7 +114,7 @@ impl Parser {
                     name,
                     mutability,
                     init: Some(init.into()),
-                    ty: Ty::new_inferred(mutability).into(),
+                    ty: Ty::new_inferred(mutability, span).into(),
                     span,
                 }),
                 span,
@@ -122,7 +122,7 @@ impl Parser {
         }
 
         self.consume(&TokenKind::Colon)?;
-        let (ty, _) = self.ty()?;
+        let ty = self.ty()?;
 
         let init = if self.consume_b(&TokenKind::Eq) {
             Some(Rc::new(self.expr()?))

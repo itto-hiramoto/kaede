@@ -5,10 +5,10 @@ use kaede_ast::expr::{
     Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, MatchArmList, Return, StringLiteral,
     StructLiteral, TupleLiteral,
 };
+use kaede_ast_type::{Ty, TyKind};
 use kaede_lex::token::TokenKind;
 use kaede_span::Location;
 use kaede_symbol::{Ident, Symbol};
-use kaede_type::{Ty, TyKind};
 
 use crate::{
     error::{ParseError, ParseResult},
@@ -369,7 +369,7 @@ impl Parser {
             return Ok(node);
         }
 
-        if let Ok((ty, span)) = self.ty() {
+        if let Ok(ty) = self.ty() {
             let ty = Rc::new(ty);
 
             let (unwrapped, external_module_names) = if let TyKind::External(ety) = ty.kind.as_ref()
@@ -413,12 +413,12 @@ impl Parser {
 
                     if let Some(generic_args) = &udt.generic_args {
                         return Ok(Expr {
-                            span,
+                            span: ty.span,
                             kind: ExprKind::GenericIdent((udt.name, generic_args.clone())),
                         });
                     } else {
                         return Ok(Expr {
-                            span,
+                            span: ty.span,
                             kind: ExprKind::Ident(udt.name),
                         });
                     }
@@ -427,7 +427,7 @@ impl Parser {
 
             // Type
             return Ok(Expr {
-                span,
+                span: ty.span,
                 kind: ExprKind::Ty(ty),
             });
         }

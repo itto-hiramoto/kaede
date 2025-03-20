@@ -12,5 +12,5 @@ thiserror = "1.0.38"
 kaede_lex = { path = "../lex" }
 kaede_ast = { path = "../ast" }
 kaede_span = { path = "../span" }
-kaede_type = { path = "../type" }
+kaede_ast_type = { path = "../ast_type" }
 kaede_symbol = { path = "../symbol" }

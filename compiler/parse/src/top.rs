@@ -4,9 +4,9 @@ use kaede_ast::top::{
     Enum, EnumVariant, Extern, Fn, FnDecl, GenericParams, Impl, Import, Param, Params, Path,
     Struct, StructField, TopLevel, TopLevelKind, Use, Visibility,
 };
+use kaede_ast_type::Mutability;
 use kaede_lex::token::TokenKind;
 use kaede_span::Location;
-use kaede_type::Mutability;
 
 use crate::{error::ParseResult, Parser};
 
@@ -115,7 +115,7 @@ impl Parser {
                 .push(params.names.iter().map(|i| i.symbol()).collect());
         }
 
-        let (ty, _) = self.ty()?;
+        let ty = self.ty()?;
 
         self.consume(&TokenKind::OpenBrace)?;
 
@@ -232,7 +232,7 @@ impl Parser {
         };
 
         let (return_ty, finish) = if let Ok(span) = self.consume(&TokenKind::Colon) {
-            (Some(Rc::new(self.ty()?.0)), span.finish)
+            (Some(Rc::new(self.ty()?)), span.finish)
         } else {
             (None, params.span.finish)
         };
@@ -301,7 +301,7 @@ impl Parser {
 
         self.consume(&TokenKind::Colon)?;
 
-        let (ty, _) = self.ty()?;
+        let ty = self.ty()?;
 
         Ok(Param {
             name,
@@ -366,7 +366,7 @@ impl Parser {
             let name = self.ident()?;
 
             let ty = if self.consume_b(&TokenKind::OpenParen) {
-                let (ty, _) = self.ty()?;
+                let ty = self.ty()?;
                 self.consume(&TokenKind::CloseParen)?;
                 Some(ty)
             } else {
@@ -444,7 +444,7 @@ impl Parser {
 
             self.consume(&TokenKind::Colon)?;
 
-            let (ty, _) = self.ty()?;
+            let ty = self.ty()?;
 
             fields.push(StructField {
                 name,
