@@ -1,15 +1,16 @@
 [workspace]
 members = [
   "compiler/ast",
+  "compiler/ast_type",
 #   "compiler/codegen",
   "compiler/driver",
   "compiler/lex",
   "compiler/parse",
   "compiler/span",
   "compiler/symbol",
-  "compiler/type",
   "compiler/common",
   "compiler/ir",
+  "compiler/ir_type",
   "compiler/semantic",
 ]
 resolver = "2"

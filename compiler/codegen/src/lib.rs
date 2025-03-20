@@ -26,7 +26,7 @@ use kaede_ast::{
 use kaede_common::kaede_autoload_dir;
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::{Ident, Symbol};
-use kaede_type::{
+use kaede_ast_type::{
     ExternalType, FundamentalType, FundamentalTypeKind, GenericArgs, Mutability, PointerType,
     ReferenceType, Ty, TyKind, UserDefinedType,
 };

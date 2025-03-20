@@ -374,9 +374,18 @@ name = "kaede_ast"
 version = "0.1.0"
 dependencies = [
  "inkwell",
+ "kaede_ast_type",
  "kaede_span",
  "kaede_symbol",
- "kaede_type",
+]
+
+[[package]]
+name = "kaede_ast_type"
+version = "0.1.0"
+dependencies = [
+ "inkwell",
+ "kaede_span",
+ "kaede_symbol",
 ]
 
 [[package]]
@@ -386,11 +395,11 @@ dependencies = [
  "anyhow",
  "inkwell",
  "kaede_ast",
+ "kaede_ast_type",
  "kaede_common",
  "kaede_parse",
  "kaede_span",
  "kaede_symbol",
- "kaede_type",
  "thiserror",
 ]
 
@@ -420,8 +429,16 @@ dependencies = [
 name = "kaede_ir"
 version = "0.1.0"
 dependencies = [
+ "kaede_ir_type",
  "kaede_symbol",
- "kaede_type",
+]
+
+[[package]]
+name = "kaede_ir_type"
+version = "0.1.0"
+dependencies = [
+ "inkwell",
+ "kaede_symbol",
 ]
 
 [[package]]
@@ -438,10 +455,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "kaede_ast",
+ "kaede_ast_type",
  "kaede_lex",
  "kaede_span",
  "kaede_symbol",
- "kaede_type",
  "thiserror",
 ]
 
@@ -451,7 +468,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "kaede_ast",
+ "kaede_ast_type",
  "kaede_ir",
+ "kaede_ir_type",
  "kaede_parse",
  "kaede_span",
  "kaede_symbol",
@@ -473,15 +492,6 @@ dependencies = [
  "kaede_span",
  "once_cell",
  "slab",
-]
-
-[[package]]
-name = "kaede_type"
-version = "0.1.0"
-dependencies = [
- "inkwell",
- "kaede_span",
- "kaede_symbol",
 ]
 
 [[package]]

@@ -9,7 +9,7 @@ use kaede_common::kaede_lib_src_dir;
 use kaede_parse::Parser;
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::{Ident, Symbol};
-use kaede_type::{change_mutability_dup, GenericArgs, Mutability, Ty, TyKind, UserDefinedType};
+use kaede_ast_type::{change_mutability_dup, GenericArgs, Mutability, Ty, TyKind, UserDefinedType};
 
 use crate::{
     error::CodegenError,

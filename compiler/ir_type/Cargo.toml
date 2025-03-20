@@ -1,12 +1,9 @@
 [package]
-name = "kaede_type"
+name = "kaede_ir_type"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm17-0"] }
 
 kaede_symbol = { path = "../symbol" }
-kaede_span = { path = "../span" }

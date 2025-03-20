@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use kaede_span::Span;
 use kaede_symbol::Ident;
-use kaede_type::{Mutability, Ty};
+use kaede_ast_type::{Mutability, Ty};
 
 use crate::expr::Expr;
 

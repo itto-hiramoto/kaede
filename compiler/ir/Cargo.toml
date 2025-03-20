@@ -5,4 +5,4 @@ edition = "2021"
 
 [dependencies]
 kaede_symbol = { path = "../symbol" }
-kaede_type = { path = "../type" }
+kaede_ir_type = { path = "../ir_type" }

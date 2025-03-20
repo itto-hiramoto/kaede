@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
+use kaede_ir_type::Ty;
 use kaede_symbol::Symbol;
-use kaede_type::Ty;
 
 use crate::stmt::Block;
 
@@ -41,7 +41,7 @@ pub struct Fn {
 #[derive(Debug)]
 pub struct EnumVariant {
     pub name: Symbol,
-    pub ty: Option<Ty>,
+    pub ty: Option<Rc<Ty>>,
     pub offset: u32,
 }
 

@@ -1,11 +1,11 @@
 use std::{collections::VecDeque, rc::Rc, slice::Iter};
 
 use inkwell::{context::Context, values::IntValue};
-use kaede_span::Span;
-use kaede_symbol::{Ident, Symbol};
-use kaede_type::{
+use kaede_ast_type::{
     make_fundamental_type, FundamentalTypeKind, GenericArgs, Mutability, Ty, UserDefinedType,
 };
+use kaede_span::Span;
+use kaede_symbol::{Ident, Symbol};
 
 use crate::stmt::Block;
 
@@ -77,8 +77,12 @@ impl Int {
 
     pub fn get_type(&self) -> Ty {
         match self.kind {
-            IntKind::I32(_) => make_fundamental_type(FundamentalTypeKind::I32, Mutability::Not),
-            IntKind::U64(_) => make_fundamental_type(FundamentalTypeKind::U64, Mutability::Not),
+            IntKind::I32(_) => {
+                make_fundamental_type(FundamentalTypeKind::I32, Mutability::Not, self.span)
+            }
+            IntKind::U64(_) => {
+                make_fundamental_type(FundamentalTypeKind::U64, Mutability::Not, self.span)
+            }
         }
     }
 }

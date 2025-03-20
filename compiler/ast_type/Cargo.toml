@@ -1,18 +1,12 @@
 [package]
-name = "kaede_codegen"
+name = "kaede_ast_type"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.68"
-thiserror = "1.0.38"
 inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm17-0"] }
 
-kaede_ast = { path = "../ast" }
-kaede_span = { path = "../span" }
-kaede_parse = { path = "../parse" }
-kaede_ast_type = { path = "../ast_type" }
 kaede_symbol = { path = "../symbol" }
-kaede_common = { path = "../common" }
+kaede_span = { path = "../span" }

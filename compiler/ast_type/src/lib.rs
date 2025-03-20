@@ -25,6 +25,7 @@ pub fn change_mutability(ty: &mut Ty, mutability: Mutability) {
             let mut ety_ty = Ty {
                 kind: ety.ty.kind.clone(),
                 mutability,
+                span: ty.span,
             };
 
             change_mutability(&mut ety_ty, mutability);
@@ -40,6 +41,7 @@ pub fn change_mutability(ty: &mut Ty, mutability: Mutability) {
             let mut new_refee_ty = Ty {
                 kind: rty.refee_ty.kind.clone(),
                 mutability,
+                span: ty.span,
             };
 
             change_mutability(&mut new_refee_ty, mutability);
@@ -54,13 +56,14 @@ pub fn change_mutability(ty: &mut Ty, mutability: Mutability) {
     }
 }
 
-pub fn create_inferred_tuple(element_len: usize) -> TyKind {
+pub fn create_inferred_tuple(element_len: usize, span: Span) -> TyKind {
     TyKind::Tuple({
         let mut v = Vec::with_capacity(element_len);
         (0..element_len).for_each(|_| {
             v.push(Rc::new(Ty {
                 kind: Rc::new(TyKind::Inferred),
                 mutability: Mutability::Not,
+                span,
             }))
         });
         v
@@ -69,6 +72,7 @@ pub fn create_inferred_tuple(element_len: usize) -> TyKind {
 
 pub fn wrap_in_ref(ty: Rc<Ty>, mutability: Mutability) -> Ty {
     Ty {
+        span: ty.span,
         kind: TyKind::Reference(ReferenceType { refee_ty: ty }).into(),
         mutability,
     }
@@ -92,38 +96,59 @@ pub fn is_same_type(t1: &Ty, t2: &Ty) -> bool {
 pub struct Ty {
     pub kind: Rc<TyKind>,
     pub mutability: Mutability,
+    pub span: Span,
 }
 
 impl Ty {
-    pub fn new_inferred(mutability: Mutability) -> Self {
+    pub fn new_inferred(mutability: Mutability, span: Span) -> Self {
         Self {
             kind: TyKind::Inferred.into(),
             mutability,
+            span,
         }
     }
 
-    pub fn new_external(module_name: Ident, ty: Rc<Ty>) -> Self {
+    pub fn new_external(module_name: Ident, ty: Rc<Ty>, span: Span) -> Self {
         Self {
             mutability: ty.mutability,
             kind: TyKind::External(ExternalType { module_name, ty }).into(),
+            span,
+        }
+    }
+
+    pub fn new_unit(span: Span) -> Self {
+        Self {
+            kind: TyKind::Unit.into(),
+            mutability: Mutability::Not,
+            span,
+        }
+    }
+
+    pub fn new_never(span: Span) -> Self {
+        Self {
+            kind: TyKind::Never.into(),
+            mutability: Mutability::Not,
+            span,
         }
     }
 
     pub fn wrap_in_externals(ty: Rc<Ty>, module_names: &[Ident]) -> Rc<Ty> {
         let mut ty = ty;
+        let span = ty.span;
         for module_name in module_names.iter().rev() {
-            ty = Rc::new(Ty::new_external(*module_name, ty));
+            ty = Rc::new(Ty::new_external(*module_name, ty, span));
         }
         ty
     }
 
-    pub fn new_str(mutability: Mutability) -> Self {
+    pub fn new_str(mutability: Mutability, span: Span) -> Self {
         Self {
             kind: TyKind::Fundamental(FundamentalType {
                 kind: FundamentalTypeKind::Str,
             })
             .into(),
             mutability,
+            span,
         }
     }
 
@@ -211,10 +236,11 @@ impl std::fmt::Display for FundamentalTypeKind {
     }
 }
 
-pub fn make_fundamental_type(kind: FundamentalTypeKind, mutability: Mutability) -> Ty {
+pub fn make_fundamental_type(kind: FundamentalTypeKind, mutability: Mutability, span: Span) -> Ty {
     Ty {
         kind: TyKind::Fundamental(FundamentalType { kind }).into(),
         mutability,
+        span,
     }
 }
 

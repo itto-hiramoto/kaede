@@ -8,6 +8,6 @@ edition = "2021"
 [dependencies]
 inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm17-0"] }
 
-kaede_type = { path = "../type" }
+kaede_ast_type = { path = "../ast_type" }
 kaede_span = { path = "../span" }
 kaede_symbol = { path = "../symbol" }

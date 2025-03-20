@@ -7,7 +7,7 @@ use inkwell::{
 use kaede_ast::top::{Enum, Fn, GenericParams, Impl, Struct, StructField, Visibility};
 use kaede_span::Span;
 use kaede_symbol::{Ident, Symbol};
-use kaede_type::{GenericArgs, Ty, TyKind};
+use kaede_ast_type::{GenericArgs, Ty, TyKind};
 
 use crate::error::CodegenError;
 

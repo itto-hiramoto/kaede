@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
 use inkwell::values::BasicValueEnum;
-use kaede_type::{Mutability, Ty, TyKind};
+use kaede_ast_type::{Mutability, Ty, TyKind};
 
 /// The type information in llvm's value is **insufficient**, so wrap it with our own type
 ///

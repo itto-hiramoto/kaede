@@ -1,7 +1,7 @@
 use std::rc::Rc;
 
+use kaede_ir_type::Ty;
 use kaede_symbol::Symbol;
-use kaede_type::Ty;
 
 use crate::expr::Expr;
 
@@ -38,4 +38,5 @@ pub enum Stmt {
 #[derive(Debug)]
 pub struct Block {
     pub body: Vec<Stmt>,
+    pub last_expr: Option<Box<Expr>>,
 }

@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, rc::Rc};
 
+use kaede_ir_type::{make_fundamental_type, FundamentalTypeKind, Mutability, Ty};
 use kaede_symbol::Symbol;
-use kaede_type::{make_fundamental_type, FundamentalTypeKind, Mutability, Ty};
 
 use crate::stmt::Block;
 
@@ -84,8 +84,6 @@ pub enum BinaryKind {
 
     LogicalOr,
     LogicalAnd,
-
-    Cast,
 }
 
 #[derive(Debug)]
@@ -154,16 +152,23 @@ pub struct If {
 }
 
 #[derive(Debug)]
-pub enum Expr {
+pub struct Variable {
+    pub name: Symbol,
+    pub ty: Rc<Ty>,
+}
+
+#[derive(Debug)]
+pub enum ExprKind {
     Int(Int),
     StringLiteral(StringLiteral),
     StructLiteral(StructLiteral),
     ArrayLiteral(ArrayLiteral),
     TupleLiteral(TupleLiteral),
-    Ident(Symbol),
-    True,
+    Variable(Variable),
+    BooleanLiteral(bool),
     False,
     Binary(Binary),
+    Cast(Cast),
     FieldAccess(FieldAccess),
     EnumVariant(EnumVariant),
     Indexing(Indexing),
@@ -174,4 +179,11 @@ pub enum Expr {
     Loop(Loop),
     Break,
     Block(Block),
+    DoNothing,
+}
+
+#[derive(Debug)]
+pub struct Expr {
+    pub kind: ExprKind,
+    pub ty: Rc<Ty>,
 }

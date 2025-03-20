@@ -1,5 +1,5 @@
 use kaede_symbol::Symbol;
-use kaede_type::UserDefinedType;
+use kaede_ast_type::UserDefinedType;
 
 use crate::CompileUnitCtx;
 

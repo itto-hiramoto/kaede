@@ -33,7 +33,7 @@ use kaede_ast::{
 };
 use kaede_span::Span;
 use kaede_symbol::{Ident, Symbol};
-use kaede_type::{
+use kaede_ast_type::{
     change_mutability_dup, is_same_type, make_fundamental_type, wrap_in_ref, FundamentalType,
     FundamentalTypeKind, GenericArgs, Mutability, PointerType, ReferenceType, Ty, TyKind,
     UserDefinedType,

@@ -5,11 +5,11 @@ use kaede_ast::expr::ExprKind;
 use kaede_ast::stmt::{
     Assign, AssignKind, Block, Let, LetKind, NormalLet, Stmt, StmtKind, TupleUnpack,
 };
-use kaede_span::Span;
-use kaede_symbol::Ident;
-use kaede_type::{
+use kaede_ast_type::{
     change_mutability_dup, create_inferred_tuple, is_same_type, Mutability, Ty, TyKind,
 };
+use kaede_span::Span;
+use kaede_symbol::Ident;
 
 use crate::expr::build_tuple_indexing;
 use crate::tcx::{SymbolTable, SymbolTableValue};
