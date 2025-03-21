@@ -1,6 +1,7 @@
-use std::{collections::VecDeque, rc::Rc};
+use std::rc::Rc;
 
 use kaede_ir_type::{make_fundamental_type, FundamentalTypeKind, Mutability, Ty};
+use kaede_span::Span;
 use kaede_symbol::Symbol;
 
 use crate::stmt::Block;
@@ -17,7 +18,7 @@ pub struct StructLiteral {
 }
 
 #[derive(Debug)]
-pub struct Args(pub VecDeque<Expr>);
+pub struct Args(pub Vec<Expr>);
 
 #[derive(Debug)]
 pub struct FnCall {
@@ -124,7 +125,7 @@ pub struct ArrayLiteral {
 
 #[derive(Debug)]
 pub struct TupleLiteral {
-    pub elements: VecDeque<Expr>,
+    pub elements: Vec<Expr>,
 }
 
 #[derive(Debug)]
@@ -186,4 +187,5 @@ pub enum ExprKind {
 pub struct Expr {
     pub kind: ExprKind,
     pub ty: Rc<Ty>,
+    pub span: Span,
 }

@@ -430,6 +430,7 @@ name = "kaede_ir"
 version = "0.1.0"
 dependencies = [
  "kaede_ir_type",
+ "kaede_span",
  "kaede_symbol",
 ]
 

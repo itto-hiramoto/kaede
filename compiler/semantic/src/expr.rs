@@ -16,11 +16,13 @@ impl SemanticAnalyzer {
     pub fn analyze_expr(&mut self, expr: &ast::expr::Expr) -> anyhow::Result<ir::expr::Expr> {
         use ast::expr::ExprKind;
 
+        let span = expr.span;
+
         match &expr.kind {
-            ExprKind::ArrayLiteral(node) => self.analyze_array_literal(node),
+            ExprKind::ArrayLiteral(node) => self.analyze_array_literal(node, span),
             ExprKind::Int(node) => self.analyze_int(node),
-            ExprKind::True => self.analyze_boolean_literal(true),
-            ExprKind::False => self.analyze_boolean_literal(false),
+            ExprKind::True => self.analyze_boolean_literal(true, span),
+            ExprKind::False => self.analyze_boolean_literal(false, span),
             ExprKind::Block(node) => self.analyze_block_expr(node),
             ExprKind::StringLiteral(node) => self.analyze_string_literal(node),
             ExprKind::Binary(node) => self.analyze_binary(node),
@@ -40,6 +42,7 @@ impl SemanticAnalyzer {
             ExprKind::Ty(_) => Ok(ir::expr::Expr {
                 kind: ir::expr::ExprKind::DoNothing,
                 ty: Rc::new(ir_type::Ty::new_unit()),
+                span,
             }),
             _ => unimplemented!(),
         }
@@ -56,6 +59,7 @@ impl SemanticAnalyzer {
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::Return(expr),
             ty: Rc::new(ir_type::Ty::new_never()),
+            span: node.span,
         })
     }
 
@@ -89,22 +93,29 @@ impl SemanticAnalyzer {
                 ir_type::FundamentalTypeKind::Bool,
                 ir_type::Mutability::Not,
             )),
+            span: node.span,
         })
     }
 
-    pub fn analyze_boolean_literal(&self, value: bool) -> anyhow::Result<ir::expr::Expr> {
+    pub fn analyze_boolean_literal(
+        &self,
+        value: bool,
+        span: Span,
+    ) -> anyhow::Result<ir::expr::Expr> {
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::BooleanLiteral(value),
             ty: Rc::new(ir_type::make_fundamental_type(
                 ir_type::FundamentalTypeKind::Bool,
                 ir_type::Mutability::Not,
             )),
+            span,
         })
     }
 
     pub fn analyze_array_literal(
         &mut self,
         node: &ast::expr::ArrayLiteral,
+        span: Span,
     ) -> anyhow::Result<ir::expr::Expr> {
         let mut elements = Vec::new();
 
@@ -124,6 +135,7 @@ impl SemanticAnalyzer {
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::ArrayLiteral(ir::expr::ArrayLiteral { elements }),
             ty,
+            span,
         })
     }
 
@@ -142,6 +154,7 @@ impl SemanticAnalyzer {
                 ir_type::Mutability::Not,
             )),
             kind: ir::expr::ExprKind::Int(ir::expr::Int { kind }),
+            span: node.span,
         })
     }
 
@@ -156,6 +169,7 @@ impl SemanticAnalyzer {
                     last_expr: None,
                 }),
                 ty: Rc::new(ir_type::Ty::new_unit()),
+                span: node.span,
             });
         }
 
@@ -183,6 +197,7 @@ impl SemanticAnalyzer {
                 ir::expr::Expr {
                     kind: ir::expr::ExprKind::Block(kaede_ir::stmt::Block { body, last_expr }),
                     ty: Rc::new(ir_type::Ty::new_unit()),
+                    span: node.span,
                 }
             }
 
@@ -196,6 +211,7 @@ impl SemanticAnalyzer {
                         last_expr: None,
                     }),
                     ty: Rc::new(ir_type::Ty::new_unit()),
+                    span: node.span,
                 }
             }
         };
@@ -218,6 +234,7 @@ impl SemanticAnalyzer {
                 )),
                 ir_type::Mutability::Not,
             )),
+            span: node.span,
         })
     }
 
@@ -247,7 +264,7 @@ impl SemanticAnalyzer {
 
         if left_ty.is_str() {
             // String indexing or method calling
-            return self.analyze_str_indexing_or_method_call(&left, &node.rhs, &left_ty);
+            return self.analyze_str_indexing_or_method_call(left, &node.rhs);
         }
 
         if let ir_type::TyKind::Reference(rty) = left_ty.kind.as_ref() {
@@ -288,13 +305,12 @@ impl SemanticAnalyzer {
 
     pub fn analyze_str_indexing_or_method_call(
         &mut self,
-        left: &ir::expr::Expr,
+        left: ir::expr::Expr,
         ast_right: &ast::expr::Expr,
-        left_ty: &ir_type::Ty,
     ) -> anyhow::Result<ir::expr::Expr> {
         let ir_right = self.analyze_expr(ast_right)?;
 
-        match &ir_right.kind {
+        match ir_right.kind {
             // Method call
             ir::expr::ExprKind::FnCall(call_node) => {
                 let method_name = format!("str.{}", call_node.callee).into();
@@ -321,29 +337,142 @@ impl SemanticAnalyzer {
                     }
                 };
 
-                let mut args = {
-                    let mut args = VecDeque::new();
+                let span = Span::new(left.span.start, ast_right.span.finish, left.span.file);
 
-                    for arg in call_node.args.0.iter() {
-                        args.push_back((self.build(arg)?, arg.span));
-                    }
+                let args = std::iter::once(left)
+                    .chain(call_node.args.0.into_iter())
+                    .collect::<Vec<_>>();
 
-                    args
+                self.verify_fn_call_arguments(&callee, &args, ast_right.span)?;
+
+                let call_node = ir::expr::FnCall {
+                    callee: callee.decl.name,
+                    args: ir::expr::Args(args),
                 };
 
-                args.push_front((left.clone(), call_node.args.1));
-
-                self.verify_fn_call_arguments(&callee, &call_node.args)?;
-
                 // For simplicity, we treat the method call as a function call.
-                ir::expr::Expr {
+                Ok(ir::expr::Expr {
                     kind: ir::expr::ExprKind::FnCall(call_node),
                     ty: Rc::new(ir_type::Ty::new_never()),
-                }
+                    span,
+                })
             }
 
-            _ => self.str_indexing(left, ir_right, str_ty),
+            _ => self.analyze_str_indexing(left, ir_right),
         }
+    }
+
+    fn analyze_str_indexing(
+        &self,
+        left: ir::expr::Expr,
+        right: ir::expr::Expr,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let span = Span::new(left.span.start, right.span.finish, left.span.file);
+
+        let index_ty = right.ty.clone();
+
+        if !ir_type::is_same_type(
+            &index_ty,
+            &ir_type::make_fundamental_type(
+                ir_type::FundamentalTypeKind::U64,
+                ir_type::Mutability::Not,
+            ),
+        ) {
+            return Err(SemanticError::MismatchedTypes {
+                types: (
+                    index_ty.kind.to_string(),
+                    ir_type::make_fundamental_type(
+                        ir_type::FundamentalTypeKind::U64,
+                        ir_type::Mutability::Not,
+                    )
+                    .kind
+                    .to_string(),
+                ),
+                span,
+            }
+            .into());
+        }
+
+        let offset = match right.kind {
+            ir::expr::ExprKind::Int(int) => int.as_u64() as usize,
+            _ => unreachable!(),
+        };
+
+        // (*i8, u64)
+        let ty = Rc::new(match offset {
+            0 => ir_type::Ty {
+                kind: ir_type::TyKind::Pointer(ir_type::PointerType {
+                    pointee_ty: ir_type::make_fundamental_type(
+                        ir_type::FundamentalTypeKind::I8,
+                        ir_type::Mutability::Not,
+                    )
+                    .into(),
+                })
+                .into(),
+                mutability: ir_type::Mutability::Not,
+            },
+
+            1 => ir_type::make_fundamental_type(
+                ir_type::FundamentalTypeKind::U64,
+                ir_type::Mutability::Not,
+            ),
+
+            _ => {
+                return Err(SemanticError::IndexOutOfRange {
+                    index: offset as u64,
+                    span,
+                }
+                .into())
+            }
+        });
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::Indexing(ir::expr::Indexing {
+                operand: Box::new(left),
+                offset,
+            }),
+            ty,
+            span,
+        })
+    }
+
+    fn verify_fn_call_arguments(
+        &self,
+        fn_: &ir::top::Fn,
+        args: &[ir::expr::Expr],
+        call_node_span: Span,
+    ) -> anyhow::Result<()> {
+        match fn_.decl.params.len().cmp(&args.len()) {
+            std::cmp::Ordering::Less => {
+                return Err(SemanticError::TooManyArguments {
+                    name: fn_.decl.name,
+                    span: call_node_span,
+                }
+                .into());
+            }
+
+            std::cmp::Ordering::Greater => {
+                return Err(SemanticError::TooFewArguments {
+                    name: fn_.decl.name,
+                    span: call_node_span,
+                }
+                .into());
+            }
+
+            std::cmp::Ordering::Equal => {
+                for (param, arg) in fn_.decl.params.iter().zip(args.iter()) {
+                    if !ir_type::is_same_type(&param.ty, &arg.ty) {
+                        return Err(SemanticError::MismatchedTypes {
+                            types: (arg.ty.kind.to_string(), param.ty.kind.to_string()),
+                            span: arg.span,
+                        }
+                        .into());
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub fn analyze_struct_access_or_tuple_indexing(
@@ -468,6 +597,11 @@ impl SemanticAnalyzer {
                 target_ty: target_ir_ty.clone(),
             }),
             ty: target_ir_ty,
+            span: Span::new(
+                node.lhs.span.start,
+                node.rhs.span.finish,
+                node.lhs.span.file,
+            ),
         })
     }
 
@@ -500,6 +634,7 @@ impl SemanticAnalyzer {
                 kind,
             }),
             ty,
+            span,
         };
 
         let boolean_ty = || {
@@ -539,6 +674,7 @@ impl SemanticAnalyzer {
                         ty: ty.clone(),
                     }),
                     ty: ty.clone(),
+                    span: node.span(),
                 },
                 _ => todo!("Error"),
             })

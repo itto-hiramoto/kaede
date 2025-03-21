@@ -7,6 +7,12 @@ pub enum SemanticError {
     #[error("{}:{}:{} `{}` was not declared in this scope", span.file, span.start.line, span.start.column, .name)]
     Undeclared { name: Symbol, span: Span },
 
+    #[error("{}:{}:{} too few arguments to function `{}`", span.file, span.start.line, span.start.column, .name)]
+    TooFewArguments { name: Symbol, span: Span },
+
+    #[error("{}:{}:{} too many arguments to function `{}`", span.file, span.start.line, span.start.column, .name)]
+    TooManyArguments { name: Symbol, span: Span },
+
     #[error("{}:{}:{} `{}` is already declared", span.file, span.start.line, span.start.column, .name)]
     AlreadyDeclared { name: Symbol, span: Span },
 
