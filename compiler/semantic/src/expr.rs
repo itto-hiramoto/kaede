@@ -293,7 +293,7 @@ impl SemanticAnalyzer {
             };
 
             if let ir_type::TyKind::Fundamental(fty) = left_ty.kind.as_ref() {
-                self.analyze_fundamental_type_method_call(&left, fty, call_node)
+                self.analyze_fundamental_type_method_call(left, fty, call_node)
             } else {
                 Err(SemanticError::HasNoFields {
                     span: node.lhs.span,
@@ -536,49 +536,62 @@ impl SemanticAnalyzer {
     }
 
     pub fn analyze_fundamental_type_method_call(
-        &self,
-        left: &ir::expr::Expr,
+        &mut self,
+        left: ir::expr::Expr,
         fty: &ir_type::FundamentalType,
         call_node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
-        // let span = Span::new(left.span.start, call_node.span.finish, left.span.file);
+        // e.g. i32.abs
+        let method_name = format!("{}.{}", fty.kind, call_node.callee.as_str()).into();
 
-        // let method_name = match &call_node.callee.kind {
-        //     ast::expr::ExprKind::Ident(ident) => ident.symbol(),
-        //     _ => {
-        //         return Err(SemanticError::MethodNotFound {
-        //             name: call_node.callee.to_string(),
-        //             span,
-        //         }
-        //         .into())
-        //     }
-        // };
+        let no_method_err = || SemanticError::NoMethod {
+            method_name: call_node.callee.symbol(),
+            parent_name: fty.kind.to_string().into(),
+            span: call_node.span,
+        };
 
-        // let method = fty
-        //     .methods
-        //     .iter()
-        //     .find(|method| method.name == method_name)
-        //     .ok_or_else(|| SemanticError::MethodNotFound {
-        //         name: method_name,
-        //         span,
-        //     })?;
+        let callee = match self.lookup_symbol(method_name) {
+            Some(value) => {
+                let value = value.borrow();
 
-        // let mut args = Vec::new();
+                if let SymbolTableValueKind::Function(fn_) = &value.kind {
+                    fn_.clone()
+                } else {
+                    return Err(no_method_err().into());
+                }
+            }
 
-        // for arg in call_node.args.iter() {
-        //     args.push(self.analyze_expr(arg)?);
-        // }
+            None => {
+                return Err(no_method_err().into());
+            }
+        };
 
-        // Ok(ir::expr::Expr {
-        //     kind: ir::expr::ExprKind::FundamentalTypeMethodCall(ir::expr::FundamentalTypeMethodCall {
-        //         base: Box::new(left.clone()),
-        //         method_name,
-        //         method,
-        //         args,
-        //     }),
-        //     ty: method.ret_ty.clone(),
-        // })
-        todo!()
+        let span = Span::new(left.span.start, call_node.span.finish, left.span.file);
+
+        let args = std::iter::once(left)
+            .chain(
+                call_node
+                    .args
+                    .0
+                    .iter()
+                    .map(|arg| self.analyze_expr(arg))
+                    .collect::<anyhow::Result<Vec<_>>>()?,
+            )
+            .collect::<Vec<_>>();
+
+        self.verify_fn_call_arguments(&callee, &args, call_node.span)?;
+
+        let call_node = ir::expr::FnCall {
+            callee: callee.decl.name,
+            args: ir::expr::Args(args),
+        };
+
+        // For simplicity, we treat the method call as a function call.
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::FnCall(call_node),
+            ty: Rc::new(ir_type::Ty::new_never()),
+            span,
+        })
     }
 
     pub fn analyze_cast(&mut self, node: &ast::expr::Binary) -> anyhow::Result<ir::expr::Expr> {

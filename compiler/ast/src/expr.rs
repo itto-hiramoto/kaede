@@ -127,13 +127,13 @@ pub enum BinaryKind {
 
 #[derive(Debug)]
 pub struct Binary {
-    pub lhs: Rc<Expr>,
+    pub lhs: Box<Expr>,
     pub kind: BinaryKind,
-    pub rhs: Rc<Expr>,
+    pub rhs: Box<Expr>,
 }
 
 impl Binary {
-    pub fn new(lhs: Rc<Expr>, op: BinaryKind, rhs: Rc<Expr>) -> Self {
+    pub fn new(lhs: Box<Expr>, op: BinaryKind, rhs: Box<Expr>) -> Self {
         Self { lhs, kind: op, rhs }
     }
 }
