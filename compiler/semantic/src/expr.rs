@@ -48,7 +48,7 @@ impl SemanticAnalyzer {
         }
     }
 
-    pub fn analyze_return(&mut self, node: &ast::expr::Return) -> anyhow::Result<ir::expr::Expr> {
+    fn analyze_return(&mut self, node: &ast::expr::Return) -> anyhow::Result<ir::expr::Expr> {
         let expr = node
             .val
             .as_ref()
@@ -63,7 +63,7 @@ impl SemanticAnalyzer {
         })
     }
 
-    pub fn analyze_logical_not(
+    fn analyze_logical_not(
         &mut self,
         node: &ast::expr::LogicalNot,
     ) -> anyhow::Result<ir::expr::Expr> {
@@ -97,7 +97,7 @@ impl SemanticAnalyzer {
         })
     }
 
-    pub fn analyze_boolean_literal(
+    fn analyze_boolean_literal(
         &self,
         value: bool,
         span: Span,
@@ -112,7 +112,7 @@ impl SemanticAnalyzer {
         })
     }
 
-    pub fn analyze_array_literal(
+    fn analyze_array_literal(
         &mut self,
         node: &ast::expr::ArrayLiteral,
         span: Span,
@@ -139,7 +139,7 @@ impl SemanticAnalyzer {
         })
     }
 
-    pub fn analyze_int(&self, node: &ast::expr::Int) -> anyhow::Result<ir::expr::Expr> {
+    fn analyze_int(&self, node: &ast::expr::Int) -> anyhow::Result<ir::expr::Expr> {
         let kind = match node.kind {
             ast::expr::IntKind::I32(n) => ir::expr::IntKind::I32(n),
             ast::expr::IntKind::U64(n) => ir::expr::IntKind::U64(n),
@@ -158,7 +158,7 @@ impl SemanticAnalyzer {
         })
     }
 
-    pub fn analyze_block_expr(
+    fn analyze_block_expr(
         &mut self,
         node: &ast::stmt::Block,
     ) -> anyhow::Result<ir::expr::Expr> {
@@ -221,7 +221,7 @@ impl SemanticAnalyzer {
         Ok(retval)
     }
 
-    pub fn analyze_string_literal(
+    fn analyze_string_literal(
         &self,
         node: &ast::expr::StringLiteral,
     ) -> anyhow::Result<ir::expr::Expr> {
@@ -238,7 +238,7 @@ impl SemanticAnalyzer {
         })
     }
 
-    pub fn analyze_binary(&mut self, node: &ast::expr::Binary) -> anyhow::Result<ir::expr::Expr> {
+    fn analyze_binary(&mut self, node: &ast::expr::Binary) -> anyhow::Result<ir::expr::Expr> {
         use ast::expr::BinaryKind::*;
 
         match node.kind {
@@ -255,7 +255,7 @@ impl SemanticAnalyzer {
         }
     }
 
-    pub fn analyze_access(&mut self, node: &ast::expr::Binary) -> anyhow::Result<ir::expr::Expr> {
+    fn analyze_access(&mut self, node: &ast::expr::Binary) -> anyhow::Result<ir::expr::Expr> {
         assert!(matches!(node.kind, ast::expr::BinaryKind::Access));
 
         let left = self.analyze_expr(&node.lhs)?;
@@ -303,7 +303,7 @@ impl SemanticAnalyzer {
         }
     }
 
-    pub fn analyze_str_indexing_or_method_call(
+    fn analyze_str_indexing_or_method_call(
         &mut self,
         left: ir::expr::Expr,
         ast_right: &ast::expr::Expr,
@@ -475,7 +475,7 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
-    pub fn analyze_struct_access_or_tuple_indexing(
+    fn analyze_struct_access_or_tuple_indexing(
         &self,
         left: &ir::expr::Expr,
         lhs: &ast::expr::Expr,
@@ -535,7 +535,7 @@ impl SemanticAnalyzer {
         todo!()
     }
 
-    pub fn analyze_fundamental_type_method_call(
+    fn analyze_fundamental_type_method_call(
         &mut self,
         left: ir::expr::Expr,
         fty: &ir_type::FundamentalType,
@@ -594,7 +594,7 @@ impl SemanticAnalyzer {
         })
     }
 
-    pub fn analyze_cast(&mut self, node: &ast::expr::Binary) -> anyhow::Result<ir::expr::Expr> {
+    fn analyze_cast(&mut self, node: &ast::expr::Binary) -> anyhow::Result<ir::expr::Expr> {
         let operand = self.analyze_expr(&node.lhs)?;
 
         let target_ast_ty = match &node.rhs.kind {
@@ -618,7 +618,7 @@ impl SemanticAnalyzer {
         })
     }
 
-    pub fn analyze_arithmetic_binary(
+    fn analyze_arithmetic_binary(
         &mut self,
         node: &ast::expr::Binary,
     ) -> anyhow::Result<ir::expr::Expr> {
@@ -678,7 +678,7 @@ impl SemanticAnalyzer {
         })
     }
 
-    pub fn analyze_ident(&self, node: &Ident) -> anyhow::Result<ir::expr::Expr> {
+    fn analyze_ident(&self, node: &Ident) -> anyhow::Result<ir::expr::Expr> {
         self.lookup_symbol(node.symbol())
             .map(|value| match &value.borrow().kind {
                 SymbolTableValueKind::Variable(VariableInfo { ty }) => ir::expr::Expr {
