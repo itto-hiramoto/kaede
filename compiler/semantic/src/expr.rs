@@ -8,7 +8,7 @@ use crate::{
 
 use kaede_ast as ast;
 use kaede_ir as ir;
-use kaede_ir_type as ir_type;
+use kaede_ir_type::{self as ir_type, ModulePath};
 use kaede_span::Span;
 use kaede_symbol::{Ident, Symbol};
 
@@ -30,7 +30,7 @@ impl SemanticAnalyzer {
             ExprKind::LogicalNot(node) => self.analyze_logical_not(node),
             ExprKind::Return(node) => self.analyze_return(node),
             ExprKind::Indexing(node) => self.analyze_arary_indexing(node),
-            // ExprKind::FnCall(node) => self.analyze_fn_call(node),
+            ExprKind::FnCall(node) => self.analyze_fn_call(node),
             // ExprKind::StructLiteral(StructLiteral),
             // ExprKind::TupleLiteral(TupleLiteral),
             // ExprKind::If(If),
@@ -48,6 +48,58 @@ impl SemanticAnalyzer {
 
             _ => unimplemented!(),
         }
+    }
+
+    fn analyze_fn_call(&mut self, node: &ast::expr::FnCall) -> anyhow::Result<ir::expr::Expr> {
+        if node.external_modules.is_empty() {
+            self.analyze_internal_fn_call(node)
+        } else {
+            self.with_external_module(
+                ModulePath::new(node.external_modules.iter().map(|i| i.symbol()).collect()),
+                |analyzer| analyzer.analyze_internal_fn_call(node),
+            )
+        }
+    }
+
+    fn analyze_internal_fn_call(
+        &mut self,
+        node: &ast::expr::FnCall,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let mangled_fn_name = self.mangle_fn_name(node.callee.as_str());
+
+        let callee = self
+            .lookup_symbol(mangled_fn_name)
+            .map(|value| match &value.borrow().kind {
+                SymbolTableValueKind::Function(fn_) => fn_.clone(),
+                _ => unreachable!(),
+            })
+            .ok_or_else(|| SemanticError::Undeclared {
+                name: node.callee.symbol(),
+                span: node.span,
+            })?;
+
+        let span = Span::new(node.span.start, node.span.finish, node.span.file);
+
+        let args = node
+            .args
+            .0
+            .iter()
+            .map(|arg| self.analyze_expr(arg))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        self.verify_fn_call_arguments(&callee, &args, node.span)?;
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
+                callee: callee.decl.name,
+                args: ir::expr::Args(args),
+            }),
+            ty: match callee.decl.return_ty.as_ref() {
+                Some(ty) => ty.clone(),
+                None => Rc::new(ir_type::Ty::new_unit()),
+            },
+            span,
+        })
     }
 
     fn analyze_arary_indexing(
@@ -426,7 +478,7 @@ impl SemanticAnalyzer {
             .into());
         }
 
-        let index = match right.kind {
+        let index = match &right.kind {
             ir::expr::ExprKind::Int(int) => int.as_u64(),
             _ => unreachable!(),
         };
@@ -456,7 +508,7 @@ impl SemanticAnalyzer {
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::Indexing(ir::expr::Indexing {
                 operand: Box::new(left),
-                index,
+                index: Box::new(right),
             }),
             ty,
             span,
@@ -531,7 +583,7 @@ impl SemanticAnalyzer {
     }
 
     fn analyze_tuple_indexing(
-        &self,
+        &mut self,
         lhs: ir::expr::Expr,
         rhs: &ast::expr::Expr,
         elements_ty: &[Rc<ir_type::Ty>],
@@ -553,7 +605,7 @@ impl SemanticAnalyzer {
             span: Span::new(lhs.span.start, rhs.span.finish, lhs.span.file),
             kind: ir::expr::ExprKind::Indexing(ir::expr::Indexing {
                 operand: Box::new(lhs),
-                index,
+                index: Box::new(self.analyze_expr(rhs)?),
             }),
             ty: elements_ty[index as usize].clone(),
         })
