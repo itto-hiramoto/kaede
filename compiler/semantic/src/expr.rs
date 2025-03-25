@@ -29,11 +29,9 @@ impl SemanticAnalyzer {
             ExprKind::Ident(node) => self.analyze_ident(node),
             ExprKind::LogicalNot(node) => self.analyze_logical_not(node),
             ExprKind::Return(node) => self.analyze_return(node),
-            // ExprKind::ExternalIdent(ExternalIdent),
-            // ExprKind::GenericIdent((Ident, GenericArgs)),
+            ExprKind::Indexing(node) => self.analyze_arary_indexing(node),
             // ExprKind::FnCall(node) => self.analyze_fn_call(node),
             // ExprKind::StructLiteral(StructLiteral),
-            // ExprKind::Indexing(Indexing),
             // ExprKind::TupleLiteral(TupleLiteral),
             // ExprKind::If(If),
             // ExprKind::Loop(Loop),
@@ -44,8 +42,50 @@ impl SemanticAnalyzer {
                 ty: Rc::new(ir_type::Ty::new_unit()),
                 span,
             }),
+
+            ExprKind::ExternalIdent(_) => todo!(),
+            ExprKind::GenericIdent(_) => todo!(),
+
             _ => unimplemented!(),
         }
+    }
+
+    fn analyze_arary_indexing(
+        &mut self,
+        node: &ast::expr::Indexing,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let operand = self.analyze_expr(&node.operand)?;
+
+        let index = self.analyze_expr(&node.index)?;
+
+        let span = Span::new(
+            operand.span.start,
+            node.index.span.finish,
+            operand.span.file,
+        );
+
+        let elem_ty = match operand.ty.kind.as_ref() {
+            ir_type::TyKind::Reference(rty) => {
+                if let ir_type::TyKind::Array((elem_ty, _)) = rty.get_base_type().kind.as_ref() {
+                    elem_ty.clone()
+                } else {
+                    return Err(SemanticError::IndexingNonArray { span }.into());
+                }
+            }
+
+            _ => {
+                return Err(SemanticError::IndexingNonArray { span }.into());
+            }
+        };
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::Indexing(ir::expr::Indexing {
+                operand: Box::new(operand),
+                index: Box::new(index),
+            }),
+            ty: elem_ty,
+            span,
+        })
     }
 
     fn analyze_return(&mut self, node: &ast::expr::Return) -> anyhow::Result<ir::expr::Expr> {
