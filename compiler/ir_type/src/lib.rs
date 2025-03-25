@@ -340,6 +340,10 @@ impl UserDefinedType {
     pub fn new(name: Ident, module_path: ModulePath) -> Self {
         Self { name, module_path }
     }
+
+    pub fn get_mangled_name(&self) -> String {
+        format!("{}::{}", self.module_path.mangle(), self.name.symbol())
+    }
 }
 
 impl Display for UserDefinedType {

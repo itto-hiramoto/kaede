@@ -10,7 +10,7 @@ use kaede_ast as ast;
 use kaede_ir as ir;
 use kaede_ir_type as ir_type;
 use kaede_span::Span;
-use kaede_symbol::Ident;
+use kaede_symbol::{Ident, Symbol};
 
 impl SemanticAnalyzer {
     pub fn analyze_expr(&mut self, expr: &ast::expr::Expr) -> anyhow::Result<ir::expr::Expr> {
@@ -97,11 +97,7 @@ impl SemanticAnalyzer {
         })
     }
 
-    fn analyze_boolean_literal(
-        &self,
-        value: bool,
-        span: Span,
-    ) -> anyhow::Result<ir::expr::Expr> {
+    fn analyze_boolean_literal(&self, value: bool, span: Span) -> anyhow::Result<ir::expr::Expr> {
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::BooleanLiteral(value),
             ty: Rc::new(ir_type::make_fundamental_type(
@@ -158,10 +154,7 @@ impl SemanticAnalyzer {
         })
     }
 
-    fn analyze_block_expr(
-        &mut self,
-        node: &ast::stmt::Block,
-    ) -> anyhow::Result<ir::expr::Expr> {
+    fn analyze_block_expr(&mut self, node: &ast::stmt::Block) -> anyhow::Result<ir::expr::Expr> {
         if node.body.is_empty() {
             return Ok(ir::expr::Expr {
                 kind: ir::expr::ExprKind::Block(kaede_ir::stmt::Block {
@@ -273,7 +266,7 @@ impl SemanticAnalyzer {
                 rty.get_base_type().kind.as_ref(),
                 ir_type::TyKind::UserDefined(_) | ir_type::TyKind::Tuple(_)
             ) {
-                self.analyze_struct_access_or_tuple_indexing(&left, &node.lhs, &node.rhs)
+                self.analyze_struct_access_or_tuple_indexing(left, &node.rhs)
             } else {
                 return Err(SemanticError::HasNoFields {
                     span: node.lhs.span,
@@ -393,13 +386,13 @@ impl SemanticAnalyzer {
             .into());
         }
 
-        let offset = match right.kind {
-            ir::expr::ExprKind::Int(int) => int.as_u64() as usize,
+        let index = match right.kind {
+            ir::expr::ExprKind::Int(int) => int.as_u64(),
             _ => unreachable!(),
         };
 
         // (*i8, u64)
-        let ty = Rc::new(match offset {
+        let ty = Rc::new(match index {
             0 => ir_type::Ty {
                 kind: ir_type::TyKind::Pointer(ir_type::PointerType {
                     pointee_ty: ir_type::make_fundamental_type(
@@ -417,19 +410,13 @@ impl SemanticAnalyzer {
                 ir_type::Mutability::Not,
             ),
 
-            _ => {
-                return Err(SemanticError::IndexOutOfRange {
-                    index: offset as u64,
-                    span,
-                }
-                .into())
-            }
+            _ => return Err(SemanticError::IndexOutOfRange { index, span }.into()),
         });
 
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::Indexing(ir::expr::Indexing {
                 operand: Box::new(left),
-                offset,
+                index,
             }),
             ty,
             span,
@@ -476,81 +463,153 @@ impl SemanticAnalyzer {
     }
 
     fn analyze_struct_access_or_tuple_indexing(
-        &self,
-        left: &ir::expr::Expr,
-        lhs: &ast::expr::Expr,
+        &mut self,
+        lhs: ir::expr::Expr,
         rhs: &ast::expr::Expr,
     ) -> anyhow::Result<ir::expr::Expr> {
-        // let span = Span::new(lhs.span.start, rhs.span.finish, lhs.span.file);
+        let span = Span::new(lhs.span.start, rhs.span.finish, lhs.span.file);
 
-        // let (field_name, field_ty) = match &left.ty.kind {
-        //     TyKind::Reference(rty) => {
-        //         let base_ty = rty.get_base_type();
+        assert!(matches!(
+            lhs.ty.kind.as_ref(),
+            ir_type::TyKind::Reference(_)
+        ));
 
-        //         match base_ty.kind.as_ref() {
-        //             TyKind::UserDefined(udty) => {
-        //                 let field = udty
-        //                     .fields
-        //                     .iter()
-        //                     .find(|field| field.name == rhs.symbol())
-        //                     .ok_or_else(|| SemanticError::FieldNotFound {
-        //                         name: rhs.symbol(),
-        //                         span,
-        //                     })?;
+        let base_type = match lhs.ty.kind.as_ref() {
+            ir_type::TyKind::Reference(rty) => rty.get_base_type(),
+            _ => unreachable!(),
+        };
 
-        //                 (field.name, field.ty.clone())
-        //             }
-        //             TyKind::Tuple(tuple_ty) => {
-        //                 let index = rhs.symbol().parse::<u32>().map_err(|_| {
-        //                     SemanticError::TupleIndexIsNotNumber {
-        //                         index: rhs.symbol(),
-        //                         span,
-        //                     }
-        //                 })?;
+        match base_type.kind.as_ref() {
+            ir_type::TyKind::UserDefined(udt) => self.analyze_struct_access(lhs, rhs, udt),
 
-        //                 let field_ty = tuple_ty.get(index as usize).ok_or_else(|| {
-        //                     SemanticError::TupleIndexOutOfRange {
-        //                         index,
-        //                         len: tuple_ty.len(),
-        //                         span,
-        //                     }
-        //                 })?;
+            ir_type::TyKind::Tuple(elements_ty) => {
+                self.analyze_tuple_indexing(lhs, rhs, elements_ty)
+            }
 
-        //                 (rhs.symbol(), field_ty.clone())
-        //             }
-        //             _ => unreachable!(),
-        //         }
-        //     }
-        //     _ => unreachable!(),
-        // };
-
-        // Ok(ir::expr::Expr {
-        //     kind: ir::expr::ExprKind::StructAccess(ir::expr::StructAccess {
-        //         base: Box::new(left.clone()),
-        //         field_name,
-        //         field_ty,
-        //     }),
-        //     ty: field_ty,
-        // })
-        todo!()
+            _ => Err(SemanticError::HasNoFields { span }.into()),
+        }
     }
 
-    fn analyze_fundamental_type_method_call(
+    fn analyze_tuple_indexing(
+        &self,
+        lhs: ir::expr::Expr,
+        rhs: &ast::expr::Expr,
+        elements_ty: &[Rc<ir_type::Ty>],
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let index = match &rhs.kind {
+            ast::expr::ExprKind::Int(int) => int.as_u64(),
+            _ => unreachable!(),
+        };
+
+        if elements_ty.len() <= index as usize {
+            return Err(SemanticError::IndexOutOfRange {
+                index: index as u64,
+                span: rhs.span,
+            }
+            .into());
+        }
+
+        Ok(ir::expr::Expr {
+            span: Span::new(lhs.span.start, rhs.span.finish, lhs.span.file),
+            kind: ir::expr::ExprKind::Indexing(ir::expr::Indexing {
+                operand: Box::new(lhs),
+                index,
+            }),
+            ty: elements_ty[index as usize].clone(),
+        })
+    }
+
+    fn analyze_struct_access(
         &mut self,
-        left: ir::expr::Expr,
-        fty: &ir_type::FundamentalType,
+        lhs: ir::expr::Expr,
+        rhs: &ast::expr::Expr,
+        udt: &ir_type::UserDefinedType,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        match &rhs.kind {
+            // Field
+            ast::expr::ExprKind::Ident(field_name) => {
+                self.analyze_struct_field_access(lhs, rhs, udt, field_name.clone())
+            }
+
+            // Method
+            ast::expr::ExprKind::FnCall(node) => self.analyze_struct_method_call(lhs, udt, node),
+
+            kind => unreachable!("{:?}", kind),
+        }
+    }
+
+    fn analyze_struct_method_call(
+        &mut self,
+        lhs: ir::expr::Expr,
+        udt: &ir_type::UserDefinedType,
         call_node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
-        // e.g. i32.abs
-        let method_name = format!("{}.{}", fty.kind, call_node.callee.as_str()).into();
+        // e.g. test.Person.get_age
+        let method_name =
+            format!("{}.{}", udt.get_mangled_name(), call_node.callee.as_str()).into();
 
+        let span = Span::new(lhs.span.start, call_node.span.finish, lhs.span.file);
+        self.create_method_call_ir(method_name, udt.name.symbol(), call_node, lhs, span)
+    }
+
+    fn analyze_struct_field_access(
+        &self,
+        lhs: ir::expr::Expr,
+        rhs: &ast::expr::Expr,
+        udt: &ir_type::UserDefinedType,
+        field_name: Ident,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let struct_info = self
+            .lookup_symbol(udt.name.symbol())
+            .map(|value| match &value.borrow().kind {
+                SymbolTableValueKind::Struct(struct_info) => struct_info.clone(),
+
+                _ => unreachable!(),
+            })
+            .unwrap();
+
+        let (field_ty, field_offset) = struct_info
+            .fields
+            .iter()
+            .find_map(|field| {
+                if field.name == field_name.symbol() {
+                    Some((field.ty.clone(), field.offset))
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| SemanticError::NoMember {
+                member_name: field_name.symbol(),
+                parent_name: struct_info.name,
+                span: rhs.span,
+            })?;
+
+        Ok(ir::expr::Expr {
+            span: Span::new(lhs.span.start, rhs.span.finish, lhs.span.file),
+            kind: ir::expr::ExprKind::FieldAccess(ir::expr::FieldAccess {
+                operand: Box::new(lhs),
+                field_name: field_name.symbol(),
+                field_offset,
+            }),
+            ty: field_ty,
+        })
+    }
+
+    fn create_method_call_ir(
+        &mut self,
+        mangled_method_name: Symbol,
+        parent_name: Symbol,
+        call_node: &ast::expr::FnCall,
+        this: ir::expr::Expr,
+        span: Span,
+    ) -> anyhow::Result<ir::expr::Expr> {
         let no_method_err = || SemanticError::NoMethod {
             method_name: call_node.callee.symbol(),
-            parent_name: fty.kind.to_string().into(),
+            parent_name,
             span: call_node.span,
         };
 
-        let callee = match self.lookup_symbol(method_name) {
+        let callee = match self.lookup_symbol(mangled_method_name) {
             Some(value) => {
                 let value = value.borrow();
 
@@ -566,9 +625,8 @@ impl SemanticAnalyzer {
             }
         };
 
-        let span = Span::new(left.span.start, call_node.span.finish, left.span.file);
-
-        let args = std::iter::once(left)
+        // Inject `this` to the front of the arguments
+        let args = std::iter::once(this)
             .chain(
                 call_node
                     .args
@@ -592,6 +650,25 @@ impl SemanticAnalyzer {
             ty: Rc::new(ir_type::Ty::new_never()),
             span,
         })
+    }
+
+    fn analyze_fundamental_type_method_call(
+        &mut self,
+        left: ir::expr::Expr,
+        fty: &ir_type::FundamentalType,
+        call_node: &ast::expr::FnCall,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        // e.g. i32.abs
+        let method_name = format!("{}.{}", fty.kind, call_node.callee.as_str()).into();
+
+        let span = Span::new(left.span.start, call_node.span.finish, left.span.file);
+        self.create_method_call_ir(
+            method_name,
+            fty.kind.to_string().into(),
+            call_node,
+            left,
+            span,
+        )
     }
 
     fn analyze_cast(&mut self, node: &ast::expr::Binary) -> anyhow::Result<ir::expr::Expr> {

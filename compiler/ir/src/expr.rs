@@ -104,7 +104,7 @@ pub struct Cast {
 pub struct FieldAccess {
     pub operand: Box<Expr>,
     pub field_name: Symbol,
-    pub field_offset: usize,
+    pub field_offset: u64,
 }
 
 #[derive(Debug)]
@@ -131,7 +131,7 @@ pub struct TupleLiteral {
 #[derive(Debug)]
 pub struct Indexing {
     pub operand: Box<Expr>,
-    pub offset: usize,
+    pub index: u64,
 }
 
 #[derive(Debug)]
