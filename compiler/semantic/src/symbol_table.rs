@@ -205,3 +205,32 @@ impl GenericArgumentTable {
         self.map.get(&symbol).cloned()
     }
 }
+
+impl SemanticAnalyzer {
+    pub fn with_generic_arguments(
+        &mut self,
+        generic_params: &ast::top::GenericParams,
+        generic_args: &[Rc<ir_type::Ty>],
+        f: impl FnOnce(&mut Self) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
+        // Insert the generic arguments
+        generic_params
+            .names
+            .iter()
+            .zip(generic_args.iter())
+            .for_each(|(ident, ty)| {
+                self.generic_argument_table
+                    .map
+                    .insert(ident.symbol(), ty.clone());
+            });
+
+        let result = f(self);
+
+        // Remove the generic arguments
+        generic_params.names.iter().for_each(|ident| {
+            self.generic_argument_table.map.remove(&ident.symbol());
+        });
+
+        result
+    }
+}

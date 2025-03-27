@@ -49,6 +49,16 @@ impl SemanticAnalyzer {
             self.mangle_fn_name(node.decl.name.as_str())
         };
 
+        self.analyze_fn_with_mangled_name(node, mangled_name)
+    }
+
+    pub fn analyze_fn_with_mangled_name(
+        &mut self,
+        node: ast::top::Fn,
+        mangled_name: Symbol,
+    ) -> anyhow::Result<TopLevelAnalysisResult> {
+        assert_eq!(node.decl.self_, None);
+
         // If the function is generic, register it in the symbol table and return early.
         if node.decl.generic_params.is_some() {
             let span = node.span;

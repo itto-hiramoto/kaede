@@ -2,11 +2,12 @@ use std::rc::Rc;
 
 use crate::{
     error::SemanticError,
-    symbol_table::{SymbolTable, SymbolTableValueKind, VariableInfo},
+    symbol_table::{GenericFuncInfo, GenericInfo, SymbolTable, SymbolTableValueKind, VariableInfo},
     SemanticAnalyzer,
 };
 
 use kaede_ast as ast;
+use kaede_ast_type as ast_type;
 use kaede_ir as ir;
 use kaede_ir_type::{self as ir_type, ModulePath};
 use kaede_span::Span;
@@ -52,20 +53,69 @@ impl SemanticAnalyzer {
 
     fn analyze_fn_call(&mut self, node: &ast::expr::FnCall) -> anyhow::Result<ir::expr::Expr> {
         if node.external_modules.is_empty() {
-            self.analyze_internal_fn_call(node)
+            self.analyze_fn_call_internal(node)
         } else {
             self.with_external_module(
                 ModulePath::new(node.external_modules.iter().map(|i| i.symbol()).collect()),
-                |analyzer| analyzer.analyze_internal_fn_call(node),
+                |analyzer| analyzer.analyze_fn_call_internal(node),
             )
         }
     }
 
-    fn analyze_internal_fn_call(
+    // Returns the mangled name of the generated function
+    fn generate_generic_fn(
         &mut self,
+        info: &GenericFuncInfo,
+        generic_args: &ast_type::GenericArgs,
+    ) -> anyhow::Result<Symbol> {
+        let generic_params = match info.ast.decl.generic_params.as_ref() {
+            Some(generic_params) => generic_params,
+            None => todo!("Error"),
+        };
+
+        let generic_args = generic_args
+            .types
+            .iter()
+            .map(|arg| self.analyze_type(arg))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        // Mangle the generic function name
+        let mangled_name = self.mangle_generic_fn_name(info.ast.decl.name.as_str(), &generic_args);
+
+        // If the generic function is already generated, return early
+        if self.lookup_symbol(mangled_name).map_or(false, |v| {
+            matches!(v.borrow().kind, SymbolTableValueKind::Function(_))
+        }) {
+            return Ok(mangled_name);
+        }
+
+        // Generate the generic function
+        self.with_generic_arguments(generic_params, &generic_args, |analyzer| {
+            analyzer.analyze_fn_with_mangled_name(info.ast.clone(), mangled_name)?;
+            Ok(())
+        })?;
+
+        Ok(mangled_name)
+    }
+
+    fn analyze_generic_fn_call(
+        &mut self,
+        info: &GenericInfo,
         node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
-        let mangled_fn_name = self.mangle_fn_name(node.callee.as_str());
+        // Generate the generic function
+        let mangled_fn_name = match info {
+            GenericInfo::Func(info) => {
+                self.generate_generic_fn(info, node.generic_args.as_ref().unwrap())?
+            }
+            _ => unreachable!(),
+        };
+
+        let mut args = Vec::new();
+
+        for arg in node.args.0.iter() {
+            args.push(self.analyze_expr(arg)?);
+        }
 
         let callee = self
             .lookup_symbol(mangled_fn_name)
@@ -78,15 +128,6 @@ impl SemanticAnalyzer {
                 span: node.span,
             })?;
 
-        let span = Span::new(node.span.start, node.span.finish, node.span.file);
-
-        let args = node
-            .args
-            .0
-            .iter()
-            .map(|arg| self.analyze_expr(arg))
-            .collect::<anyhow::Result<Vec<_>>>()?;
-
         self.verify_fn_call_arguments(&callee, &args, node.span)?;
 
         Ok(ir::expr::Expr {
@@ -98,8 +139,56 @@ impl SemanticAnalyzer {
                 Some(ty) => ty.clone(),
                 None => Rc::new(ir_type::Ty::new_unit()),
             },
-            span,
+            span: node.span,
         })
+    }
+
+    fn analyze_fn_call_internal(
+        &mut self,
+        node: &ast::expr::FnCall,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let mangled_fn_name = self.mangle_fn_name(node.callee.as_str());
+
+        let symbol_value =
+            self.lookup_symbol(mangled_fn_name)
+                .ok_or_else(|| SemanticError::Undeclared {
+                    name: node.callee.symbol(),
+                    span: node.span,
+                })?;
+
+        // Create a separate binding for the borrowed value
+        let borrowed = symbol_value.borrow();
+        match &borrowed.kind {
+            SymbolTableValueKind::Function(fn_) => {
+                let callee = fn_.clone();
+                let span = Span::new(node.span.start, node.span.finish, node.span.file);
+
+                let args = node
+                    .args
+                    .0
+                    .iter()
+                    .map(|arg| self.analyze_expr(arg))
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+
+                self.verify_fn_call_arguments(&callee, &args, node.span)?;
+
+                Ok(ir::expr::Expr {
+                    kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
+                        callee: callee.decl.name,
+                        args: ir::expr::Args(args),
+                    }),
+                    ty: match callee.decl.return_ty.as_ref() {
+                        Some(ty) => ty.clone(),
+                        None => Rc::new(ir_type::Ty::new_unit()),
+                    },
+                    span,
+                })
+            }
+
+            SymbolTableValueKind::Generic(info) => self.analyze_generic_fn_call(info, node),
+
+            _ => unreachable!(),
+        }
     }
 
     fn analyze_arary_indexing(
