@@ -258,7 +258,7 @@ impl SemanticAnalyzer {
         );
 
         // Type checking
-        if ir_type::is_same_type(&operand.ty, &bool_ty) {
+        if !ir_type::is_same_type(&operand.ty, &bool_ty) {
             return Err(SemanticError::MismatchedTypes {
                 types: (operand.ty.kind.to_string(), bool_ty.kind.to_string()),
                 span,
@@ -890,7 +890,7 @@ impl SemanticAnalyzer {
         );
 
         // Type checking
-        if ir_type::is_same_type(&lhs.ty, &rhs.ty) {
+        if !ir_type::is_same_type(&lhs.ty, &rhs.ty) {
             return Err(SemanticError::MismatchedTypes {
                 types: (lhs.ty.kind.to_string(), rhs.ty.kind.to_string()),
                 span,

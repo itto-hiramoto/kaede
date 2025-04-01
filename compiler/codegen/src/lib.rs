@@ -23,13 +23,13 @@ use kaede_ast::{
     },
     CompileUnit,
 };
-use kaede_common::kaede_autoload_dir;
-use kaede_span::{file::FilePath, Span};
-use kaede_symbol::{Ident, Symbol};
 use kaede_ast_type::{
     ExternalType, FundamentalType, FundamentalTypeKind, GenericArgs, Mutability, PointerType,
     ReferenceType, Ty, TyKind, UserDefinedType,
 };
+use kaede_common::kaede_autoload_dir;
+use kaede_span::{file::FilePath, Span};
+use kaede_symbol::{Ident, Symbol};
 use mangle::mangle_udt_name;
 use tcx::{
     EnumInfo, EnumVariantInfo, FunctionInfo, GenericArgTable, GenericKind, ReturnType, StructInfo,
@@ -840,14 +840,14 @@ impl<'ctx> CompileUnitCtx<'ctx> {
                                 impl_: new_impl.clone(),
                                 external_modules: externals.clone(),
                             }),
-                            vis,
+                            visibility: vis,
                             span,
                         }
                     } else {
                         // Internal
                         TopLevel {
                             kind: TopLevelKind::Impl(new_impl.clone()),
-                            vis,
+                            visibility: vis,
                             span,
                         }
                     },
@@ -1013,7 +1013,7 @@ impl<'ctx> CompileUnitCtx<'ctx> {
                         },
                         span: Span::dummy(),
                     }),
-                    vis: Visibility::Private,
+                    visibility: Visibility::Private,
                     span: Span::dummy(),
                 },
             )?;

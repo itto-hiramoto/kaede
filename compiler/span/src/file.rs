@@ -26,6 +26,12 @@ impl FilePath {
     }
 }
 
+impl Default for FilePath {
+    fn default() -> Self {
+        Self::dummy()
+    }
+}
+
 impl From<PathBuf> for FilePath {
     fn from(value: PathBuf) -> Self {
         Self {

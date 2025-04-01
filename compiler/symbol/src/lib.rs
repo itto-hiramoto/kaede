@@ -1,4 +1,7 @@
-use std::{fmt::Display, hash::Hash};
+use std::{
+    fmt::{Debug, Display},
+    hash::Hash,
+};
 
 use kaede_span::Span;
 use once_cell::sync::Lazy;
@@ -34,9 +37,15 @@ static mut SYMBOLS: Lazy<Slab<String>> = Lazy::new(Default::default);
 
 // Do not derive PartialEq, Hash, etc!
 // We need to compare symbols(string) as well as id
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Symbol {
     id: usize,
+}
+
+impl Debug for Symbol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
 }
 
 impl Symbol {

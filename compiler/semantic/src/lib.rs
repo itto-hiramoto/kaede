@@ -1,8 +1,9 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use context::AnalysisContext;
 use kaede_ir_type as ir_type;
 
+use kaede_span::file::FilePath;
 use kaede_symbol::Symbol;
 use symbol_table::{GenericArgumentTable, SymbolTable, SymbolTableValue};
 
@@ -17,19 +18,36 @@ mod ty;
 
 use kaede_ast as ast;
 use kaede_ir as ir;
-use top::TopLevelAnalysisResult;
+pub use top::TopLevelAnalysisResult;
 
-struct SemanticAnalyzer {
+pub struct SemanticAnalyzer {
     symbol_tables: Vec<SymbolTable>,
     context: AnalysisContext,
     generic_argument_table: GenericArgumentTable,
 }
 
 impl SemanticAnalyzer {
-    pub fn new() -> Self {
+    pub fn new(file_path: FilePath) -> Self {
+        let modules_from_root = file_path
+            .path()
+            .iter()
+            .map(|s| {
+                PathBuf::from(s)
+                    .file_stem()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string()
+                    .into()
+            })
+            .collect::<Vec<_>>();
+
+        // Set the current module name in the context.
+        let mut context = AnalysisContext::new();
+        context.set_module_path(ir_type::ModulePath::new(modules_from_root));
+
         Self {
             symbol_tables: vec![SymbolTable::new()],
-            context: AnalysisContext::new(),
+            context,
             generic_argument_table: GenericArgumentTable::new(),
         }
     }

@@ -13,6 +13,10 @@ impl AnalysisContext {
             module_path: ModulePath::new(vec![]),
         }
     }
+
+    pub fn set_module_path(&mut self, path: ModulePath) {
+        self.module_path = path;
+    }
 }
 
 impl SemanticAnalyzer {

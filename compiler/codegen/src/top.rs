@@ -180,11 +180,11 @@ impl<'a, 'ctx> TopLevelBuilder<'a, 'ctx> {
         match tl.kind {
             TopLevelKind::Import(node) => self.import_module(node.module_path)?,
 
-            TopLevelKind::Fn(node) => self.func(node, tl.vis)?,
+            TopLevelKind::Fn(node) => self.func(node, tl.visibility)?,
 
             TopLevelKind::Struct(node) => self.struct_(node)?,
 
-            TopLevelKind::Impl(node) => self.impl_(node, tl.vis, tl.span)?,
+            TopLevelKind::Impl(node) => self.impl_(node, tl.visibility, tl.span)?,
 
             TopLevelKind::Enum(node) => self.enum_(node)?,
 
@@ -326,7 +326,7 @@ impl<'a, 'ctx> TopLevelBuilder<'a, 'ctx> {
             .change_for_external(external_modules.clone());
 
         for item in node.items.iter() {
-            if item.vis.is_private() {
+            if item.visibility.is_private() {
                 continue;
             }
 
@@ -780,7 +780,7 @@ impl<'a, 'ctx> TopLevelBuilder<'a, 'ctx> {
                     self.import_impl(
                         impl_,
                         module_path.segments.clone(),
-                        top_level.vis,
+                        top_level.visibility,
                         top_level.span,
                     )?;
                     continue;
@@ -802,7 +802,7 @@ impl<'a, 'ctx> TopLevelBuilder<'a, 'ctx> {
             }
 
             // Check visibility.
-            if top_level.vis.is_private() {
+            if top_level.visibility.is_private() {
                 continue;
             }
 
@@ -973,7 +973,7 @@ impl<'a, 'ctx> TopLevelBuilder<'a, 'ctx> {
         for item in impl_.items.iter() {
             match &item.kind {
                 TopLevelKind::Fn(func) => {
-                    if item.vis.is_private() {
+                    if item.visibility.is_private() {
                         continue;
                     }
 

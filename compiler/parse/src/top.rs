@@ -57,7 +57,7 @@ impl Parser {
 
         self.consume_semi()?;
 
-        Ok(TopLevel { kind, vis, span })
+        Ok(TopLevel { kind, visibility: vis, span })
     }
 
     fn extern_(&mut self) -> ParseResult<Extern> {

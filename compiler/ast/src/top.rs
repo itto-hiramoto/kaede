@@ -1,8 +1,8 @@
 use std::{collections::VecDeque, rc::Rc};
 
+use kaede_ast_type::{Mutability, Ty};
 use kaede_span::Span;
 use kaede_symbol::{Ident, Symbol};
-use kaede_ast_type::{Mutability, Ty};
 
 use crate::{expr::StringLiteral, stmt::Block};
 
@@ -68,7 +68,7 @@ pub struct Param {
 }
 
 /// Deque because sometimes it is necessary to insert self (C++ style: this) at the front
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct Params {
     pub v: VecDeque<Param>,
     pub span: Span,
@@ -138,7 +138,7 @@ pub struct Use {
 #[derive(Debug)]
 pub struct TopLevel {
     pub kind: TopLevelKind,
-    pub vis: Visibility,
+    pub visibility: Visibility,
     pub span: Span,
 }
 

@@ -31,13 +31,13 @@ use kaede_ast::{
     stmt::{Block, Stmt, StmtKind},
     top::{Fn, FnDecl, GenericFnInstance, TopLevel, TopLevelKind, Visibility},
 };
-use kaede_span::Span;
-use kaede_symbol::{Ident, Symbol};
 use kaede_ast_type::{
     change_mutability_dup, is_same_type, make_fundamental_type, wrap_in_ref, FundamentalType,
     FundamentalTypeKind, GenericArgs, Mutability, PointerType, ReferenceType, Ty, TyKind,
     UserDefinedType,
 };
+use kaede_span::Span;
+use kaede_symbol::{Ident, Symbol};
 
 pub fn mangle_generic_fn_name(
     cucx: &mut CompileUnitCtx,
@@ -2391,7 +2391,7 @@ impl<'a, 'ctx> ExprBuilder<'a, 'ctx> {
 
         let top = TopLevel {
             kind: TopLevelKind::GenericFnInstance(generic_fn_instance),
-            vis: ast_vis.1,
+            visibility: ast_vis.1,
             span,
         };
 

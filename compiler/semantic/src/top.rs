@@ -4,8 +4,8 @@ use kaede_symbol::Symbol;
 
 use crate::{
     symbol_table::{
-        GenericEnumInfo, GenericFuncInfo, GenericInfo, GenericStructInfo, SymbolTableValue,
-        SymbolTableValueKind,
+        GenericEnumInfo, GenericFuncInfo, GenericInfo, GenericStructInfo, SymbolTable,
+        SymbolTableValue, SymbolTableValueKind, VariableInfo,
     },
     SemanticAnalyzer,
 };
@@ -14,6 +14,7 @@ use kaede_ast as ast;
 use kaede_ir as ir;
 
 /// If a top-level is generic, there is no IR that can be generated immediately, so this enum is used.
+#[derive(Debug)]
 pub enum TopLevelAnalysisResult {
     GenericTopLevel,
     TopLevel(ir::top::TopLevel),
@@ -88,6 +89,22 @@ impl SemanticAnalyzer {
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
+        // Create a new symbol table for the function parameters.
+        {
+            let mut symbol_table = SymbolTable::new();
+            for param in params.iter() {
+                let symbol_table_value = SymbolTableValue::new(
+                    SymbolTableValueKind::Variable(VariableInfo {
+                        ty: param.ty.clone(),
+                    }),
+                    self,
+                );
+
+                symbol_table.insert(param.name, symbol_table_value, node.span)?;
+            }
+            self.symbol_tables.push(symbol_table);
+        }
+
         let fn_decl = ir::top::FnDecl {
             name: mangled_name,
             is_var_args: node.decl.params.is_var_args,
@@ -102,6 +119,9 @@ impl SemanticAnalyzer {
             decl: fn_decl,
             body: self.analyze_block(&node.body)?,
         });
+
+        // Pop the function symbol table.
+        self.symbol_tables.pop();
 
         let symbol_table_value =
             SymbolTableValue::new(SymbolTableValueKind::Function(fn_.clone()), self);
