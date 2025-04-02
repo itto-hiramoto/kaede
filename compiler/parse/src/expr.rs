@@ -778,7 +778,7 @@ impl Parser {
 
         let cond = self.cond_expr()?;
 
-        let then = Rc::new(self.block()?);
+        let then = self.block()?;
 
         let else_ = self.else_()?.map(Box::new);
 

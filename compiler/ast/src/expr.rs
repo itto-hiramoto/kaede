@@ -184,7 +184,7 @@ pub enum Else {
 #[derive(Debug)]
 pub struct If {
     pub cond: Box<Expr>,
-    pub then: Rc<Block>,
+    pub then: Block,
     pub else_: Option<Box<Else>>,
     pub span: Span,
 }

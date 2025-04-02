@@ -34,7 +34,7 @@ impl SemanticAnalyzer {
             ExprKind::FnCall(node) => self.analyze_fn_call(node),
             // ExprKind::StructLiteral(StructLiteral),
             // ExprKind::TupleLiteral(TupleLiteral),
-            // ExprKind::If(If),
+            ExprKind::If(node) => self.analyze_if(node),
             // ExprKind::Loop(Loop),
             // ExprKind::Break(Break),
             // ExprKind::Match(Match),
@@ -49,6 +49,68 @@ impl SemanticAnalyzer {
 
             _ => unimplemented!(),
         }
+    }
+
+    fn analyze_if(&mut self, node: &ast::expr::If) -> anyhow::Result<ir::expr::Expr> {
+        let cond = Box::new(self.analyze_expr(&node.cond)?);
+
+        // Type checking for condition.
+        // The condition must be a boolean type.
+        if !ir_type::is_same_type(
+            &cond.ty,
+            &ir_type::make_fundamental_type(
+                ir_type::FundamentalTypeKind::Bool,
+                ir_type::Mutability::Not,
+            ),
+        ) {
+            return Err(SemanticError::MismatchedTypes {
+                types: (cond.ty.kind.to_string(), "bool".to_string()),
+                span: node.cond.span,
+            }
+            .into());
+        }
+
+        let then = Box::new(self.analyze_block_expr(&node.then)?);
+
+        let else_ = match node.else_.as_ref() {
+            Some(else_) => Some(Box::new(match else_.as_ref() {
+                ast::expr::Else::If(if_) => {
+                    let expr = self.analyze_if(if_)?;
+                    if let ir::expr::ExprKind::If(if_) = expr.kind {
+                        ir::expr::Else::If(if_)
+                    } else {
+                        unreachable!("analyze_if should return an If expression")
+                    }
+                }
+                ast::expr::Else::Block(block) => {
+                    ir::expr::Else::Block(Box::new(self.analyze_block_expr(block)?))
+                }
+            })),
+
+            None => None,
+        };
+
+        // Type checking for then and else branches.
+        if let Some(else_) = &else_ {
+            let else_ty = match else_.as_ref() {
+                ir::expr::Else::If(if_) => if_.then.ty.clone(),
+                ir::expr::Else::Block(block) => block.ty.clone(),
+            };
+
+            if !ir_type::is_same_type(&then.ty, &else_ty) {
+                return Err(SemanticError::MismatchedTypes {
+                    types: (then.ty.kind.to_string(), else_ty.kind.to_string()),
+                    span: node.span,
+                }
+                .into());
+            }
+        }
+
+        Ok(ir::expr::Expr {
+            ty: then.ty.clone(),
+            kind: ir::expr::ExprKind::If(ir::expr::If { cond, then, else_ }),
+            span: node.span,
+        })
     }
 
     fn analyze_fn_call(&mut self, node: &ast::expr::FnCall) -> anyhow::Result<ir::expr::Expr> {

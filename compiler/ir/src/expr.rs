@@ -142,13 +142,13 @@ pub struct Loop {
 #[derive(Debug)]
 pub enum Else {
     If(If),
-    Block(Block),
+    Block(Box<Expr>),
 }
 
 #[derive(Debug)]
 pub struct If {
     pub cond: Box<Expr>,
-    pub then: Block,
+    pub then: Box<Expr>,
     pub else_: Option<Box<Else>>,
 }
 

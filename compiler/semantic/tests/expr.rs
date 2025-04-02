@@ -77,3 +77,30 @@ fn function_call() -> anyhow::Result<()> {
     )?;
     Ok(())
 }
+
+#[test]
+fn if_() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn f(a: i32): i32 {
+            return if a == 0 {
+                1
+            } else if a < 0 {
+                -1
+            } else {
+                0
+            }
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn if_with_struct_literal() -> anyhow::Result<()> {
+    semantic_analyze(
+        "struct Foo { a: bool }
+        fn f(a: i32): Foo {
+            return if Foo { a: true }.a { 58 } else { 123 }
+        }",
+    )?;
+    Ok(())
+}
