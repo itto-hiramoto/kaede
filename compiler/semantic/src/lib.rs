@@ -16,6 +16,7 @@ mod symbol_table;
 mod top;
 mod ty;
 
+pub use error::SemanticError;
 use kaede_ast as ast;
 use kaede_ir as ir;
 pub use top::TopLevelAnalysisResult;

@@ -130,7 +130,7 @@ pub struct TupleLiteral {
 
 #[derive(Debug)]
 pub struct Indexing {
-    pub operand: Box<Expr>,
+    pub operand: Rc<Expr>,
     pub index: Box<Expr>,
 }
 

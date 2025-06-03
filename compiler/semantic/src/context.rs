@@ -5,12 +5,14 @@ use crate::SemanticAnalyzer;
 #[derive(Debug, Clone)]
 pub struct AnalysisContext {
     module_path: ModulePath,
+    is_inside_loop: bool,
 }
 
 impl AnalysisContext {
     pub fn new() -> Self {
         Self {
             module_path: ModulePath::new(vec![]),
+            is_inside_loop: false,
         }
     }
 
@@ -43,5 +45,20 @@ impl SemanticAnalyzer {
         let mut new_context = self.context.clone();
         new_context.module_path = path;
         self.with_context(new_context, f)
+    }
+
+    // Temporarily sets the context to be inside a loop, executes the provided closure.
+    pub fn with_inside_loop<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        self.context.is_inside_loop = true;
+        let result = f(self);
+        self.context.is_inside_loop = false;
+        result
+    }
+
+    pub fn is_inside_loop(&self) -> bool {
+        self.context.is_inside_loop
     }
 }

@@ -1,17 +1,27 @@
-use std::rc::Rc;
+use std::{collections::BTreeSet, rc::Rc};
 
 use crate::{
     error::SemanticError,
-    symbol_table::{GenericFuncInfo, GenericInfo, SymbolTable, SymbolTableValueKind, VariableInfo},
+    symbol_table::{
+        GenericFuncInfo, GenericInfo, SymbolTable, SymbolTableValue, SymbolTableValueKind,
+        VariableInfo,
+    },
     SemanticAnalyzer,
 };
 
 use kaede_ast as ast;
 use kaede_ast_type as ast_type;
 use kaede_ir as ir;
-use kaede_ir_type::{self as ir_type, ModulePath};
+use kaede_ir_type::{self as ir_type, make_fundamental_type, ModulePath};
 use kaede_span::Span;
 use kaede_symbol::{Ident, Symbol};
+
+struct DecomposedEnumVariantPattern<'p> {
+    module_names: Vec<Ident>,
+    enum_name: &'p Ident,
+    variant_name: &'p Ident,
+    param: Option<&'p ast::expr::Args>,
+}
 
 impl SemanticAnalyzer {
     pub fn analyze_expr(&mut self, expr: &ast::expr::Expr) -> anyhow::Result<ir::expr::Expr> {
@@ -32,12 +42,12 @@ impl SemanticAnalyzer {
             ExprKind::Return(node) => self.analyze_return(node),
             ExprKind::Indexing(node) => self.analyze_arary_indexing(node),
             ExprKind::FnCall(node) => self.analyze_fn_call(node),
+            ExprKind::If(node) => self.analyze_if(node),
+            ExprKind::Break(node) => self.analyze_break(node),
+            ExprKind::Loop(node) => self.analyze_loop(node),
+            ExprKind::Match(node) => self.analyze_match(node),
             // ExprKind::StructLiteral(StructLiteral),
             // ExprKind::TupleLiteral(TupleLiteral),
-            ExprKind::If(node) => self.analyze_if(node),
-            // ExprKind::Loop(Loop),
-            // ExprKind::Break(Break),
-            // ExprKind::Match(Match),
             ExprKind::Ty(_) => Ok(ir::expr::Expr {
                 kind: ir::expr::ExprKind::DoNothing,
                 ty: Rc::new(ir_type::Ty::new_unit()),
@@ -49,6 +59,495 @@ impl SemanticAnalyzer {
 
             _ => unimplemented!(),
         }
+    }
+
+    /// Decompose enum variant patterns (like `A::B` or `A::B(a, b, c)`)
+    fn decompose_enum_variant_pattern<'p>(
+        &self,
+        pattern: &'p ast::expr::Expr,
+    ) -> DecomposedEnumVariantPattern<'p> {
+        let (module_names, enum_name, variant_name_and_param) = match &pattern.kind {
+            ast::expr::ExprKind::Binary(b) => match b.kind {
+                ast::expr::BinaryKind::ScopeResolution => match &b.lhs.kind {
+                    ast::expr::ExprKind::Ident(i) => (vec![], i, &b.rhs),
+                    ast::expr::ExprKind::ExternalIdent(ei) => {
+                        (ei.external_modules.clone(), &ei.ident, &b.rhs)
+                    }
+                    _ => unreachable!(),
+                },
+
+                _ => unreachable!(),
+            },
+
+            _ => unreachable!(),
+        };
+
+        let (variant_name, param) = match &variant_name_and_param.kind {
+            ast::expr::ExprKind::Ident(ident) => (ident, None),
+            ast::expr::ExprKind::FnCall(fncall) => (&fncall.callee, Some(&fncall.args)),
+            _ => unreachable!(),
+        };
+
+        DecomposedEnumVariantPattern {
+            module_names,
+            enum_name,
+            variant_name,
+            param,
+        }
+    }
+
+    fn check_exhaustiveness_for_match_on_enum(
+        &mut self,
+        node: &ast::expr::Match,
+        enum_symbol: &SymbolTableValue,
+    ) -> anyhow::Result<()> {
+        // If there is a catch-all arm, we don't need to check exhaustiveness
+        if node.arms.iter().any(|arm| arm.is_catch_all) {
+            return Ok(());
+        }
+
+        let enum_ir = match &enum_symbol.kind {
+            SymbolTableValueKind::Enum(ir) => ir.clone(),
+            _ => unreachable!(),
+        };
+
+        let variants = &enum_ir.variants;
+
+        let arms = node.arms.iter().filter(|arm| !arm.is_catch_all);
+
+        let mut pattern_variant_names = BTreeSet::new();
+
+        for arm in arms {
+            let decomposed = self.decompose_enum_variant_pattern(&arm.pattern);
+
+            // Check if the module names are the same as the enum's external modules
+            let enum_external_modules = enum_symbol.module_path.get_module_names_from_root();
+            if decomposed
+                .module_names
+                .iter()
+                .zip(enum_external_modules)
+                .any(|(a, b)| a.as_str() != b.as_str())
+            {
+                return Err(SemanticError::MatchNotExhaustive {
+                    variant_name: decomposed.variant_name.symbol(),
+                    span: node.span,
+                }
+                .into());
+            }
+
+            // Check if the variant name is in the enum
+            if !enum_ir
+                .variants
+                .iter()
+                .any(|v| v.name == decomposed.variant_name.symbol())
+            {
+                return Err(SemanticError::NoVariant {
+                    variant_name: decomposed.variant_name.symbol(),
+                    parent_name: enum_ir.name,
+                    span: node.span,
+                }
+                .into());
+            }
+
+            // TODO: Check if the variant has the same number of parameters as the pattern
+
+            if !pattern_variant_names.insert(decomposed.variant_name.as_str()) {
+                // There were duplicate patterns
+                return Err(SemanticError::DuplicatePattern {
+                    variant_name: decomposed.variant_name.symbol(),
+                    span: decomposed.variant_name.span(),
+                }
+                .into());
+            }
+        }
+
+        let variant_names = variants
+            .iter()
+            .map(|v| v.name.as_str())
+            .collect::<BTreeSet<_>>();
+
+        // Check if there are any variants that are not covered by the patterns
+        let dif = variant_names
+            .difference(&pattern_variant_names)
+            .collect::<Vec<_>>();
+
+        if !dif.is_empty() {
+            return Err(SemanticError::MatchNotExhaustive {
+                variant_name: dif
+                    .into_iter()
+                    .map(|p| format!("`{}`", p))
+                    .collect::<Vec<_>>()
+                    .join(" and ")
+                    .into(),
+                span: node.span,
+            }
+            .into());
+        }
+
+        Ok(())
+    }
+
+    fn check_exhaustiveness_for_match_on_int(
+        &mut self,
+        fty: &ir_type::FundamentalType,
+        arms: &[ast::expr::MatchArm],
+        span: Span,
+    ) -> anyhow::Result<()> {
+        // If there is a catch-all arm, we don't need to check exhaustiveness
+        if arms.iter().any(|arm| arm.is_catch_all) {
+            return Ok(());
+        }
+
+        assert!(fty.is_int_or_bool());
+
+        if fty.kind == ir_type::FundamentalTypeKind::Bool {
+            let mut has_true = false;
+            let mut has_false = false;
+
+            for arm in arms {
+                match arm.pattern.kind {
+                    ast::expr::ExprKind::True => has_true = true,
+                    ast::expr::ExprKind::False => has_false = true,
+                    _ => {
+                        return Err(SemanticError::MismatchedTypes {
+                            types: (
+                                fty.kind.to_string(),
+                                self.analyze_expr(&arm.pattern)?.ty.kind.to_string(),
+                            ),
+                            span: arm.pattern.span,
+                        }
+                        .into());
+                    }
+                }
+            }
+
+            if has_true && has_false {
+                return Ok(());
+            } else if has_true {
+                return Err(SemanticError::MatchNotExhaustive {
+                    variant_name: "`false`".to_owned().into(),
+                    span,
+                }
+                .into());
+            } else if has_false {
+                return Err(SemanticError::MatchNotExhaustive {
+                    variant_name: "`true`".to_owned().into(),
+                    span,
+                }
+                .into());
+            } else {
+                return Err(SemanticError::MatchNotExhaustive {
+                    variant_name: "`true` and `false`".to_owned().into(),
+                    span,
+                }
+                .into());
+            }
+        }
+
+        // Non-bool integer
+        Err(SemanticError::MatchNotExhaustive {
+            variant_name: "`_`".to_owned().into(),
+            span,
+        }
+        .into())
+    }
+
+    fn conv_match_arms_on_enum_to_if(
+        &mut self,
+        enum_symbol_val: &SymbolTableValue,
+        target: Rc<ir::expr::Expr>,
+        arms: &[&ast::expr::MatchArm],
+        span: Span,
+    ) -> anyhow::Result<ir::expr::If> {
+        // Skip catch-all arm for now, we'll handle it separately
+        let non_catch_all_arms = arms
+            .iter()
+            .filter(|arm| !arm.is_catch_all)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        // Find catch-all arm if it exists
+        let catch_all_arm = arms.iter().find(|arm| arm.is_catch_all);
+
+        // Convert match arms on enum to nested if-else expressions
+        let current_arm = &non_catch_all_arms[0];
+        let remaining_arms = &non_catch_all_arms[1..];
+
+        // Analyze the arm's code
+        let then_expr = self.analyze_expr(&current_arm.code)?;
+
+        // Get the pattern variant information
+        let pattern_variant_offset = match &enum_symbol_val.kind {
+            SymbolTableValueKind::Enum(enum_ir) => {
+                let decomposed = self.decompose_enum_variant_pattern(&current_arm.pattern);
+                enum_ir
+                    .variants
+                    .iter()
+                    .find(|v| v.name == decomposed.variant_name.symbol())
+                    .unwrap()
+                    .offset
+            }
+            _ => unreachable!(),
+        };
+
+        // Get the target variant information
+        let target_variant_offset_expr = ir::expr::Expr {
+            kind: ir::expr::ExprKind::Indexing(ir::expr::Indexing {
+                operand: target.clone(),
+                index: Box::new(ir::expr::Expr {
+                    kind: ir::expr::ExprKind::Int(ir::expr::Int {
+                        kind: ir::expr::IntKind::I32(0),
+                    }),
+                    ty: Rc::new(make_fundamental_type(
+                        ir_type::FundamentalTypeKind::I32,
+                        ir_type::Mutability::Not,
+                    )),
+                    span: current_arm.pattern.span,
+                }),
+            }),
+            ty: Rc::new(make_fundamental_type(
+                ir_type::FundamentalTypeKind::I32,
+                ir_type::Mutability::Not,
+            )),
+            span: current_arm.pattern.span,
+        };
+
+        // Create condition
+        let condition = ir::expr::Expr {
+            kind: ir::expr::ExprKind::Binary(ir::expr::Binary {
+                kind: ir::expr::BinaryKind::Eq,
+                lhs: Rc::new(target_variant_offset_expr),
+                rhs: Rc::new(ir::expr::Expr {
+                    kind: ir::expr::ExprKind::Int(ir::expr::Int {
+                        kind: ir::expr::IntKind::I32(pattern_variant_offset as i32),
+                    }),
+                    ty: Rc::new(make_fundamental_type(
+                        ir_type::FundamentalTypeKind::I32,
+                        ir_type::Mutability::Not,
+                    )),
+                    span: current_arm.pattern.span,
+                }),
+            }),
+            ty: Rc::new(ir_type::make_fundamental_type(
+                ir_type::FundamentalTypeKind::Bool,
+                ir_type::Mutability::Not,
+            )),
+            span: current_arm.pattern.span,
+        };
+
+        // Handle remaining arms recursively
+        let else_ = if remaining_arms.is_empty() {
+            // If no more non-catch-all arms, add catch-all arm if it exists
+            if let Some(catch_all) = catch_all_arm {
+                Some(ir::expr::Else::Block(Box::new(self.analyze_expr(&catch_all.code)?)).into())
+            } else {
+                None
+            }
+        } else {
+            Some(
+                ir::expr::Else::If(self.conv_match_arms_on_enum_to_if(
+                    enum_symbol_val,
+                    target,
+                    remaining_arms,
+                    span,
+                )?)
+                .into(),
+            )
+        };
+
+        Ok(ir::expr::If {
+            cond: Box::new(condition),
+            then: Box::new(then_expr),
+            else_,
+        })
+    }
+
+    fn analyze_match_on_reference(
+        &mut self,
+        node: &ast::expr::Match,
+        value: &ir::expr::Expr,
+        rty: &ir_type::ReferenceType,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let base_ty = rty.get_base_type();
+
+        let err = || {
+            Err(SemanticError::MatchCannotBeUsedWithValueOfType {
+                ty: value.ty.kind.to_string(),
+                span: node.span,
+            }
+            .into())
+        };
+
+        let enum_symbol = if let ir_type::TyKind::UserDefined(udt) = base_ty.kind.as_ref() {
+            let mangled_name = self.mangle_enum_name(udt.name.as_str());
+
+            let symbol =
+                self.lookup_symbol(mangled_name)
+                    .ok_or_else(|| SemanticError::Undeclared {
+                        name: udt.name.symbol(),
+                        span: node.span,
+                    })?;
+
+            symbol
+        } else {
+            return err();
+        };
+
+        // Check if the symbol is an enum
+        if !matches!(enum_symbol.borrow().kind, SymbolTableValueKind::Enum(_)) {
+            return err();
+        }
+
+        self.check_exhaustiveness_for_match_on_enum(node, &enum_symbol.borrow())?;
+
+        let target = Rc::new(self.analyze_expr(&node.value)?);
+
+        let enum_symbol = enum_symbol.borrow();
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::If(self.conv_match_arms_on_enum_to_if(
+                &enum_symbol,
+                target.clone(),
+                &node.arms.iter().collect::<Vec<_>>().as_slice(),
+                node.span,
+            )?),
+            ty: target.ty.clone(),
+            span: node.span,
+        })
+    }
+
+    fn conv_match_arms_on_int_to_if(
+        &mut self,
+        target: Rc<ir::expr::Expr>,
+        arms: &[&ast::expr::MatchArm],
+        span: Span,
+    ) -> anyhow::Result<ir::expr::If> {
+        // Skip catch-all arm for now, we'll handle it separately
+        let non_catch_all_arms = arms
+            .iter()
+            .filter(|arm| !arm.is_catch_all)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        // Find catch-all arm if it exists
+        let catch_all_arm = arms.iter().find(|arm| arm.is_catch_all);
+
+        let current_arm = &non_catch_all_arms[0];
+        let remaining_arms = &non_catch_all_arms[1..];
+
+        let condition = ir::expr::Expr {
+            kind: ir::expr::ExprKind::Binary(ir::expr::Binary {
+                kind: ir::expr::BinaryKind::Eq,
+                lhs: target.clone(),
+                rhs: Rc::new(self.analyze_expr(&current_arm.pattern)?),
+            }),
+            ty: Rc::new(ir_type::make_fundamental_type(
+                ir_type::FundamentalTypeKind::Bool,
+                ir_type::Mutability::Not,
+            )),
+            span: current_arm.pattern.span,
+        };
+
+        let then_expr = self.analyze_expr(&current_arm.code)?;
+
+        let else_ = if remaining_arms.is_empty() {
+            if let Some(catch_all) = catch_all_arm {
+                Some(ir::expr::Else::Block(Box::new(self.analyze_expr(&catch_all.code)?)).into())
+            } else {
+                None
+            }
+        } else {
+            Some(
+                ir::expr::Else::If(self.conv_match_arms_on_int_to_if(
+                    target,
+                    remaining_arms,
+                    span,
+                )?)
+                .into(),
+            )
+        };
+
+        Ok(ir::expr::If {
+            cond: Box::new(condition),
+            then: Box::new(then_expr),
+            else_,
+        })
+    }
+
+    fn analyze_match_on_fundamental(
+        &mut self,
+        node: &ast::expr::Match,
+        value: Rc<ir::expr::Expr>,
+        fty: &ir_type::FundamentalType,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        if !fty.is_int_or_bool() {
+            return Err(SemanticError::MatchCannotBeUsedWithValueOfType {
+                ty: value.ty.kind.to_string(),
+                span: node.span,
+            }
+            .into());
+        }
+
+        self.check_exhaustiveness_for_match_on_int(fty, &node.arms, node.span)?;
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::If(self.conv_match_arms_on_int_to_if(
+                value.clone(),
+                &node.arms.iter().collect::<Vec<_>>().as_slice(),
+                node.span,
+            )?),
+            ty: value.ty.clone(),
+            span: node.span,
+        })
+    }
+
+    fn analyze_match(&mut self, node: &ast::expr::Match) -> anyhow::Result<ir::expr::Expr> {
+        let value = Rc::new(self.analyze_expr(&node.value)?);
+
+        Ok(match value.ty.kind.as_ref() {
+            ir_type::TyKind::Reference(rty) => {
+                self.analyze_match_on_reference(node, &value, rty)?
+            }
+
+            ir_type::TyKind::Fundamental(fty) => {
+                self.analyze_match_on_fundamental(node, value.clone(), fty)?
+            }
+
+            _ => {
+                return Err(SemanticError::MatchCannotBeUsedWithValueOfType {
+                    ty: value.ty.kind.to_string(),
+                    span: node.span,
+                }
+                .into())
+            }
+        })
+    }
+
+    fn analyze_loop(&mut self, node: &ast::expr::Loop) -> anyhow::Result<ir::expr::Expr> {
+        self.with_inside_loop(|analyzer| {
+            let body = analyzer.analyze_block_expr(&node.body)?;
+
+            if let ir::expr::ExprKind::Block(block) = body.kind {
+                Ok(ir::expr::Expr {
+                    kind: ir::expr::ExprKind::Loop(ir::expr::Loop { body: block }),
+                    ty: Rc::new(ir_type::Ty::new_unit()),
+                    span: node.span,
+                })
+            } else {
+                unreachable!()
+            }
+        })
+    }
+
+    fn analyze_break(&self, node: &ast::expr::Break) -> anyhow::Result<ir::expr::Expr> {
+        if !self.is_inside_loop() {
+            return Err(SemanticError::BreakOutsideOfLoop { span: node.span }.into());
+        }
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::Break,
+            ty: Rc::new(ir_type::Ty::new_unit()),
+            span: node.span,
+        })
     }
 
     fn analyze_if(&mut self, node: &ast::expr::If) -> anyhow::Result<ir::expr::Expr> {
@@ -283,7 +782,7 @@ impl SemanticAnalyzer {
 
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::Indexing(ir::expr::Indexing {
-                operand: Box::new(operand),
+                operand: Rc::new(operand),
                 index: Box::new(index),
             }),
             ty: elem_ty,
@@ -658,7 +1157,7 @@ impl SemanticAnalyzer {
 
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::Indexing(ir::expr::Indexing {
-                operand: Box::new(left),
+                operand: Rc::new(left),
                 index: Box::new(right),
             }),
             ty,
@@ -755,7 +1254,7 @@ impl SemanticAnalyzer {
         Ok(ir::expr::Expr {
             span: Span::new(lhs.span.start, rhs.span.finish, lhs.span.file),
             kind: ir::expr::ExprKind::Indexing(ir::expr::Indexing {
-                operand: Box::new(lhs),
+                operand: Rc::new(lhs),
                 index: Box::new(self.analyze_expr(rhs)?),
             }),
             ty: elements_ty[index as usize].clone(),

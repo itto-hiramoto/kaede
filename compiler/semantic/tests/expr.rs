@@ -1,6 +1,7 @@
 mod common;
 
 use common::semantic_analyze;
+use common::semantic_analyze_expect_error;
 
 #[test]
 fn int() -> anyhow::Result<()> {
@@ -100,6 +101,124 @@ fn if_with_struct_literal() -> anyhow::Result<()> {
         "struct Foo { a: bool }
         fn f(a: i32): Foo {
             return if Foo { a: true }.a { 58 } else { 123 }
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn struct_access() -> anyhow::Result<()> {
+    semantic_analyze(
+        "struct Foo { a: i32 }
+        fn f(): i32 {
+            let a = Foo { a: 58 }
+            return a.a
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn loop_and_break() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn f() {
+            loop {
+                break
+            }
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn match_on_bool() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn f(x: bool): i32 {
+            return match x {
+                true => 1,
+                false => 0,
+            }
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn match_on_int() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn f(x: i32): i32 {
+            return match x {
+                0 => 1,
+                1 => 2,
+                _ => 0,
+            }
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn match_on_enum() -> anyhow::Result<()> {
+    semantic_analyze(
+        "enum Foo { A, B, C }
+        fn f(x: Foo): i32 {
+            return match x {
+                Foo::A => 1,
+                Foo::B => 2,
+                Foo::C => 3,
+            }
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn match_with_catch_all() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn f(x: i32): i32 {
+            return match x {
+                0 => 1,
+                _ => 0,
+            }
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn match_not_exhaustive_enum() -> anyhow::Result<()> {
+    semantic_analyze_expect_error(
+        "enum Foo { A, B, C }
+        fn f(x: Foo): i32 {
+            return match x {
+                Foo::A => 1,
+                Foo::B => 2,
+            }
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn match_not_exhaustive_int() -> anyhow::Result<()> {
+    semantic_analyze_expect_error(
+        "fn f(x: i32): i32 {
+            return match x {
+                0 => 1,
+                1 => 0,
+            }
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn match_not_exhaustive_bool() -> anyhow::Result<()> {
+    semantic_analyze_expect_error(
+        "fn f(x: bool): i32 {
+            return match x {
+                true => 1,
+            }
         }",
     )?;
     Ok(())

@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, rc::Rc, slice::Iter};
+use std::{collections::VecDeque, rc::Rc};
 
 use inkwell::{context::Context, values::IntValue};
 use kaede_ast_type::{
@@ -199,49 +199,13 @@ pub struct Return {
 pub struct MatchArm {
     pub pattern: Box<Expr>,
     pub code: Rc<Expr>,
-}
-
-impl MatchArm {
-    pub fn is_wildcard(&self) -> bool {
-        match &self.pattern.kind {
-            ExprKind::Ident(ident) => ident.as_str() == "_",
-            _ => false,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct MatchArmList {
-    arms: Vec<MatchArm>,
-    pub wildcard: Option<MatchArm>,
-}
-
-impl MatchArmList {
-    pub fn new(arms: Vec<MatchArm>, wildcard: Option<MatchArm>) -> Self {
-        Self { arms, wildcard }
-    }
-
-    pub fn non_wildcard_iter(&self) -> Iter<MatchArm> {
-        self.arms.iter()
-    }
-
-    pub fn at(&self, idx: usize) -> &MatchArm {
-        &self.arms[idx]
-    }
-
-    pub fn len(&self) -> usize {
-        self.arms.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
+    pub is_catch_all: bool,
 }
 
 #[derive(Debug)]
 pub struct Match {
-    pub target: Box<Expr>,
-    pub arms: MatchArmList,
+    pub value: Box<Expr>,
+    pub arms: Vec<MatchArm>,
     pub span: Span,
 }
 

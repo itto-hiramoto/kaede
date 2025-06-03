@@ -7,6 +7,12 @@ pub enum SemanticError {
     #[error("{}:{}:{} `{}` was not declared in this scope", span.file, span.start.line, span.start.column, .name)]
     Undeclared { name: Symbol, span: Span },
 
+    #[error("{}:{}:{} catch-all arm must be last", span.file, span.start.line, span.start.column)]
+    CatchAllArmMustBeLast { span: Span },
+
+    #[error("{}:{}:{} match cannot be used with value of type `{}`", span.file, span.start.line, span.start.column, .ty)]
+    MatchCannotBeUsedWithValueOfType { ty: String, span: Span },
+
     #[error("{}:{}:{} too few arguments to function `{}`", span.file, span.start.line, span.start.column, .name)]
     TooFewArguments { name: Symbol, span: Span },
 
@@ -85,11 +91,11 @@ pub enum SemanticError {
     #[error("{}:{}:{} all control paths will be `never` (make it a statement, not an if expression)", span.file, span.start.line, span.start.column)]
     NeverIfExpr { span: Span },
 
-    #[error("{}:{}:{} non-exhaustive patterns: {} not covered", span.file, span.start.line, span.start.column, non_exhaustive_patterns)]
-    NonExhaustivePatterns {
-        non_exhaustive_patterns: String,
-        span: Span,
-    },
+    #[error("{}:{}:{} match not exhaustive: {} not covered", span.file, span.start.line, span.start.column, variant_name)]
+    MatchNotExhaustive { variant_name: Symbol, span: Span },
+
+    #[error("{}:{}:{} duplicate pattern: {}", span.file, span.start.line, span.start.column, variant_name)]
+    DuplicatePattern { variant_name: Symbol, span: Span },
 
     #[error("{}:{}:{} cannot unpack values from unit variant `{}`", span.file, span.start.line, span.start.column, unit_variant_name)]
     UnitVariantCannotUnpack {

@@ -2,7 +2,7 @@ use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::expr::{
     Args, ArrayLiteral, Binary, BinaryKind, Break, Else, Expr, ExprKind, ExternalIdent, FnCall, If,
-    Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, MatchArmList, Return, StringLiteral,
+    Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, Return, StringLiteral,
     StructLiteral, TupleLiteral,
 };
 use kaede_ast_type::{Ty, TyKind};
@@ -447,7 +447,6 @@ impl Parser {
         self.consume(&TokenKind::OpenBrace)?;
 
         let mut arms = Vec::new();
-        let mut wildcard = None;
 
         loop {
             if self.check(&TokenKind::CloseBrace) {
@@ -461,17 +460,14 @@ impl Parser {
 
             let code = self.expr()?;
 
-            let arm = MatchArm {
-                pattern: Box::new(pattern),
-                code: Rc::new(code),
-            };
+            let is_catch_all =
+                matches!(pattern.kind, ExprKind::Ident(ref ident) if ident.as_str() == "_");
 
-            if arm.is_wildcard() {
-                assert!(wildcard.is_none());
-                wildcard = Some(arm);
-            } else {
-                arms.push(arm);
-            }
+            arms.push(MatchArm {
+                pattern: Box::new(pattern),
+                is_catch_all,
+                code: Rc::new(code),
+            });
 
             // Allow commas to be omitted only in the last arm.
             if !self.consume_b(&TokenKind::Comma) {
@@ -487,8 +483,8 @@ impl Parser {
         Ok(Expr {
             span,
             kind: ExprKind::Match(Match {
-                target: value.into(),
-                arms: MatchArmList::new(arms, wildcard),
+                value: value.into(),
+                arms,
                 span,
             }),
         })

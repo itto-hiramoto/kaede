@@ -10,6 +10,10 @@ impl ModulePath {
         Self { modules_from_root }
     }
 
+    pub fn get_module_names_from_root(&self) -> &[Symbol] {
+        &self.modules_from_root
+    }
+
     pub fn mangle(&self) -> Symbol {
         self.modules_from_root
             .iter()
