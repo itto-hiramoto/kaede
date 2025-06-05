@@ -4,7 +4,10 @@ use kaede_ir_type::{make_fundamental_type, FundamentalTypeKind, Mutability, Ty};
 use kaede_span::Span;
 use kaede_symbol::Symbol;
 
-use crate::stmt::Block;
+use crate::{
+    stmt::Block,
+    top::{Fn, Struct},
+};
 
 #[derive(Debug)]
 pub struct StringLiteral {
@@ -13,7 +16,7 @@ pub struct StringLiteral {
 
 #[derive(Debug)]
 pub struct StructLiteral {
-    pub name: Symbol,
+    pub struct_info: Rc<Struct>,
     pub values: Vec<(Symbol, Expr)>,
 }
 
@@ -22,7 +25,7 @@ pub struct Args(pub Vec<Expr>);
 
 #[derive(Debug)]
 pub struct FnCall {
-    pub callee: Symbol,
+    pub callee: Rc<Fn>,
     pub args: Args,
 }
 

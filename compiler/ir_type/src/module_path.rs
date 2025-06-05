@@ -1,6 +1,6 @@
 use kaede_symbol::Symbol;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
 pub struct ModulePath {
     modules_from_root: Vec<Symbol>,
 }

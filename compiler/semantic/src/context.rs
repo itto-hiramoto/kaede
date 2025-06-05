@@ -1,6 +1,13 @@
-use kaede_ir_type::ModulePath;
+use std::{cell::RefCell, rc::Rc};
 
-use crate::SemanticAnalyzer;
+use kaede_ir_type::ModulePath;
+use kaede_span::Span;
+use kaede_symbol::Symbol;
+
+use crate::{
+    symbol_table::{SymbolTable, SymbolTableValue},
+    SemanticAnalyzer,
+};
 
 #[derive(Debug, Clone)]
 pub struct AnalysisContext {
@@ -60,5 +67,65 @@ impl SemanticAnalyzer {
 
     pub fn is_inside_loop(&self) -> bool {
         self.context.is_inside_loop
+    }
+}
+
+pub struct ModuleContext {
+    symbol_table_stack: Vec<SymbolTable>,
+}
+
+impl ModuleContext {
+    pub fn new() -> Self {
+        Self {
+            symbol_table_stack: vec![SymbolTable::new()], // Root scope
+        }
+    }
+
+    pub fn push_scope(&mut self, symbol_table: SymbolTable) {
+        self.symbol_table_stack.push(symbol_table);
+    }
+
+    pub fn pop_scope(&mut self) -> Option<SymbolTable> {
+        if self.symbol_table_stack.len() > 1 {
+            self.symbol_table_stack.pop()
+        } else {
+            // The root scope is not popped
+            None
+        }
+    }
+
+    pub fn get_current_symbol_table(&mut self) -> &mut SymbolTable {
+        self.symbol_table_stack.last_mut().unwrap()
+    }
+
+    pub fn lookup_symbol(&self, symbol: &Symbol) -> Option<Rc<RefCell<SymbolTableValue>>> {
+        // Search from the top of the stack (most recent scope)
+        for table in self.symbol_table_stack.iter().rev() {
+            if let Some(value) = table.lookup(symbol) {
+                return Some(value);
+            }
+        }
+        None
+    }
+
+    pub fn insert_symbol_to_current_scope(
+        &mut self,
+        symbol: Symbol,
+        value: SymbolTableValue,
+        span: Span,
+    ) -> anyhow::Result<()> {
+        self.get_current_symbol_table().insert(symbol, value, span)
+    }
+
+    pub fn insert_symbol_to_root_scope(
+        &mut self,
+        symbol: Symbol,
+        value: SymbolTableValue,
+        span: Span,
+    ) -> anyhow::Result<()> {
+        self.symbol_table_stack
+            .first_mut()
+            .unwrap()
+            .insert(symbol, value, span)
     }
 }

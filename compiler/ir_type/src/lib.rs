@@ -1,4 +1,5 @@
 mod module_path;
+mod qualified_symbol;
 
 use std::{fmt::Display, rc::Rc};
 
@@ -10,6 +11,7 @@ use inkwell::{
 use kaede_symbol::Ident;
 
 pub use module_path::ModulePath;
+pub use qualified_symbol::QualifiedSymbol;
 
 /// Duplicate the type, change the mutability, and return the duplicated type
 pub fn change_mutability_dup(ty: Rc<Ty>, mutability: Mutability) -> Rc<Ty> {
@@ -332,17 +334,12 @@ impl Eq for PointerType {}
 
 #[derive(Debug, Clone)]
 pub struct UserDefinedType {
-    pub name: Ident,
-    pub module_path: ModulePath,
+    pub name: QualifiedSymbol,
 }
 
 impl UserDefinedType {
-    pub fn new(name: Ident, module_path: ModulePath) -> Self {
-        Self { name, module_path }
-    }
-
-    pub fn get_mangled_name(&self) -> String {
-        format!("{}::{}", self.module_path.mangle(), self.name.symbol())
+    pub fn new(name: QualifiedSymbol) -> Self {
+        Self { name }
     }
 }
 

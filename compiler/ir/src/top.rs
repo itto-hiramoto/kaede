@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use kaede_ir_type::Ty;
+use kaede_ir_type::{QualifiedSymbol, Ty};
 use kaede_symbol::Symbol;
 
 use crate::stmt::Block;
@@ -14,7 +14,7 @@ pub struct StructField {
 
 #[derive(Debug)]
 pub struct Struct {
-    pub name: Symbol,
+    pub name: QualifiedSymbol,
     pub fields: Vec<StructField>,
 }
 
@@ -26,7 +26,7 @@ pub struct Param {
 
 #[derive(Debug, Clone)]
 pub struct FnDecl {
-    pub name: Symbol,
+    pub name: QualifiedSymbol,
     pub params: Vec<Param>,
     pub is_var_args: bool,
     pub return_ty: Option<Rc<Ty>>,
@@ -47,7 +47,7 @@ pub struct EnumVariant {
 
 #[derive(Debug)]
 pub struct Enum {
-    pub name: Symbol,
+    pub name: QualifiedSymbol,
     pub variants: Vec<EnumVariant>,
 }
 

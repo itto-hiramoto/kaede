@@ -1,7 +1,5 @@
 use std::rc::Rc;
 
-use kaede_symbol::Symbol;
-
 use crate::{
     symbol_table::{
         GenericEnumInfo, GenericFuncInfo, GenericInfo, GenericStructInfo, SymbolTable,
@@ -11,7 +9,8 @@ use crate::{
 };
 
 use kaede_ast as ast;
-use kaede_ir as ir;
+use kaede_ir::{self as ir};
+use kaede_ir_type::QualifiedSymbol;
 
 /// If a top-level is generic, there is no IR that can be generated immediately, so this enum is used.
 #[derive(Debug)]
@@ -43,22 +42,7 @@ impl SemanticAnalyzer {
     fn analyze_fn(&mut self, node: ast::top::Fn) -> anyhow::Result<TopLevelAnalysisResult> {
         assert_eq!(node.decl.self_, None);
 
-        let mangled_name = if node.decl.name.as_str() == "main" {
-            // Suppress mangling of main function.
-            Symbol::from(String::from("kdmain"))
-        } else {
-            self.mangle_fn_name(node.decl.name.as_str())
-        };
-
-        self.analyze_fn_with_mangled_name(node, mangled_name)
-    }
-
-    pub fn analyze_fn_with_mangled_name(
-        &mut self,
-        node: ast::top::Fn,
-        mangled_name: Symbol,
-    ) -> anyhow::Result<TopLevelAnalysisResult> {
-        assert_eq!(node.decl.self_, None);
+        let name = node.decl.name.symbol();
 
         // If the function is generic, register it in the symbol table and return early.
         if node.decl.generic_params.is_some() {
@@ -69,12 +53,21 @@ impl SemanticAnalyzer {
                 self,
             );
 
-            self.get_root_symbol_table()
-                .insert(mangled_name, symbol_table_value, span)?;
+            self.insert_symbol_to_root_scope(name, symbol_table_value, span)?;
 
             // Generic functions are not generated immediately, but are generated when they are used.
             return Ok(TopLevelAnalysisResult::GenericTopLevel);
         }
+
+        Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Fn(
+            self.analyze_fn_internal(node)?,
+        )))
+    }
+
+    pub fn analyze_fn_internal(&mut self, node: ast::top::Fn) -> anyhow::Result<Rc<ir::top::Fn>> {
+        assert_eq!(node.decl.self_, None);
+
+        let name = node.decl.name.symbol();
 
         let params = node
             .decl
@@ -102,11 +95,11 @@ impl SemanticAnalyzer {
 
                 symbol_table.insert(param.name, symbol_table_value, node.span)?;
             }
-            self.symbol_tables.push(symbol_table);
+            self.push_scope(symbol_table);
         }
 
         let fn_decl = ir::top::FnDecl {
-            name: mangled_name,
+            name: QualifiedSymbol::new(self.current_module_path().clone(), name),
             is_var_args: node.decl.params.is_var_args,
             params,
             return_ty: match &node.decl.return_ty {
@@ -121,19 +114,18 @@ impl SemanticAnalyzer {
         });
 
         // Pop the function symbol table.
-        self.symbol_tables.pop();
+        self.pop_scope();
 
         let symbol_table_value =
             SymbolTableValue::new(SymbolTableValueKind::Function(fn_.clone()), self);
 
-        self.get_root_symbol_table()
-            .insert(mangled_name, symbol_table_value, node.span)?;
+        self.insert_symbol_to_root_scope(name, symbol_table_value, node.span)?;
 
-        Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Fn(fn_)))
+        Ok(fn_)
     }
 
     fn analyze_struct(&mut self, node: ast::top::Struct) -> anyhow::Result<TopLevelAnalysisResult> {
-        let mangled_name = self.mangle_struct_name(node.name.as_str()).into();
+        let name = node.name.symbol();
         let span = node.span;
 
         // For generic
@@ -143,8 +135,7 @@ impl SemanticAnalyzer {
                 self,
             );
 
-            self.get_root_symbol_table()
-                .insert(mangled_name, symbol_table_value, span)?;
+            self.insert_symbol_to_root_scope(name, symbol_table_value, span)?;
 
             // Generic structs are not created immediately, but are created when they are used.
             return Ok(TopLevelAnalysisResult::GenericTopLevel);
@@ -163,15 +154,14 @@ impl SemanticAnalyzer {
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         let ir = Rc::new(ir::top::Struct {
-            name: mangled_name,
+            name: QualifiedSymbol::new(self.current_module_path().clone(), name),
             fields,
         });
 
         let symbol_table_value =
             SymbolTableValue::new(SymbolTableValueKind::Struct(ir.clone()), self);
 
-        self.get_root_symbol_table()
-            .insert(mangled_name, symbol_table_value, node.span)?;
+        self.insert_symbol_to_root_scope(name, symbol_table_value, span)?;
 
         Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Struct(
             ir,
@@ -179,7 +169,7 @@ impl SemanticAnalyzer {
     }
 
     fn analyze_enum(&mut self, node: ast::top::Enum) -> anyhow::Result<TopLevelAnalysisResult> {
-        let mangled_name = self.mangle_enum_name(node.name.as_str());
+        let name = node.name.symbol();
         let span = node.span;
 
         // For generic
@@ -189,8 +179,7 @@ impl SemanticAnalyzer {
                 self,
             );
 
-            self.get_current_symbol_table()
-                .insert(mangled_name, symbol_table_value, span)?;
+            self.insert_symbol_to_root_scope(name, symbol_table_value, span)?;
 
             // Generics are not created immediately, but are created when they are used.
             return Ok(TopLevelAnalysisResult::GenericTopLevel);
@@ -212,15 +201,14 @@ impl SemanticAnalyzer {
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         let ir = Rc::new(ir::top::Enum {
-            name: mangled_name,
+            name: QualifiedSymbol::new(self.current_module_path().clone(), name),
             variants,
         });
 
         let symbol_table_value =
             SymbolTableValue::new(SymbolTableValueKind::Enum(ir.clone()), self);
 
-        self.get_current_symbol_table()
-            .insert(mangled_name, symbol_table_value, span)?;
+        self.insert_symbol_to_root_scope(name, symbol_table_value, span)?;
 
         Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Enum(
             ir,

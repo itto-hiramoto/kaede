@@ -1,16 +1,15 @@
-use std::{cell::RefCell, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc};
 
 use context::AnalysisContext;
-use kaede_ir_type as ir_type;
+use kaede_ir_type::{self as ir_type, ModulePath, QualifiedSymbol};
 
-use kaede_span::file::FilePath;
+use kaede_span::{file::FilePath, Span};
 use kaede_symbol::Symbol;
-use symbol_table::{GenericArgumentTable, SymbolTable, SymbolTableValue};
+use symbol_table::{GenericArgumentTable, SymbolTableValue};
 
 mod context;
 mod error;
 mod expr;
-mod mangle;
 mod stmt;
 mod symbol_table;
 mod top;
@@ -21,8 +20,10 @@ use kaede_ast as ast;
 use kaede_ir as ir;
 pub use top::TopLevelAnalysisResult;
 
+use crate::{context::ModuleContext, symbol_table::SymbolTable};
+
 pub struct SemanticAnalyzer {
-    symbol_tables: Vec<SymbolTable>,
+    modules: HashMap<ModulePath, ModuleContext>,
     context: AnalysisContext,
     generic_argument_table: GenericArgumentTable,
 }
@@ -44,35 +45,93 @@ impl SemanticAnalyzer {
 
         // Set the current module name in the context.
         let mut context = AnalysisContext::new();
-        context.set_module_path(ir_type::ModulePath::new(modules_from_root));
+        let module_path = ir_type::ModulePath::new(modules_from_root);
+        context.set_module_path(module_path.clone());
+
+        let mut module_context = ModuleContext::new();
+        module_context.push_scope(SymbolTable::new());
 
         Self {
-            symbol_tables: vec![SymbolTable::new()],
+            modules: HashMap::from([(module_path, module_context)]),
             context,
             generic_argument_table: GenericArgumentTable::new(),
         }
     }
 
     pub fn lookup_symbol(&self, symbol: Symbol) -> Option<Rc<RefCell<SymbolTableValue>>> {
-        for symbol_table in self.symbol_tables.iter().rev() {
-            if let Some(value) = symbol_table.lookup(&symbol) {
-                return Some(value);
-            }
-        }
+        self.modules
+            .get(&self.current_module_path())
+            .unwrap()
+            .lookup_symbol(&symbol)
+    }
 
-        None
+    pub fn lookup_qualified_symbol(
+        &self,
+        symbol: QualifiedSymbol,
+    ) -> Option<Rc<RefCell<SymbolTableValue>>> {
+        self.modules
+            .get(symbol.module_path())
+            .unwrap()
+            .lookup_symbol(&symbol.symbol())
     }
 
     pub fn lookup_generic_argument(&self, symbol: Symbol) -> Option<Rc<ir_type::Ty>> {
         self.generic_argument_table.lookup(symbol)
     }
 
-    pub fn get_root_symbol_table(&mut self) -> &mut SymbolTable {
-        self.symbol_tables.first_mut().unwrap()
+    pub fn insert_symbol_to_current_scope(
+        &mut self,
+        symbol: Symbol,
+        value: SymbolTableValue,
+        span: Span,
+    ) -> anyhow::Result<()> {
+        let module_path = self.current_module_path().clone();
+        self.modules
+            .get_mut(&module_path)
+            .unwrap()
+            .insert_symbol_to_current_scope(symbol, value, span)
     }
 
-    pub fn get_current_symbol_table(&mut self) -> &mut SymbolTable {
-        self.symbol_tables.last_mut().unwrap()
+    pub fn insert_symbol_to_root_scope(
+        &mut self,
+        symbol: Symbol,
+        value: SymbolTableValue,
+        span: Span,
+    ) -> anyhow::Result<()> {
+        let module_path = self.current_module_path().clone();
+        self.modules
+            .get_mut(&module_path)
+            .unwrap()
+            .insert_symbol_to_root_scope(symbol, value, span)
+    }
+
+    pub fn create_generated_generic_key(&self, name: Symbol, args: Vec<Rc<ir_type::Ty>>) -> Symbol {
+        format!(
+            "{}_{}",
+            name,
+            args.iter()
+                .map(|ty| ty.kind.to_string())
+                .collect::<Vec<_>>()
+                .join("_")
+        )
+        .into()
+    }
+
+    pub fn create_method_key(&self, parent_name: Symbol, method_name: Symbol) -> Symbol {
+        format!("{}.{}", parent_name, method_name).into()
+    }
+
+    pub fn push_scope(&mut self, symbol_table: SymbolTable) {
+        let module_path = self.current_module_path().clone();
+        self.modules
+            .get_mut(&module_path)
+            .unwrap()
+            .push_scope(symbol_table);
+    }
+
+    pub fn pop_scope(&mut self) {
+        let module_path = self.current_module_path().clone();
+        self.modules.get_mut(&module_path).unwrap().pop_scope();
     }
 
     pub fn analyze(&mut self, compile_unit: ast::CompileUnit) -> anyhow::Result<ir::CompileUnit> {

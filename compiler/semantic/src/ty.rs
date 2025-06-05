@@ -87,8 +87,10 @@ impl SemanticAnalyzer {
     fn analyze_user_defined_type(&self, udt: &ast_type::UserDefinedType) -> ir_type::Ty {
         ir_type::Ty {
             kind: ir_type::TyKind::UserDefined(ir_type::UserDefinedType {
-                name: udt.name,
-                module_path: self.current_module_path().clone(),
+                name: ir_type::QualifiedSymbol::new(
+                    self.current_module_path().clone(),
+                    udt.name.symbol(),
+                ),
             })
             .into(),
             mutability: ir_type::Mutability::Not,

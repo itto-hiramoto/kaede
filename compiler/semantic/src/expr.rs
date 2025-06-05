@@ -143,7 +143,7 @@ impl SemanticAnalyzer {
             {
                 return Err(SemanticError::NoVariant {
                     variant_name: decomposed.variant_name.symbol(),
-                    parent_name: enum_ir.name,
+                    parent_name: enum_ir.name.symbol(),
                     span: node.span,
                 }
                 .into());
@@ -379,14 +379,12 @@ impl SemanticAnalyzer {
         };
 
         let enum_symbol = if let ir_type::TyKind::UserDefined(udt) = base_ty.kind.as_ref() {
-            let mangled_name = self.mangle_enum_name(udt.name.as_str());
-
-            let symbol =
-                self.lookup_symbol(mangled_name)
-                    .ok_or_else(|| SemanticError::Undeclared {
-                        name: udt.name.symbol(),
-                        span: node.span,
-                    })?;
+            let symbol = self
+                .lookup_qualified_symbol(udt.name.clone())
+                .ok_or_else(|| SemanticError::Undeclared {
+                    name: udt.name.symbol(),
+                    span: node.span,
+                })?;
 
             symbol
         } else {
@@ -628,7 +626,7 @@ impl SemanticAnalyzer {
         &mut self,
         info: &GenericFuncInfo,
         generic_args: &ast_type::GenericArgs,
-    ) -> anyhow::Result<Symbol> {
+    ) -> anyhow::Result<Rc<ir::top::Fn>> {
         let generic_params = match info.ast.decl.generic_params.as_ref() {
             Some(generic_params) => generic_params,
             None => todo!("Error"),
@@ -640,23 +638,27 @@ impl SemanticAnalyzer {
             .map(|arg| self.analyze_type(arg))
             .collect::<anyhow::Result<Vec<_>>>()?;
 
-        // Mangle the generic function name
-        let mangled_name = self.mangle_generic_fn_name(info.ast.decl.name.as_str(), &generic_args);
+        let generated_generic_key =
+            self.create_generated_generic_key(info.ast.decl.name.symbol(), generic_args.clone());
 
+        // Mangle the generic function name
         // If the generic function is already generated, return early
-        if self.lookup_symbol(mangled_name).map_or(false, |v| {
-            matches!(v.borrow().kind, SymbolTableValueKind::Function(_))
-        }) {
-            return Ok(mangled_name);
+        if let Some(symbol_value) = self.lookup_symbol(generated_generic_key) {
+            if let SymbolTableValueKind::Function(fn_) = &symbol_value.borrow().kind {
+                return Ok(fn_.clone());
+            } else {
+                unreachable!()
+            }
         }
 
         // Generate the generic function
-        self.with_generic_arguments(generic_params, &generic_args, |analyzer| {
-            analyzer.analyze_fn_with_mangled_name(info.ast.clone(), mangled_name)?;
-            Ok(())
+        let fn_ = self.with_generic_arguments(generic_params, &generic_args, |analyzer| {
+            let mut fn_ = info.ast.clone();
+            fn_.decl.name = Ident::new(generated_generic_key, Span::dummy());
+            analyzer.analyze_fn_internal(fn_)
         })?;
 
-        Ok(mangled_name)
+        Ok(fn_)
     }
 
     fn analyze_generic_fn_call(
@@ -665,7 +667,7 @@ impl SemanticAnalyzer {
         node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
         // Generate the generic function
-        let mangled_fn_name = match info {
+        let callee = match info {
             GenericInfo::Func(info) => {
                 self.generate_generic_fn(info, node.generic_args.as_ref().unwrap())?
             }
@@ -678,22 +680,11 @@ impl SemanticAnalyzer {
             args.push(self.analyze_expr(arg)?);
         }
 
-        let callee = self
-            .lookup_symbol(mangled_fn_name)
-            .map(|value| match &value.borrow().kind {
-                SymbolTableValueKind::Function(fn_) => fn_.clone(),
-                _ => unreachable!(),
-            })
-            .ok_or_else(|| SemanticError::Undeclared {
-                name: node.callee.symbol(),
-                span: node.span,
-            })?;
-
         self.verify_fn_call_arguments(&callee, &args, node.span)?;
 
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
-                callee: callee.decl.name,
+                callee: callee.clone(),
                 args: ir::expr::Args(args),
             }),
             ty: match callee.decl.return_ty.as_ref() {
@@ -708,10 +699,8 @@ impl SemanticAnalyzer {
         &mut self,
         node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
-        let mangled_fn_name = self.mangle_fn_name(node.callee.as_str());
-
         let symbol_value =
-            self.lookup_symbol(mangled_fn_name)
+            self.lookup_symbol(node.callee.symbol())
                 .ok_or_else(|| SemanticError::Undeclared {
                     name: node.callee.symbol(),
                     span: node.span,
@@ -735,7 +724,7 @@ impl SemanticAnalyzer {
 
                 Ok(ir::expr::Expr {
                     kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
-                        callee: callee.decl.name,
+                        callee: callee.clone(),
                         args: ir::expr::Args(args),
                     }),
                     ty: match callee.decl.return_ty.as_ref() {
@@ -908,7 +897,7 @@ impl SemanticAnalyzer {
             });
         }
 
-        self.symbol_tables.push(SymbolTable::new());
+        self.push_scope(SymbolTable::new());
 
         let mut body = Vec::new();
 
@@ -951,7 +940,7 @@ impl SemanticAnalyzer {
             }
         };
 
-        self.symbol_tables.pop();
+        self.pop_scope();
 
         Ok(retval)
     }
@@ -1048,40 +1037,16 @@ impl SemanticAnalyzer {
         match ir_right.kind {
             // Method call
             ir::expr::ExprKind::FnCall(call_node) => {
-                let method_name = format!("str.{}", call_node.callee).into();
-
-                let no_method_err = || SemanticError::NoMethod {
-                    method_name: call_node.callee,
-                    parent_name: "str".to_string().into(),
-                    span: ast_right.span,
-                };
-
-                let callee = match self.lookup_symbol(method_name) {
-                    Some(value) => {
-                        let value = value.borrow();
-
-                        if let SymbolTableValueKind::Function(fn_) = &value.kind {
-                            fn_.clone()
-                        } else {
-                            return Err(no_method_err().into());
-                        }
-                    }
-
-                    None => {
-                        return Err(no_method_err().into());
-                    }
-                };
-
                 let span = Span::new(left.span.start, ast_right.span.finish, left.span.file);
 
                 let args = std::iter::once(left)
                     .chain(call_node.args.0.into_iter())
                     .collect::<Vec<_>>();
 
-                self.verify_fn_call_arguments(&callee, &args, ast_right.span)?;
+                self.verify_fn_call_arguments(&call_node.callee, &args, ast_right.span)?;
 
                 let call_node = ir::expr::FnCall {
-                    callee: callee.decl.name,
+                    callee: call_node.callee.clone(),
                     args: ir::expr::Args(args),
                 };
 
@@ -1174,7 +1139,7 @@ impl SemanticAnalyzer {
         match fn_.decl.params.len().cmp(&args.len()) {
             std::cmp::Ordering::Less => {
                 return Err(SemanticError::TooManyArguments {
-                    name: fn_.decl.name,
+                    name: fn_.decl.name.symbol(),
                     span: call_node_span,
                 }
                 .into());
@@ -1182,7 +1147,7 @@ impl SemanticAnalyzer {
 
             std::cmp::Ordering::Greater => {
                 return Err(SemanticError::TooFewArguments {
-                    name: fn_.decl.name,
+                    name: fn_.decl.name.symbol(),
                     span: call_node_span,
                 }
                 .into());
@@ -1280,18 +1245,23 @@ impl SemanticAnalyzer {
         }
     }
 
+    /// e.g. test.Person.get_age
     fn analyze_struct_method_call(
         &mut self,
         lhs: ir::expr::Expr,
         udt: &ir_type::UserDefinedType,
         call_node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
-        // e.g. test.Person.get_age
-        let method_name =
-            format!("{}.{}", udt.get_mangled_name(), call_node.callee.as_str()).into();
-
-        let span = Span::new(lhs.span.start, call_node.span.finish, lhs.span.file);
-        self.create_method_call_ir(method_name, udt.name.symbol(), call_node, lhs, span)
+        self.with_external_module(udt.name.module_path().clone(), |analyzer| {
+            let span = Span::new(lhs.span.start, call_node.span.finish, lhs.span.file);
+            analyzer.create_method_call_ir(
+                call_node.callee.symbol(),
+                udt.name.symbol(),
+                call_node,
+                lhs,
+                span,
+            )
+        })
     }
 
     fn analyze_struct_field_access(
@@ -1322,7 +1292,7 @@ impl SemanticAnalyzer {
             })
             .ok_or_else(|| SemanticError::NoMember {
                 member_name: field_name.symbol(),
-                parent_name: struct_info.name,
+                parent_name: struct_info.name.symbol(),
                 span: rhs.span,
             })?;
 
@@ -1339,7 +1309,7 @@ impl SemanticAnalyzer {
 
     fn create_method_call_ir(
         &mut self,
-        mangled_method_name: Symbol,
+        method_name: Symbol,
         parent_name: Symbol,
         call_node: &ast::expr::FnCall,
         this: ir::expr::Expr,
@@ -1351,7 +1321,9 @@ impl SemanticAnalyzer {
             span: call_node.span,
         };
 
-        let callee = match self.lookup_symbol(mangled_method_name) {
+        let method_name = self.create_method_key(parent_name, method_name);
+
+        let callee = match self.lookup_symbol(method_name) {
             Some(value) => {
                 let value = value.borrow();
 
@@ -1382,7 +1354,7 @@ impl SemanticAnalyzer {
         self.verify_fn_call_arguments(&callee, &args, call_node.span)?;
 
         let call_node = ir::expr::FnCall {
-            callee: callee.decl.name,
+            callee: callee.clone(),
             args: ir::expr::Args(args),
         };
 
@@ -1394,18 +1366,16 @@ impl SemanticAnalyzer {
         })
     }
 
+    /// e.g. `i32.abs`
     fn analyze_fundamental_type_method_call(
         &mut self,
         left: ir::expr::Expr,
         fty: &ir_type::FundamentalType,
         call_node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
-        // e.g. i32.abs
-        let method_name = format!("{}.{}", fty.kind, call_node.callee.as_str()).into();
-
         let span = Span::new(left.span.start, call_node.span.finish, left.span.file);
         self.create_method_call_ir(
-            method_name,
+            call_node.callee.symbol(),
             fty.kind.to_string().into(),
             call_node,
             left,

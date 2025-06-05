@@ -166,10 +166,7 @@ impl SymbolTable {
     }
 
     pub fn lookup(&self, symbol: &Symbol) -> Option<Rc<RefCell<SymbolTableValue>>> {
-        return match self.table.get(symbol) {
-            Some(value) => Some(value.clone()),
-            None => None,
-        };
+        self.table.get(symbol).cloned()
     }
 
     pub fn insert(
@@ -207,12 +204,12 @@ impl GenericArgumentTable {
 }
 
 impl SemanticAnalyzer {
-    pub fn with_generic_arguments(
+    pub fn with_generic_arguments<T>(
         &mut self,
         generic_params: &ast::top::GenericParams,
         generic_args: &[Rc<ir_type::Ty>],
-        f: impl FnOnce(&mut Self) -> anyhow::Result<()>,
-    ) -> anyhow::Result<()> {
+        f: impl FnOnce(&mut Self) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
         // Insert the generic arguments
         generic_params
             .names
