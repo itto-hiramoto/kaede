@@ -1,7 +1,8 @@
 use std::rc::Rc;
 
 use kaede_ir_type::{QualifiedSymbol, Ty};
-use kaede_symbol::Symbol;
+use kaede_span::Span;
+use kaede_symbol::{Ident, Symbol};
 
 use crate::stmt::Block;
 
@@ -20,7 +21,7 @@ pub struct Struct {
 
 #[derive(Debug, Clone)]
 pub struct Param {
-    pub name: Symbol,
+    pub name: Ident,
     pub ty: Rc<Ty>,
 }
 

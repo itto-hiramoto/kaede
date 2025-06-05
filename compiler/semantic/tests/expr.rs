@@ -84,6 +84,19 @@ fn if_() -> anyhow::Result<()> {
         "fn f(a: i32): i32 {
             return if a == 0 {
                 1
+            } else if a > 0 {
+                -1
+            } else {
+                0
+            }
+        }",
+    )?;
+
+    // Test that `a < 0` is correctly parsed as a comparison, not generic syntax
+    semantic_analyze(
+        "fn f(a: i32): i32 {
+            return if a == 0 {
+                1
             } else if a < 0 {
                 -1
             } else {
@@ -91,6 +104,7 @@ fn if_() -> anyhow::Result<()> {
             }
         }",
     )?;
+
     Ok(())
 }
 

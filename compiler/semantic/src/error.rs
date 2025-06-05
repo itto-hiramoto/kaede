@@ -7,6 +7,16 @@ pub enum SemanticError {
     #[error("{}:{}:{} `{}` was not declared in this scope", span.file, span.start.line, span.start.column, .name)]
     Undeclared { name: Symbol, span: Span },
 
+    #[error("{}:{}:{} generic argument length mismatch: `{}` vs `{}`", span.file, span.start.line, span.start.column, .expected, .actual)]
+    GenericArgumentLengthMismatch {
+        expected: usize,
+        actual: usize,
+        span: Span,
+    },
+
+    #[error("{}:{}:{} expected variable, found `{}`", span.file, span.start.line, span.start.column, .name)]
+    ExpectedVariable { name: Symbol, span: Span },
+
     #[error("{}:{}:{} catch-all arm must be last", span.file, span.start.line, span.start.column)]
     CatchAllArmMustBeLast { span: Span },
 

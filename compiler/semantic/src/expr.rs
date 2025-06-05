@@ -1470,16 +1470,26 @@ impl SemanticAnalyzer {
     fn analyze_ident(&self, node: &Ident) -> anyhow::Result<ir::expr::Expr> {
         self.lookup_symbol(node.symbol())
             .map(|value| match &value.borrow().kind {
-                SymbolTableValueKind::Variable(VariableInfo { ty }) => ir::expr::Expr {
+                SymbolTableValueKind::Variable(VariableInfo { ty }) => Ok(ir::expr::Expr {
                     kind: ir::expr::ExprKind::Variable(ir::expr::Variable {
                         name: node.symbol(),
                         ty: ty.clone(),
                     }),
                     ty: ty.clone(),
                     span: node.span(),
-                },
-                _ => todo!("Error"),
+                }),
+                _ => Err(SemanticError::ExpectedVariable {
+                    name: node.symbol(),
+                    span: node.span(),
+                }),
             })
-            .ok_or_else(|| anyhow::anyhow!("Symbol not found: {:?}", node))
+            .transpose()?
+            .ok_or_else(|| {
+                SemanticError::Undeclared {
+                    name: node.symbol(),
+                    span: node.span(),
+                }
+                .into()
+            })
     }
 }

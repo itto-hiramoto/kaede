@@ -5,12 +5,14 @@ use crate::{
         GenericEnumInfo, GenericFuncInfo, GenericInfo, GenericStructInfo, SymbolTable,
         SymbolTableValue, SymbolTableValueKind, VariableInfo,
     },
-    SemanticAnalyzer,
+    SemanticAnalyzer, SemanticError,
 };
 
 use kaede_ast as ast;
 use kaede_ir::{self as ir};
 use kaede_ir_type::QualifiedSymbol;
+
+use kaede_ir_type as ir_type;
 
 /// If a top-level is generic, there is no IR that can be generated immediately, so this enum is used.
 #[derive(Debug)]
@@ -76,7 +78,7 @@ impl SemanticAnalyzer {
             .into_iter()
             .map(|p| -> anyhow::Result<ir::top::Param> {
                 Ok(ir::top::Param {
-                    name: p.name.symbol(),
+                    name: p.name,
                     ty: self.analyze_type(&p.ty)?.into(),
                 })
             })
@@ -86,6 +88,19 @@ impl SemanticAnalyzer {
         {
             let mut symbol_table = SymbolTable::new();
             for param in params.iter() {
+                // Check if the user-defined type is declared.
+                if let ir_type::TyKind::Reference(rty) = param.ty.kind.as_ref() {
+                    if let ir_type::TyKind::UserDefined(udt) = rty.get_base_type().kind.as_ref() {
+                        if self.lookup_qualified_symbol(udt.name.clone()).is_none() {
+                            return Err(SemanticError::Undeclared {
+                                name: udt.name.symbol(),
+                                span: param.name.span(),
+                            }
+                            .into());
+                        }
+                    }
+                }
+
                 let symbol_table_value = SymbolTableValue::new(
                     SymbolTableValueKind::Variable(VariableInfo {
                         ty: param.ty.clone(),
@@ -93,7 +108,7 @@ impl SemanticAnalyzer {
                     self,
                 );
 
-                symbol_table.insert(param.name, symbol_table_value, node.span)?;
+                symbol_table.insert(param.name.symbol(), symbol_table_value, node.span)?;
             }
             self.push_scope(symbol_table);
         }

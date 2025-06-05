@@ -210,6 +210,16 @@ impl SemanticAnalyzer {
         generic_args: &[Rc<ir_type::Ty>],
         f: impl FnOnce(&mut Self) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
+        // Check the length of the generic arguments
+        if generic_params.names.len() != generic_args.len() {
+            return Err(SemanticError::GenericArgumentLengthMismatch {
+                expected: generic_params.names.len(),
+                actual: generic_args.len(),
+                span: generic_params.span,
+            }
+            .into());
+        }
+
         // Insert the generic arguments
         generic_params
             .names

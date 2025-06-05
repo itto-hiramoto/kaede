@@ -32,7 +32,15 @@ impl Parser {
         let mut types = Vec::new();
 
         loop {
-            types.push(Rc::new(self.ty()?));
+            let ty = self.ty();
+
+            match ty {
+                Ok(ty) => types.push(Rc::new(ty)),
+                Err(_) => {
+                    self.backtrack();
+                    return Ok(None);
+                }
+            }
 
             if !self.consume_b(&TokenKind::Comma) {
                 break;

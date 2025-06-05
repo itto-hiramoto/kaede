@@ -66,5 +66,14 @@ fn function_with_generic_params() -> anyhow::Result<()> {
     }",
     )?;
 
+    semantic_analyze_expect_error(
+        "fn foo<T, U>(a: T, b: U): T {
+        return a + b
+    }
+    fn f() {
+        foo<123>(1, 2)
+    }",
+    )?;
+
     Ok(())
 }
