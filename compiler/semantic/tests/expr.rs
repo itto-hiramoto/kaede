@@ -1,7 +1,6 @@
 mod common;
 
-use common::semantic_analyze;
-use common::semantic_analyze_expect_error;
+use common::{semantic_analyze, semantic_analyze_expect_error};
 
 #[test]
 fn int() -> anyhow::Result<()> {
@@ -90,6 +89,38 @@ fn if_() -> anyhow::Result<()> {
             } else {
                 0
             }
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn tuple_literal() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn f(): (i32, bool) {
+            return (42, true)
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn tuple_indexing() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn f(): i32 {
+            let t = (42, true, 3.14)
+            return t.0
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn struct_literal() -> anyhow::Result<()> {
+    semantic_analyze(
+        "struct Foo { a: i32, b: bool }
+        fn f(): Foo {
+            return Foo { a: 42, b: true }
         }",
     )?;
     Ok(())
