@@ -46,7 +46,7 @@ impl SemanticAnalyzer {
             ExprKind::Loop(node) => self.analyze_loop(node),
             ExprKind::Match(node) => self.analyze_match(node),
             ExprKind::StructLiteral(node) => self.analyze_struct_literal(node),
-            // ExprKind::TupleLiteral(TupleLiteral),
+            ExprKind::TupleLiteral(node) => self.analyze_tuple_literal(node),
             ExprKind::Ty(_) => Ok(ir::expr::Expr {
                 kind: ir::expr::ExprKind::DoNothing,
                 ty: Rc::new(ir_type::Ty::new_unit()),
@@ -55,9 +55,37 @@ impl SemanticAnalyzer {
 
             ExprKind::ExternalIdent(_) => todo!(),
             ExprKind::GenericIdent(_) => todo!(),
-
-            _ => unimplemented!(),
         }
+    }
+
+    fn analyze_tuple_literal(
+        &mut self,
+        node: &ast::expr::TupleLiteral,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let element_values = node
+            .elements
+            .iter()
+            .map(|e| self.analyze_expr(e))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        let tuple_ty = ir::ty::Ty {
+            kind: ir::ty::TyKind::Tuple(element_values.iter().map(|v| v.ty.clone()).collect())
+                .into(),
+            mutability: ir::ty::Mutability::Not,
+        };
+
+        let tuple_ir = ir::expr::TupleLiteral {
+            elements: element_values,
+        };
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::TupleLiteral(tuple_ir),
+            ty: Rc::new(ir::ty::wrap_in_ref(
+                Rc::new(tuple_ty),
+                ir::ty::Mutability::Mut,
+            )),
+            span: node.span,
+        })
     }
 
     fn analyze_struct_literal(
