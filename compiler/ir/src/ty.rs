@@ -133,6 +133,14 @@ impl From<bool> for Mutability {
     }
 }
 
+impl From<kaede_ast_type::Mutability> for Mutability {
+    fn from(value: kaede_ast_type::Mutability) -> Self {
+        match value {
+            kaede_ast_type::Mutability::Mut => Mutability::Mut,
+            kaede_ast_type::Mutability::Not => Mutability::Not,
+        }
+    }
+}
 impl Mutability {
     /// Return `true` if self is mutable
     pub fn is_mut(self) -> bool {
