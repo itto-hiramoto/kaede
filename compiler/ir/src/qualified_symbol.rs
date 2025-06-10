@@ -1,6 +1,6 @@
 use kaede_symbol::Symbol;
 
-use crate::ModulePath;
+use crate::module_path::ModulePath;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct QualifiedSymbol {

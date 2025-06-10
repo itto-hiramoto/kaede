@@ -9,7 +9,7 @@ use slab::Slab;
 
 // Do not derive PartialEq or Eq!
 // Unintended behavior is likely to be caused by comparisons involving span!
-#[derive(Debug, Clone, Copy, Hash)]
+#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Ident {
     name: Symbol,
     span: Span,

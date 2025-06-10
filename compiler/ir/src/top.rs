@@ -1,10 +1,8 @@
 use std::rc::Rc;
 
-use kaede_ir_type::{QualifiedSymbol, Ty};
-use kaede_span::Span;
 use kaede_symbol::{Ident, Symbol};
 
-use crate::stmt::Block;
+use crate::{qualified_symbol::QualifiedSymbol, stmt::Block, ty::Ty};
 
 #[derive(Debug, Clone)]
 pub struct StructField {
@@ -19,13 +17,13 @@ pub struct Struct {
     pub fields: Vec<StructField>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Param {
     pub name: Ident,
     pub ty: Rc<Ty>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FnDecl {
     pub name: QualifiedSymbol,
     pub params: Vec<Param>,
@@ -38,6 +36,14 @@ pub struct Fn {
     pub decl: FnDecl,
     pub body: Block,
 }
+
+impl PartialEq for Fn {
+    fn eq(&self, other: &Self) -> bool {
+        self.decl == other.decl
+    }
+}
+
+impl Eq for Fn {}
 
 #[derive(Debug)]
 pub struct EnumVariant {
@@ -58,10 +64,16 @@ pub struct Extern {
     pub fn_decl: FnDecl,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Impl {
+    pub methods: Vec<Rc<Fn>>,
+}
+
+#[derive(Debug, Clone)]
 pub enum TopLevel {
     Fn(Rc<Fn>),
     Struct(Rc<Struct>),
     Enum(Rc<Enum>),
-    Extern(Extern),
+    Extern(Rc<Extern>),
+    Impl(Rc<Impl>),
 }

@@ -268,3 +268,19 @@ fn match_not_exhaustive_bool() -> anyhow::Result<()> {
     )?;
     Ok(())
 }
+
+#[test]
+fn enum_variant() -> anyhow::Result<()> {
+    semantic_analyze(
+        "enum Foo { A, B(i32), C }
+        fn f(): i32 {
+            let x = Foo::B(1)
+            return match x {
+                Foo::A => 1,
+                Foo::B(x) => x,
+                Foo::C => 3,
+            }
+        }",
+    )?;
+    Ok(())
+}

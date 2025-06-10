@@ -1,12 +1,12 @@
 use std::rc::Rc;
 
-use kaede_ir_type::{make_fundamental_type, FundamentalTypeKind, Mutability, Ty};
 use kaede_span::Span;
 use kaede_symbol::Symbol;
 
 use crate::{
     stmt::Block,
     top::{Fn, Struct},
+    ty::{make_fundamental_type, FundamentalTypeKind, Mutability, Ty},
 };
 
 #[derive(Debug)]

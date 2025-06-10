@@ -1,6 +1,3 @@
-mod module_path;
-mod qualified_symbol;
-
 use std::{fmt::Display, rc::Rc};
 
 use inkwell::{
@@ -8,10 +5,12 @@ use inkwell::{
     types::{BasicType, BasicTypeEnum},
     AddressSpace,
 };
-use kaede_symbol::Ident;
+use kaede_symbol::Symbol;
 
-pub use module_path::ModulePath;
-pub use qualified_symbol::QualifiedSymbol;
+use crate::{
+    module_path::ModulePath,
+    top::{Enum, Struct},
+};
 
 /// Duplicate the type, change the mutability, and return the duplicated type
 pub fn change_mutability_dup(ty: Rc<Ty>, mutability: Mutability) -> Rc<Ty> {
@@ -208,7 +207,7 @@ impl std::fmt::Display for TyKind {
         match self {
             Self::Fundamental(fty) => write!(f, "{}", fty.kind),
 
-            Self::UserDefined(udt) => write!(f, "{}", udt.name.symbol().as_str()),
+            Self::UserDefined(udt) => write!(f, "{}", udt.to_string()),
 
             Self::Reference(refee) => write!(f, "&{}", refee.refee_ty.kind),
 
@@ -333,25 +332,69 @@ impl PartialEq for PointerType {
 impl Eq for PointerType {}
 
 #[derive(Debug, Clone)]
+pub enum UserDefinedTypeKind {
+    Struct(Rc<Struct>),
+    Enum(Rc<Enum>),
+}
+
+#[derive(Debug, Clone)]
 pub struct UserDefinedType {
-    pub name: QualifiedSymbol,
+    pub kind: UserDefinedTypeKind,
+    pub generic_args: Vec<Rc<Ty>>,
 }
 
 impl UserDefinedType {
-    pub fn new(name: QualifiedSymbol) -> Self {
-        Self { name }
+    pub fn new(kind: UserDefinedTypeKind) -> Self {
+        Self {
+            kind,
+            generic_args: vec![],
+        }
+    }
+
+    pub fn new_with_generic_args(kind: UserDefinedTypeKind, generic_args: Vec<Rc<Ty>>) -> Self {
+        Self { kind, generic_args }
+    }
+
+    pub fn module_path(&self) -> ModulePath {
+        match &self.kind {
+            UserDefinedTypeKind::Struct(s) => s.name.module_path().clone(),
+            UserDefinedTypeKind::Enum(e) => e.name.module_path().clone(),
+        }
+    }
+
+    pub fn name(&self) -> Symbol {
+        let raw_name = match &self.kind {
+            UserDefinedTypeKind::Struct(s) => s.name.symbol(),
+            UserDefinedTypeKind::Enum(e) => e.name.symbol(),
+        };
+
+        if self.generic_args.is_empty() {
+            return raw_name;
+        }
+
+        format!(
+            "{}_{}",
+            raw_name,
+            self.generic_args
+                .iter()
+                .map(|t| t.kind.to_string())
+                .collect::<Vec<_>>()
+                .join("_")
+        )
+        .into()
     }
 }
 
 impl Display for UserDefinedType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.name.symbol().as_str())
+        write!(f, "{}", self.name())
     }
 }
 
 impl PartialEq for UserDefinedType {
     fn eq(&self, other: &Self) -> bool {
-        self.name.symbol() == other.name.symbol()
+        // TODO: Compare the actual type
+        self.to_string() == other.to_string()
     }
 }
 

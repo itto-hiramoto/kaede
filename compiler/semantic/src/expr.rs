@@ -3,16 +3,15 @@ use std::{collections::BTreeSet, rc::Rc};
 use crate::{
     error::SemanticError,
     symbol_table::{
-        GenericFuncInfo, GenericInfo, SymbolTable, SymbolTableValue, SymbolTableValueKind,
-        VariableInfo,
+        GenericFuncInfo, GenericInfo, GenericKind, SymbolTable, SymbolTableValueKind, VariableInfo,
     },
     SemanticAnalyzer,
 };
 
 use kaede_ast as ast;
 use kaede_ast_type as ast_type;
-use kaede_ir as ir;
-use kaede_ir_type::{self as ir_type, make_fundamental_type, ModulePath};
+use kaede_ir::{self as ir, ty::make_fundamental_type};
+use kaede_ir::{module_path::ModulePath, ty as ir_type};
 use kaede_span::Span;
 use kaede_symbol::{Ident, Symbol};
 
@@ -99,17 +98,12 @@ impl SemanticAnalyzer {
     fn check_exhaustiveness_for_match_on_enum(
         &mut self,
         node: &ast::expr::Match,
-        enum_symbol: &SymbolTableValue,
+        enum_ir: &ir::top::Enum,
     ) -> anyhow::Result<()> {
         // If there is a catch-all arm, we don't need to check exhaustiveness
         if node.arms.iter().any(|arm| arm.is_catch_all) {
             return Ok(());
         }
-
-        let enum_ir = match &enum_symbol.kind {
-            SymbolTableValueKind::Enum(ir) => ir.clone(),
-            _ => unreachable!(),
-        };
 
         let variants = &enum_ir.variants;
 
@@ -121,7 +115,7 @@ impl SemanticAnalyzer {
             let decomposed = self.decompose_enum_variant_pattern(&arm.pattern);
 
             // Check if the module names are the same as the enum's external modules
-            let enum_external_modules = enum_symbol.module_path.get_module_names_from_root();
+            let enum_external_modules = enum_ir.name.module_path().get_module_names_from_root();
             if decomposed
                 .module_names
                 .iter()
@@ -254,7 +248,7 @@ impl SemanticAnalyzer {
 
     fn conv_match_arms_on_enum_to_if(
         &mut self,
-        enum_symbol_val: &SymbolTableValue,
+        enum_ir: &ir::top::Enum,
         target: Rc<ir::expr::Expr>,
         arms: &[&ast::expr::MatchArm],
         span: Span,
@@ -277,18 +271,13 @@ impl SemanticAnalyzer {
         let then_expr = self.analyze_expr(&current_arm.code)?;
 
         // Get the pattern variant information
-        let pattern_variant_offset = match &enum_symbol_val.kind {
-            SymbolTableValueKind::Enum(enum_ir) => {
-                let decomposed = self.decompose_enum_variant_pattern(&current_arm.pattern);
-                enum_ir
-                    .variants
-                    .iter()
-                    .find(|v| v.name == decomposed.variant_name.symbol())
-                    .unwrap()
-                    .offset
-            }
-            _ => unreachable!(),
-        };
+        let decomposed = self.decompose_enum_variant_pattern(&current_arm.pattern);
+        let pattern_variant_offset = enum_ir
+            .variants
+            .iter()
+            .find(|v| v.name == decomposed.variant_name.symbol())
+            .unwrap()
+            .offset;
 
         // Get the target variant information
         let target_variant_offset_expr = ir::expr::Expr {
@@ -346,7 +335,7 @@ impl SemanticAnalyzer {
         } else {
             Some(
                 ir::expr::Else::If(self.conv_match_arms_on_enum_to_if(
-                    enum_symbol_val,
+                    enum_ir,
                     target,
                     remaining_arms,
                     span,
@@ -378,32 +367,22 @@ impl SemanticAnalyzer {
             .into())
         };
 
-        let enum_symbol = if let ir_type::TyKind::UserDefined(udt) = base_ty.kind.as_ref() {
-            let symbol = self
-                .lookup_qualified_symbol(udt.name.clone())
-                .ok_or_else(|| SemanticError::Undeclared {
-                    name: udt.name.symbol(),
-                    span: node.span,
-                })?;
-
-            symbol
+        let enum_ir = if let ir_type::TyKind::UserDefined(udt) = base_ty.kind.as_ref() {
+            match &udt.kind {
+                ir_type::UserDefinedTypeKind::Enum(enum_ir) => enum_ir,
+                _ => return err(),
+            }
         } else {
             return err();
         };
 
-        // Check if the symbol is an enum
-        if !matches!(enum_symbol.borrow().kind, SymbolTableValueKind::Enum(_)) {
-            return err();
-        }
-
-        self.check_exhaustiveness_for_match_on_enum(node, &enum_symbol.borrow())?;
+        self.check_exhaustiveness_for_match_on_enum(node, &enum_ir)?;
 
         let target = Rc::new(self.analyze_expr(&node.value)?);
 
-        let enum_symbol = enum_symbol.borrow();
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::If(self.conv_match_arms_on_enum_to_if(
-                &enum_symbol,
+                &enum_ir,
                 target.clone(),
                 &node.arms.iter().collect::<Vec<_>>().as_slice(),
                 node.span,
@@ -614,7 +593,7 @@ impl SemanticAnalyzer {
         if node.external_modules.is_empty() {
             self.analyze_fn_call_internal(node)
         } else {
-            self.with_external_module(
+            self.with_module(
                 ModulePath::new(node.external_modules.iter().map(|i| i.symbol()).collect()),
                 |analyzer| analyzer.analyze_fn_call_internal(node),
             )
@@ -667,8 +646,8 @@ impl SemanticAnalyzer {
         node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
         // Generate the generic function
-        let callee = match info {
-            GenericInfo::Func(info) => {
+        let callee = match &info.kind {
+            GenericKind::Func(info) => {
                 self.generate_generic_fn(info, node.generic_args.as_ref().unwrap())?
             }
             _ => unreachable!(),
@@ -1252,11 +1231,11 @@ impl SemanticAnalyzer {
         udt: &ir_type::UserDefinedType,
         call_node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
-        self.with_external_module(udt.name.module_path().clone(), |analyzer| {
+        self.with_module(udt.module_path().clone(), |analyzer| {
             let span = Span::new(lhs.span.start, call_node.span.finish, lhs.span.file);
             analyzer.create_method_call_ir(
                 call_node.callee.symbol(),
-                udt.name.symbol(),
+                udt.name(),
                 call_node,
                 lhs,
                 span,
@@ -1272,7 +1251,7 @@ impl SemanticAnalyzer {
         field_name: Ident,
     ) -> anyhow::Result<ir::expr::Expr> {
         let struct_info = self
-            .lookup_symbol(udt.name.symbol())
+            .lookup_symbol(udt.name())
             .map(|value| match &value.borrow().kind {
                 SymbolTableValueKind::Struct(struct_info) => struct_info.clone(),
 

@@ -2,20 +2,19 @@ use std::rc::Rc;
 
 use crate::{
     symbol_table::{
-        GenericEnumInfo, GenericFuncInfo, GenericInfo, GenericStructInfo, SymbolTable,
-        SymbolTableValue, SymbolTableValueKind, VariableInfo,
+        GenericEnumInfo, GenericFuncInfo, GenericImplInfo, GenericInfo, GenericKind,
+        GenericStructInfo, SymbolTable, SymbolTableValue, SymbolTableValueKind, VariableInfo,
     },
     SemanticAnalyzer, SemanticError,
 };
 
 use kaede_ast as ast;
-use kaede_ir::{self as ir};
-use kaede_ir_type::QualifiedSymbol;
-
-use kaede_ir_type as ir_type;
+use kaede_ast_type as ast_type;
+use kaede_ir::{self as ir, qualified_symbol::QualifiedSymbol};
+use kaede_symbol::Ident;
 
 /// If a top-level is generic, there is no IR that can be generated immediately, so this enum is used.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TopLevelAnalysisResult {
     GenericTopLevel,
     TopLevel(ir::top::TopLevel),
@@ -32,13 +31,108 @@ impl SemanticAnalyzer {
             TopLevelKind::Fn(node) => self.analyze_fn(node),
             TopLevelKind::Struct(node) => self.analyze_struct(node),
             TopLevelKind::Enum(node) => self.analyze_enum(node),
+            TopLevelKind::Impl(node) => self.analyze_impl(node),
             TopLevelKind::Import(_) => unimplemented!(),
-            TopLevelKind::Impl(_) => unimplemented!(),
             TopLevelKind::Extern(_) => unimplemented!(),
             TopLevelKind::Use(_) => unimplemented!(),
 
             _ => unreachable!(),
         }
+    }
+
+    pub fn analyze_impl(&mut self, node: ast::top::Impl) -> anyhow::Result<TopLevelAnalysisResult> {
+        let span = node.span;
+
+        if node.generic_params.is_some() {
+            let base_ty = if let ast_type::TyKind::Reference(rty) = node.ty.kind.as_ref() {
+                rty.get_base_type()
+            } else {
+                todo!("Error")
+            };
+
+            if let ast_type::TyKind::UserDefined(udt) = base_ty.kind.as_ref() {
+                let symbol_kind = self.lookup_symbol(udt.name.symbol()).ok_or_else(|| {
+                    SemanticError::Undeclared {
+                        name: udt.name.symbol(),
+                        span: node.span,
+                    }
+                })?;
+
+                match &mut *&mut symbol_kind.borrow_mut().kind {
+                    SymbolTableValueKind::Generic(ref mut generic_info) => {
+                        match &mut generic_info.kind {
+                            GenericKind::Struct(info) => {
+                                info.impl_info = Some(GenericImplInfo::new(node, span));
+                            }
+                            GenericKind::Enum(info) => {
+                                info.impl_info = Some(GenericImplInfo::new(node, span));
+                            }
+                            _ => todo!("Error"),
+                        }
+                    }
+
+                    _ => todo!("Error"),
+                }
+
+                // Generic impls are not created immediately, but are created when they are used.
+                return Ok(TopLevelAnalysisResult::GenericTopLevel);
+            } else {
+                todo!("Error")
+            }
+        }
+
+        let mut methods = vec![];
+
+        let ast_ty = Rc::new(node.ty);
+
+        for item in node.items.iter() {
+            match &item.kind {
+                ast::top::TopLevelKind::Fn(fn_) => {
+                    methods.push(self.analyze_method(ast_ty.clone(), fn_.clone())?)
+                }
+                _ => todo!("Error"),
+            }
+        }
+
+        Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Impl(
+            Rc::new(ir::top::Impl { methods }),
+        )))
+    }
+
+    fn analyze_method(
+        &mut self,
+        ty: Rc<ast_type::Ty>,
+        mut node: ast::top::Fn,
+    ) -> anyhow::Result<Rc<ir::top::Fn>> {
+        // If the method isn't static, insert self to the front of the parameters
+        if let Some(mutability) = node.decl.self_ {
+            node.decl.params.v.insert(
+                0,
+                ast::top::Param {
+                    name: Ident::new("self".to_owned().into(), node.span),
+                    ty: ast_type::change_mutability_dup(ty.clone(), mutability),
+                },
+            );
+        }
+
+        let parent_ty = self.analyze_type(&ty)?;
+
+        let parent_name = if let ir::ty::TyKind::Reference(ty) = parent_ty.kind.as_ref() {
+            if let ir::ty::TyKind::UserDefined(udt) = ty.get_base_type().kind.as_ref() {
+                udt.name()
+            } else {
+                unreachable!()
+            }
+        } else {
+            unreachable!()
+        };
+
+        node.decl.name = Ident::new(
+            self.create_method_key(parent_name, node.decl.name.symbol()),
+            node.decl.name.span(),
+        );
+
+        self.analyze_fn_internal(node)
     }
 
     fn analyze_fn(&mut self, node: ast::top::Fn) -> anyhow::Result<TopLevelAnalysisResult> {
@@ -51,7 +145,10 @@ impl SemanticAnalyzer {
             let span = node.span;
 
             let symbol_table_value = SymbolTableValue::new(
-                SymbolTableValueKind::Generic(GenericInfo::Func(GenericFuncInfo { ast: node })),
+                SymbolTableValueKind::Generic(GenericInfo::new(
+                    GenericKind::Func(GenericFuncInfo { ast: node }),
+                    self.current_module_path().clone(),
+                )),
                 self,
             );
 
@@ -88,19 +185,6 @@ impl SemanticAnalyzer {
         {
             let mut symbol_table = SymbolTable::new();
             for param in params.iter() {
-                // Check if the user-defined type is declared.
-                if let ir_type::TyKind::Reference(rty) = param.ty.kind.as_ref() {
-                    if let ir_type::TyKind::UserDefined(udt) = rty.get_base_type().kind.as_ref() {
-                        if self.lookup_qualified_symbol(udt.name.clone()).is_none() {
-                            return Err(SemanticError::Undeclared {
-                                name: udt.name.symbol(),
-                                span: param.name.span(),
-                            }
-                            .into());
-                        }
-                    }
-                }
-
                 let symbol_table_value = SymbolTableValue::new(
                     SymbolTableValueKind::Variable(VariableInfo {
                         ty: param.ty.clone(),
@@ -146,7 +230,10 @@ impl SemanticAnalyzer {
         // For generic
         if node.generic_params.is_some() {
             let symbol_table_value = SymbolTableValue::new(
-                SymbolTableValueKind::Generic(GenericInfo::Struct(GenericStructInfo::new(node))),
+                SymbolTableValueKind::Generic(GenericInfo::new(
+                    GenericKind::Struct(GenericStructInfo::new(node)),
+                    self.current_module_path().clone(),
+                )),
                 self,
             );
 
@@ -190,7 +277,10 @@ impl SemanticAnalyzer {
         // For generic
         if node.generic_params.is_some() {
             let symbol_table_value = SymbolTableValue::new(
-                SymbolTableValueKind::Generic(GenericInfo::Enum(GenericEnumInfo::new(node))),
+                SymbolTableValueKind::Generic(GenericInfo::new(
+                    GenericKind::Enum(GenericEnumInfo::new(node)),
+                    self.current_module_path().clone(),
+                )),
                 self,
             );
 

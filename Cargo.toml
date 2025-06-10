@@ -10,7 +10,6 @@ members = [
   "compiler/symbol",
   "compiler/common",
   "compiler/ir",
-  "compiler/ir_type",
   "compiler/semantic",
 ]
 resolver = "2"

@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use kaede_ir_type::ModulePath;
+use kaede_ir::module_path::ModulePath;
 use kaede_span::Span;
 use kaede_symbol::Symbol;
 
@@ -45,7 +45,7 @@ impl SemanticAnalyzer {
     }
 
     // Temporarily changes the current module path, executes the provided closure.
-    pub fn with_external_module<F, R>(&mut self, path: ModulePath, f: F) -> R
+    pub fn with_module<F, R>(&mut self, path: ModulePath, f: F) -> R
     where
         F: FnOnce(&mut Self) -> R,
     {

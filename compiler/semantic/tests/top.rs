@@ -77,3 +77,72 @@ fn function_with_generic_params() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn generic_type() -> anyhow::Result<()> {
+    semantic_analyze(
+        "struct Foo<T> { a: T }
+        fn f() {
+            let x = Foo<i32> { a: 1 }
+        }
+    ",
+    )?;
+    semantic_analyze(
+        "enum Foo<T> { A, B(T) }
+        fn f() {
+            let x = Foo::B(1)
+        }
+    ",
+    )?;
+    semantic_analyze(
+        "fn foo<T>(a: T): T { return a }
+        fn f() {
+            foo<i32>(1)
+        }
+    ",
+    )?;
+    semantic_analyze(
+        "fn foo<T>(a: T): T { return a }
+        fn f() {
+            foo<i32>(1)
+        }
+    ",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn impl_for_generic_type() -> anyhow::Result<()> {
+    semantic_analyze(
+        "struct Foo<T> { a: T }
+        impl Foo<T> {
+            fn f(self): T {
+                return self.a
+            }
+        }
+        fn f() {
+            let foo = Foo<i32> { a: 1 }
+            let x = foo.f()
+        }
+    ",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn impl_() -> anyhow::Result<()> {
+    semantic_analyze(
+        "struct Foo { a: i32 }
+        impl Foo {
+            fn f(self): i32 {
+                return self.a
+            }
+        }
+        fn f() {
+            let foo = Foo { a: 1 }
+            let x = foo.f()
+        }
+    ",
+    )?;
+    Ok(())
+}

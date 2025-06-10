@@ -1,12 +1,13 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use kaede_ir_type as ir_type;
-
-use kaede_ir_type::ModulePath;
+use kaede_ir::{
+    module_path::ModulePath,
+    ty::{self as ir_type},
+};
 use kaede_span::Span;
 use kaede_symbol::Symbol;
 
-use crate::{error::SemanticError, SemanticAnalyzer};
+use crate::{error::SemanticError, SemanticAnalyzer, TopLevelAnalysisResult};
 
 use kaede_ast as ast;
 use kaede_ir as ir;
@@ -64,21 +65,66 @@ use kaede_ir as ir;
 // }
 
 #[derive(Debug, Clone)]
+pub struct GenericArgsWithResult {
+    pub generic_args: Vec<Rc<ir_type::Ty>>,
+    pub result: TopLevelAnalysisResult,
+}
+
+#[derive(Debug)]
 pub struct GenericImplInfo {
     pub impl_: ast::top::Impl,
-    pub visibility: ast::top::Visibility,
     pub span: Span,
-    // pub already_generated: AlreadyGeneratedGenericImpl,
+    // Contains already generated generic arguments with their results
+    pub generateds: Vec<GenericArgsWithResult>,
 }
 
 impl GenericImplInfo {
-    pub fn new(impl_: ast::top::Impl, visibility: ast::top::Visibility, span: Span) -> Self {
+    pub fn new(impl_: ast::top::Impl, span: Span) -> Self {
         Self {
             impl_,
-            visibility,
             span,
-            // already_generated: AlreadyGeneratedGenericImpl::new(),
+            generateds: Vec::new(),
         }
+    }
+
+    pub fn to_impl_ir_with_actual_types(
+        &mut self,
+        analyzer: &mut SemanticAnalyzer,
+        generic_args: Vec<Rc<ir_type::Ty>>,
+    ) -> anyhow::Result<TopLevelAnalysisResult> {
+        // If the generic arguments have already been generated, return the result
+        let result = self
+            .generateds
+            .iter()
+            .find(|g| g.generic_args == generic_args);
+        if let Some(result) = result {
+            return Ok(result.result.clone());
+        }
+
+        let generic_params = self.impl_.generic_params.as_ref().unwrap();
+
+        // Check if the length of the generic arguments is the same as the number of generic parameters
+        if generic_params.names.len() != generic_args.len() {
+            return Err(SemanticError::GenericArgumentLengthMismatch {
+                expected: generic_params.names.len(),
+                actual: generic_args.len(),
+                span: generic_params.span,
+            }
+            .into());
+        }
+
+        // Replace the generic parameters with the actual types
+        let mut impl_ = self.impl_.clone();
+        impl_.generic_params = None;
+
+        analyzer.with_generic_arguments(generic_params, &generic_args, |analyzer| {
+            let result = analyzer.analyze_impl(impl_)?;
+            self.generateds.push(GenericArgsWithResult {
+                generic_args: generic_args.clone(),
+                result: result.clone(),
+            });
+            Ok(result)
+        })
     }
 }
 
@@ -118,10 +164,22 @@ pub struct GenericFuncInfo {
 }
 
 #[derive(Debug)]
-pub enum GenericInfo {
+pub enum GenericKind {
     Struct(GenericStructInfo),
     Enum(GenericEnumInfo),
     Func(GenericFuncInfo),
+}
+
+#[derive(Debug)]
+pub struct GenericInfo {
+    pub kind: GenericKind,
+    pub module_path: ModulePath,
+}
+
+impl GenericInfo {
+    pub fn new(kind: GenericKind, module_path: ModulePath) -> Self {
+        Self { kind, module_path }
+    }
 }
 
 #[derive(Debug)]

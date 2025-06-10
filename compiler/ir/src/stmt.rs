@@ -1,9 +1,8 @@
 use std::rc::Rc;
 
-use kaede_ir_type::Ty;
 use kaede_symbol::Symbol;
 
-use crate::expr::Expr;
+use crate::{expr::Expr, ty::Ty};
 
 #[derive(Debug)]
 pub struct Assign {

@@ -1,7 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc};
 
 use context::AnalysisContext;
-use kaede_ir_type::{self as ir_type, ModulePath, QualifiedSymbol};
+use kaede_ir::{module_path::ModulePath, qualified_symbol::QualifiedSymbol, ty as ir_type};
 
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::Symbol;
@@ -26,6 +26,7 @@ pub struct SemanticAnalyzer {
     modules: HashMap<ModulePath, ModuleContext>,
     context: AnalysisContext,
     generic_argument_table: GenericArgumentTable,
+    generated_generic_impl_table: Vec<Rc<ir::top::Impl>>,
 }
 
 impl SemanticAnalyzer {
@@ -45,7 +46,7 @@ impl SemanticAnalyzer {
 
         // Set the current module name in the context.
         let mut context = AnalysisContext::new();
-        let module_path = ir_type::ModulePath::new(modules_from_root);
+        let module_path = ModulePath::new(modules_from_root);
         context.set_module_path(module_path.clone());
 
         let mut module_context = ModuleContext::new();
@@ -55,6 +56,7 @@ impl SemanticAnalyzer {
             modules: HashMap::from([(module_path, module_context)]),
             context,
             generic_argument_table: GenericArgumentTable::new(),
+            generated_generic_impl_table: Vec::new(),
         }
     }
 
@@ -134,6 +136,19 @@ impl SemanticAnalyzer {
         self.modules.get_mut(&module_path).unwrap().pop_scope();
     }
 
+    fn inject_generic_impl_to_compile_unit(
+        &mut self,
+        mut compile_unit: ir::CompileUnit,
+    ) -> ir::CompileUnit {
+        for impl_ in self.generated_generic_impl_table.iter() {
+            compile_unit
+                .top_levels
+                .push(ir::top::TopLevel::Impl(impl_.clone()));
+        }
+
+        compile_unit
+    }
+
     pub fn analyze(&mut self, compile_unit: ast::CompileUnit) -> anyhow::Result<ir::CompileUnit> {
         let mut top_level_irs = vec![];
 
@@ -145,8 +160,8 @@ impl SemanticAnalyzer {
             }
         }
 
-        Ok(ir::CompileUnit {
+        Ok(self.inject_generic_impl_to_compile_unit(ir::CompileUnit {
             top_levels: top_level_irs,
-        })
+        }))
     }
 }
