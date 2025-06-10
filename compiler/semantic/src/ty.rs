@@ -290,7 +290,7 @@ impl SemanticAnalyzer {
         })
     }
 
-    fn analyze_user_defined_type(
+    pub fn analyze_user_defined_type(
         &mut self,
         udt: &ast_type::UserDefinedType,
     ) -> anyhow::Result<Rc<ir_type::Ty>> {

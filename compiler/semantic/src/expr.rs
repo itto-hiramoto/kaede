@@ -45,7 +45,7 @@ impl SemanticAnalyzer {
             ExprKind::Break(node) => self.analyze_break(node),
             ExprKind::Loop(node) => self.analyze_loop(node),
             ExprKind::Match(node) => self.analyze_match(node),
-            // ExprKind::StructLiteral(StructLiteral),
+            ExprKind::StructLiteral(node) => self.analyze_struct_literal(node),
             // ExprKind::TupleLiteral(TupleLiteral),
             ExprKind::Ty(_) => Ok(ir::expr::Expr {
                 kind: ir::expr::ExprKind::DoNothing,
@@ -58,6 +58,49 @@ impl SemanticAnalyzer {
 
             _ => unimplemented!(),
         }
+    }
+
+    fn analyze_struct_literal(
+        &mut self,
+        node: &ast::expr::StructLiteral,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let module_path = if !node.external_modules.is_empty() {
+            ModulePath::new(node.external_modules.iter().map(|m| m.symbol()).collect())
+        } else {
+            self.current_module_path().clone()
+        };
+
+        self.with_module(module_path, |analyzer| {
+            let struct_ty = analyzer.analyze_user_defined_type(&node.struct_ty)?;
+
+            let udt_ir = match struct_ty.kind.as_ref() {
+                ir_type::TyKind::UserDefined(udt) => udt,
+                _ => unreachable!(),
+            };
+
+            let struct_ir = match &udt_ir.kind {
+                ir_type::UserDefinedTypeKind::Struct(struct_ir) => struct_ir,
+                _ => unreachable!(),
+            };
+
+            let ir = ir::expr::StructLiteral {
+                struct_info: struct_ir.clone(),
+                values: node
+                    .values
+                    .iter()
+                    .map(|(name, value)| {
+                        let value = analyzer.analyze_expr(value)?;
+                        Ok((name.symbol(), value))
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?,
+            };
+
+            Ok(ir::expr::Expr {
+                kind: ir::expr::ExprKind::StructLiteral(ir),
+                ty: Rc::new(ir::ty::wrap_in_ref(struct_ty, ir_type::Mutability::Mut)),
+                span: node.span,
+            })
+        })
     }
 
     /// Decompose enum variant patterns (like `A::B` or `A::B(a, b, c)`)
