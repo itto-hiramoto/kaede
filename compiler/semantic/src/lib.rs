@@ -26,7 +26,7 @@ pub struct SemanticAnalyzer {
     modules: HashMap<ModulePath, ModuleContext>,
     context: AnalysisContext,
     generic_argument_table: GenericArgumentTable,
-    generated_generic_impl_table: Vec<Rc<ir::top::Impl>>,
+    generated_generics: Vec<ir::top::TopLevel>,
 }
 
 impl SemanticAnalyzer {
@@ -56,7 +56,7 @@ impl SemanticAnalyzer {
             modules: HashMap::from([(module_path, module_context)]),
             context,
             generic_argument_table: GenericArgumentTable::new(),
-            generated_generic_impl_table: Vec::new(),
+            generated_generics: Vec::new(),
         }
     }
 
@@ -107,7 +107,7 @@ impl SemanticAnalyzer {
             .insert_symbol_to_root_scope(symbol, value, span)
     }
 
-    pub fn create_generated_generic_key(&self, name: Symbol, args: Vec<Rc<ir_type::Ty>>) -> Symbol {
+    pub fn create_generated_generic_key(&self, name: Symbol, args: &[Rc<ir_type::Ty>]) -> Symbol {
         format!(
             "{}_{}",
             name,
@@ -136,14 +136,12 @@ impl SemanticAnalyzer {
         self.modules.get_mut(&module_path).unwrap().pop_scope();
     }
 
-    fn inject_generic_impl_to_compile_unit(
+    fn inject_generated_generics_to_compile_unit(
         &mut self,
         mut compile_unit: ir::CompileUnit,
     ) -> ir::CompileUnit {
-        for impl_ in self.generated_generic_impl_table.iter() {
-            compile_unit
-                .top_levels
-                .push(ir::top::TopLevel::Impl(impl_.clone()));
+        for top_level in self.generated_generics.iter() {
+            compile_unit.top_levels.push(top_level.clone());
         }
 
         compile_unit
@@ -160,8 +158,10 @@ impl SemanticAnalyzer {
             }
         }
 
-        Ok(self.inject_generic_impl_to_compile_unit(ir::CompileUnit {
-            top_levels: top_level_irs,
-        }))
+        Ok(
+            self.inject_generated_generics_to_compile_unit(ir::CompileUnit {
+                top_levels: top_level_irs,
+            }),
+        )
     }
 }

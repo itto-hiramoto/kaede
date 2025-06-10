@@ -600,7 +600,6 @@ impl SemanticAnalyzer {
         }
     }
 
-    // Returns the mangled name of the generated function
     fn generate_generic_fn(
         &mut self,
         info: &GenericFuncInfo,
@@ -618,9 +617,8 @@ impl SemanticAnalyzer {
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         let generated_generic_key =
-            self.create_generated_generic_key(info.ast.decl.name.symbol(), generic_args.clone());
+            self.create_generated_generic_key(info.ast.decl.name.symbol(), &generic_args);
 
-        // Mangle the generic function name
         // If the generic function is already generated, return early
         if let Some(symbol_value) = self.lookup_symbol(generated_generic_key) {
             if let SymbolTableValueKind::Function(fn_) = &symbol_value.borrow().kind {

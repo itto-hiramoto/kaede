@@ -2,8 +2,10 @@ use std::rc::Rc;
 
 use kaede_ast as ast;
 use kaede_ast_type as ast_type;
-use kaede_ir::{module_path::ModulePath, top::TopLevel, ty as ir_type};
+use kaede_ir as ir;
+use kaede_ir::{module_path::ModulePath, ty as ir_type};
 use kaede_span::Span;
+use kaede_symbol::Ident;
 
 use crate::{
     error::SemanticError,
@@ -89,12 +91,76 @@ impl SemanticAnalyzer {
         }
     }
 
+    fn verify_generic_argument_length(
+        &self,
+        params: &ast::top::GenericParams,
+        args: &[Rc<ir_type::Ty>],
+        span: Span,
+    ) -> anyhow::Result<()> {
+        if params.names.len() != args.len() {
+            return Err(SemanticError::GenericArgumentLengthMismatch {
+                expected: params.names.len(),
+                actual: args.len(),
+                span,
+            }
+            .into());
+        }
+
+        Ok(())
+    }
+
     fn create_generic_struct(
         &mut self,
         ast: &ast::top::Struct,
         generic_args: &[Rc<ir_type::Ty>],
     ) -> anyhow::Result<Rc<ir_type::Ty>> {
-        todo!()
+        let generic_params = ast.generic_params.as_ref().unwrap();
+
+        self.verify_generic_argument_length(generic_params, generic_args, generic_params.span)?;
+
+        let mut ast = ast.clone();
+        ast.generic_params = None;
+        let generated_generic_key =
+            self.create_generated_generic_key(ast.name.symbol(), generic_args);
+        ast.name = Ident::new(generated_generic_key, ast.name.span());
+
+        let name_span = ast.name.span();
+
+        self.with_generic_arguments(generic_params, generic_args, |analyzer| {
+            let top_level = analyzer.analyze_struct(ast)?;
+
+            if let TopLevelAnalysisResult::TopLevel(top_level) = top_level {
+                assert!(matches!(top_level, ir::top::TopLevel::Struct(_)));
+                analyzer.generated_generics.push(top_level);
+            } else {
+                unreachable!()
+            }
+
+            Ok(())
+        })?;
+
+        let symbol =
+            self.lookup_symbol(generated_generic_key)
+                .ok_or(SemanticError::Undeclared {
+                    name: generated_generic_key,
+                    span: name_span,
+                })?;
+
+        let symbol_value = symbol.borrow();
+
+        let udt_ir = match &symbol_value.kind {
+            SymbolTableValueKind::Struct(st) => {
+                ir_type::TyKind::UserDefined(ir_type::UserDefinedType {
+                    kind: ir_type::UserDefinedTypeKind::Struct(st.clone()),
+                })
+            }
+            _ => unreachable!(),
+        };
+
+        Ok(Rc::new(ir_type::Ty {
+            kind: udt_ir.into(),
+            mutability: ir_type::Mutability::Not,
+        }))
     }
 
     fn create_generic_enum(
@@ -102,7 +168,53 @@ impl SemanticAnalyzer {
         ast: &ast::top::Enum,
         generic_args: &[Rc<ir_type::Ty>],
     ) -> anyhow::Result<Rc<ir_type::Ty>> {
-        todo!()
+        let generic_params = ast.generic_params.as_ref().unwrap();
+
+        self.verify_generic_argument_length(generic_params, generic_args, generic_params.span)?;
+
+        let mut ast = ast.clone();
+        ast.generic_params = None;
+        let generated_generic_key =
+            self.create_generated_generic_key(ast.name.symbol(), generic_args);
+        ast.name = Ident::new(generated_generic_key, ast.name.span());
+
+        let name_span = ast.name.span();
+
+        self.with_generic_arguments(generic_params, generic_args, |analyzer| {
+            let top_level = analyzer.analyze_enum(ast)?;
+
+            if let TopLevelAnalysisResult::TopLevel(top_level) = top_level {
+                assert!(matches!(top_level, ir::top::TopLevel::Enum(_)));
+                analyzer.generated_generics.push(top_level);
+            } else {
+                unreachable!()
+            }
+
+            Ok(())
+        })?;
+
+        let symbol =
+            self.lookup_symbol(generated_generic_key)
+                .ok_or(SemanticError::Undeclared {
+                    name: generated_generic_key,
+                    span: name_span,
+                })?;
+
+        let symbol_value = symbol.borrow();
+
+        let udt_ir = match &symbol_value.kind {
+            SymbolTableValueKind::Enum(en) => {
+                ir_type::TyKind::UserDefined(ir_type::UserDefinedType {
+                    kind: ir_type::UserDefinedTypeKind::Enum(en.clone()),
+                })
+            }
+            _ => unreachable!(),
+        };
+
+        Ok(Rc::new(ir_type::Ty {
+            kind: udt_ir.into(),
+            mutability: ir_type::Mutability::Not,
+        }))
     }
 
     fn create_generic_type(
@@ -168,8 +280,9 @@ impl SemanticAnalyzer {
                 let impl_ir =
                     impl_info.to_impl_ir_with_actual_types(analyzer, generic_args.clone())?;
 
-                if let TopLevelAnalysisResult::TopLevel(TopLevel::Impl(impl_ir)) = impl_ir {
-                    analyzer.generated_generic_impl_table.push(impl_ir.clone());
+                if let TopLevelAnalysisResult::TopLevel(top_level) = impl_ir {
+                    assert!(matches!(top_level, ir::top::TopLevel::Impl(_)));
+                    analyzer.generated_generics.push(top_level);
                 }
             }
 

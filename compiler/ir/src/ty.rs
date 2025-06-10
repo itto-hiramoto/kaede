@@ -340,19 +340,11 @@ pub enum UserDefinedTypeKind {
 #[derive(Debug, Clone)]
 pub struct UserDefinedType {
     pub kind: UserDefinedTypeKind,
-    pub generic_args: Vec<Rc<Ty>>,
 }
 
 impl UserDefinedType {
     pub fn new(kind: UserDefinedTypeKind) -> Self {
-        Self {
-            kind,
-            generic_args: vec![],
-        }
-    }
-
-    pub fn new_with_generic_args(kind: UserDefinedTypeKind, generic_args: Vec<Rc<Ty>>) -> Self {
-        Self { kind, generic_args }
+        Self { kind }
     }
 
     pub fn module_path(&self) -> ModulePath {
@@ -363,25 +355,10 @@ impl UserDefinedType {
     }
 
     pub fn name(&self) -> Symbol {
-        let raw_name = match &self.kind {
+        match &self.kind {
             UserDefinedTypeKind::Struct(s) => s.name.symbol(),
             UserDefinedTypeKind::Enum(e) => e.name.symbol(),
-        };
-
-        if self.generic_args.is_empty() {
-            return raw_name;
         }
-
-        format!(
-            "{}_{}",
-            raw_name,
-            self.generic_args
-                .iter()
-                .map(|t| t.kind.to_string())
-                .collect::<Vec<_>>()
-                .join("_")
-        )
-        .into()
     }
 }
 

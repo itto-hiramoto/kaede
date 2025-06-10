@@ -115,7 +115,7 @@ fn generic_type() -> anyhow::Result<()> {
 fn impl_for_generic_type() -> anyhow::Result<()> {
     semantic_analyze(
         "struct Foo<T> { a: T }
-        impl Foo<T> {
+        impl<T> Foo<T> {
             fn f(self): T {
                 return self.a
             }

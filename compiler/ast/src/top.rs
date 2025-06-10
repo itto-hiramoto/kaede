@@ -53,7 +53,7 @@ pub struct StructField {
     pub offset: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Struct {
     pub name: Ident,
     pub generic_params: Option<GenericParams>,
@@ -106,7 +106,7 @@ pub struct Impl {
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EnumVariant {
     pub name: Ident,
     pub ty: Option<Ty>,
@@ -114,7 +114,7 @@ pub struct EnumVariant {
     pub offset: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Enum {
     pub name: Ident,
     pub generic_params: Option<GenericParams>,

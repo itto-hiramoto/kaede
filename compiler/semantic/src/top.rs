@@ -132,6 +132,7 @@ impl SemanticAnalyzer {
             node.decl.name.span(),
         );
 
+        node.decl.self_ = None;
         self.analyze_fn_internal(node)
     }
 
@@ -223,7 +224,10 @@ impl SemanticAnalyzer {
         Ok(fn_)
     }
 
-    fn analyze_struct(&mut self, node: ast::top::Struct) -> anyhow::Result<TopLevelAnalysisResult> {
+    pub fn analyze_struct(
+        &mut self,
+        node: ast::top::Struct,
+    ) -> anyhow::Result<TopLevelAnalysisResult> {
         let name = node.name.symbol();
         let span = node.span;
 
@@ -270,7 +274,7 @@ impl SemanticAnalyzer {
         )))
     }
 
-    fn analyze_enum(&mut self, node: ast::top::Enum) -> anyhow::Result<TopLevelAnalysisResult> {
+    pub fn analyze_enum(&mut self, node: ast::top::Enum) -> anyhow::Result<TopLevelAnalysisResult> {
         let name = node.name.symbol();
         let span = node.span;
 
