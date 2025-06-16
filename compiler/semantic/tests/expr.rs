@@ -121,10 +121,10 @@ fn tuple_literal() -> anyhow::Result<()> {
 #[test]
 fn tuple_indexing() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f(): i32 {
-            let t = (42, true, 3.14)
+        r#"fn f(): i32 {
+            let t = (42, true, "hello, world")
             return t.0
-        }",
+        }"#,
     )?;
     Ok(())
 }
