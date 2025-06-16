@@ -5,7 +5,7 @@ use kaede_ir::{module_path::ModulePath, qualified_symbol::QualifiedSymbol, ty as
 
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::Symbol;
-use symbol_table::{GenericArgumentTable, SymbolTableValue};
+use symbol_table::SymbolTableValue;
 
 mod context;
 mod error;
@@ -25,7 +25,6 @@ use crate::{context::ModuleContext, symbol_table::SymbolTable};
 pub struct SemanticAnalyzer {
     modules: HashMap<ModulePath, ModuleContext>,
     context: AnalysisContext,
-    generic_argument_table: GenericArgumentTable,
     generated_generics: Vec<ir::top::TopLevel>,
 }
 
@@ -55,7 +54,6 @@ impl SemanticAnalyzer {
         Self {
             modules: HashMap::from([(module_path, module_context)]),
             context,
-            generic_argument_table: GenericArgumentTable::new(),
             generated_generics: Vec::new(),
         }
     }
@@ -86,7 +84,10 @@ impl SemanticAnalyzer {
     }
 
     pub fn lookup_generic_argument(&self, symbol: Symbol) -> Option<Rc<ir_type::Ty>> {
-        self.generic_argument_table.lookup(symbol)
+        self.modules
+            .get(&self.current_module_path())
+            .unwrap()
+            .lookup_generic_argument(symbol)
     }
 
     pub fn insert_symbol_to_current_scope(

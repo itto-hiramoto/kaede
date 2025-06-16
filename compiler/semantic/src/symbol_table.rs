@@ -7,75 +7,17 @@ use kaede_ir::{
 use kaede_span::Span;
 use kaede_symbol::Symbol;
 
-use crate::{error::SemanticError, SemanticAnalyzer, TopLevelAnalysisResult};
+use crate::{error::SemanticError, SemanticAnalyzer};
 
 use kaede_ast as ast;
 use kaede_ir as ir;
-
-// #[derive(Debug)]
-// pub struct FunctionInfo<'ctx> {
-//     pub value: FunctionValue<'ctx>,
-//     pub return_type: ReturnType,
-//     pub param_types: Vec<Rc<Ty>>,
-// }
-
-//
-// #[derive(Debug, Clone)]
-// pub struct EnumVariantInfo {
-//     pub name: Ident,
-//     pub _vis: Visibility,
-//     pub offset: u32,
-//     pub ty: Option<Rc<Ty>>,
-// }
-
-// #[derive(Debug, Clone)]
-// pub struct EnumInfo<'ctx> {
-//     pub ty: StructType<'ctx>,
-//     pub mangled_name: Symbol,
-//     pub name: Symbol, // Non-mangled
-//     pub variants: HashMap<Symbol, EnumVariantInfo>,
-//     pub is_external: Option<Vec<Ident>>,
-// }
-
-// #[derive(Debug, Clone)]
-// pub struct AlreadyGeneratedGenericImpl {
-//     pub table: Vec<GenericArgs>,
-// }
-
-// impl AlreadyGeneratedGenericImpl {
-//     pub fn new() -> Self {
-//         Self { table: Vec::new() }
-//     }
-
-//     pub fn insert(&mut self, args: GenericArgs) {
-//         self.table.push(args);
-//     }
-
-//     pub fn contains(&self, args: &GenericArgs) -> bool {
-//         let types = &args.types;
-
-//         for args in &self.table {
-//             if types == &args.types {
-//                 return true;
-//             }
-//         }
-
-//         false
-//     }
-// }
-
-#[derive(Debug, Clone)]
-pub struct GenericArgsWithResult {
-    pub generic_args: Vec<Rc<ir_type::Ty>>,
-    pub result: TopLevelAnalysisResult,
-}
 
 #[derive(Debug)]
 pub struct GenericImplInfo {
     pub impl_: ast::top::Impl,
     pub span: Span,
-    // Contains already generated generic arguments with their results
-    pub generateds: Vec<GenericArgsWithResult>,
+    // Contains already generated generic arguments
+    pub generateds: Vec<Vec<Rc<ir_type::Ty>>>,
 }
 
 impl GenericImplInfo {
@@ -85,46 +27,6 @@ impl GenericImplInfo {
             span,
             generateds: Vec::new(),
         }
-    }
-
-    pub fn to_impl_ir_with_actual_types(
-        &mut self,
-        analyzer: &mut SemanticAnalyzer,
-        generic_args: Vec<Rc<ir_type::Ty>>,
-    ) -> anyhow::Result<TopLevelAnalysisResult> {
-        // If the generic arguments have already been generated, return the result
-        let result = self
-            .generateds
-            .iter()
-            .find(|g| g.generic_args == generic_args);
-        if let Some(result) = result {
-            return Ok(result.result.clone());
-        }
-
-        let generic_params = self.impl_.generic_params.as_ref().unwrap();
-
-        // Check if the length of the generic arguments is the same as the number of generic parameters
-        if generic_params.names.len() != generic_args.len() {
-            return Err(SemanticError::GenericArgumentLengthMismatch {
-                expected: generic_params.names.len(),
-                actual: generic_args.len(),
-                span: generic_params.span,
-            }
-            .into());
-        }
-
-        // Replace the generic parameters with the actual types
-        let mut impl_ = self.impl_.clone();
-        impl_.generic_params = None;
-
-        analyzer.with_generic_arguments(generic_params, &generic_args, |analyzer| {
-            let result = analyzer.analyze_impl(impl_)?;
-            self.generateds.push(GenericArgsWithResult {
-                generic_args: generic_args.clone(),
-                result: result.clone(),
-            });
-            Ok(result)
-        })
     }
 }
 
@@ -266,6 +168,14 @@ impl GenericArgumentTable {
     pub fn lookup(&self, symbol: Symbol) -> Option<Rc<ir_type::Ty>> {
         self.map.get(&symbol).cloned()
     }
+
+    #[cfg(debug_assertions)]
+    #[allow(dead_code)]
+    pub fn dump(&self) {
+        for (symbol, ty) in self.map.iter() {
+            println!("{}: {:?}", symbol, ty);
+        }
+    }
 }
 
 impl SemanticAnalyzer {
@@ -285,23 +195,30 @@ impl SemanticAnalyzer {
             .into());
         }
 
-        // Insert the generic arguments
-        generic_params
-            .names
-            .iter()
-            .zip(generic_args.iter())
-            .for_each(|(ident, ty)| {
-                self.generic_argument_table
-                    .map
-                    .insert(ident.symbol(), ty.clone());
-            });
+        let mut generic_argument_table = GenericArgumentTable::new();
+
+        generic_argument_table.map.extend(
+            generic_params
+                .names
+                .iter()
+                .zip(generic_args.iter())
+                .map(|(ident, ty)| (ident.symbol(), ty.clone())),
+        );
+
+        let current_module_path = self.current_module_path().clone();
+
+        self.modules
+            .get_mut(&current_module_path)
+            .unwrap()
+            .push_generic_argument_table(generic_argument_table);
 
         let result = f(self);
 
         // Remove the generic arguments
-        generic_params.names.iter().for_each(|ident| {
-            self.generic_argument_table.map.remove(&ident.symbol());
-        });
+        self.modules
+            .get_mut(&current_module_path)
+            .unwrap()
+            .pop_generic_argument_table();
 
         result
     }

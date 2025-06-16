@@ -1,11 +1,11 @@
 use std::{cell::RefCell, rc::Rc};
 
-use kaede_ir::module_path::ModulePath;
+use kaede_ir::{module_path::ModulePath, ty::Ty};
 use kaede_span::Span;
 use kaede_symbol::Symbol;
 
 use crate::{
-    symbol_table::{SymbolTable, SymbolTableValue},
+    symbol_table::{GenericArgumentTable, SymbolTable, SymbolTableValue},
     SemanticAnalyzer,
 };
 
@@ -72,12 +72,14 @@ impl SemanticAnalyzer {
 
 pub struct ModuleContext {
     symbol_table_stack: Vec<SymbolTable>,
+    generic_argument_table: Vec<GenericArgumentTable>,
 }
 
 impl ModuleContext {
     pub fn new() -> Self {
         Self {
             symbol_table_stack: vec![SymbolTable::new()], // Root scope
+            generic_argument_table: vec![],
         }
     }
 
@@ -88,6 +90,14 @@ impl ModuleContext {
             table.dump();
             println!();
         }
+    }
+
+    pub fn push_generic_argument_table(&mut self, generic_argument_table: GenericArgumentTable) {
+        self.generic_argument_table.push(generic_argument_table);
+    }
+
+    pub fn pop_generic_argument_table(&mut self) -> Option<GenericArgumentTable> {
+        self.generic_argument_table.pop()
     }
 
     pub fn push_scope(&mut self, symbol_table: SymbolTable) {
@@ -112,6 +122,16 @@ impl ModuleContext {
         for table in self.symbol_table_stack.iter().rev() {
             if let Some(value) = table.lookup(symbol) {
                 return Some(value);
+            }
+        }
+        None
+    }
+
+    pub fn lookup_generic_argument(&self, symbol: Symbol) -> Option<Rc<Ty>> {
+        // Search from the top of the stack
+        for table in self.generic_argument_table.iter().rev() {
+            if let Some(ty) = table.lookup(symbol) {
+                return Some(ty);
             }
         }
         None

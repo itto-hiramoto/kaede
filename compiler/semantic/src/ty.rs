@@ -124,9 +124,12 @@ impl SemanticAnalyzer {
             self.create_generated_generic_key(ast.name.symbol(), generic_args);
         ast.name = Ident::new(generated_generic_key, ast.name.span());
 
-        let name_span = ast.name.span();
+        let symbol = self.with_generic_arguments(generic_params, generic_args, |analyzer| {
+            // If the symbol is already generated, return it
+            if let Some(symbol) = analyzer.lookup_symbol(generated_generic_key) {
+                return Ok(symbol);
+            }
 
-        self.with_generic_arguments(generic_params, generic_args, |analyzer| {
             let top_level = analyzer.analyze_struct(ast)?;
 
             if let TopLevelAnalysisResult::TopLevel(top_level) = top_level {
@@ -136,15 +139,8 @@ impl SemanticAnalyzer {
                 unreachable!()
             }
 
-            Ok(())
+            Ok(analyzer.lookup_symbol(generated_generic_key).unwrap())
         })?;
-
-        let symbol =
-            self.lookup_symbol(generated_generic_key)
-                .ok_or(SemanticError::Undeclared {
-                    name: generated_generic_key,
-                    span: name_span,
-                })?;
 
         let symbol_value = symbol.borrow();
 
@@ -248,7 +244,17 @@ impl SemanticAnalyzer {
 
         let module_path = generic_info.module_path.clone();
 
+        // To avoid borrow checker error
+        drop(borrowed_symbol);
+
         self.with_module(module_path, |analyzer| {
+            let mut borrowed_mut_symbol = symbol.borrow_mut();
+
+            let generic_info = match &mut *&mut borrowed_mut_symbol.kind {
+                SymbolTableValueKind::Generic(generic_info) => generic_info,
+                _ => unreachable!(),
+            };
+
             // Create the user defined type with the generic arguments
             let (ty, impl_info) = match &generic_info.kind {
                 GenericKind::Struct(info) => (
@@ -263,13 +269,6 @@ impl SemanticAnalyzer {
             };
 
             // Create methods
-            let mut borrowed_mut_symbol = symbol.borrow_mut();
-
-            let generic_info = match &mut *&mut borrowed_mut_symbol.kind {
-                SymbolTableValueKind::Generic(generic_info) => generic_info,
-                _ => unreachable!(),
-            };
-
             if impl_info.is_some() {
                 let impl_info = match &mut generic_info.kind {
                     GenericKind::Struct(info) => info.impl_info.as_mut().unwrap(),
@@ -277,8 +276,36 @@ impl SemanticAnalyzer {
                     _ => unreachable!(),
                 };
 
-                let impl_ir =
-                    impl_info.to_impl_ir_with_actual_types(analyzer, generic_args.clone())?;
+                // If the generic arguments have already been generated, return the type
+                if impl_info.generateds.contains(&generic_args) {
+                    return Ok(ty);
+                } else {
+                    impl_info.generateds.push(generic_args.clone());
+                }
+
+                let generic_params = impl_info.impl_.generic_params.as_ref().unwrap().clone();
+
+                // Check if the length of the generic arguments is the same as the number of generic parameters
+                if generic_params.names.len() != generic_args.len() {
+                    return Err(SemanticError::GenericArgumentLengthMismatch {
+                        expected: generic_params.names.len(),
+                        actual: generic_args.len(),
+                        span: generic_params.span,
+                    }
+                    .into());
+                }
+
+                let mut impl_ = impl_info.impl_.clone();
+                impl_.generic_params = None;
+
+                // To avoid borrow checker error
+                drop(borrowed_mut_symbol);
+
+                let impl_ir = analyzer.with_generic_arguments(
+                    &generic_params,
+                    &generic_args,
+                    |analyzer| analyzer.analyze_impl(impl_),
+                )?;
 
                 if let TopLevelAnalysisResult::TopLevel(top_level) = impl_ir {
                     assert!(matches!(top_level, ir::top::TopLevel::Impl(_)));
