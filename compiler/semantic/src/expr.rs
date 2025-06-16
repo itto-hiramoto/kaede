@@ -1229,7 +1229,10 @@ impl SemanticAnalyzer {
                 callee: method.clone(),
                 args: ir::expr::Args(args),
             }),
-            ty: Rc::new(ir_type::Ty::new_never()),
+            ty: match method.decl.return_ty.as_ref() {
+                Some(ty) => ty.clone(),
+                None => Rc::new(ir_type::Ty::new_unit()),
+            },
             span: call_node.span,
         })
     }
