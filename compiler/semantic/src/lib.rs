@@ -119,8 +119,17 @@ impl SemanticAnalyzer {
         .into()
     }
 
-    pub fn create_method_key(&self, parent_name: Symbol, method_name: Symbol) -> Symbol {
-        format!("{}.{}", parent_name, method_name).into()
+    pub fn create_method_key(
+        &self,
+        parent_name: Symbol,
+        method_name: Symbol,
+        is_static: bool,
+    ) -> Symbol {
+        if is_static {
+            format!("{}::{}", parent_name, method_name).into()
+        } else {
+            format!("{}.{}", parent_name, method_name).into()
+        }
     }
 
     pub fn push_scope(&mut self, symbol_table: SymbolTable) {

@@ -5,7 +5,7 @@ use kaede_symbol::Symbol;
 
 use crate::{
     stmt::Block,
-    top::{Fn, Struct},
+    top::{Enum, Fn, Struct},
     ty::{make_fundamental_type, FundamentalTypeKind, Mutability, Ty},
 };
 
@@ -112,8 +112,8 @@ pub struct FieldAccess {
 
 #[derive(Debug)]
 pub struct EnumVariant {
-    pub name: Symbol,
-    pub variant_offset: usize,
+    pub enum_info: Rc<Enum>,
+    pub variant_offset: u32,
 }
 
 #[derive(Debug)]

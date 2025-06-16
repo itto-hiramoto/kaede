@@ -146,3 +146,45 @@ fn impl_() -> anyhow::Result<()> {
     )?;
     Ok(())
 }
+
+#[test]
+fn impl_with_static_method() -> anyhow::Result<()> {
+    semantic_analyze(
+        "struct Foo { a: i32 }
+        impl Foo {
+            fn new(n: i32): Foo {
+                return Foo { a: n }
+            }
+            fn get_a(self): i32 {
+                return self.a
+            }
+        }
+        fn f(): i32 {
+            let foo = Foo::new(1)
+            return foo.get_a()
+        }
+    ",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn impl_with_static_method_for_generic_type() -> anyhow::Result<()> {
+    semantic_analyze(
+        "struct Foo<T> { a: T }
+        impl<T> Foo<T> {
+            fn new(n: T): Foo<T> {
+                return Foo { a: n }
+            }
+            fn get_a(self): T {
+                return self.a
+            }
+        }
+        fn f(): i32 {
+            let foo = Foo<i32>::new(1)
+            return foo.get_a()
+        }
+    ",
+    )?;
+    Ok(())
+}

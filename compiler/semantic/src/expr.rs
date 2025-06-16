@@ -1018,13 +1018,220 @@ impl SemanticAnalyzer {
 
             // The following requires consideration of name mangling.
             Access => self.analyze_access(node),
-            ScopeResolution => {
-                todo!();
-                // self.scope_resolution(node),
-            }
+            ScopeResolution => self.analyze_scope_resolution(node),
 
             _ => self.analyze_arithmetic_binary(node),
         }
+    }
+
+    fn analyze_scope_resolution(
+        &mut self,
+        node: &ast::expr::Binary,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        assert!(matches!(node.kind, ast::expr::BinaryKind::ScopeResolution));
+
+        let (left, external_modules, generic_args) = match &node.lhs.kind {
+            // Foo::Bar
+            ast::expr::ExprKind::Ident(id) => (id, None, None),
+
+            // m.Foo::Bar
+            ast::expr::ExprKind::ExternalIdent(ei) => (
+                &ei.ident,
+                if ei.external_modules.is_empty() {
+                    None
+                } else {
+                    Some(ModulePath::new(
+                        ei.external_modules.iter().map(|m| m.symbol()).collect(),
+                    ))
+                },
+                ei.generic_args.clone(),
+            ),
+
+            // Foo<T>::Bar
+            ast::expr::ExprKind::GenericIdent(gi) => (&gi.0, None, Some(gi.1.clone())),
+
+            _ => todo!(),
+        };
+
+        self.with_module(
+            external_modules.unwrap_or(self.current_module_path().clone()),
+            |analyzer| {
+                // If generic arguments are provided, we need to analyze the user defined type to generate actual generic types.
+                let udt = ast_type::UserDefinedType {
+                    name: *left,
+                    generic_args: generic_args.clone(),
+                };
+                let udt = analyzer.analyze_user_defined_type(&udt)?;
+
+                // Expect the type to be a user defined type
+                let udt = match udt.kind.as_ref() {
+                    ir_type::TyKind::UserDefined(udt) => udt,
+                    _ => unreachable!(),
+                };
+
+                // Try to create new enum variant with value
+                // If it fails, try to call static methods
+                let result = if let ast::expr::ExprKind::FnCall(right) = &node.rhs.kind {
+                    if right.args.0.len() != 1 {
+                        // Static methods
+                        analyzer.analyze_static_method_call(&udt, right)
+                    } else {
+                        let value = right.args.0.front().unwrap();
+
+                        match analyzer.analyze_enum_variant(
+                            &udt,
+                            right.callee,
+                            Some(value),
+                            left.span(),
+                        ) {
+                            Ok(val) => Ok(val),
+                            Err(err) => {
+                                err.downcast().and_then(|e| match e {
+                                    SemanticError::Undeclared { name, .. }
+                                    | SemanticError::NoVariant {
+                                        parent_name: name, ..
+                                    }
+                                    | SemanticError::NotAnEnum { name, .. }
+                                    | SemanticError::CannotAssignValueToVariant {
+                                        variant_name: name,
+                                        ..
+                                    } if name == left.symbol() => {
+                                        // Couldn't create enum variant, so try to call static methods
+                                        analyzer.analyze_static_method_call(&udt, right)
+                                    }
+                                    _ => Err(e.into()),
+                                })
+                            }
+                        }
+                    }
+                } else if let ast::expr::ExprKind::Ident(right) = &node.rhs.kind {
+                    // Create enum variant without value.
+                    analyzer.analyze_enum_variant(&udt, *right, None, left.span())
+                } else {
+                    todo!()
+                };
+
+                result
+            },
+        )
+    }
+
+    fn analyze_enum_variant(
+        &mut self,
+        udt: &ir_type::UserDefinedType,
+        variant_name: Ident,
+        value: Option<&ast::expr::Expr>,
+        left_span: Span,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let enum_ir = match &udt.kind {
+            ir_type::UserDefinedTypeKind::Enum(em) => em,
+            _ => {
+                return Err(SemanticError::NotAnEnum {
+                    name: udt.name(),
+                    span: left_span,
+                }
+                .into())
+            }
+        };
+
+        let variant_info = enum_ir
+            .variants
+            .iter()
+            .find(|v| v.name == variant_name.symbol())
+            .ok_or(SemanticError::NoVariant {
+                variant_name: variant_name.symbol(),
+                parent_name: udt.name(),
+                span: left_span,
+            })?;
+
+        let value = match value {
+            Some(value) => Some(self.analyze_expr(value)?),
+            None => None,
+        };
+
+        // Type checking
+        if let Some(value) = &value {
+            if let Some(ty) = &variant_info.ty {
+                if !ir_type::is_same_type(&value.ty, ty) {
+                    return Err(SemanticError::MismatchedTypes {
+                        types: (value.ty.kind.to_string(), ty.kind.to_string()),
+                        span: left_span,
+                    }
+                    .into());
+                }
+            } else {
+                // No type is specified for the variant, but a value is provided.
+                return Err(SemanticError::CannotAssignValueToVariant {
+                    variant_name: variant_name.symbol(),
+                    parent_name: udt.name(),
+                    span: left_span,
+                }
+                .into());
+            }
+        }
+
+        let span = if let Some(value) = &value {
+            Span::new(left_span.start, value.span.finish, left_span.file)
+        } else {
+            Span::new(left_span.start, variant_name.span().finish, left_span.file)
+        };
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::EnumVariant(ir::expr::EnumVariant {
+                enum_info: enum_ir.clone(),
+                variant_offset: variant_info.offset,
+            }),
+            ty: Rc::new(ir_type::wrap_in_ref(
+                Rc::new(ir_type::Ty {
+                    kind: ir_type::TyKind::UserDefined(udt.clone()).into(),
+                    mutability: ir_type::Mutability::Not,
+                }),
+                ir_type::Mutability::Mut,
+            )),
+            span,
+        })
+    }
+
+    fn analyze_static_method_call(
+        &mut self,
+        udt: &ir_type::UserDefinedType,
+        call_node: &ast::expr::FnCall,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let method_name = self.create_method_key(udt.name(), call_node.callee.symbol(), true);
+
+        // Lookup method from symbol table
+        let method = self
+            .lookup_symbol(method_name)
+            .ok_or(SemanticError::NoMethod {
+                method_name: call_node.callee.symbol(),
+                parent_name: udt.name(),
+                span: call_node.span,
+            })?;
+
+        let method = method.borrow();
+        let method = match &method.kind {
+            SymbolTableValueKind::Function(fn_) => fn_,
+            _ => unreachable!(),
+        };
+
+        let args = {
+            let mut args = Vec::new();
+
+            for arg in call_node.args.0.iter() {
+                args.push(self.analyze_expr(arg)?);
+            }
+
+            args
+        };
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
+                callee: method.clone(),
+                args: ir::expr::Args(args),
+            }),
+            ty: Rc::new(ir_type::Ty::new_never()),
+            span: call_node.span,
+        })
     }
 
     fn analyze_access(&mut self, node: &ast::expr::Binary) -> anyhow::Result<ir::expr::Expr> {
@@ -1369,7 +1576,7 @@ impl SemanticAnalyzer {
             span: call_node.span,
         };
 
-        let method_name = self.create_method_key(parent_name, method_name);
+        let method_name = self.create_method_key(parent_name, method_name, false);
 
         let callee = match self.lookup_symbol(method_name) {
             Some(value) => {

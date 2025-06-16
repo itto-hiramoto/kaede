@@ -92,6 +92,16 @@ pub enum SemanticError {
         span: Span,
     },
 
+    #[error("{}:{}:{} `{}` is not an enum", span.file, span.start.line, span.start.column, name)]
+    NotAnEnum { name: Symbol, span: Span },
+
+    #[error("{}:{}:{} cannot assign a value to variant `{}` of type `{}`", span.file, span.start.line, span.start.column, variant_name, parent_name)]
+    CannotAssignValueToVariant {
+        variant_name: Symbol,
+        parent_name: Symbol,
+        span: Span,
+    },
+
     #[error("{}:{}:{} cannot index into a non-array", span.file, span.start.line, span.start.column)]
     IndexingNonArray { span: Span },
 
