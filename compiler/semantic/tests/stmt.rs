@@ -47,3 +47,15 @@ fn let_mismatched_types() -> anyhow::Result<()> {
     )?;
     Ok(())
 }
+
+#[test]
+fn let_and_access() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn f(): i32 {
+            let x = 57
+            return x + 1
+        }
+    ",
+    )?;
+    Ok(())
+}
