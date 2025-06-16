@@ -82,6 +82,14 @@ impl GenericInfo {
     pub fn new(kind: GenericKind, module_path: ModulePath) -> Self {
         Self { kind, module_path }
     }
+
+    pub fn get_generic_argument_length(&self) -> usize {
+        match &self.kind {
+            GenericKind::Struct(info) => info.ast.generic_params.as_ref().unwrap().names.len(),
+            GenericKind::Enum(info) => info.ast.generic_params.as_ref().unwrap().names.len(),
+            _ => unreachable!(),
+        }
+    }
 }
 
 #[derive(Debug)]

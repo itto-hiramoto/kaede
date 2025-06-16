@@ -342,6 +342,16 @@ impl SemanticAnalyzer {
         let udt_kind = match &*&borrowed_symbol.kind {
             SymbolTableValueKind::Struct(st) => ir_type::UserDefinedTypeKind::Struct(st.clone()),
             SymbolTableValueKind::Enum(en) => ir_type::UserDefinedTypeKind::Enum(en.clone()),
+
+            SymbolTableValueKind::Generic(generic_info) => {
+                // Generic arguments are not provided.
+                return Err(SemanticError::GenericArgumentLengthMismatch {
+                    expected: generic_info.get_generic_argument_length(),
+                    actual: 0,
+                    span: udt.name.span(),
+                }
+                .into());
+            }
             _ => unreachable!(),
         };
 

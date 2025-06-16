@@ -7,7 +7,7 @@ pub enum SemanticError {
     #[error("{}:{}:{} `{}` was not declared in this scope", span.file, span.start.line, span.start.column, .name)]
     Undeclared { name: Symbol, span: Span },
 
-    #[error("{}:{}:{} generic argument length mismatch: `{}` vs `{}`", span.file, span.start.line, span.start.column, .expected, .actual)]
+    #[error("{}:{}:{} generic argument length mismatch: {} vs {}", span.file, span.start.line, span.start.column, .expected, .actual)]
     GenericArgumentLengthMismatch {
         expected: usize,
         actual: usize,

@@ -90,7 +90,7 @@ fn generic_type() -> anyhow::Result<()> {
     semantic_analyze(
         "enum Foo<T> { A, B(T) }
         fn f() {
-            let x = Foo::B(1)
+            let x = Foo<i32>::B(1)
         }
     ",
     )?;
@@ -174,7 +174,7 @@ fn impl_with_static_method_for_generic_type() -> anyhow::Result<()> {
         "struct Foo<T> { a: T }
         impl<T> Foo<T> {
             fn new(n: T): Foo<T> {
-                return Foo { a: n }
+                return Foo<T> { a: n }
             }
             fn get_a(self): T {
                 return self.a
