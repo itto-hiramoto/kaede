@@ -1,4 +1,7 @@
-use crate::{SemanticAnalyzer, SemanticError};
+use crate::{
+    symbol_table::{SymbolTableValue, SymbolTableValueKind, VariableInfo},
+    SemanticAnalyzer, SemanticError,
+};
 
 use kaede_ast as ast;
 use kaede_ir as ir;
@@ -48,6 +51,16 @@ impl SemanticAnalyzer {
                     .into());
                 }
             }
+
+            // Insert the variable into the symbol table
+            self.insert_symbol_to_current_scope(
+                node.name.symbol(),
+                SymbolTableValue::new(
+                    SymbolTableValueKind::Variable(VariableInfo { ty: var_ty.clone() }),
+                    self,
+                ),
+                span,
+            )?;
 
             Ok(ir::stmt::Let {
                 name: node.name.symbol(),
