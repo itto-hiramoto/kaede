@@ -1078,12 +1078,8 @@ impl SemanticAnalyzer {
                     } else {
                         let value = right.args.0.front().unwrap();
 
-                        match analyzer.analyze_enum_variant(
-                            &udt,
-                            right.callee,
-                            Some(value),
-                            left.span(),
-                        ) {
+                        match analyzer.analyze_enum_variant(&udt, right.callee, Some(value), *left)
+                        {
                             Ok(val) => Ok(val),
                             Err(err) => {
                                 err.downcast().and_then(|e| match e {
@@ -1106,7 +1102,7 @@ impl SemanticAnalyzer {
                     }
                 } else if let ast::expr::ExprKind::Ident(right) = &node.rhs.kind {
                     // Create enum variant without value.
-                    analyzer.analyze_enum_variant(&udt, *right, None, left.span())
+                    analyzer.analyze_enum_variant(&udt, *right, None, *left)
                 } else {
                     todo!()
                 };
@@ -1121,14 +1117,16 @@ impl SemanticAnalyzer {
         udt: &ir_type::UserDefinedType,
         variant_name: Ident,
         value: Option<&ast::expr::Expr>,
-        left_span: Span,
+        left_ident: Ident,
     ) -> anyhow::Result<ir::expr::Expr> {
+        let left_span = left_ident.span();
+
         let enum_ir = match &udt.kind {
             ir_type::UserDefinedTypeKind::Enum(em) => em,
             _ => {
                 return Err(SemanticError::NotAnEnum {
-                    name: udt.name(),
-                    span: left_span,
+                    name: left_ident.symbol(),
+                    span: left_ident.span(),
                 }
                 .into())
             }
