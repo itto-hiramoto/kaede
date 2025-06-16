@@ -223,6 +223,13 @@ impl SymbolTable {
         }
     }
 
+    #[cfg(debug_assertions)]
+    pub fn dump(&self) {
+        for (symbol, value) in self.table.iter() {
+            println!("{}: {:?}", symbol, value.borrow().kind);
+        }
+    }
+
     pub fn lookup(&self, symbol: &Symbol) -> Option<Rc<RefCell<SymbolTableValue>>> {
         self.table.get(symbol).cloned()
     }

@@ -131,7 +131,7 @@ impl SemanticAnalyzer {
             self.create_method_key(
                 parent_name,
                 node.decl.name.symbol(),
-                node.decl.self_.is_some(),
+                node.decl.self_.is_none(),
             ),
             node.decl.name.span(),
         );

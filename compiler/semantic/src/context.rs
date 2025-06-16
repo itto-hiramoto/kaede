@@ -81,6 +81,15 @@ impl ModuleContext {
         }
     }
 
+    #[cfg(debug_assertions)]
+    pub fn dump(&self) {
+        for table in self.symbol_table_stack.iter() {
+            println!("Symbol table:");
+            table.dump();
+            println!();
+        }
+    }
+
     pub fn push_scope(&mut self, symbol_table: SymbolTable) {
         self.symbol_table_stack.push(symbol_table);
     }

@@ -60,6 +60,14 @@ impl SemanticAnalyzer {
         }
     }
 
+    #[cfg(debug_assertions)]
+    pub fn dump_context(&self) {
+        for (module_path, module_context) in self.modules.iter() {
+            println!("Module: {}", module_path.mangle());
+            module_context.dump();
+        }
+    }
+
     pub fn lookup_symbol(&self, symbol: Symbol) -> Option<Rc<RefCell<SymbolTableValue>>> {
         self.modules
             .get(&self.current_module_path())
