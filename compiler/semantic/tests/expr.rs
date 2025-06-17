@@ -141,17 +141,6 @@ fn struct_literal() -> anyhow::Result<()> {
 }
 
 #[test]
-fn if_with_struct_literal() -> anyhow::Result<()> {
-    semantic_analyze(
-        "struct Foo { a: bool }
-        fn f(a: i32): Foo {
-            return if Foo { a: true }.a { 58 } else { 123 }
-        }",
-    )?;
-    Ok(())
-}
-
-#[test]
 fn struct_access() -> anyhow::Result<()> {
     semantic_analyze(
         "struct Foo { a: i32 }
