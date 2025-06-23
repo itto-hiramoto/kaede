@@ -32,12 +32,38 @@ impl SemanticAnalyzer {
             TopLevelKind::Struct(node) => self.analyze_struct(node),
             TopLevelKind::Enum(node) => self.analyze_enum(node),
             TopLevelKind::Impl(node) => self.analyze_impl(node),
+            TopLevelKind::Extern(node) => self.analyze_extern(node),
             TopLevelKind::Import(_) => unimplemented!(),
-            TopLevelKind::Extern(_) => unimplemented!(),
             TopLevelKind::Use(_) => unimplemented!(),
 
             _ => unreachable!(),
         }
+    }
+
+    pub fn analyze_extern(
+        &mut self,
+        node: ast::top::Extern,
+    ) -> anyhow::Result<TopLevelAnalysisResult> {
+        let fn_decl = self.analyze_fn_decl(node.fn_decl)?;
+
+        let name = fn_decl.name.symbol();
+
+        let symbol_table_value = SymbolTableValue::new(
+            SymbolTableValueKind::Function(Rc::new(ir::top::Fn {
+                decl: fn_decl.clone(),
+                body: None,
+            })),
+            self,
+        );
+
+        self.insert_symbol_to_root_scope(name, symbol_table_value, node.span)?;
+
+        Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Extern(
+            Rc::new(ir::top::Extern {
+                lang_linkage: node.lang_linkage.map(|s| s.syb),
+                fn_decl,
+            }),
+        )))
     }
 
     pub fn analyze_impl(&mut self, node: ast::top::Impl) -> anyhow::Result<TopLevelAnalysisResult> {
@@ -171,25 +197,12 @@ impl SemanticAnalyzer {
     pub fn analyze_fn_internal(&mut self, node: ast::top::Fn) -> anyhow::Result<Rc<ir::top::Fn>> {
         assert_eq!(node.decl.self_, None);
 
-        let name = node.decl.name.symbol();
-
-        let params = node
-            .decl
-            .params
-            .v
-            .into_iter()
-            .map(|p| -> anyhow::Result<ir::top::Param> {
-                Ok(ir::top::Param {
-                    name: p.name,
-                    ty: self.analyze_type(&p.ty)?.into(),
-                })
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let fn_decl = self.analyze_fn_decl(node.decl)?;
 
         // Create a new symbol table for the function parameters.
         {
             let mut symbol_table = SymbolTable::new();
-            for param in params.iter() {
+            for param in fn_decl.params.iter() {
                 let symbol_table_value = SymbolTableValue::new(
                     SymbolTableValueKind::Variable(VariableInfo {
                         ty: param.ty.clone(),
@@ -202,19 +215,11 @@ impl SemanticAnalyzer {
             self.push_scope(symbol_table);
         }
 
-        let fn_decl = ir::top::FnDecl {
-            name: QualifiedSymbol::new(self.current_module_path().clone(), name),
-            is_var_args: node.decl.params.is_var_args,
-            params,
-            return_ty: match &node.decl.return_ty {
-                None => None,
-                Some(ty) => Some(self.analyze_type(ty)?.into()),
-            },
-        };
+        let name = fn_decl.name.symbol();
 
         let fn_ = Rc::new(ir::top::Fn {
             decl: fn_decl,
-            body: self.analyze_block(&node.body)?,
+            body: Some(self.analyze_block(&node.body)?),
         });
 
         // Pop the function symbol table.
@@ -226,6 +231,32 @@ impl SemanticAnalyzer {
         self.insert_symbol_to_root_scope(name, symbol_table_value, node.span)?;
 
         Ok(fn_)
+    }
+
+    fn analyze_fn_decl(&mut self, node: ast::top::FnDecl) -> anyhow::Result<ir::top::FnDecl> {
+        let name = node.name.symbol();
+
+        let params = node
+            .params
+            .v
+            .into_iter()
+            .map(|p| -> anyhow::Result<ir::top::Param> {
+                Ok(ir::top::Param {
+                    name: p.name,
+                    ty: self.analyze_type(&p.ty)?.into(),
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        Ok(ir::top::FnDecl {
+            name: QualifiedSymbol::new(self.current_module_path().clone(), name),
+            is_var_args: node.params.is_var_args,
+            params,
+            return_ty: match &node.return_ty {
+                None => None,
+                Some(ty) => Some(self.analyze_type(ty)?.into()),
+            },
+        })
     }
 
     pub fn analyze_struct(

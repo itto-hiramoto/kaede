@@ -188,3 +188,15 @@ fn impl_with_static_method_for_generic_type() -> anyhow::Result<()> {
     )?;
     Ok(())
 }
+
+#[test]
+fn extern_() -> anyhow::Result<()> {
+    semantic_analyze(
+        r#"extern "C" fn foo(): i32
+        fn f() {
+            foo()
+        }
+    "#,
+    )?;
+    Ok(())
+}

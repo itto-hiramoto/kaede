@@ -34,7 +34,8 @@ pub struct FnDecl {
 #[derive(Debug)]
 pub struct Fn {
     pub decl: FnDecl,
-    pub body: Block,
+    // If the function is a declaration, the body is None.
+    pub body: Option<Block>,
 }
 
 impl PartialEq for Fn {
