@@ -24,7 +24,14 @@ pub struct Param {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LangLinkage {
+    Default,
+    C,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FnDecl {
+    pub lang_linkage: LangLinkage,
     pub name: QualifiedSymbol,
     pub params: Vec<Param>,
     pub is_var_args: bool,
@@ -59,12 +66,6 @@ pub struct Enum {
     pub variants: Vec<EnumVariant>,
 }
 
-#[derive(Debug)]
-pub struct Extern {
-    pub lang_linkage: Option<Symbol>,
-    pub fn_decl: FnDecl,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Impl {
     pub methods: Vec<Rc<Fn>>,
@@ -75,6 +76,5 @@ pub enum TopLevel {
     Fn(Rc<Fn>),
     Struct(Rc<Struct>),
     Enum(Rc<Enum>),
-    Extern(Rc<Extern>),
     Impl(Rc<Impl>),
 }

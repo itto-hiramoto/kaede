@@ -1,4 +1,9 @@
-use std::{cell::RefCell, collections::HashMap, path::PathBuf, rc::Rc};
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet},
+    path::{Component, PathBuf},
+    rc::Rc,
+};
 
 use context::AnalysisContext;
 use kaede_ir::{module_path::ModulePath, qualified_symbol::QualifiedSymbol, ty as ir_type};
@@ -26,10 +31,12 @@ pub struct SemanticAnalyzer {
     modules: HashMap<ModulePath, ModuleContext>,
     context: AnalysisContext,
     generated_generics: Vec<ir::top::TopLevel>,
+    imported_module_paths: HashSet<PathBuf>,
+    root_dir: PathBuf,
 }
 
 impl SemanticAnalyzer {
-    pub fn new(file_path: FilePath) -> Self {
+    pub fn new(file_path: FilePath, root_dir: PathBuf) -> Self {
         let modules_from_root = file_path
             .path()
             .iter()
@@ -48,22 +55,42 @@ impl SemanticAnalyzer {
         let module_path = ModulePath::new(modules_from_root);
         context.set_module_path(module_path.clone());
 
-        let mut module_context = ModuleContext::new();
+        let mut module_context = ModuleContext::new(file_path);
         module_context.push_scope(SymbolTable::new());
 
         Self {
             modules: HashMap::from([(module_path, module_context)]),
             context,
             generated_generics: Vec::new(),
+            imported_module_paths: HashSet::new(),
+            root_dir,
         }
     }
 
-    #[cfg(debug_assertions)]
-    pub fn dump_context(&self) {
-        for (module_path, module_context) in self.modules.iter() {
-            println!("Module: {}", module_path.mangle());
-            module_context.dump();
-        }
+    pub fn create_module_path_from_file_path(
+        &self,
+        file_path: FilePath,
+    ) -> anyhow::Result<ModulePath> {
+        let diff_from_root = {
+            // Get the canonical paths
+            let root_dir = self.root_dir.canonicalize()?;
+            let file_parent = file_path.path().parent().unwrap().canonicalize()?;
+
+            file_parent
+                .strip_prefix(root_dir)?
+                .components()
+                .map(|c| {
+                    // The path is canonicalized, so that the components are all normal.
+                    if let Component::Normal(os_str) = c {
+                        Symbol::from(os_str.to_string_lossy().to_string())
+                    } else {
+                        unreachable!();
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+
+        Ok(ModulePath::new(diff_from_root))
     }
 
     pub fn lookup_symbol(&self, symbol: Symbol) -> Option<Rc<RefCell<SymbolTableValue>>> {

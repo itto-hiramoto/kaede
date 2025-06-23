@@ -13,13 +13,4 @@ impl ModulePath {
     pub fn get_module_names_from_root(&self) -> &[Symbol] {
         &self.modules_from_root
     }
-
-    pub fn mangle(&self) -> Symbol {
-        self.modules_from_root
-            .iter()
-            .map(|s| s.to_string())
-            .collect::<Vec<_>>()
-            .join(".")
-            .into()
-    }
 }

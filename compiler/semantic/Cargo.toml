@@ -13,3 +13,4 @@ kaede_ir = { path = "../ir" }
 kaede_symbol = { path = "../symbol" }
 kaede_span = { path = "../span" }
 kaede_parse = { path = "../parse" }
+kaede_common = { path = "../common" }

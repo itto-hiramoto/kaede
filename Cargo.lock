@@ -463,6 +463,7 @@ dependencies = [
  "anyhow",
  "kaede_ast",
  "kaede_ast_type",
+ "kaede_common",
  "kaede_ir",
  "kaede_parse",
  "kaede_span",

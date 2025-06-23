@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::{fs, rc::Rc};
 
 use crate::{
     symbol_table::{
@@ -10,13 +10,16 @@ use crate::{
 
 use kaede_ast as ast;
 use kaede_ast_type as ast_type;
+use kaede_common::kaede_lib_src_dir;
 use kaede_ir::{self as ir, qualified_symbol::QualifiedSymbol};
+use kaede_parse::Parser;
 use kaede_symbol::Ident;
 
 /// If a top-level is generic, there is no IR that can be generated immediately, so this enum is used.
 #[derive(Debug, Clone)]
 pub enum TopLevelAnalysisResult {
     GenericTopLevel,
+    Imported,
     TopLevel(ir::top::TopLevel),
 }
 
@@ -33,18 +36,130 @@ impl SemanticAnalyzer {
             TopLevelKind::Enum(node) => self.analyze_enum(node),
             TopLevelKind::Impl(node) => self.analyze_impl(node),
             TopLevelKind::Extern(node) => self.analyze_extern(node),
-            TopLevelKind::Import(_) => unimplemented!(),
+            TopLevelKind::Import(node) => self.analyze_import(node),
             TopLevelKind::Use(_) => unimplemented!(),
 
             _ => unreachable!(),
         }
     }
 
+    pub fn analyze_import(
+        &mut self,
+        node: ast::top::Import,
+    ) -> anyhow::Result<TopLevelAnalysisResult> {
+        let path_prefix = if node.module_path.segments.first().unwrap().as_str() == "std" {
+            // Standard library
+            kaede_lib_src_dir()
+        } else {
+            self.modules
+                .get(self.current_module_path())
+                .unwrap()
+                .file_path()
+                .path()
+                .parent()
+                .unwrap()
+                .to_path_buf()
+        };
+
+        let mut path = path_prefix;
+
+        // Build the file path to be imported
+        for (idx, segment) in node.module_path.segments.iter().enumerate() {
+            if idx == node.module_path.segments.len() - 1 {
+                path = path.join(segment.as_str()).with_extension("kd");
+                break;
+            }
+
+            path = path.join(segment.as_str());
+        }
+
+        // Check if the file exists
+        if !path.exists() {
+            return Err(SemanticError::FileNotFoundForModule {
+                span: node.module_path.span,
+                mod_name: node.module_path.segments.last().unwrap().symbol(),
+            }
+            .into());
+        }
+
+        // Prevent duplicate imports
+        if self.imported_module_paths.contains(&path) {
+            return Ok(TopLevelAnalysisResult::Imported);
+        } else {
+            self.imported_module_paths.insert(path.canonicalize()?);
+        }
+
+        let path = path.to_path_buf().into();
+
+        let module_path = self.create_module_path_from_file_path(path)?;
+
+        let parsed_module = Parser::new(
+            &fs::read_to_string(&path.path()).unwrap(),
+            path.clone().into(),
+        )
+        .run()
+        .unwrap();
+
+        self.with_module(module_path, |analyzer| {
+            use ast::top::TopLevelKind;
+
+            for top_level in parsed_module.top_levels {
+                // TODO: Check access modifier
+
+                match top_level.kind {
+                    TopLevelKind::Impl(impl_) => {
+                        analyzer.analyze_impl(impl_)?;
+                        continue;
+                    }
+
+                    TopLevelKind::Import(import_) => {
+                        analyzer.analyze_import(import_)?;
+                        continue;
+                    }
+
+                    TopLevelKind::Fn(fn_) => {
+                        let fn_decl = analyzer.analyze_fn_decl(fn_.decl)?;
+                        let name = fn_decl.name.symbol();
+                        let symbol_table_value = SymbolTableValue::new(
+                            SymbolTableValueKind::Function(Rc::new(ir::top::Fn {
+                                decl: fn_decl,
+                                body: None,
+                            })),
+                            analyzer,
+                        );
+                        analyzer.insert_symbol_to_root_scope(name, symbol_table_value, fn_.span)?;
+                    }
+
+                    TopLevelKind::Struct(struct_) => {
+                        analyzer.analyze_struct(struct_)?;
+                    }
+
+                    TopLevelKind::Enum(enum_) => {
+                        analyzer.analyze_enum(enum_)?;
+                    }
+
+                    _ => unreachable!(),
+                }
+            }
+
+            Ok::<(), anyhow::Error>(())
+        })?;
+
+        Ok(TopLevelAnalysisResult::Imported)
+    }
+
     pub fn analyze_extern(
         &mut self,
         node: ast::top::Extern,
     ) -> anyhow::Result<TopLevelAnalysisResult> {
-        let fn_decl = self.analyze_fn_decl(node.fn_decl)?;
+        let mut fn_decl = self.analyze_fn_decl(node.fn_decl)?;
+
+        if let Some(lang_linkage) = node.lang_linkage {
+            fn_decl.lang_linkage = match lang_linkage.syb.as_str() {
+                "C" => ir::top::LangLinkage::C,
+                _ => unreachable!(),
+            };
+        }
 
         let name = fn_decl.name.symbol();
 
@@ -58,10 +173,10 @@ impl SemanticAnalyzer {
 
         self.insert_symbol_to_root_scope(name, symbol_table_value, node.span)?;
 
-        Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Extern(
-            Rc::new(ir::top::Extern {
-                lang_linkage: node.lang_linkage.map(|s| s.syb),
-                fn_decl,
+        Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Fn(
+            Rc::new(ir::top::Fn {
+                decl: fn_decl,
+                body: None,
             }),
         )))
     }
@@ -249,6 +364,7 @@ impl SemanticAnalyzer {
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         Ok(ir::top::FnDecl {
+            lang_linkage: ir::top::LangLinkage::Default,
             name: QualifiedSymbol::new(self.current_module_path().clone(), name),
             is_var_args: node.params.is_var_args,
             params,

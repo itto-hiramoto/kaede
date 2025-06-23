@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use kaede_ir::{module_path::ModulePath, ty::Ty};
-use kaede_span::Span;
+use kaede_span::{file::FilePath, Span};
 use kaede_symbol::Symbol;
 
 use crate::{
@@ -73,16 +73,23 @@ impl SemanticAnalyzer {
 pub struct ModuleContext {
     symbol_table_stack: Vec<SymbolTable>,
     generic_argument_table: Vec<GenericArgumentTable>,
+    file_path: FilePath,
 }
 
 impl ModuleContext {
-    pub fn new() -> Self {
+    pub fn new(file_path: FilePath) -> Self {
         Self {
             symbol_table_stack: vec![SymbolTable::new()], // Root scope
             generic_argument_table: vec![],
+            file_path,
         }
     }
 
+    pub fn file_path(&self) -> FilePath {
+        self.file_path
+    }
+
+    #[allow(dead_code)]
     #[cfg(debug_assertions)]
     pub fn dump(&self) {
         for table in self.symbol_table_stack.iter() {
