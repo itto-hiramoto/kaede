@@ -150,13 +150,27 @@ impl ModuleContext {
         value: SymbolTableValue,
         span: Span,
     ) -> anyhow::Result<()> {
-        self.get_current_symbol_table().insert(symbol, value, span)
+        self.get_current_symbol_table()
+            .insert(symbol, Rc::new(RefCell::new(value)), span)
     }
 
     pub fn insert_symbol_to_root_scope(
         &mut self,
         symbol: Symbol,
         value: SymbolTableValue,
+        span: Span,
+    ) -> anyhow::Result<()> {
+        self.symbol_table_stack.first_mut().unwrap().insert(
+            symbol,
+            Rc::new(RefCell::new(value)),
+            span,
+        )
+    }
+
+    pub fn bind_symbol(
+        &mut self,
+        symbol: Symbol,
+        value: Rc<RefCell<SymbolTableValue>>,
         span: Span,
     ) -> anyhow::Result<()> {
         self.symbol_table_stack

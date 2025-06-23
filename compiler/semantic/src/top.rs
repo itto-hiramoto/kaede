@@ -1,4 +1,4 @@
-use std::{fs, rc::Rc};
+use std::{cell::RefCell, fs, rc::Rc};
 
 use crate::{
     symbol_table::{
@@ -11,7 +11,7 @@ use crate::{
 use kaede_ast as ast;
 use kaede_ast_type as ast_type;
 use kaede_common::kaede_lib_src_dir;
-use kaede_ir::{self as ir, qualified_symbol::QualifiedSymbol};
+use kaede_ir::{self as ir, module_path::ModulePath, qualified_symbol::QualifiedSymbol};
 use kaede_parse::Parser;
 use kaede_symbol::Ident;
 
@@ -37,10 +37,40 @@ impl SemanticAnalyzer {
             TopLevelKind::Impl(node) => self.analyze_impl(node),
             TopLevelKind::Extern(node) => self.analyze_extern(node),
             TopLevelKind::Import(node) => self.analyze_import(node),
-            TopLevelKind::Use(_) => unimplemented!(),
+            TopLevelKind::Use(node) => self.analyze_use(node),
 
             _ => unreachable!(),
         }
+    }
+
+    pub fn analyze_use(&mut self, node: ast::top::Use) -> anyhow::Result<TopLevelAnalysisResult> {
+        let modules = node.path.segments[..node.path.segments.len() - 1].to_vec();
+        let current_module_path = self.current_module_path().get_module_names_from_root();
+        let parent_module_path = current_module_path[..current_module_path.len() - 1].to_vec();
+
+        let path_to_use = ModulePath::new(
+            parent_module_path
+                .into_iter()
+                .chain(modules.into_iter().map(|s| s.symbol()))
+                .collect(),
+        );
+
+        let name = node.path.segments.last().unwrap().symbol();
+
+        let symbol = self
+            .lookup_qualified_symbol(QualifiedSymbol::new(path_to_use, name))
+            .ok_or_else(|| SemanticError::Undeclared {
+                name: name,
+                span: node.span,
+            })?;
+
+        let current_module_path = self.current_module_path().clone();
+        self.modules
+            .get_mut(&current_module_path)
+            .unwrap()
+            .bind_symbol(name, symbol, node.span)?;
+
+        Ok(TopLevelAnalysisResult::Imported)
     }
 
     pub fn analyze_import(
@@ -325,7 +355,11 @@ impl SemanticAnalyzer {
                     self,
                 );
 
-                symbol_table.insert(param.name.symbol(), symbol_table_value, node.span)?;
+                symbol_table.insert(
+                    param.name.symbol(),
+                    Rc::new(RefCell::new(symbol_table_value)),
+                    node.span,
+                )?;
             }
             self.push_scope(symbol_table);
         }

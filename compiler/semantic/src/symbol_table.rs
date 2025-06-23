@@ -147,14 +147,10 @@ impl SymbolTable {
     pub fn insert(
         &mut self,
         symbol: Symbol,
-        value: SymbolTableValue,
+        value: Rc<RefCell<SymbolTableValue>>,
         span: Span,
     ) -> anyhow::Result<()> {
-        if self
-            .table
-            .insert(symbol, Rc::new(RefCell::new(value)))
-            .is_some()
-        {
+        if self.table.insert(symbol, value).is_some() {
             return Err(SemanticError::AlreadyDeclared { name: symbol, span }.into());
         }
 
