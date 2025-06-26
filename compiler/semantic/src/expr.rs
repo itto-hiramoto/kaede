@@ -127,23 +127,48 @@ impl SemanticAnalyzer {
         &self,
         pattern: &'p ast::expr::Expr,
     ) -> DecomposedEnumVariantPattern<'p> {
-        let (module_names, enum_name, variant_name_and_param) = match &pattern.kind {
+        let (module_names, enum_name, variant_name, param) = match &pattern.kind {
             ast::expr::ExprKind::Binary(b) => match b.kind {
                 ast::expr::BinaryKind::ScopeResolution => match &b.lhs.kind {
-                    // TODO: Handle external modules
-                    ast::expr::ExprKind::Ident(i) => (vec![], i, &b.rhs),
+                    ast::expr::ExprKind::Ident(i) => {
+                        let (variant_name, param) = match &b.rhs.kind {
+                            ast::expr::ExprKind::Ident(ident) => (ident, None),
+                            ast::expr::ExprKind::FnCall(fncall) => {
+                                (&fncall.callee, Some(&fncall.args))
+                            }
+                            _ => unreachable!(),
+                        };
+
+                        (vec![], i, variant_name, param)
+                    }
+                    _ => unreachable!(),
+                },
+
+                ast::expr::BinaryKind::Access => match &b.rhs.kind {
+                    // m1.m2.m3.A::B(a, b, c)
+                    ast::expr::ExprKind::Binary(ast::expr::Binary {
+                        kind: ast::expr::BinaryKind::ScopeResolution,
+                        ..
+                    }) => {
+                        let mut modules = Vec::new();
+                        self.collect_access_chain(&b.lhs, &mut modules);
+
+                        let decomposed = self.decompose_enum_variant_pattern(&b.rhs);
+
+                        (
+                            modules,
+                            decomposed.enum_name,
+                            decomposed.variant_name,
+                            decomposed.param,
+                        )
+                    }
+
                     _ => unreachable!(),
                 },
 
                 _ => unreachable!(),
             },
 
-            _ => unreachable!(),
-        };
-
-        let (variant_name, param) = match &variant_name_and_param.kind {
-            ast::expr::ExprKind::Ident(ident) => (ident, None),
-            ast::expr::ExprKind::FnCall(fncall) => (&fncall.callee, Some(&fncall.args)),
             _ => unreachable!(),
         };
 
@@ -1233,20 +1258,7 @@ impl SemanticAnalyzer {
             }
         }
 
-        let left = self.analyze_expr(&node.lhs);
-
-        let left = match left {
-            Ok(left) => left,
-            Err(_) => {
-                // Expect that the left side is a module name
-                let mut chain = Vec::new();
-                self.collect_access_chain(&node.lhs, &mut chain);
-
-                let module_path = ModulePath::new(chain.iter().map(|i| i.symbol()).collect());
-
-                return self.with_module(module_path, |analyzer| analyzer.analyze_expr(&node.rhs));
-            }
-        };
+        let left = self.analyze_expr(&node.lhs)?;
 
         let left_ty = left.ty.clone();
 
