@@ -10,7 +10,7 @@ use crate::{
 
 use kaede_ast as ast;
 use kaede_ast_type as ast_type;
-use kaede_ir::{self as ir, ty::make_fundamental_type};
+use kaede_ir::{self as ir, qualified_symbol::QualifiedSymbol, ty::make_fundamental_type};
 use kaede_ir::{module_path::ModulePath, ty as ir_type};
 use kaede_span::Span;
 use kaede_symbol::{Ident, Symbol};
@@ -1528,16 +1528,15 @@ impl SemanticAnalyzer {
         udt: &ir_type::UserDefinedType,
         call_node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
-        self.with_module(udt.module_path().clone(), |analyzer| {
-            let span = Span::new(lhs.span.start, call_node.span.finish, lhs.span.file);
-            analyzer.create_method_call_ir(
-                call_node.callee.symbol(),
-                udt.name(),
-                call_node,
-                lhs,
-                span,
-            )
-        })
+        let span = Span::new(lhs.span.start, call_node.span.finish, lhs.span.file);
+        self.create_method_call_ir(
+            call_node.callee.symbol(),
+            udt.module_path().clone(),
+            udt.name(),
+            call_node,
+            lhs,
+            span,
+        )
     }
 
     fn analyze_struct_field_access(
@@ -1586,6 +1585,7 @@ impl SemanticAnalyzer {
     fn create_method_call_ir(
         &mut self,
         method_name: Symbol,
+        module_path: ModulePath,
         parent_name: Symbol,
         call_node: &ast::expr::FnCall,
         this: ir::expr::Expr,
@@ -1599,21 +1599,22 @@ impl SemanticAnalyzer {
 
         let method_name = self.create_method_key(parent_name, method_name, false);
 
-        let callee = match self.lookup_symbol(method_name) {
-            Some(value) => {
-                let value = value.borrow();
+        let callee =
+            match self.lookup_qualified_symbol(QualifiedSymbol::new(module_path, method_name)) {
+                Some(value) => {
+                    let value = value.borrow();
 
-                if let SymbolTableValueKind::Function(fn_) = &value.kind {
-                    fn_.clone()
-                } else {
+                    if let SymbolTableValueKind::Function(fn_) = &value.kind {
+                        fn_.clone()
+                    } else {
+                        return Err(no_method_err().into());
+                    }
+                }
+
+                None => {
                     return Err(no_method_err().into());
                 }
-            }
-
-            None => {
-                return Err(no_method_err().into());
-            }
-        };
+            };
 
         // Inject `this` to the front of the arguments
         let args = std::iter::once(this)
@@ -1637,7 +1638,11 @@ impl SemanticAnalyzer {
         // For simplicity, we treat the method call as a function call.
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::FnCall(call_node),
-            ty: Rc::new(ir_type::Ty::new_never()),
+            ty: callee
+                .decl
+                .return_ty
+                .clone()
+                .unwrap_or_else(|| Rc::new(ir_type::Ty::new_unit())),
             span,
         })
     }
@@ -1652,6 +1657,7 @@ impl SemanticAnalyzer {
         let span = Span::new(left.span.start, call_node.span.finish, left.span.file);
         self.create_method_call_ir(
             call_node.callee.symbol(),
+            self.current_module_path().clone(),
             fty.kind.to_string().into(),
             call_node,
             left,
