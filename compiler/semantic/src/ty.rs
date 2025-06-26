@@ -3,7 +3,7 @@ use std::rc::Rc;
 use kaede_ast as ast;
 use kaede_ast_type as ast_type;
 use kaede_ir as ir;
-use kaede_ir::{module_path::ModulePath, ty as ir_type};
+use kaede_ir::ty as ir_type;
 use kaede_span::Span;
 use kaede_symbol::Ident;
 
@@ -36,31 +36,11 @@ impl SemanticAnalyzer {
                 .into()),
 
             ast_type::TyKind::Generic(gty) => self.analyze_generic_type(gty, ty.span),
-            ast_type::TyKind::External(ety) => self.analyze_external_type(ety),
 
             ast_type::TyKind::Unit => Ok(ir_type::Ty::new_unit().into()),
             ast_type::TyKind::Never => Ok(ir_type::Ty::new_never().into()),
             ast_type::TyKind::Inferred => todo!(),
         }
-    }
-
-    fn analyze_external_type(
-        &mut self,
-        ety: &ast_type::ExternalType,
-    ) -> anyhow::Result<Rc<ir_type::Ty>> {
-        let external_module_path = ModulePath::new(
-            ety.get_module_names_recursively()
-                .iter()
-                .map(|n| n.symbol())
-                .collect(),
-        );
-
-        let base_ty = ety.get_base_type();
-
-        // Replace the current module path with the external module path
-        self.with_module(external_module_path, |analyzer| {
-            analyzer.analyze_type(&base_ty)
-        })
     }
 
     fn analyze_generic_type(

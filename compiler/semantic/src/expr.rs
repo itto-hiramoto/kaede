@@ -53,7 +53,6 @@ impl SemanticAnalyzer {
                 span,
             }),
 
-            ExprKind::ExternalIdent(_) => todo!(),
             ExprKind::GenericIdent(_) => todo!(),
         }
     }
@@ -92,42 +91,34 @@ impl SemanticAnalyzer {
         &mut self,
         node: &ast::expr::StructLiteral,
     ) -> anyhow::Result<ir::expr::Expr> {
-        let module_path = if !node.external_modules.is_empty() {
-            ModulePath::new(node.external_modules.iter().map(|m| m.symbol()).collect())
-        } else {
-            self.current_module_path().clone()
+        let struct_ty = self.analyze_user_defined_type(&node.struct_ty)?;
+
+        let udt_ir = match struct_ty.kind.as_ref() {
+            ir_type::TyKind::UserDefined(udt) => udt,
+            _ => unreachable!(),
         };
 
-        self.with_module(module_path, |analyzer| {
-            let struct_ty = analyzer.analyze_user_defined_type(&node.struct_ty)?;
+        let struct_ir = match &udt_ir.kind {
+            ir_type::UserDefinedTypeKind::Struct(struct_ir) => struct_ir,
+            _ => unreachable!(),
+        };
 
-            let udt_ir = match struct_ty.kind.as_ref() {
-                ir_type::TyKind::UserDefined(udt) => udt,
-                _ => unreachable!(),
-            };
+        let ir = ir::expr::StructLiteral {
+            struct_info: struct_ir.clone(),
+            values: node
+                .values
+                .iter()
+                .map(|(name, value)| {
+                    let value = self.analyze_expr(value)?;
+                    Ok((name.symbol(), value))
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?,
+        };
 
-            let struct_ir = match &udt_ir.kind {
-                ir_type::UserDefinedTypeKind::Struct(struct_ir) => struct_ir,
-                _ => unreachable!(),
-            };
-
-            let ir = ir::expr::StructLiteral {
-                struct_info: struct_ir.clone(),
-                values: node
-                    .values
-                    .iter()
-                    .map(|(name, value)| {
-                        let value = analyzer.analyze_expr(value)?;
-                        Ok((name.symbol(), value))
-                    })
-                    .collect::<anyhow::Result<Vec<_>>>()?,
-            };
-
-            Ok(ir::expr::Expr {
-                kind: ir::expr::ExprKind::StructLiteral(ir),
-                ty: Rc::new(ir::ty::wrap_in_ref(struct_ty, ir_type::Mutability::Mut)),
-                span: node.span,
-            })
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::StructLiteral(ir),
+            ty: Rc::new(ir::ty::wrap_in_ref(struct_ty, ir_type::Mutability::Mut)),
+            span: node.span,
         })
     }
 
@@ -139,10 +130,8 @@ impl SemanticAnalyzer {
         let (module_names, enum_name, variant_name_and_param) = match &pattern.kind {
             ast::expr::ExprKind::Binary(b) => match b.kind {
                 ast::expr::BinaryKind::ScopeResolution => match &b.lhs.kind {
+                    // TODO: Handle external modules
                     ast::expr::ExprKind::Ident(i) => (vec![], i, &b.rhs),
-                    ast::expr::ExprKind::ExternalIdent(ei) => {
-                        (ei.external_modules.clone(), &ei.ident, &b.rhs)
-                    }
                     _ => unreachable!(),
                 },
 
@@ -660,17 +649,6 @@ impl SemanticAnalyzer {
         })
     }
 
-    fn analyze_fn_call(&mut self, node: &ast::expr::FnCall) -> anyhow::Result<ir::expr::Expr> {
-        if node.external_modules.is_empty() {
-            self.analyze_fn_call_internal(node)
-        } else {
-            self.with_module(
-                ModulePath::new(node.external_modules.iter().map(|i| i.symbol()).collect()),
-                |analyzer| analyzer.analyze_fn_call_internal(node),
-            )
-        }
-    }
-
     fn generate_generic_fn(
         &mut self,
         info: &GenericFuncInfo,
@@ -743,10 +721,7 @@ impl SemanticAnalyzer {
         })
     }
 
-    fn analyze_fn_call_internal(
-        &mut self,
-        node: &ast::expr::FnCall,
-    ) -> anyhow::Result<ir::expr::Expr> {
+    fn analyze_fn_call(&mut self, node: &ast::expr::FnCall) -> anyhow::Result<ir::expr::Expr> {
         let symbol_value =
             self.lookup_symbol(node.callee.symbol())
                 .ok_or_else(|| SemanticError::Undeclared {
@@ -1016,7 +991,6 @@ impl SemanticAnalyzer {
         match node.kind {
             Cast => self.analyze_cast(node),
 
-            // The following requires consideration of name mangling.
             Access => self.analyze_access(node),
             ScopeResolution => self.analyze_scope_resolution(node),
 
@@ -1030,86 +1004,67 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<ir::expr::Expr> {
         assert!(matches!(node.kind, ast::expr::BinaryKind::ScopeResolution));
 
-        let (left, external_modules, generic_args) = match &node.lhs.kind {
+        let (left, generic_args) = match &node.lhs.kind {
             // Foo::Bar
-            ast::expr::ExprKind::Ident(id) => (id, None, None),
-
-            // m.Foo::Bar
-            ast::expr::ExprKind::ExternalIdent(ei) => (
-                &ei.ident,
-                if ei.external_modules.is_empty() {
-                    None
-                } else {
-                    Some(ModulePath::new(
-                        ei.external_modules.iter().map(|m| m.symbol()).collect(),
-                    ))
-                },
-                ei.generic_args.clone(),
-            ),
+            ast::expr::ExprKind::Ident(id) => (id, None),
 
             // Foo<T>::Bar
-            ast::expr::ExprKind::GenericIdent(gi) => (&gi.0, None, Some(gi.1.clone())),
+            ast::expr::ExprKind::GenericIdent(gi) => (&gi.0, Some(gi.1.clone())),
 
             _ => todo!(),
         };
 
-        self.with_module(
-            external_modules.unwrap_or(self.current_module_path().clone()),
-            |analyzer| {
-                // If generic arguments are provided, we need to analyze the user defined type to generate actual generic types.
-                let udt = ast_type::UserDefinedType {
-                    name: *left,
-                    generic_args: generic_args.clone(),
-                };
-                let udt = analyzer.analyze_user_defined_type(&udt)?;
+        // If generic arguments are provided, we need to analyze the user defined type to generate actual generic types.
+        let udt = ast_type::UserDefinedType {
+            name: *left,
+            generic_args: generic_args.clone(),
+        };
+        let udt = self.analyze_user_defined_type(&udt)?;
 
-                // Expect the type to be a user defined type
-                let udt = match udt.kind.as_ref() {
-                    ir_type::TyKind::UserDefined(udt) => udt,
-                    _ => unreachable!(),
-                };
+        // Expect the type to be a user defined type
+        let udt = match udt.kind.as_ref() {
+            ir_type::TyKind::UserDefined(udt) => udt,
+            _ => unreachable!(),
+        };
 
-                // Try to create new enum variant with value
-                // If it fails, try to call static methods
-                let result = if let ast::expr::ExprKind::FnCall(right) = &node.rhs.kind {
-                    if right.args.0.len() != 1 {
-                        // Static methods
-                        analyzer.analyze_static_method_call(&udt, right)
-                    } else {
-                        let value = right.args.0.front().unwrap();
+        // Try to create new enum variant with value
+        // If it fails, try to call static methods
+        let result = if let ast::expr::ExprKind::FnCall(right) = &node.rhs.kind {
+            if right.args.0.len() != 1 {
+                // Static methods
+                self.analyze_static_method_call(&udt, right)
+            } else {
+                let value = right.args.0.front().unwrap();
 
-                        match analyzer.analyze_enum_variant(&udt, right.callee, Some(value), *left)
-                        {
-                            Ok(val) => Ok(val),
-                            Err(err) => {
-                                err.downcast().and_then(|e| match e {
-                                    SemanticError::Undeclared { name, .. }
-                                    | SemanticError::NoVariant {
-                                        parent_name: name, ..
-                                    }
-                                    | SemanticError::NotAnEnum { name, .. }
-                                    | SemanticError::CannotAssignValueToVariant {
-                                        variant_name: name,
-                                        ..
-                                    } if name == left.symbol() => {
-                                        // Couldn't create enum variant, so try to call static methods
-                                        analyzer.analyze_static_method_call(&udt, right)
-                                    }
-                                    _ => Err(e.into()),
-                                })
+                match self.analyze_enum_variant(&udt, right.callee, Some(value), *left) {
+                    Ok(val) => Ok(val),
+                    Err(err) => {
+                        err.downcast().and_then(|e| match e {
+                            SemanticError::Undeclared { name, .. }
+                            | SemanticError::NoVariant {
+                                parent_name: name, ..
                             }
-                        }
+                            | SemanticError::NotAnEnum { name, .. }
+                            | SemanticError::CannotAssignValueToVariant {
+                                variant_name: name,
+                                ..
+                            } if name == left.symbol() => {
+                                // Couldn't create enum variant, so try to call static methods
+                                self.analyze_static_method_call(&udt, right)
+                            }
+                            _ => Err(e.into()),
+                        })
                     }
-                } else if let ast::expr::ExprKind::Ident(right) = &node.rhs.kind {
-                    // Create enum variant without value.
-                    analyzer.analyze_enum_variant(&udt, *right, None, *left)
-                } else {
-                    todo!()
-                };
+                }
+            }
+        } else if let ast::expr::ExprKind::Ident(right) = &node.rhs.kind {
+            // Create enum variant without value.
+            self.analyze_enum_variant(&udt, *right, None, *left)
+        } else {
+            todo!()
+        };
 
-                result
-            },
-        )
+        result
     }
 
     fn analyze_enum_variant(
@@ -1235,10 +1190,63 @@ impl SemanticAnalyzer {
         })
     }
 
+    fn collect_access_chain<'a>(&self, node: &'a ast::expr::Expr, out: &mut Vec<Ident>) {
+        use ast::expr::Binary;
+        use ast::expr::BinaryKind::*;
+        use ast::expr::ExprKind::*;
+
+        match &node.kind {
+            Binary(Binary {
+                kind: Access,
+                lhs,
+                rhs,
+                ..
+            }) => {
+                self.collect_access_chain(lhs, out);
+
+                match &rhs.kind {
+                    Ident(ident) => out.push(ident.clone()),
+                    _ => unreachable!(),
+                }
+            }
+
+            Ident(ident) => {
+                out.push(ident.clone());
+            }
+
+            _ => unreachable!(),
+        }
+    }
+
     fn analyze_access(&mut self, node: &ast::expr::Binary) -> anyhow::Result<ir::expr::Expr> {
         assert!(matches!(node.kind, ast::expr::BinaryKind::Access));
 
-        let left = self.analyze_expr(&node.lhs)?;
+        // Try to collect module path from the left side
+        {
+            let mut modules = Vec::new();
+            self.collect_access_chain(&node.lhs, &mut modules);
+            let module_path = ModulePath::new(modules.iter().map(|i| i.symbol()).collect());
+
+            // If the module path is valid, analyze the right side in the module
+            if !modules.is_empty() && self.modules.contains_key(&module_path) {
+                return self.with_module(module_path, |analyzer| analyzer.analyze_expr(&node.rhs));
+            }
+        }
+
+        let left = self.analyze_expr(&node.lhs);
+
+        let left = match left {
+            Ok(left) => left,
+            Err(_) => {
+                // Expect that the left side is a module name
+                let mut chain = Vec::new();
+                self.collect_access_chain(&node.lhs, &mut chain);
+
+                let module_path = ModulePath::new(chain.iter().map(|i| i.symbol()).collect());
+
+                return self.with_module(module_path, |analyzer| analyzer.analyze_expr(&node.rhs));
+            }
+        };
 
         let left_ty = left.ty.clone();
 

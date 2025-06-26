@@ -10,14 +10,6 @@ use kaede_symbol::{Ident, Symbol};
 use crate::stmt::Block;
 
 #[derive(Debug)]
-pub struct ExternalIdent {
-    pub external_modules: Vec<Ident>,
-    pub ident: Ident,
-    pub generic_args: Option<GenericArgs>,
-    pub span: Span,
-}
-
-#[derive(Debug)]
 pub struct StringLiteral {
     pub syb: Symbol,
     pub span: Span,
@@ -25,7 +17,6 @@ pub struct StringLiteral {
 
 #[derive(Debug)]
 pub struct StructLiteral {
-    pub external_modules: Vec<Ident>,
     pub struct_ty: UserDefinedType,
     pub values: Vec<(Ident, Expr)>,
     pub span: Span,
@@ -36,7 +27,6 @@ pub struct Args(pub VecDeque<Expr>, pub Span);
 
 #[derive(Debug)]
 pub struct FnCall {
-    pub external_modules: Vec<Ident>,
     pub callee: Ident,
     pub generic_args: Option<GenericArgs>,
     pub args: Args,
@@ -221,7 +211,6 @@ pub enum ExprKind {
     StringLiteral(StringLiteral),
     Binary(Binary),
     Ident(Ident),
-    ExternalIdent(ExternalIdent),
     GenericIdent((Ident, GenericArgs)),
     FnCall(FnCall),
     StructLiteral(StructLiteral),

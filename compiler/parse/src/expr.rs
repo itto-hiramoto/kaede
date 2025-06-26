@@ -1,9 +1,8 @@
 use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::expr::{
-    Args, ArrayLiteral, Binary, BinaryKind, Break, Else, Expr, ExprKind, ExternalIdent, FnCall, If,
-    Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, Return, StringLiteral,
-    StructLiteral, TupleLiteral,
+    Args, ArrayLiteral, Binary, BinaryKind, Break, Else, Expr, ExprKind, FnCall, If, Indexing, Int,
+    IntKind, LogicalNot, Loop, Match, MatchArm, Return, StringLiteral, StructLiteral, TupleLiteral,
 };
 use kaede_ast_type::{Ty, TyKind};
 use kaede_lex::token::TokenKind;
@@ -372,14 +371,7 @@ impl Parser {
         if let Ok(ty) = self.ty() {
             let ty = Rc::new(ty);
 
-            let (unwrapped, external_module_names) = if let TyKind::External(ety) = ty.kind.as_ref()
-            {
-                (ety.ty.clone(), ety.get_module_names_recursively())
-            } else {
-                (ty.clone(), vec![])
-            };
-
-            if let TyKind::Reference(refty) = unwrapped.kind.as_ref() {
+            if let TyKind::Reference(refty) = ty.kind.as_ref() {
                 if let TyKind::UserDefined(udt) = refty.refee_ty.kind.as_ref() {
                     // Function call
                     if self.first().kind == TokenKind::OpenParen {
@@ -396,19 +388,6 @@ impl Parser {
                         if !self.in_cond_expr {
                             return self.struct_literal(ty);
                         }
-                    }
-
-                    // Identifier
-                    if !external_module_names.is_empty() {
-                        return Ok(Expr {
-                            span: udt.name.span(),
-                            kind: ExprKind::ExternalIdent(ExternalIdent {
-                                external_modules: external_module_names,
-                                ident: udt.name,
-                                generic_args: udt.generic_args.clone(),
-                                span: udt.name.span(),
-                            }),
-                        });
                     }
 
                     if let Some(generic_args) = &udt.generic_args {
@@ -570,18 +549,16 @@ impl Parser {
     }
 
     fn struct_literal(&mut self, ty: Rc<Ty>) -> ParseResult<Expr> {
-        let (external_modules, udt) = match ty.kind.as_ref() {
+        let udt = match ty.kind.as_ref() {
             // X {}
             TyKind::Reference(rty)
                 if matches!(rty.refee_ty.kind.as_ref(), TyKind::UserDefined(_)) =>
             {
                 match rty.refee_ty.kind.as_ref() {
-                    TyKind::UserDefined(udt) => (vec![], udt.clone()),
+                    TyKind::UserDefined(udt) => udt.clone(),
                     _ => unreachable!(),
                 }
             }
-            // m.X {}
-            TyKind::External(ety) => ety.decompose_for_struct_literal(),
             _ => unreachable!(),
         };
 
@@ -614,7 +591,6 @@ impl Parser {
         Ok(Expr {
             span,
             kind: ExprKind::StructLiteral(StructLiteral {
-                external_modules,
                 struct_ty: udt,
                 values: inits,
                 span,
@@ -652,32 +628,21 @@ impl Parser {
                 if matches!(rty.refee_ty.kind.as_ref(), TyKind::UserDefined(_)) =>
             {
                 match rty.refee_ty.kind.as_ref() {
-                    TyKind::UserDefined(udt) => (vec![], udt.name, udt.generic_args.clone()),
+                    TyKind::UserDefined(udt) => (udt.name, udt.generic_args.clone()),
                     _ => unreachable!(),
                 }
-            }
-            // m.f()
-            TyKind::External(ety) => {
-                let tmp = ety.decompose_for_fncall();
-                (tmp.0, tmp.1, None)
             }
             _ => unreachable!(),
         };
 
         let args = self.fn_call_args()?;
 
-        let start = if let Some(ev) = callees.0.first() {
-            ev.span().start
-        } else {
-            callees.1.span().start
-        };
-        let span = self.new_span(start, args.1.finish);
+        let span = self.new_span(callees.0.span().start, args.1.finish);
 
         Ok(Expr {
             kind: ExprKind::FnCall(FnCall {
-                external_modules: callees.0,
-                callee: callees.1,
-                generic_args: callees.2,
+                callee: callees.0,
+                generic_args: callees.1,
                 args,
                 span,
             }),

@@ -170,7 +170,7 @@ fn import_nested_module() -> anyhow::Result<()> {
         main_content: r#"
             import nested.deep.module
             fn main(): i32 {
-                return module.deep_function()
+                return nested.deep.module.deep_function()
             }
         "#,
         expected_min_top_levels: 2,
@@ -309,9 +309,9 @@ fn import_enums() -> anyhow::Result<()> {
             fn main(): i32 {
                 let c = types.Color::Red
                 match c {
-                    types.Color::Red => return 0
-                    types.Color::Green => return 1
-                    types.Color::Blue => return 2
+                    types.Color::Red => return 0,
+                    types.Color::Green => return 1,
+                    types.Color::Blue => return 2,
                 }
             }
         "#,

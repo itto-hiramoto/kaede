@@ -104,7 +104,6 @@ pub enum SymbolTableValueKind {
     Struct(Rc<ir::top::Struct>),
     Enum(Rc<ir::top::Enum>),
     Generic(GenericInfo),
-    // Module(Symbol),
 }
 
 #[derive(Debug)]

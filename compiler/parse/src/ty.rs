@@ -5,7 +5,6 @@ use kaede_ast_type::{
     Mutability, PointerType, ReferenceType, Ty, TyKind, UserDefinedType,
 };
 use kaede_lex::token::TokenKind;
-use kaede_symbol::Ident;
 
 use crate::{
     error::{ParseError, ParseResult},
@@ -94,13 +93,6 @@ impl Parser {
             }
         };
 
-        // External type
-        if self.check(&TokenKind::Dot) {
-            if let Some(r) = self.try_external_ty(type_ident)? {
-                return Ok(r);
-            }
-        }
-
         // Span of the type identifier
         let span = type_ident.span();
 
@@ -147,19 +139,6 @@ impl Parser {
                 }
             }
         })
-    }
-
-    fn try_external_ty(&mut self, maybe_module_name: Ident) -> ParseResult<Option<Ty>> {
-        if !self.imported_modules.contains(&maybe_module_name.symbol()) {
-            return Ok(None);
-        }
-
-        let start = self.consume(&TokenKind::Dot)?.start;
-
-        let ty = self.ty()?;
-        let span = self.new_span(start, ty.span.finish);
-
-        Ok(Some(Ty::new_external(maybe_module_name, Rc::new(ty), span)))
     }
 
     fn pointer_ty(&mut self) -> ParseResult<Ty> {
