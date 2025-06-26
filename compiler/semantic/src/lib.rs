@@ -82,7 +82,7 @@ impl SemanticAnalyzer {
         root_dir: PathBuf,
         file_path: FilePath,
     ) -> anyhow::Result<ModulePath> {
-        let diff_from_root = {
+        let mut diff_from_root = {
             // Get the canonical paths
             let kaede_lib_src_dir = kaede_autoload_dir()
                 .parent()
@@ -125,13 +125,27 @@ impl SemanticAnalyzer {
             }
         };
 
+        // Add the file name to the module path
+        diff_from_root.push(
+            file_path
+                .path()
+                .file_stem()
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
+                .into(),
+        );
+
         Ok(ModulePath::new(diff_from_root))
     }
 
     pub fn lookup_symbol(&self, symbol: Symbol) -> Option<Rc<RefCell<SymbolTableValue>>> {
         self.modules
             .get(&self.current_module_path())
-            .unwrap()
+            .expect(&format!(
+                "Module not found: {:?}",
+                self.current_module_path().get_module_names_from_root()
+            ))
             .lookup_symbol(&symbol)
     }
 
