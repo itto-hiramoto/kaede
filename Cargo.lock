@@ -394,10 +394,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "inkwell",
- "kaede_ast",
- "kaede_ast_type",
  "kaede_common",
+ "kaede_ir",
  "kaede_parse",
+ "kaede_semantic",
  "kaede_span",
  "kaede_symbol",
  "thiserror",
@@ -468,6 +468,7 @@ dependencies = [
  "kaede_parse",
  "kaede_span",
  "kaede_symbol",
+ "tempfile",
  "thiserror",
 ]
 

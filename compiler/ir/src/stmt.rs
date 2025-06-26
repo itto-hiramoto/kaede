@@ -28,6 +28,7 @@ pub struct TupleUnpack {
 pub enum Stmt {
     Expr(Rc<Expr>),
     Let(Let),
+    TupleUnpack(TupleUnpack),
 
     Assign(Assign),
 }

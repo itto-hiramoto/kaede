@@ -1,6 +1,6 @@
 use std::rc::Rc;
 
-use kaede_symbol::{Ident, Symbol};
+use kaede_symbol::Symbol;
 
 use crate::{qualified_symbol::QualifiedSymbol, stmt::Block, ty::Ty};
 
@@ -19,7 +19,7 @@ pub struct Struct {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Param {
-    pub name: Ident,
+    pub name: Symbol,
     pub ty: Rc<Ty>,
 }
 

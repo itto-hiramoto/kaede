@@ -1,6 +1,7 @@
 use std::{cell::RefCell, fs, rc::Rc};
 
 use crate::{
+    context::ModuleContext,
     symbol_table::{
         GenericEnumInfo, GenericFuncInfo, GenericImplInfo, GenericInfo, GenericKind,
         GenericStructInfo, SymbolTable, SymbolTableValue, SymbolTableValueKind, VariableInfo,
@@ -13,13 +14,13 @@ use kaede_ast_type as ast_type;
 use kaede_common::kaede_lib_src_dir;
 use kaede_ir::{self as ir, module_path::ModulePath, qualified_symbol::QualifiedSymbol};
 use kaede_parse::Parser;
-use kaede_symbol::Ident;
+use kaede_symbol::{Ident, Symbol};
 
 /// If a top-level is generic, there is no IR that can be generated immediately, so this enum is used.
 #[derive(Debug, Clone)]
 pub enum TopLevelAnalysisResult {
     GenericTopLevel,
-    Imported,
+    Imported(Vec<ir::top::TopLevel>),
     TopLevel(ir::top::TopLevel),
 }
 
@@ -70,7 +71,7 @@ impl SemanticAnalyzer {
             .unwrap()
             .bind_symbol(name, symbol, node.span)?;
 
-        Ok(TopLevelAnalysisResult::Imported)
+        Ok(TopLevelAnalysisResult::Imported(vec![]))
     }
 
     pub fn analyze_import(
@@ -114,14 +115,19 @@ impl SemanticAnalyzer {
 
         // Prevent duplicate imports
         if self.imported_module_paths.contains(&path) {
-            return Ok(TopLevelAnalysisResult::Imported);
+            return Ok(TopLevelAnalysisResult::Imported(vec![]));
         } else {
             self.imported_module_paths.insert(path.canonicalize()?);
         }
 
         let path = path.to_path_buf().into();
 
-        let module_path = self.create_module_path_from_file_path(path)?;
+        let module_path = Self::create_module_path_from_file_path(self.root_dir.clone(), path)?;
+
+        // Add the module to the module table
+        let mut module_context = ModuleContext::new(path);
+        module_context.push_scope(SymbolTable::new());
+        self.modules.insert(module_path.clone(), module_context);
 
         let parsed_module = Parser::new(
             &fs::read_to_string(&path.path()).unwrap(),
@@ -130,52 +136,56 @@ impl SemanticAnalyzer {
         .run()
         .unwrap();
 
+        let mut top_level_irs = vec![];
+
         self.with_module(module_path, |analyzer| {
             use ast::top::TopLevelKind;
 
             for top_level in parsed_module.top_levels {
                 // TODO: Check access modifier
 
-                match top_level.kind {
-                    TopLevelKind::Impl(impl_) => {
-                        analyzer.analyze_impl(impl_)?;
-                        continue;
-                    }
+                let result = match top_level.kind {
+                    TopLevelKind::Impl(impl_) => analyzer.analyze_impl(impl_)?,
 
-                    TopLevelKind::Import(import_) => {
-                        analyzer.analyze_import(import_)?;
-                        continue;
-                    }
+                    TopLevelKind::Import(import_) => analyzer.analyze_import(import_)?,
 
                     TopLevelKind::Fn(fn_) => {
                         let fn_decl = analyzer.analyze_fn_decl(fn_.decl)?;
                         let name = fn_decl.name.symbol();
                         let symbol_table_value = SymbolTableValue::new(
                             SymbolTableValueKind::Function(Rc::new(ir::top::Fn {
-                                decl: fn_decl,
+                                decl: fn_decl.clone(),
                                 body: None,
                             })),
                             analyzer,
                         );
                         analyzer.insert_symbol_to_root_scope(name, symbol_table_value, fn_.span)?;
+
+                        TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Fn(Rc::new(
+                            ir::top::Fn {
+                                decl: fn_decl,
+                                body: None,
+                            },
+                        )))
                     }
 
-                    TopLevelKind::Struct(struct_) => {
-                        analyzer.analyze_struct(struct_)?;
-                    }
+                    TopLevelKind::Struct(struct_) => analyzer.analyze_struct(struct_)?,
 
-                    TopLevelKind::Enum(enum_) => {
-                        analyzer.analyze_enum(enum_)?;
-                    }
+                    TopLevelKind::Enum(enum_) => analyzer.analyze_enum(enum_)?,
 
                     _ => unreachable!(),
+                };
+
+                match result {
+                    TopLevelAnalysisResult::TopLevel(top_level) => top_level_irs.push(top_level),
+                    _ => continue,
                 }
             }
 
             Ok::<(), anyhow::Error>(())
         })?;
 
-        Ok(TopLevelAnalysisResult::Imported)
+        Ok(TopLevelAnalysisResult::Imported(top_level_irs))
     }
 
     pub fn analyze_extern(
@@ -289,10 +299,12 @@ impl SemanticAnalyzer {
         let parent_ty = self.analyze_type(&ty)?;
 
         let parent_name = if let ir::ty::TyKind::Reference(ty) = parent_ty.kind.as_ref() {
-            if let ir::ty::TyKind::UserDefined(udt) = ty.get_base_type().kind.as_ref() {
+            let base_ty = ty.get_base_type();
+            if let ir::ty::TyKind::UserDefined(udt) = base_ty.kind.as_ref() {
                 udt.name()
             } else {
-                unreachable!()
+                // Expect built-in types
+                Symbol::from(base_ty.kind.to_string())
             }
         } else {
             unreachable!()
@@ -356,7 +368,7 @@ impl SemanticAnalyzer {
                 );
 
                 symbol_table.insert(
-                    param.name.symbol(),
+                    param.name,
                     Rc::new(RefCell::new(symbol_table_value)),
                     node.span,
                 )?;
@@ -391,7 +403,7 @@ impl SemanticAnalyzer {
             .into_iter()
             .map(|p| -> anyhow::Result<ir::top::Param> {
                 Ok(ir::top::Param {
-                    name: p.name,
+                    name: p.name.symbol(),
                     ty: self.analyze_type(&p.ty)?.into(),
                 })
             })

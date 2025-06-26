@@ -1330,7 +1330,7 @@ impl SemanticAnalyzer {
         if !ir_type::is_same_type(
             &index_ty,
             &ir_type::make_fundamental_type(
-                ir_type::FundamentalTypeKind::U64,
+                ir_type::FundamentalTypeKind::I32,
                 ir_type::Mutability::Not,
             ),
         ) {
@@ -1338,7 +1338,7 @@ impl SemanticAnalyzer {
                 types: (
                     index_ty.kind.to_string(),
                     ir_type::make_fundamental_type(
-                        ir_type::FundamentalTypeKind::U64,
+                        ir_type::FundamentalTypeKind::I32,
                         ir_type::Mutability::Not,
                     )
                     .kind
