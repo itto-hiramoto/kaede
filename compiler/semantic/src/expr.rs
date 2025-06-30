@@ -10,7 +10,11 @@ use crate::{
 
 use kaede_ast as ast;
 use kaede_ast_type as ast_type;
-use kaede_ir::{self as ir, qualified_symbol::QualifiedSymbol, ty::make_fundamental_type};
+use kaede_ir::{
+    self as ir,
+    qualified_symbol::QualifiedSymbol,
+    ty::{change_mutability_dup, make_fundamental_type},
+};
 use kaede_ir::{module_path::ModulePath, ty as ir_type};
 use kaede_span::Span;
 use kaede_symbol::{Ident, Symbol};
@@ -87,7 +91,8 @@ impl SemanticAnalyzer {
         &mut self,
         node: &ast::expr::StructLiteral,
     ) -> anyhow::Result<ir::expr::Expr> {
-        let struct_ty = self.analyze_user_defined_type(&node.struct_ty)?;
+        let struct_ty =
+            self.analyze_user_defined_type(&node.struct_ty, ir_type::Mutability::Not)?;
 
         let udt_ir = match struct_ty.kind.as_ref() {
             ir_type::TyKind::UserDefined(udt) => udt,
@@ -857,11 +862,11 @@ impl SemanticAnalyzer {
         };
 
         Ok(ir::expr::Expr {
+            ty: change_mutability_dup(elem_ty, operand.ty.mutability),
             kind: ir::expr::ExprKind::Indexing(ir::expr::Indexing {
                 operand: Rc::new(operand),
                 index: Box::new(index),
             }),
-            ty: elem_ty,
             span,
         })
     }
@@ -1003,11 +1008,14 @@ impl SemanticAnalyzer {
 
         let retval = match &last_stmt.kind {
             ast::stmt::StmtKind::Expr(e) => {
-                let last_expr = Some(Box::new(self.analyze_expr(e)?));
+                let last_expr = Box::new(self.analyze_expr(e)?);
 
                 ir::expr::Expr {
-                    kind: ir::expr::ExprKind::Block(kaede_ir::stmt::Block { body, last_expr }),
-                    ty: Rc::new(ir_type::Ty::new_unit()),
+                    ty: last_expr.ty.clone(),
+                    kind: ir::expr::ExprKind::Block(kaede_ir::stmt::Block {
+                        body,
+                        last_expr: Some(last_expr),
+                    }),
                     span: node.span,
                 }
             }
@@ -1083,7 +1091,7 @@ impl SemanticAnalyzer {
             name: *left,
             generic_args: generic_args.clone(),
         };
-        let udt = self.analyze_user_defined_type(&udt)?;
+        let udt = self.analyze_user_defined_type(&udt, ir_type::Mutability::Not)?;
 
         // Expect the type to be a user defined type
         let udt = match udt.kind.as_ref() {
@@ -1527,12 +1535,15 @@ impl SemanticAnalyzer {
 
         Ok(ir::expr::Expr {
             span: Span::new(lhs.span.start, rhs.span.finish, lhs.span.file),
+            ty: change_mutability_dup(
+                elements_ty[index as usize].clone(),
+                lhs.ty.mutability.into(),
+            ),
             kind: ir::expr::ExprKind::TupleIndexing(ir::expr::TupleIndexing {
                 tuple: Rc::new(lhs),
                 index,
                 element_ty: elements_ty[index as usize].clone(),
             }),
-            ty: elements_ty[index as usize].clone(),
         })
     }
 
@@ -1607,13 +1618,13 @@ impl SemanticAnalyzer {
 
         Ok(ir::expr::Expr {
             span: Span::new(lhs.span.start, rhs.span.finish, lhs.span.file),
+            ty: change_mutability_dup(field_ty, lhs.ty.mutability.into()),
             kind: ir::expr::ExprKind::FieldAccess(ir::expr::FieldAccess {
                 struct_info,
                 operand: Box::new(lhs),
                 field_name: field_name.symbol(),
                 field_offset,
             }),
-            ty: field_ty,
         })
     }
 

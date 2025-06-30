@@ -16,22 +16,31 @@ use crate::{
 impl SemanticAnalyzer {
     pub fn analyze_type(&mut self, ty: &ast_type::Ty) -> anyhow::Result<Rc<ir_type::Ty>> {
         match ty.kind.as_ref() {
-            ast_type::TyKind::Fundamental(fty) => Ok(self.analyze_fundamental_type(fty).into()),
+            ast_type::TyKind::Fundamental(fty) => Ok(self
+                .analyze_fundamental_type(fty, ty.mutability.into())
+                .into()),
 
-            ast_type::TyKind::UserDefined(udt) => self.analyze_user_defined_type(udt),
-
-            ast_type::TyKind::Reference(rty) => Ok(self.analyze_reference_type(rty)?.into()),
-            ast_type::TyKind::Pointer(pty) => Ok(self.analyze_pointer_type(pty)?.into()),
-
-            ast_type::TyKind::Array((ety, length)) => {
-                Ok(self.analyze_array_type(ety, *length)?.into())
+            ast_type::TyKind::UserDefined(udt) => {
+                self.analyze_user_defined_type(udt, ty.mutability.into())
             }
+
+            ast_type::TyKind::Reference(rty) => Ok(self
+                .analyze_reference_type(rty, ty.mutability.into())?
+                .into()),
+            ast_type::TyKind::Pointer(pty) => {
+                Ok(self.analyze_pointer_type(pty, ty.mutability.into())?.into())
+            }
+
+            ast_type::TyKind::Array((ety, length)) => Ok(self
+                .analyze_array_type(ety, *length, ty.mutability.into())?
+                .into()),
             ast_type::TyKind::Tuple(etys) => Ok(self
                 .analyze_tuple_type(
                     etys.iter()
                         .map(AsRef::as_ref)
                         .collect::<Vec<_>>()
                         .as_slice(),
+                    ty.mutability.into(),
                 )?
                 .into()),
 
@@ -56,8 +65,12 @@ impl SemanticAnalyzer {
         }
     }
 
-    fn analyze_fundamental_type(&self, fty: &ast_type::FundamentalType) -> ir_type::Ty {
-        let make = |kind| ir_type::make_fundamental_type(kind, ir_type::Mutability::Not);
+    fn analyze_fundamental_type(
+        &self,
+        fty: &ast_type::FundamentalType,
+        mutability: ir_type::Mutability,
+    ) -> ir_type::Ty {
+        let make = |kind| ir_type::make_fundamental_type(kind, mutability);
 
         match fty.kind {
             ast_type::FundamentalTypeKind::Str => make(ir_type::FundamentalTypeKind::Str),
@@ -300,6 +313,7 @@ impl SemanticAnalyzer {
     pub fn analyze_user_defined_type(
         &mut self,
         udt: &ast_type::UserDefinedType,
+        mutability: ir_type::Mutability,
     ) -> anyhow::Result<Rc<ir_type::Ty>> {
         // If this is a generic type, the type is generated here.
         if udt.generic_args.is_some() {
@@ -337,30 +351,35 @@ impl SemanticAnalyzer {
 
         Ok(Rc::new(ir_type::Ty {
             kind: ir_type::TyKind::UserDefined(ir_type::UserDefinedType::new(udt_kind)).into(),
-            mutability: ir_type::Mutability::Not,
+            mutability,
         }))
     }
 
     fn analyze_reference_type(
         &mut self,
         rty: &ast_type::ReferenceType,
+        mutability: ir_type::Mutability,
     ) -> anyhow::Result<ir_type::Ty> {
         Ok(ir_type::Ty {
             kind: ir_type::TyKind::Reference(ir_type::ReferenceType {
                 refee_ty: self.analyze_type(&rty.refee_ty)?.into(),
             })
             .into(),
-            mutability: ir_type::Mutability::Not,
+            mutability,
         })
     }
 
-    fn analyze_pointer_type(&mut self, pty: &ast_type::PointerType) -> anyhow::Result<ir_type::Ty> {
+    fn analyze_pointer_type(
+        &mut self,
+        pty: &ast_type::PointerType,
+        mutability: ir_type::Mutability,
+    ) -> anyhow::Result<ir_type::Ty> {
         Ok(ir_type::Ty {
             kind: ir_type::TyKind::Pointer(ir_type::PointerType {
                 pointee_ty: self.analyze_type(&pty.pointee_ty)?.into(),
             })
             .into(),
-            mutability: ir_type::Mutability::Not,
+            mutability,
         })
     }
 
@@ -368,14 +387,19 @@ impl SemanticAnalyzer {
         &mut self,
         ety: &ast_type::Ty,
         length: u32,
+        mutability: ir_type::Mutability,
     ) -> anyhow::Result<ir_type::Ty> {
         Ok(ir_type::Ty {
             kind: ir_type::TyKind::Array((self.analyze_type(&ety)?.into(), length)).into(),
-            mutability: ir_type::Mutability::Not,
+            mutability,
         })
     }
 
-    fn analyze_tuple_type(&mut self, etys: &[&ast_type::Ty]) -> anyhow::Result<ir_type::Ty> {
+    fn analyze_tuple_type(
+        &mut self,
+        etys: &[&ast_type::Ty],
+        mutability: ir_type::Mutability,
+    ) -> anyhow::Result<ir_type::Ty> {
         let etys = etys
             .iter()
             .map(|ety| self.analyze_type(ety))
@@ -383,7 +407,7 @@ impl SemanticAnalyzer {
 
         Ok(ir_type::Ty {
             kind: ir_type::TyKind::Tuple(etys.into_iter().map(|ty| ty.into()).collect()).into(),
-            mutability: ir_type::Mutability::Not,
+            mutability,
         })
     }
 }

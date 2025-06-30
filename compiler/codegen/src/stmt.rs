@@ -42,11 +42,7 @@ impl<'a, 'ctx> CodeGenerator<'ctx> {
     }
 
     fn build_assign(&mut self, node: &Assign) -> anyhow::Result<()> {
-        let assignee = self.tcx.lookup_symbol(node.assignee);
-
-        let assignee = match &*assignee.borrow() {
-            SymbolTableValue::Variable(v) => *v,
-        };
+        let assignee = self.build_expr(&node.assignee)?.unwrap();
 
         let ptr_to_left = match get_loaded_pointer(&assignee.as_instruction_value().unwrap()) {
             Some(p) => p,

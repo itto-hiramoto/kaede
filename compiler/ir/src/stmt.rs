@@ -6,7 +6,7 @@ use crate::{expr::Expr, ty::Ty};
 
 #[derive(Debug)]
 pub struct Assign {
-    pub assignee: Symbol,
+    pub assignee: Expr,
     pub value: Expr,
 }
 

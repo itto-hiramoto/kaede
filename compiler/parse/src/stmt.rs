@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use kaede_ast::{
     expr::Expr,
-    stmt::{Assign, AssignKind, Block, Let, LetKind, NormalLet, Stmt, StmtKind, TupleUnpack},
+    stmt::{Assign, Block, Let, LetKind, NormalLet, Stmt, StmtKind, TupleUnpack},
 };
 use kaede_ast_type::Ty;
 use kaede_lex::token::TokenKind;
@@ -52,7 +52,7 @@ impl Parser {
             let expr = self.expr()?;
 
             // Assignment statement
-            if let Some(kind) = self.assign_ops() {
+            if self.consume_b(&TokenKind::Eq) {
                 let rhs = self.expr()?;
 
                 let span = self.new_span(expr.span.start, rhs.span.finish);
@@ -60,7 +60,6 @@ impl Parser {
                 return Ok(Stmt {
                     kind: StmtKind::Assign(Assign {
                         lhs: expr,
-                        kind,
                         rhs,
                         span,
                     }),
@@ -79,15 +78,6 @@ impl Parser {
             span: e.span,
             kind: StmtKind::Expr(Rc::new(e)),
         }
-    }
-
-    /// Assignment operators
-    fn assign_ops(&mut self) -> Option<AssignKind> {
-        if self.consume_b(&TokenKind::Eq) {
-            return Some(AssignKind::Simple);
-        }
-
-        None
     }
 
     fn let_(&mut self) -> ParseResult<Let> {

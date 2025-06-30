@@ -17,7 +17,7 @@ use kaede_ir::{
         FieldAccess, FnCall, If, Indexing, Int, LogicalNot, Loop, StringLiteral, StructLiteral,
         TupleIndexing, TupleLiteral, Variable,
     },
-    stmt::{Block, Stmt},
+    stmt::Block,
     ty::{make_fundamental_type, FundamentalTypeKind, Mutability, Ty, TyKind},
 };
 
@@ -89,27 +89,14 @@ impl<'a, 'ctx> CodeGenerator<'ctx> {
 
         self.tcx.push_symbol_table(SymbolTable::new());
 
-        let mut idx: usize = 0;
+        for stmt in block.body.iter() {
+            self.build_statement(stmt)?;
+        }
 
-        let last_stmt = loop {
-            if idx + 1 == block.body.len() {
-                // Last element
-                break &block.body[idx];
-            }
-
-            self.build_statement(&block.body[idx])?;
-
-            idx += 1;
-        };
-
-        let value = match &last_stmt {
-            Stmt::Expr(e) => self.build_expr(e)?,
-
-            // The end of the block is not an expression
-            _ => {
-                self.build_statement(last_stmt)?;
-                None
-            }
+        let value = if let Some(last_expr) = &block.last_expr {
+            self.build_expr(last_expr)?
+        } else {
+            None
         };
 
         self.tcx.pop_symbol_table();

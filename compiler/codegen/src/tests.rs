@@ -38,8 +38,6 @@ fn jit_compile(module: &Module) -> anyhow::Result<i32> {
         panic!("{} not found!", kaede_std_lib_path.to_string_lossy());
     }
 
-    println!("{:?}", module.print_to_string());
-
     let ee = module
         .create_jit_execution_engine(OptimizationLevel::None)
         .unwrap();

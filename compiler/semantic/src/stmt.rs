@@ -13,7 +13,30 @@ impl SemanticAnalyzer {
         Ok(match &stmt.kind {
             StmtKind::Expr(expr) => ir::stmt::Stmt::Expr(self.analyze_expr(expr)?.into()),
             StmtKind::Let(node) => ir::stmt::Stmt::Let(self.analyze_let(node)?.into()),
-            _ => unimplemented!(),
+            StmtKind::Assign(node) => ir::stmt::Stmt::Assign(self.analyze_assign(node)?.into()),
+        })
+    }
+
+    fn analyze_assign(&mut self, node: &ast::stmt::Assign) -> anyhow::Result<ir::stmt::Assign> {
+        let left = self.analyze_expr(&node.lhs)?;
+
+        if left.ty.mutability.is_not() {
+            return Err(SemanticError::CannotAssignTwiceToImutable { span: node.span }.into());
+        }
+
+        let right = self.analyze_expr(&node.rhs)?;
+
+        if !ir::ty::is_same_type(&left.ty, &right.ty) {
+            return Err(SemanticError::MismatchedTypes {
+                types: (left.ty.kind.to_string(), right.ty.kind.to_string()),
+                span: node.span,
+            }
+            .into());
+        }
+
+        Ok(ir::stmt::Assign {
+            assignee: left,
+            value: right,
         })
     }
 
