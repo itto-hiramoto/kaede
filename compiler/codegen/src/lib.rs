@@ -322,9 +322,14 @@ impl<'ctx> CodeGenerator<'ctx> {
     pub fn codegen(mut self, compile_unit: CompileUnit) -> anyhow::Result<Module<'ctx>> {
         self.gc_init()?;
 
+        let (types, others): (Vec<_>, Vec<_>) = compile_unit
+            .top_levels
+            .into_iter()
+            .partition(|top| matches!(top, TopLevel::Struct(_) | TopLevel::Enum(_)));
+
         // Declare all functions
         // (This is necessary to avoid errors when generating generic functions)
-        for top in compile_unit.top_levels.iter() {
+        for top in others.iter() {
             match top {
                 TopLevel::Fn(fn_) => {
                     self.build_function(fn_.as_ref(), true)?;
@@ -338,7 +343,13 @@ impl<'ctx> CodeGenerator<'ctx> {
             }
         }
 
-        for top in compile_unit.top_levels {
+        // Define all types
+        // (This is necessary to avoid errors when using generic types)
+        for top in types {
+            self.build_top_level(top)?;
+        }
+
+        for top in others {
             self.build_top_level(top)?;
         }
 

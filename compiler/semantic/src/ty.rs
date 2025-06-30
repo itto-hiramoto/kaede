@@ -167,9 +167,12 @@ impl SemanticAnalyzer {
             self.create_generated_generic_key(ast.name.symbol(), generic_args);
         ast.name = Ident::new(generated_generic_key, ast.name.span());
 
-        let name_span = ast.name.span();
+        let symbol = self.with_generic_arguments(generic_params, generic_args, |analyzer| {
+            // If the symbol is already generated, return it
+            if let Some(symbol) = analyzer.lookup_symbol(generated_generic_key) {
+                return Ok(symbol);
+            }
 
-        self.with_generic_arguments(generic_params, generic_args, |analyzer| {
             let top_level = analyzer.analyze_enum(ast)?;
 
             if let TopLevelAnalysisResult::TopLevel(top_level) = top_level {
@@ -179,15 +182,8 @@ impl SemanticAnalyzer {
                 unreachable!()
             }
 
-            Ok(())
+            Ok(analyzer.lookup_symbol(generated_generic_key).unwrap())
         })?;
-
-        let symbol =
-            self.lookup_symbol(generated_generic_key)
-                .ok_or(SemanticError::Undeclared {
-                    name: generated_generic_key,
-                    span: name_span,
-                })?;
 
         let symbol_value = symbol.borrow();
 
