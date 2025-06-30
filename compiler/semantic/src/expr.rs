@@ -1490,6 +1490,14 @@ impl SemanticAnalyzer {
                         }
                         .into());
                     }
+
+                    // Check mutability
+                    if arg.ty.mutability.is_not() && param.ty.mutability.is_mut() {
+                        return Err(SemanticError::CannotAssignImmutableToMutable {
+                            span: arg.span,
+                        }
+                        .into());
+                    }
                 }
             }
         }
