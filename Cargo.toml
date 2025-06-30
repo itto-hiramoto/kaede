@@ -2,7 +2,7 @@
 members = [
   "compiler/ast",
   "compiler/ast_type",
-#   "compiler/codegen",
+  "compiler/codegen",
   "compiler/driver",
   "compiler/lex",
   "compiler/parse",

@@ -10,8 +10,9 @@ use inkwell::{
 };
 use kaede_common::{kaede_gc_lib_path, kaede_lib_path};
 use kaede_parse::Parser;
+use kaede_semantic::{SemanticAnalyzer, SemanticError};
 
-use crate::{codegen_compile_unit, error::CodegenError, CodegenCtx};
+use crate::{CodeGenerator, CodegenCtx};
 
 fn jit_compile(module: &Module) -> anyhow::Result<i32> {
     let kaede_gc_lib_path = kaede_gc_lib_path();
@@ -43,20 +44,18 @@ fn jit_compile(module: &Module) -> anyhow::Result<i32> {
 }
 
 /// Return exit status
-fn exec(program: &str) -> Result<i32, CodegenError> {
+fn exec(program: &str) -> Result<i32, SemanticError> {
     let context = Context::create();
-    let cgcx = CodegenCtx::new(&context).map_err(|e| e.downcast::<CodegenError>().unwrap())?;
+    let cgcx = CodegenCtx::new(&context).unwrap();
 
     let file = PathBuf::from("test").into();
 
-    let module = codegen_compile_unit(
-        &cgcx,
-        file,
-        &None,
-        Parser::new(program, file).run().unwrap(),
-        false,
-    )
-    .map_err(|e| e.downcast::<CodegenError>().unwrap())?;
+    let ast = Parser::new(program, file).run().unwrap();
+    let ir = SemanticAnalyzer::new_for_single_file_test()
+        .analyze(ast, false)
+        .map_err(|e| e.downcast::<SemanticError>().unwrap())?;
+
+    let module = CodeGenerator::new(&cgcx).unwrap().codegen(ir).unwrap();
 
     Ok(jit_compile(&module).unwrap())
 }
@@ -352,7 +351,7 @@ fn break_outside_of_loop() {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::BreakOutsideOfLoop { .. })
+        Err(SemanticError::BreakOutsideOfLoop { .. })
     ));
 }
 
@@ -381,7 +380,7 @@ fn assign_to_immutable() {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::CannotAssignTwiceToImutable { .. })
+        Err(SemanticError::CannotAssignTwiceToImutable { .. })
     ));
 }
 
@@ -494,7 +493,7 @@ fn has_no_fields() {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::HasNoFields { .. })
+        Err(SemanticError::HasNoFields { .. })
     ));
 }
 
@@ -771,7 +770,7 @@ fn immutable_array_as_mutable_argument() {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::CannotAssignImmutableToMutable { .. })
+        Err(SemanticError::CannotAssignImmutableToMutable { .. })
     ));
 }
 
@@ -902,7 +901,7 @@ fn tuples_require_access_by_index() {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::TupleRequireAccessByIndex { .. })
+        Err(SemanticError::TupleRequireAccessByIndex { .. })
     ));
 }
 
@@ -959,7 +958,7 @@ fn assign_to_immutable_struct_field() {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::CannotAssignTwiceToImutable { .. })
+        Err(SemanticError::CannotAssignTwiceToImutable { .. })
     ));
 }
 
@@ -996,7 +995,7 @@ fn assign_to_immutable_tuple_field() {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::CannotAssignTwiceToImutable { .. })
+        Err(SemanticError::CannotAssignTwiceToImutable { .. })
     ));
 }
 
@@ -1353,7 +1352,7 @@ fn assign_to_immutable_to_mutable() {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::CannotAssignImmutableToMutable { .. })
+        Err(SemanticError::CannotAssignImmutableToMutable { .. })
     ));
 
     // Tuple
@@ -1367,7 +1366,7 @@ fn assign_to_immutable_to_mutable() {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::CannotAssignImmutableToMutable { .. })
+        Err(SemanticError::CannotAssignImmutableToMutable { .. })
     ));
 
     // Struct
@@ -1385,7 +1384,7 @@ fn assign_to_immutable_to_mutable() {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::CannotAssignImmutableToMutable { .. })
+        Err(SemanticError::CannotAssignImmutableToMutable { .. })
     ));
 }
 
@@ -1557,7 +1556,7 @@ fn call_mutable_methods_from_immutable() {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::CannotAssignImmutableToMutable { .. })
+        Err(SemanticError::CannotAssignImmutableToMutable { .. })
     ));
 }
 
@@ -1587,7 +1586,7 @@ fn modify_fields_in_immutable_methods() {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::CannotAssignTwiceToImutable { .. })
+        Err(SemanticError::CannotAssignTwiceToImutable { .. })
     ));
 }
 
@@ -1830,7 +1829,7 @@ fn match_on_int_without_wildcard() {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::NonExhaustivePatterns { .. })
+        Err(SemanticError::MatchNotExhaustive { .. })
     ));
 }
 
@@ -1864,7 +1863,7 @@ fn match_on_bool_without_true() -> anyhow::Result<()> {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::NonExhaustivePatterns { .. })
+        Err(SemanticError::MatchNotExhaustive { .. })
     ));
 
     Ok(())
@@ -1882,7 +1881,7 @@ fn match_on_bool_without_false() -> anyhow::Result<()> {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::NonExhaustivePatterns { .. })
+        Err(SemanticError::MatchNotExhaustive { .. })
     ));
 
     Ok(())
@@ -1940,7 +1939,7 @@ fn non_exhaustive_patterns() {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::NonExhaustivePatterns { .. })
+        Err(SemanticError::MatchNotExhaustive { .. })
     ));
 }
 
@@ -1963,7 +1962,7 @@ fn unreachable_pattern() {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::UnreachablePattern { .. })
+        Err(SemanticError::UnreachablePattern { .. })
     ));
 }
 
@@ -2257,7 +2256,7 @@ fn match_unpack_unit_variant() {
 
     assert!(matches!(
         exec(program),
-        Err(CodegenError::UnitVariantCannotUnpack { .. })
+        Err(SemanticError::UnitVariantCannotUnpack { .. })
     ));
 }
 

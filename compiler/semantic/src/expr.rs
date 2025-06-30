@@ -47,12 +47,8 @@ impl SemanticAnalyzer {
             ExprKind::Match(node) => self.analyze_match(node),
             ExprKind::StructLiteral(node) => self.analyze_struct_literal(node),
             ExprKind::TupleLiteral(node) => self.analyze_tuple_literal(node),
-            ExprKind::Ty(_) => Ok(ir::expr::Expr {
-                kind: ir::expr::ExprKind::DoNothing,
-                ty: Rc::new(ir_type::Ty::new_unit()),
-                span,
-            }),
 
+            ExprKind::Ty(_) => todo!(),
             ExprKind::GenericIdent(_) => todo!(),
         }
     }
@@ -333,7 +329,7 @@ impl SemanticAnalyzer {
 
     fn conv_match_arms_on_enum_to_if(
         &mut self,
-        enum_ir: &ir::top::Enum,
+        enum_ir: Rc<ir::top::Enum>,
         target: Rc<ir::expr::Expr>,
         arms: &[&ast::expr::MatchArm],
         span: Span,
@@ -357,27 +353,24 @@ impl SemanticAnalyzer {
 
         // Get the pattern variant information
         let decomposed = self.decompose_enum_variant_pattern(&current_arm.pattern);
-        let pattern_variant_offset = enum_ir
+        let variant = enum_ir
             .variants
             .iter()
             .find(|v| v.name == decomposed.variant_name.symbol())
-            .unwrap()
-            .offset;
+            .unwrap();
+
+        let pattern_variant_offset = variant.offset;
 
         // Get the target variant information
         let target_variant_offset_expr = ir::expr::Expr {
-            kind: ir::expr::ExprKind::Indexing(ir::expr::Indexing {
-                operand: target.clone(),
-                index: Box::new(ir::expr::Expr {
-                    kind: ir::expr::ExprKind::Int(ir::expr::Int {
-                        kind: ir::expr::IntKind::I32(0),
-                    }),
-                    ty: Rc::new(make_fundamental_type(
-                        ir_type::FundamentalTypeKind::I32,
-                        ir_type::Mutability::Not,
-                    )),
-                    span: current_arm.pattern.span,
-                }),
+            kind: ir::expr::ExprKind::TupleIndexing(ir::expr::TupleIndexing {
+                tuple: target.clone(),
+                element_ty: make_fundamental_type(
+                    ir_type::FundamentalTypeKind::I32,
+                    ir_type::Mutability::Not,
+                )
+                .into(),
+                index: 0,
             }),
             ty: Rc::new(make_fundamental_type(
                 ir_type::FundamentalTypeKind::I32,
@@ -420,8 +413,8 @@ impl SemanticAnalyzer {
         } else {
             Some(
                 ir::expr::Else::If(self.conv_match_arms_on_enum_to_if(
-                    enum_ir,
-                    target,
+                    enum_ir.clone(),
+                    target.clone(),
                     remaining_arms,
                     span,
                 )?)
@@ -429,10 +422,46 @@ impl SemanticAnalyzer {
             )
         };
 
+        let enum_unpack = if let Some(params) = decomposed.param {
+            if variant.ty.is_none() {
+                return Err(SemanticError::UnitVariantCannotUnpack {
+                    unit_variant_name: format!(
+                        "{}::{}",
+                        enum_ir.name.symbol(),
+                        decomposed.variant_name.symbol()
+                    )
+                    .into(),
+                    span: current_arm.pattern.span,
+                }
+                .into());
+            }
+
+            let udt = ir_type::UserDefinedType {
+                kind: ir_type::UserDefinedTypeKind::Enum(enum_ir.clone()),
+            };
+
+            let name = match params.0.front().unwrap().kind {
+                ast::expr::ExprKind::Ident(ident) => ident,
+                _ => unreachable!(),
+            }
+            .symbol();
+
+            Some(ir::expr::EnumUnpack {
+                name,
+                enum_ty: udt,
+                enum_value: target.clone(),
+                variant_ty: variant.ty.clone().unwrap(),
+            })
+        } else {
+            None
+        };
+
         Ok(ir::expr::If {
             cond: Box::new(condition),
             then: Box::new(then_expr),
             else_,
+            enum_unpack: enum_unpack.map(Box::new),
+            is_match: true,
         })
     }
 
@@ -467,7 +496,7 @@ impl SemanticAnalyzer {
 
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::If(self.conv_match_arms_on_enum_to_if(
-                &enum_ir,
+                enum_ir.clone(),
                 target.clone(),
                 &node.arms.iter().collect::<Vec<_>>().as_slice(),
                 node.span,
@@ -532,6 +561,8 @@ impl SemanticAnalyzer {
             cond: Box::new(condition),
             then: Box::new(then_expr),
             else_,
+            enum_unpack: None,
+            is_match: true,
         })
     }
 
@@ -633,6 +664,8 @@ impl SemanticAnalyzer {
 
         let then = Box::new(self.analyze_block_expr(&node.then)?);
 
+        // TODO: Enahnce error handlings
+
         let else_ = match node.else_.as_ref() {
             Some(else_) => Some(Box::new(match else_.as_ref() {
                 ast::expr::Else::If(if_) => {
@@ -669,7 +702,13 @@ impl SemanticAnalyzer {
 
         Ok(ir::expr::Expr {
             ty: then.ty.clone(),
-            kind: ir::expr::ExprKind::If(ir::expr::If { cond, then, else_ }),
+            kind: ir::expr::ExprKind::If(ir::expr::If {
+                cond,
+                then,
+                else_,
+                enum_unpack: None,
+                is_match: false,
+            }),
             span: node.span,
         })
     }
@@ -998,7 +1037,7 @@ impl SemanticAnalyzer {
         node: &ast::expr::StringLiteral,
     ) -> anyhow::Result<ir::expr::Expr> {
         Ok(ir::expr::Expr {
-            kind: ir::expr::ExprKind::StringLiteral(ir::expr::StringLiteral { lit: node.syb }),
+            kind: ir::expr::ExprKind::StringLiteral(ir::expr::StringLiteral { syb: node.syb }),
             ty: Rc::new(ir_type::wrap_in_ref(
                 Rc::new(ir_type::make_fundamental_type(
                     ir_type::FundamentalTypeKind::Str,
@@ -1158,6 +1197,7 @@ impl SemanticAnalyzer {
             kind: ir::expr::ExprKind::EnumVariant(ir::expr::EnumVariant {
                 enum_info: enum_ir.clone(),
                 variant_offset: variant_info.offset,
+                value: value.map(|v| Box::new(v)),
             }),
             ty: Rc::new(ir_type::wrap_in_ref(
                 Rc::new(ir_type::Ty {
@@ -1480,23 +1520,16 @@ impl SemanticAnalyzer {
         elements_ty: &[Rc<ir_type::Ty>],
     ) -> anyhow::Result<ir::expr::Expr> {
         let index = match &rhs.kind {
-            ast::expr::ExprKind::Int(int) => int.as_u64(),
+            ast::expr::ExprKind::Int(int) => int.as_u64() as u32,
             _ => unreachable!(),
         };
 
-        if elements_ty.len() <= index as usize {
-            return Err(SemanticError::IndexOutOfRange {
-                index: index as u64,
-                span: rhs.span,
-            }
-            .into());
-        }
-
         Ok(ir::expr::Expr {
             span: Span::new(lhs.span.start, rhs.span.finish, lhs.span.file),
-            kind: ir::expr::ExprKind::Indexing(ir::expr::Indexing {
-                operand: Rc::new(lhs),
-                index: Box::new(self.analyze_expr(rhs)?),
+            kind: ir::expr::ExprKind::TupleIndexing(ir::expr::TupleIndexing {
+                tuple: Rc::new(lhs),
+                index,
+                element_ty: elements_ty[index as usize].clone(),
             }),
             ty: elements_ty[index as usize].clone(),
         })
@@ -1574,6 +1607,7 @@ impl SemanticAnalyzer {
         Ok(ir::expr::Expr {
             span: Span::new(lhs.span.start, rhs.span.finish, lhs.span.file),
             kind: ir::expr::ExprKind::FieldAccess(ir::expr::FieldAccess {
+                struct_info,
                 operand: Box::new(lhs),
                 field_name: field_name.symbol(),
                 field_offset,

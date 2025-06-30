@@ -10,9 +10,10 @@ use std::{
 use anyhow::{anyhow, Context as _};
 use colored::Colorize;
 use inkwell::{context::Context, module::Module, OptimizationLevel};
-use kaede_codegen::{codegen_compile_unit, error::CodegenError, CodegenCtx};
+use kaede_codegen::{error::CodegenError, CodeGenerator, CodegenCtx};
 use kaede_common::{kaede_gc_lib_path, kaede_lib_path};
 use kaede_parse::Parser;
+use kaede_semantic::SemanticAnalyzer;
 use tempfile::{NamedTempFile, TempPath};
 
 #[derive(clap::Parser, Debug)]
@@ -121,7 +122,7 @@ fn emit_exe_file(obj_path: &Path, output_file_path: &Path) -> anyhow::Result<()>
 fn compile<'ctx>(
     cgcx: &'ctx CodegenCtx<'_>,
     unit_infos: Vec<CompileUnitInfo>,
-    root_dir: &'ctx Option<PathBuf>,
+    root_dir: &'ctx PathBuf,
     no_autoload: bool,
 ) -> anyhow::Result<Module<'ctx>> {
     let mut compiled_modules = Vec::new();
@@ -131,7 +132,11 @@ fn compile<'ctx>(
 
         let ast = Parser::new(&unit_info.program, file).run()?;
 
-        let module = codegen_compile_unit(cgcx, file, root_dir, ast, no_autoload)?;
+        let ir = SemanticAnalyzer::new(file, root_dir.clone()).analyze(ast, no_autoload)?;
+
+        let code_generator = CodeGenerator::new(cgcx)?;
+
+        let module = code_generator.codegen(ir)?;
 
         compiled_modules.push(module);
     }
@@ -208,7 +213,9 @@ fn compile_and_output_obj(
     let context = Context::create();
     let cgcx = CodegenCtx::new(&context)?;
 
-    let module = compile(&cgcx, unit_infos, &option.root_dir, option.no_autoload)?;
+    let root_dir = option.root_dir.unwrap_or(PathBuf::from("."));
+
+    let module = compile(&cgcx, unit_infos, &root_dir, option.no_autoload)?;
 
     // Emit
     if option.display_llvm_ir {
@@ -226,7 +233,9 @@ fn compile_and_link(unit_infos: Vec<CompileUnitInfo>, option: CompileOption) -> 
     let context = Context::create();
     let cgcx = CodegenCtx::new(&context)?;
 
-    let module = compile(&cgcx, unit_infos, &option.root_dir, option.no_autoload)?;
+    let root_dir = option.root_dir.unwrap_or(PathBuf::from("."));
+
+    let module = compile(&cgcx, unit_infos, &root_dir, option.no_autoload)?;
 
     if module.get_function("main").is_none() {
         return Err(CodegenError::MainNotFound.into());

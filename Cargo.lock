@@ -421,6 +421,7 @@ dependencies = [
  "kaede_codegen",
  "kaede_common",
  "kaede_parse",
+ "kaede_semantic",
  "predicates",
  "tempfile",
 ]

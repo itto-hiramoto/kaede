@@ -6,12 +6,12 @@ use kaede_symbol::Symbol;
 use crate::{
     stmt::Block,
     top::{Enum, Fn, Struct},
-    ty::{make_fundamental_type, FundamentalTypeKind, Mutability, Ty},
+    ty::{Ty, UserDefinedType},
 };
 
 #[derive(Debug)]
 pub struct StringLiteral {
-    pub lit: Symbol,
+    pub syb: Symbol,
 }
 
 #[derive(Debug)]
@@ -48,13 +48,6 @@ impl Int {
             I32(n) => n as u64,
 
             U64(n) => n,
-        }
-    }
-
-    pub fn get_type(&self) -> Ty {
-        match self.kind {
-            IntKind::I32(_) => make_fundamental_type(FundamentalTypeKind::I32, Mutability::Not),
-            IntKind::U64(_) => make_fundamental_type(FundamentalTypeKind::U64, Mutability::Not),
         }
     }
 }
@@ -104,7 +97,15 @@ pub struct Cast {
 }
 
 #[derive(Debug)]
+pub struct TupleIndexing {
+    pub tuple: Rc<Expr>,
+    pub element_ty: Rc<Ty>,
+    pub index: u32,
+}
+
+#[derive(Debug)]
 pub struct FieldAccess {
+    pub struct_info: Rc<Struct>,
     pub operand: Box<Expr>,
     pub field_name: Symbol,
     pub field_offset: u64,
@@ -114,6 +115,7 @@ pub struct FieldAccess {
 pub struct EnumVariant {
     pub enum_info: Rc<Enum>,
     pub variant_offset: u32,
+    pub value: Option<Box<Expr>>,
 }
 
 #[derive(Debug)]
@@ -149,10 +151,20 @@ pub enum Else {
 }
 
 #[derive(Debug)]
+pub struct EnumUnpack {
+    pub name: Symbol,
+    pub enum_ty: UserDefinedType,
+    pub enum_value: Rc<Expr>,
+    pub variant_ty: Rc<Ty>,
+}
+
+#[derive(Debug)]
 pub struct If {
     pub cond: Box<Expr>,
     pub then: Box<Expr>,
     pub else_: Option<Box<Else>>,
+    pub enum_unpack: Option<Box<EnumUnpack>>,
+    pub is_match: bool,
 }
 
 #[derive(Debug)]
@@ -170,10 +182,10 @@ pub enum ExprKind {
     TupleLiteral(TupleLiteral),
     Variable(Variable),
     BooleanLiteral(bool),
-    False,
     Binary(Binary),
     Cast(Cast),
     FieldAccess(FieldAccess),
+    TupleIndexing(TupleIndexing),
     EnumVariant(EnumVariant),
     Indexing(Indexing),
     LogicalNot(LogicalNot),
@@ -183,7 +195,6 @@ pub enum ExprKind {
     Loop(Loop),
     Break,
     Block(Block),
-    DoNothing,
 }
 
 #[derive(Debug)]

@@ -288,10 +288,16 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
-    pub fn analyze(&mut self, compile_unit: ast::CompileUnit) -> anyhow::Result<ir::CompileUnit> {
+    pub fn analyze(
+        &mut self,
+        compile_unit: ast::CompileUnit,
+        no_autoload: bool,
+    ) -> anyhow::Result<ir::CompileUnit> {
         let mut top_level_irs = vec![];
 
-        self.import_autoloads(&mut top_level_irs)?;
+        if !no_autoload {
+            self.import_autoloads(&mut top_level_irs)?;
+        }
 
         for top_level in compile_unit.top_levels {
             match self.analyze_top_level(top_level)? {
