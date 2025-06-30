@@ -1,4 +1,8 @@
-use std::{cell::RefCell, fs, rc::Rc};
+use std::{
+    cell::RefCell,
+    fs::{self},
+    rc::Rc,
+};
 
 use crate::{
     context::ModuleContext,
@@ -298,18 +302,22 @@ impl SemanticAnalyzer {
 
         let parent_ty = self.analyze_type(&ty)?;
 
-        let (parent_name, is_builtin) =
-            if let ir::ty::TyKind::Reference(ty) = parent_ty.kind.as_ref() {
+        let (parent_name, is_builtin) = match parent_ty.kind.as_ref() {
+            ir::ty::TyKind::Reference(ty) => {
                 let base_ty = ty.get_base_type();
                 if let ir::ty::TyKind::UserDefined(udt) = base_ty.kind.as_ref() {
                     (udt.name(), false)
                 } else {
-                    // Expect built-in types
+                    // Built-in types
                     (Symbol::from(base_ty.kind.to_string()), true)
                 }
-            } else {
-                unreachable!()
-            };
+            }
+
+            // Built-in types
+            ir::ty::TyKind::Fundamental(fty) => (Symbol::from(fty.kind.to_string()), true),
+
+            _ => unreachable!(),
+        };
 
         node.decl.name = Ident::new(
             self.create_method_key(

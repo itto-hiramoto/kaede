@@ -1691,9 +1691,10 @@ impl SemanticAnalyzer {
         call_node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
         let span = Span::new(left.span.start, call_node.span.finish, left.span.file);
+
         self.create_method_call_ir(
             call_node.callee.symbol(),
-            self.current_module_path().clone(),
+            ModulePath::new(vec![]),
             fty.kind.to_string().into(),
             call_node,
             left,
