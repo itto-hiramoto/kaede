@@ -1,13 +1,9 @@
-use std::{
-    fmt::Display,
-    hash::Hash,
-    path::{Path, PathBuf},
-};
+use std::{fmt::Display, hash::Hash, path::PathBuf, sync::Mutex};
 
 use once_cell::sync::Lazy;
 use slab::Slab;
 
-static mut FILES: Lazy<Slab<PathBuf>> = Lazy::new(Default::default);
+static FILES: Lazy<Mutex<Slab<PathBuf>>> = Lazy::new(|| Mutex::new(Slab::new()));
 
 // Do not derive PartialEq, Hash, etc!
 // We need to compare symbols(string) as well as id
@@ -17,8 +13,8 @@ pub struct FilePath {
 }
 
 impl FilePath {
-    pub fn path(&self) -> &Path {
-        unsafe { FILES[self.id].as_path() }
+    pub fn path(&self) -> PathBuf {
+        FILES.lock().unwrap()[self.id].clone()
     }
 
     pub fn dummy() -> Self {
@@ -35,7 +31,7 @@ impl Default for FilePath {
 impl From<PathBuf> for FilePath {
     fn from(value: PathBuf) -> Self {
         Self {
-            id: unsafe { FILES.insert(value) },
+            id: FILES.lock().unwrap().insert(value),
         }
     }
 }
@@ -51,7 +47,7 @@ impl Eq for FilePath {}
 impl Hash for FilePath {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // It is important not to include id in hash!
-        unsafe { FILES[self.id].hash(state) };
+        FILES.lock().unwrap()[self.id].hash(state);
     }
 }
 

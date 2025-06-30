@@ -1,6 +1,7 @@
 use std::{
     fmt::{Debug, Display},
     hash::Hash,
+    sync::RwLock,
 };
 
 use kaede_span::Span;
@@ -33,7 +34,7 @@ impl Ident {
     }
 }
 
-static mut SYMBOLS: Lazy<Slab<String>> = Lazy::new(Default::default);
+static SYMBOLS: Lazy<RwLock<Slab<Box<str>>>> = Lazy::new(|| RwLock::new(Slab::new()));
 
 // Do not derive PartialEq, Hash, etc!
 // We need to compare symbols(string) as well as id
@@ -50,14 +51,17 @@ impl Debug for Symbol {
 
 impl Symbol {
     pub fn as_str(&self) -> &str {
-        unsafe { SYMBOLS[self.id].as_str() }
+        let symbols = SYMBOLS.read().unwrap();
+        // SAFETY: Strings are never removed from the slab, so this reference is valid
+        // for the entire program duration
+        unsafe { std::mem::transmute::<&str, &str>(&symbols[self.id]) }
     }
 }
 
 impl From<String> for Symbol {
     fn from(value: String) -> Self {
         Self {
-            id: unsafe { SYMBOLS.insert(value) },
+            id: SYMBOLS.write().unwrap().insert(value.into_boxed_str()),
         }
     }
 }
@@ -73,7 +77,7 @@ impl Eq for Symbol {}
 impl Hash for Symbol {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         // It is important not to include id in hash!
-        unsafe { SYMBOLS[self.id].hash(state) };
+        SYMBOLS.read().unwrap()[self.id].hash(state);
     }
 }
 
