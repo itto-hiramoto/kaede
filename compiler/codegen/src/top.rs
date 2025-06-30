@@ -20,7 +20,7 @@ use crate::{
 impl<'ctx> CodeGenerator<'ctx> {
     pub fn build_top_level(&mut self, tl: TopLevel) -> anyhow::Result<()> {
         Ok(match tl {
-            TopLevel::Fn(node) => self.build_function(&node)?,
+            TopLevel::Fn(node) => self.build_function(&node, false)?,
 
             TopLevel::Impl(node) => self.build_impl(&node)?,
 
@@ -62,7 +62,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         })
     }
 
-    fn build_function(&mut self, node: &Fn) -> anyhow::Result<()> {
+    pub fn build_function(&mut self, node: &Fn, only_declare: bool) -> anyhow::Result<()> {
         use kaede_ir::top::LangLinkage;
 
         let mangled_name = if node.decl.name.symbol().as_str() == "main" {
@@ -77,11 +77,20 @@ impl<'ctx> CodeGenerator<'ctx> {
             }
         };
 
-        self.build_fn(mangled_name, node)
+        self.build_fn(mangled_name, node, only_declare)
     }
 
-    fn build_fn(&mut self, mangled_name: Symbol, node: &Fn) -> anyhow::Result<()> {
+    fn build_fn(
+        &mut self,
+        mangled_name: Symbol,
+        node: &Fn,
+        only_declare: bool,
+    ) -> anyhow::Result<()> {
         let fn_value = self.declare_function(mangled_name, &node.decl)?;
+
+        if only_declare {
+            return Ok(());
+        }
 
         // If the function is a declaration, the body is None.
         if let Some(body) = &node.body {
@@ -236,7 +245,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     fn build_impl(&mut self, node: &Impl) -> anyhow::Result<()> {
         for method in node.methods.iter() {
-            self.build_function(&method)?;
+            self.build_function(&method, false)?;
         }
 
         Ok(())

@@ -18,6 +18,17 @@ pub struct TypeCtx<'ctx> {
 }
 
 impl<'ctx> TypeCtx<'ctx> {
+    #[cfg(debug_assertions)]
+    #[allow(dead_code)]
+    pub fn dump_symbol_tables(&self) {
+        for (i, table) in self.symbol_tables.iter().enumerate() {
+            println!("Symbol table {}:", i);
+            for (symbol, value) in table.iter() {
+                println!("  {}: {:?}", symbol, value);
+            }
+        }
+    }
+
     pub fn lookup_symbol(&self, symbol: Symbol) -> Option<Rc<RefCell<SymbolTableValue<'ctx>>>> {
         for table in self.symbol_tables.iter().rev() {
             if let Some(value) = table.get(&symbol) {

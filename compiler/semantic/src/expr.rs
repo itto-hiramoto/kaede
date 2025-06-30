@@ -766,6 +766,9 @@ impl SemanticAnalyzer {
             analyzer.analyze_fn_internal(fn_)
         })?;
 
+        self.generated_generics
+            .push(ir::top::TopLevel::Fn(fn_.clone()));
+
         Ok(fn_)
     }
 

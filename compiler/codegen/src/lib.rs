@@ -15,7 +15,7 @@ use inkwell::{
 use kaede_ir::{
     module_path::ModulePath,
     qualified_symbol::QualifiedSymbol,
-    top::{FnDecl, LangLinkage, Param},
+    top::{FnDecl, LangLinkage, Param, TopLevel},
     ty::{
         make_fundamental_type, FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind,
         UserDefinedTypeKind,
@@ -321,6 +321,22 @@ impl<'ctx> CodeGenerator<'ctx> {
     // Please execute 'opt' command to optimize the module.
     pub fn codegen(mut self, compile_unit: CompileUnit) -> anyhow::Result<Module<'ctx>> {
         self.gc_init()?;
+
+        // Declare all functions
+        // (This is necessary to avoid errors when generating generic functions)
+        for top in compile_unit.top_levels.iter() {
+            match top {
+                TopLevel::Fn(fn_) => {
+                    self.build_function(fn_.as_ref(), true)?;
+                }
+                TopLevel::Impl(impl_) => {
+                    for method in impl_.methods.iter() {
+                        self.build_function(method.as_ref(), true)?;
+                    }
+                }
+                _ => {}
+            }
+        }
 
         for top in compile_unit.top_levels {
             self.build_top_level(top)?;
