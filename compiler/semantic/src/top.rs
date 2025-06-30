@@ -298,17 +298,18 @@ impl SemanticAnalyzer {
 
         let parent_ty = self.analyze_type(&ty)?;
 
-        let parent_name = if let ir::ty::TyKind::Reference(ty) = parent_ty.kind.as_ref() {
-            let base_ty = ty.get_base_type();
-            if let ir::ty::TyKind::UserDefined(udt) = base_ty.kind.as_ref() {
-                udt.name()
+        let (parent_name, is_builtin) =
+            if let ir::ty::TyKind::Reference(ty) = parent_ty.kind.as_ref() {
+                let base_ty = ty.get_base_type();
+                if let ir::ty::TyKind::UserDefined(udt) = base_ty.kind.as_ref() {
+                    (udt.name(), false)
+                } else {
+                    // Expect built-in types
+                    (Symbol::from(base_ty.kind.to_string()), true)
+                }
             } else {
-                // Expect built-in types
-                Symbol::from(base_ty.kind.to_string())
-            }
-        } else {
-            unreachable!()
-        };
+                unreachable!()
+            };
 
         node.decl.name = Ident::new(
             self.create_method_key(
@@ -320,7 +321,12 @@ impl SemanticAnalyzer {
         );
 
         node.decl.self_ = None;
-        self.analyze_fn_internal(node)
+
+        if is_builtin {
+            self.with_root_module(|analyzer| analyzer.analyze_fn_internal(node))
+        } else {
+            self.analyze_fn_internal(node)
+        }
     }
 
     fn analyze_fn(&mut self, node: ast::top::Fn) -> anyhow::Result<TopLevelAnalysisResult> {

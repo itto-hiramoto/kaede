@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, rc::Rc};
+use std::{collections::BTreeSet, rc::Rc, vec};
 
 use crate::{
     error::SemanticError,
@@ -812,7 +812,9 @@ impl SemanticAnalyzer {
                     .map(|arg| self.analyze_expr(arg))
                     .collect::<anyhow::Result<Vec<_>>>()?;
 
-                self.verify_fn_call_arguments(&callee, &args, node.span)?;
+                if !callee.decl.is_var_args {
+                    self.verify_fn_call_arguments(&callee, &args, node.span)?;
+                }
 
                 Ok(ir::expr::Expr {
                     kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
@@ -1279,7 +1281,7 @@ impl SemanticAnalyzer {
 
                 match &rhs.kind {
                     Ident(ident) => out.push(ident.clone()),
-                    _ => unreachable!(),
+                    _ => {}
                 }
             }
 
@@ -1287,7 +1289,7 @@ impl SemanticAnalyzer {
                 out.push(ident.clone());
             }
 
-            _ => unreachable!(),
+            _ => {}
         }
     }
 
@@ -1356,33 +1358,21 @@ impl SemanticAnalyzer {
         left: ir::expr::Expr,
         ast_right: &ast::expr::Expr,
     ) -> anyhow::Result<ir::expr::Expr> {
-        let ir_right = self.analyze_expr(ast_right)?;
-
-        match ir_right.kind {
+        if let ast::expr::ExprKind::FnCall(call_node) = &ast_right.kind {
             // Method call
-            ir::expr::ExprKind::FnCall(call_node) => {
-                let span = Span::new(left.span.start, ast_right.span.finish, left.span.file);
+            let span = Span::new(left.span.start, ast_right.span.finish, left.span.file);
 
-                let args = std::iter::once(left)
-                    .chain(call_node.args.0.into_iter())
-                    .collect::<Vec<_>>();
-
-                self.verify_fn_call_arguments(&call_node.callee, &args, ast_right.span)?;
-
-                let call_node = ir::expr::FnCall {
-                    callee: call_node.callee.clone(),
-                    args: ir::expr::Args(args),
-                };
-
-                // For simplicity, we treat the method call as a function call.
-                Ok(ir::expr::Expr {
-                    kind: ir::expr::ExprKind::FnCall(call_node),
-                    ty: Rc::new(ir_type::Ty::new_never()),
-                    span,
-                })
-            }
-
-            _ => self.analyze_str_indexing(left, ir_right),
+            self.create_method_call_ir(
+                call_node.callee.symbol(),
+                ModulePath::new(vec![]),
+                "str".to_owned().into(),
+                call_node,
+                left,
+                span,
+            )
+        } else {
+            let right = self.analyze_expr(ast_right)?;
+            self.analyze_str_indexing(left, right)
         }
     }
 

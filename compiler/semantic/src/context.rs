@@ -54,6 +54,13 @@ impl SemanticAnalyzer {
         self.with_context(new_context, f)
     }
 
+    pub fn with_root_module<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        self.with_module(ModulePath::new(vec![]), f)
+    }
+
     // Temporarily sets the context to be inside a loop, executes the provided closure.
     pub fn with_inside_loop<F, R>(&mut self, f: F) -> R
     where

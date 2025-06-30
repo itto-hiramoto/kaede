@@ -7,7 +7,11 @@ use std::{
 
 use context::AnalysisContext;
 use kaede_common::kaede_autoload_dir;
-use kaede_ir::{module_path::ModulePath, qualified_symbol::QualifiedSymbol, ty as ir_type};
+use kaede_ir::{
+    module_path::ModulePath,
+    qualified_symbol::QualifiedSymbol,
+    ty::{self as ir_type},
+};
 
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::{Ident, Symbol};
@@ -294,6 +298,11 @@ impl SemanticAnalyzer {
         no_autoload: bool,
     ) -> anyhow::Result<ir::CompileUnit> {
         let mut top_level_irs = vec![];
+
+        // Create root module
+        let mut root_module = ModuleContext::new(FilePath::dummy());
+        root_module.push_scope(SymbolTable::new());
+        self.modules.insert(ModulePath::new(vec![]), root_module);
 
         if !no_autoload {
             self.import_autoloads(&mut top_level_irs)?;
