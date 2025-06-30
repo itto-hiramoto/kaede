@@ -18,7 +18,7 @@ use kaede_ir::{
         TupleIndexing, TupleLiteral, Variable,
     },
     stmt::{Block, Stmt},
-    ty::{make_fundamental_type, FundamentalType, FundamentalTypeKind, Mutability, Ty, TyKind},
+    ty::{make_fundamental_type, FundamentalTypeKind, Mutability, Ty, TyKind},
 };
 
 pub type Value<'ctx> = Option<BasicValueEnum<'ctx>>;
@@ -83,7 +83,7 @@ impl<'a, 'ctx> CodeGenerator<'ctx> {
 
     /// Unit value if the end of the block is not an expression
     fn build_block_expr(&mut self, block: &Block) -> anyhow::Result<Value<'ctx>> {
-        if block.body.is_empty() {
+        if block.body.is_empty() && block.last_expr.is_none() {
             return Ok(None);
         }
 
@@ -155,7 +155,9 @@ impl<'a, 'ctx> CodeGenerator<'ctx> {
         // Build body block
         self.builder.build_unconditional_branch(body_bb)?;
         self.builder.position_at_end(body_bb);
-        self.build_block_expr(&node.body)?;
+        self.build_block(&node.body)?;
+
+        self.loop_break_bb_stk.pop();
 
         // Loop!
         if self.no_terminator() {
@@ -534,10 +536,7 @@ impl<'a, 'ctx> CodeGenerator<'ctx> {
         let array_ty = {
             match node.operand.ty.kind.as_ref() {
                 TyKind::Reference(rty) => {
-                    if matches!(
-                        rty.get_base_type().kind.as_ref(),
-                        TyKind::Array(_) | TyKind::UserDefined(_)
-                    ) {
+                    if matches!(rty.get_base_type().kind.as_ref(), TyKind::Array(_)) {
                         rty.get_base_type().clone()
                     } else {
                         todo!("Error");
@@ -792,28 +791,7 @@ impl<'a, 'ctx> CodeGenerator<'ctx> {
     }
 
     fn build_tuple_indexing(&mut self, node: &TupleIndexing) -> anyhow::Result<Value<'ctx>> {
-        if let TyKind::Fundamental(FundamentalType {
-            kind: FundamentalTypeKind::Str,
-        }) = node.tuple.ty.kind.as_ref()
-        {
-            return self.build_str_indexing(node);
-        } else {
-            return self.build_tuple_indexing_internal(node);
-        }
-    }
-
-    fn build_str_indexing(&mut self, node: &TupleIndexing) -> anyhow::Result<Value<'ctx>> {
-        let tuple = self.build_expr(&node.tuple)?.unwrap();
-
-        self.build_indexing_common(
-            tuple.into_pointer_value(),
-            node.tuple.ty.clone(),
-            node.element_ty.clone(),
-            &[self
-                .context()
-                .i32_type()
-                .const_int(node.index as u64, false)],
-        )
+        return self.build_tuple_indexing_internal(node);
     }
 
     fn build_tuple_indexing_internal(
@@ -844,12 +822,19 @@ impl<'a, 'ctx> CodeGenerator<'ctx> {
         element_ty: Rc<Ty>,
         ordered_indexes: &[IntValue<'ctx>],
     ) -> anyhow::Result<Value<'ctx>> {
-        let llvm_tuple_ty = self.conv_to_llvm_type(&ptr_ty);
+        let pointee_ty = if let TyKind::Reference(rty) = ptr_ty.kind.as_ref() {
+            rty.refee_ty.clone()
+        } else {
+            unreachable!()
+        };
+
+        let llvm_pointee_ty = self.conv_to_llvm_type(&pointee_ty);
+
         let llvm_element_ty = self.conv_to_llvm_type(&element_ty);
 
         let gep = unsafe {
             self.builder
-                .build_in_bounds_gep(llvm_tuple_ty, ptr, ordered_indexes, "")?
+                .build_in_bounds_gep(llvm_pointee_ty, ptr, ordered_indexes, "")?
         };
 
         Ok(Some(self.builder.build_load(llvm_element_ty, gep, "")?))

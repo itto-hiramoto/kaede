@@ -32,6 +32,10 @@ impl<'a, 'ctx> CodeGenerator<'ctx> {
             self.build_statement(stmt)?;
         }
 
+        if let Some(last_expr) = &block.last_expr {
+            self.build_expr(last_expr)?;
+        }
+
         self.tcx.pop_symbol_table();
 
         Ok(())

@@ -63,11 +63,18 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     fn build_function(&mut self, node: &Fn) -> anyhow::Result<()> {
+        use kaede_ir::top::LangLinkage;
+
         let mangled_name = if node.decl.name.symbol().as_str() == "main" {
             // Suppress mangling of main function
             String::from("kdmain").into()
         } else {
-            node.decl.name.mangle()
+            match node.decl.lang_linkage {
+                // C functions are not mangled
+                LangLinkage::C => node.decl.name.symbol(),
+
+                _ => node.decl.name.mangle(),
+            }
         };
 
         self.build_fn(mangled_name, node)

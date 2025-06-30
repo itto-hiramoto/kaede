@@ -1437,9 +1437,10 @@ impl SemanticAnalyzer {
         });
 
         Ok(ir::expr::Expr {
-            kind: ir::expr::ExprKind::Indexing(ir::expr::Indexing {
-                operand: Rc::new(left),
-                index: Box::new(right),
+            kind: ir::expr::ExprKind::TupleIndexing(ir::expr::TupleIndexing {
+                tuple: Rc::new(left),
+                element_ty: ty.clone(),
+                index: index as u32,
             }),
             ty,
             span,
