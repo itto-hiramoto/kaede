@@ -14,6 +14,12 @@ use kaede_semantic::{SemanticAnalyzer, SemanticError};
 
 use crate::{CodeGenerator, CodegenCtx};
 
+/// Helper function to extract SemanticError from anyhow::Error for tests
+fn extract_semantic_error(err: anyhow::Error) -> SemanticError {
+    err.downcast::<SemanticError>()
+        .expect("Expected SemanticError in test")
+}
+
 fn jit_compile(module: &Module) -> anyhow::Result<i32> {
     let kaede_gc_lib_path = kaede_gc_lib_path();
     let kaede_std_lib_path = kaede_lib_path();
@@ -46,16 +52,14 @@ fn jit_compile(module: &Module) -> anyhow::Result<i32> {
 }
 
 /// Return exit status
-fn exec(program: &str) -> Result<i32, SemanticError> {
+fn exec(program: &str) -> anyhow::Result<i32> {
     let context = Context::create();
     let cgcx = CodegenCtx::new(&context).unwrap();
 
     let file = PathBuf::from("test").into();
 
     let ast = Parser::new(program, file).run().unwrap();
-    let ir = SemanticAnalyzer::new_for_single_file_test()
-        .analyze(ast, false)
-        .map_err(|e| e.downcast::<SemanticError>().unwrap())?;
+    let ir = SemanticAnalyzer::new_for_single_file_test().analyze(ast, false)?;
 
     let module = CodeGenerator::new(&cgcx).unwrap().codegen(ir).unwrap();
 
@@ -352,8 +356,8 @@ fn break_outside_of_loop() {
     }";
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::BreakOutsideOfLoop { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::BreakOutsideOfLoop { .. }
     ));
 }
 
@@ -381,8 +385,8 @@ fn assign_to_immutable() {
     }";
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::CannotAssignTwiceToImutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignTwiceToImutable { .. }
     ));
 }
 
@@ -494,8 +498,8 @@ fn has_no_fields() {
     }";
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::HasNoFields { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::HasNoFields { .. }
     ));
 }
 
@@ -771,8 +775,8 @@ fn immutable_array_as_mutable_argument() {
     }";
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::CannotAssignImmutableToMutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignImmutableToMutable { .. }
     ));
 }
 
@@ -902,8 +906,8 @@ fn tuples_require_access_by_index() {
     }";
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::TupleRequireAccessByIndex { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::TupleRequireAccessByIndex { .. }
     ));
 }
 
@@ -959,8 +963,8 @@ fn assign_to_immutable_struct_field() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::CannotAssignTwiceToImutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignTwiceToImutable { .. }
     ));
 }
 
@@ -996,8 +1000,8 @@ fn assign_to_immutable_tuple_field() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::CannotAssignTwiceToImutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignTwiceToImutable { .. }
     ));
 }
 
@@ -1353,8 +1357,8 @@ fn assign_to_immutable_to_mutable() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::CannotAssignImmutableToMutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignImmutableToMutable { .. }
     ));
 
     // Tuple
@@ -1367,8 +1371,8 @@ fn assign_to_immutable_to_mutable() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::CannotAssignImmutableToMutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignImmutableToMutable { .. }
     ));
 
     // Struct
@@ -1385,8 +1389,8 @@ fn assign_to_immutable_to_mutable() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::CannotAssignImmutableToMutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignImmutableToMutable { .. }
     ));
 }
 
@@ -1557,8 +1561,8 @@ fn call_mutable_methods_from_immutable() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::CannotAssignImmutableToMutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignImmutableToMutable { .. }
     ));
 }
 
@@ -1587,8 +1591,8 @@ fn modify_fields_in_immutable_methods() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::CannotAssignTwiceToImutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignTwiceToImutable { .. }
     ));
 }
 
@@ -1830,8 +1834,8 @@ fn match_on_int_without_wildcard() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::MatchNotExhaustive { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::MatchNotExhaustive { .. }
     ));
 }
 
@@ -1864,8 +1868,8 @@ fn match_on_bool_without_true() -> anyhow::Result<()> {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::MatchNotExhaustive { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::MatchNotExhaustive { .. }
     ));
 
     Ok(())
@@ -1882,8 +1886,8 @@ fn match_on_bool_without_false() -> anyhow::Result<()> {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::MatchNotExhaustive { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::MatchNotExhaustive { .. }
     ));
 
     Ok(())
@@ -1940,8 +1944,8 @@ fn non_exhaustive_patterns() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::MatchNotExhaustive { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::MatchNotExhaustive { .. }
     ));
 }
 
@@ -1963,8 +1967,8 @@ fn unreachable_pattern() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::UnreachablePattern { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::UnreachablePattern { .. }
     ));
 }
 
@@ -2257,8 +2261,8 @@ fn match_unpack_unit_variant() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(SemanticError::UnitVariantCannotUnpack { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::UnitVariantCannotUnpack { .. }
     ));
 }
 
