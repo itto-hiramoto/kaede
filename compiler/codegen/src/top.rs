@@ -112,9 +112,12 @@ impl<'ctx> CodeGenerator<'ctx> {
         mangled_name: Symbol,
         decl: &FnDecl,
     ) -> anyhow::Result<FunctionValue<'ctx>> {
-        if let Some(fn_) = self.module.get_function(mangled_name.as_str()) {
+        if let Some(fn_value) = self.tcx.lookup_symbol(mangled_name) {
             // If the function is already declared, don't declare it again.
-            return Ok(fn_);
+            return Ok(match &*fn_value.borrow() {
+                SymbolTableValue::Function(fn_) => *fn_,
+                _ => unreachable!(),
+            });
         }
 
         let fn_type = self.create_fn_type(
@@ -126,6 +129,9 @@ impl<'ctx> CodeGenerator<'ctx> {
         let fn_value =
             self.module
                 .add_function(mangled_name.as_str(), fn_type, Some(Linkage::External));
+
+        self.tcx
+            .insert_symbol_to_root_scope(mangled_name, SymbolTableValue::Function(fn_value));
 
         Ok(fn_value)
     }

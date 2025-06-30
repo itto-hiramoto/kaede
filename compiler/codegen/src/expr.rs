@@ -352,10 +352,9 @@ impl<'a, 'ctx> CodeGenerator<'ctx> {
     }
 
     fn build_variable(&mut self, node: &Variable) -> anyhow::Result<Value<'ctx>> {
-        let symbol_kind = self.tcx.lookup_symbol(node.name);
-
-        let ptr = match &*symbol_kind.borrow() {
+        let ptr = match &*self.tcx.lookup_symbol(node.name).unwrap().borrow() {
             SymbolTableValue::Variable(var) => *var,
+            _ => unreachable!(),
         };
 
         let llvm_ty = self.conv_to_llvm_type(&node.ty);
@@ -385,13 +384,28 @@ impl<'a, 'ctx> CodeGenerator<'ctx> {
 
         let mangled_name = node.callee.decl.name.mangle();
 
+        let fn_value = match self.tcx.lookup_symbol(mangled_name) {
+            Some(fn_) => match &*fn_.borrow() {
+                SymbolTableValue::Function(fn_) => *fn_,
+                _ => unreachable!(),
+            },
+            None => {
+                // Try to find with non-mangled name (For foreign functions)
+                match &*self
+                    .tcx
+                    .lookup_symbol(node.callee.decl.name.symbol())
+                    .unwrap()
+                    .borrow()
+                {
+                    SymbolTableValue::Function(fn_) => *fn_,
+                    _ => unreachable!(),
+                }
+            }
+        };
+
         Ok(self
             .builder
-            .build_call(
-                self.module.get_function(mangled_name.as_str()).unwrap(),
-                args.as_slice(),
-                "",
-            )?
+            .build_call(fn_value, args.as_slice(), "")?
             .try_as_basic_value()
             .left())
     }
