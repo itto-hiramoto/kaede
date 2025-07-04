@@ -266,7 +266,7 @@ fn enum_variant() -> anyhow::Result<()> {
             let x = Foo::B(1)
             return match x {
                 Foo::A => 1,
-                Foo::B(x) => x,
+                Foo::B(y) => y,
                 Foo::C => 3,
             }
         }",
