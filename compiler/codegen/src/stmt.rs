@@ -1,6 +1,9 @@
+use std::rc::Rc;
+
 use inkwell::types::BasicTypeEnum;
-use inkwell::values::BasicValue;
+use inkwell::values::{BasicValue, BasicValueEnum};
 use kaede_ir::stmt::{Assign, Block, Let, Stmt, TupleUnpack};
+use kaede_ir::ty::{Ty, TyKind};
 use kaede_symbol::Symbol;
 
 use crate::expr::Value;
@@ -88,105 +91,44 @@ impl<'a, 'ctx> CodeGenerator<'ctx> {
     }
 
     fn build_tuple_unpacking(&mut self, node: &TupleUnpack) -> anyhow::Result<()> {
-        todo!("{:?}", node)
+        let tuple = self.build_expr(&node.init)?.unwrap();
+
+        for (index, name) in node.names.iter().enumerate() {
+            if let Some(name) = name {
+                self.unpack_tuple_field(node.init.ty.clone(), tuple, index as u32, *name)?;
+            }
+        }
+
+        Ok(())
     }
 
-    // fn build_tuple_unpacking(&mut self, node: &TupleUnpack) -> anyhow::Result<()> {
-    //     let tuple = self.build_expr(&node.init)?.unwrap();
+    fn unpack_tuple_field(
+        &mut self,
+        tuple_ref_ty: Rc<Ty>,
+        tuple: BasicValueEnum<'ctx>,
+        index: u32,
+        name: Symbol,
+    ) -> anyhow::Result<()> {
+        let tuple_ty = if let TyKind::Reference(rty) = tuple_ref_ty.kind.as_ref() {
+            rty.get_base_type()
+        } else {
+            unreachable!();
+        };
 
-    //     let tuple_ref_ty = tuple.get_type();
+        let unpacked_value = self
+            .build_indexing_common(
+                tuple.into_pointer_value(),
+                tuple_ref_ty.clone(),
+                tuple_ty.clone(),
+                &[
+                    self.context().i32_type().const_zero(),
+                    self.context().i32_type().const_int(index as u64, false),
+                ],
+            )?
+            .unwrap();
 
-    //     let (tuple_len, tuple_mutability) =
-    //         if let TyKind::Reference(rty) = tuple_ref_ty.kind.as_ref() {
-    //             match rty.refee_ty.kind.as_ref() {
-    //                 TyKind::Tuple(tuple_ty) => (tuple_ty.len(), tuple_ref_ty.mutability),
+        self.build_let_internal(name, unpacked_value.get_type(), Some(unpacked_value))?;
 
-    //                 kind => {
-    //                     return Err(CodegenError::MismatchedTypes {
-    //                         types: (
-    //                             create_inferred_tuple(node.names.len()).to_string(),
-    //                             kind.to_string(),
-    //                         ),
-    //                         span: node.span,
-    //                     }
-    //                     .into());
-    //                 }
-    //             }
-    //         } else {
-    //             return Err(CodegenError::MismatchedTypes {
-    //                 types: (
-    //                     create_inferred_tuple(node.names.len()).to_string(),
-    //                     tuple_ref_ty.kind.to_string(),
-    //                 ),
-    //                 span: node.span,
-    //             }
-    //             .into());
-    //         };
-
-    //     if node.names.len() != tuple_len {
-    //         return Err(CodegenError::NumberOfTupleFieldsDoesNotMatch {
-    //             lens: (node.names.len(), tuple_len),
-    //             span: node.span,
-    //         }
-    //         .into());
-    //     }
-
-    //     // Unpacking
-    //     for (index, name_and_mutability) in node.names.iter().enumerate() {
-    //         let (name, mutability) = match name_and_mutability {
-    //             Some(x) => (&x.0, x.1),
-
-    //             // Ignore field
-    //             None => continue,
-    //         };
-
-    //         if mutability.is_mut() && tuple_mutability.is_not() {
-    //             todo!("Error")
-    //         }
-
-    //         self.unpack_one_tuple_field(&tuple, index as u32, name, mutability, node.span)?;
-    //     }
-
-    //     Ok(())
-    // }
-
-    // fn unpack_one_tuple_field(
-    //     &mut self,
-    //     tuple: &Value<'ctx>,
-    //     index: u32,
-    //     unpacked_name: &Ident,
-    //     unpacked_mutability: Mutability,
-    //     span: Span,
-    // ) -> anyhow::Result<()> {
-    //     assert!(matches!(
-    //         tuple.get_type().kind.as_ref(),
-    //         TyKind::Reference(_)
-    //     ));
-
-    //     let tuple_ref_ty = tuple.get_type();
-
-    //     let tuple_ty = if let TyKind::Reference(rty) = tuple_ref_ty.kind.as_ref() {
-    //         rty
-    //     } else {
-    //         unreachable!();
-    //     };
-
-    //     let unpacked_value = build_tuple_indexing(
-    //         self.cucx,
-    //         tuple.get_value().into_pointer_value(),
-    //         index,
-    //         &tuple_ty.refee_ty,
-    //         span,
-    //     )?;
-
-    //     self.build_normal_let(
-    //         unpacked_name,
-    //         unpacked_mutability,
-    //         Some(unpacked_value),
-    //         Ty::new_inferred(unpacked_mutability).into(),
-    //         span,
-    //     )?;
-
-    //     Ok(())
-    // }
+        Ok(())
+    }
 }

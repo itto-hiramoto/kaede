@@ -816,7 +816,7 @@ impl<'a, 'ctx> CodeGenerator<'ctx> {
         )
     }
 
-    fn build_indexing_common(
+    pub fn build_indexing_common(
         &mut self,
         ptr: PointerValue<'ctx>,
         ptr_ty: Rc<Ty>,
