@@ -149,7 +149,30 @@ impl SemanticAnalyzer {
                 // TODO: Check access modifier
 
                 let result = match top_level.kind {
-                    TopLevelKind::Impl(impl_) => analyzer.analyze_impl(impl_)?,
+                    TopLevelKind::Impl(impl_) => {
+                        let mut methods = vec![];
+
+                        // Remove the body of the methods
+                        if let TopLevelAnalysisResult::TopLevel(top_level) =
+                            analyzer.analyze_impl(impl_)?
+                        {
+                            match top_level {
+                                ir::top::TopLevel::Impl(impl_) => {
+                                    for method in impl_.methods.iter() {
+                                        methods.push(Rc::new(ir::top::Fn {
+                                            decl: method.decl.clone(),
+                                            body: None,
+                                        }));
+                                    }
+                                }
+                                _ => unreachable!(),
+                            }
+                        }
+
+                        TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Impl(Rc::new(
+                            ir::top::Impl { methods },
+                        )))
+                    }
 
                     TopLevelKind::Import(import_) => analyzer.analyze_import(import_)?,
 

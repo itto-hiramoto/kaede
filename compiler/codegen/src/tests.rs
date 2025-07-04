@@ -162,33 +162,33 @@ fn empty_return() -> anyhow::Result<()> {
 fn let_statement() -> anyhow::Result<()> {
     // Type inference
     let program = r"fn main(): i32 {
-        let yoha = 48
-        let io = 10
-        return yoha + io
+        let x = 48
+        let y = 10
+        return x + y
     }";
 
     assert_eq!(exec(program)?, 58);
 
     // Mutable, Type inference
     let program = r"fn main(): i32 {
-        let mut yohaio = 58
-        return yohaio
+        let mut x = 58
+        return x
     }";
 
     assert_eq!(exec(program)?, 58);
 
     // Specified type
     let program = r"fn main(): i32 {
-        let yohaio: i32 = 58
-        return yohaio
+        let x: i32 = 58
+        return x
     }";
 
     assert_eq!(exec(program)?, 58);
 
     // Mutable, Specified type
     let program = r"fn main(): i32 {
-        let mut yohaio: i32 = 58
-        return yohaio
+        let mut x: i32 = 58
+        return x
     }";
 
     assert_eq!(exec(program)?, 58);
@@ -391,8 +391,8 @@ fn assign_to_immutable() {
 #[test]
 fn string_literal() -> anyhow::Result<()> {
     let program = r#"fn main(): i32 {
-        let s1 = "yohaio"
-        let s2 = "よはいお"
+        let s1 = "hello, world"
+        let s2 = "こんにちは"
 
         return 58
     }"#;

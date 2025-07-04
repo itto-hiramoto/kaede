@@ -39,17 +39,17 @@ fn import_functions() -> anyhow::Result<()> {
     let tempdir = assert_fs::TempDir::new()?;
 
     let module1 = tempdir.child("m1.kd");
-    module1.write_str("pub fn yoha(): i32 { return 48 }")?;
+    module1.write_str("pub fn f(): i32 { return 48 }")?;
 
     let module2 = tempdir.child("m2.kd");
-    module2.write_str("pub fn io(): i32 { return 10 }")?;
+    module2.write_str("pub fn f(): i32 { return 10 }")?;
 
     let main = tempdir.child("main.kd");
     main.write_str(
         r#"import m1
         import m2
         fn main(): i32 {
-            return m1.yoha() + m2.io()
+            return m1.f() + m2.f()
         }"#,
     )?;
 

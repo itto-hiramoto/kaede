@@ -12,12 +12,6 @@ struct ImportTestProject {
 impl ImportTestProject {
     fn new() -> anyhow::Result<Self> {
         let temp_dir = TempDir::new()?;
-        // Create common directory structure
-        fs::create_dir_all(temp_dir.path().join("utils"))?;
-        fs::create_dir_all(temp_dir.path().join("math"))?;
-        fs::create_dir_all(temp_dir.path().join("nested/deep"))?;
-        fs::create_dir_all(temp_dir.path().join("graphics"))?;
-
         Ok(Self { temp_dir })
     }
 

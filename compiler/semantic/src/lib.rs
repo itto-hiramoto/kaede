@@ -39,6 +39,7 @@ pub struct SemanticAnalyzer {
     generating_generics: HashSet<Symbol>,
     imported_module_paths: HashSet<PathBuf>,
     root_dir: PathBuf,
+    autoloads_imported: bool,
 }
 
 impl SemanticAnalyzer {
@@ -63,6 +64,7 @@ impl SemanticAnalyzer {
             generating_generics: HashSet::new(),
             imported_module_paths: HashSet::new(),
             root_dir,
+            autoloads_imported: false,
         }
     }
 
@@ -82,6 +84,7 @@ impl SemanticAnalyzer {
             generating_generics: HashSet::new(),
             imported_module_paths: HashSet::new(),
             root_dir: PathBuf::from("."),
+            autoloads_imported: false,
         }
     }
 
@@ -252,6 +255,12 @@ impl SemanticAnalyzer {
         &mut self,
         top_level_irs: &mut Vec<ir::top::TopLevel>,
     ) -> anyhow::Result<()> {
+        // Only import autoloads once to prevent duplicate definitions
+        if self.autoloads_imported {
+            return Ok(());
+        }
+        self.autoloads_imported = true;
+
         let autoload_dir = kaede_autoload_dir();
 
         if !autoload_dir.exists() {
