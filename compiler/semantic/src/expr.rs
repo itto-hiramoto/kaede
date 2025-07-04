@@ -388,24 +388,28 @@ impl SemanticAnalyzer {
             }
             .symbol();
 
-            // Insert the unpacked variable into the symbol table
-            self.insert_symbol_to_current_scope(
-                name,
-                SymbolTableValue::new(
-                    SymbolTableValueKind::Variable(VariableInfo {
-                        ty: variant.ty.clone().unwrap(),
-                    }),
-                    self,
-                ),
-                current_arm.pattern.span,
-            )?;
+            if name.as_str() == "_" {
+                None
+            } else {
+                // Insert the unpacked variable into the symbol table
+                self.insert_symbol_to_current_scope(
+                    name,
+                    SymbolTableValue::new(
+                        SymbolTableValueKind::Variable(VariableInfo {
+                            ty: variant.ty.clone().unwrap(),
+                        }),
+                        self,
+                    ),
+                    current_arm.pattern.span,
+                )?;
 
-            Some(ir::expr::EnumUnpack {
-                name,
-                enum_ty: udt,
-                enum_value: target.clone(),
-                variant_ty: variant.ty.clone().unwrap(),
-            })
+                Some(ir::expr::EnumUnpack {
+                    name,
+                    enum_ty: udt,
+                    enum_value: target.clone(),
+                    variant_ty: variant.ty.clone().unwrap(),
+                })
+            }
         } else {
             None
         };
