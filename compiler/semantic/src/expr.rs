@@ -10,7 +10,7 @@ use crate::{
 };
 
 use kaede_ast as ast;
-use kaede_ast_type as ast_type;
+use kaede_ast_type::{self as ast_type};
 use kaede_ir::{
     self as ir,
     qualified_symbol::QualifiedSymbol,
@@ -765,18 +765,12 @@ impl SemanticAnalyzer {
     fn generate_generic_fn(
         &mut self,
         info: &GenericFuncInfo,
-        generic_args: &ast_type::GenericArgs,
+        generic_args: &[Rc<ir_type::Ty>],
     ) -> anyhow::Result<Rc<ir::top::FnDecl>> {
         let generic_params = match info.ast.decl.generic_params.as_ref() {
             Some(generic_params) => generic_params,
             None => todo!("Error"),
         };
-
-        let generic_args = generic_args
-            .types
-            .iter()
-            .map(|arg| self.analyze_type(arg))
-            .collect::<anyhow::Result<Vec<_>>>()?;
 
         let generated_generic_key =
             self.create_generated_generic_key(info.ast.decl.name.symbol(), &generic_args);
@@ -808,19 +802,30 @@ impl SemanticAnalyzer {
         info: &GenericInfo,
         node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
-        // Generate the generic function
-        let callee_decl = match &info.kind {
-            GenericKind::Func(info) => {
-                self.generate_generic_fn(info, node.generic_args.as_ref().unwrap())?
-            }
-            _ => unreachable!(),
-        };
-
         let mut args = Vec::new();
 
         for arg in node.args.0.iter() {
             args.push(self.analyze_expr(arg)?);
         }
+
+        // Generate the generic function
+        let callee_decl = match &info.kind {
+            GenericKind::Func(info) => {
+                let generic_args = if let Some(generic_args) = node.generic_args.as_ref() {
+                    generic_args
+                        .types
+                        .iter()
+                        .map(|arg| self.analyze_type(arg))
+                        .collect::<anyhow::Result<Vec<_>>>()?
+                } else {
+                    // Infer generic arguments from the function call arguments
+                    args.iter().map(|arg| arg.ty.clone()).collect()
+                };
+
+                self.generate_generic_fn(info, &generic_args)?
+            }
+            _ => unreachable!(),
+        };
 
         self.verify_fn_call_arguments(&callee_decl, &args, node.span)?;
 
@@ -1197,6 +1202,11 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<ir::expr::Expr> {
         let left_span = left_ident.span();
 
+        let not_an_enum_error = || SemanticError::NotAnEnum {
+            name: left_ident.symbol(),
+            span: left_ident.span(),
+        };
+
         let enum_ir = match &udt.kind {
             ir_type::UserDefinedTypeKind::Enum(em) => em.clone(),
             ir_type::UserDefinedTypeKind::Placeholder(qsym) => {
@@ -1207,15 +1217,13 @@ impl SemanticAnalyzer {
                     .kind
                 {
                     SymbolTableValueKind::Enum(enum_ir) => enum_ir.clone(),
-                    _ => unreachable!(),
+                    _ => {
+                        return Err(not_an_enum_error().into());
+                    }
                 }
             }
             _ => {
-                return Err(SemanticError::NotAnEnum {
-                    name: left_ident.symbol(),
-                    span: left_ident.span(),
-                }
-                .into())
+                return Err(not_an_enum_error().into());
             }
         };
 
