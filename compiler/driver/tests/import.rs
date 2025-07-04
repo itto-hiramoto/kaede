@@ -802,14 +802,14 @@ fn import_module_in_directory() -> anyhow::Result<()> {
     let module2 = tempdir.child("m2.kd");
     module2.write_str(
         r#"import dir.m1
-        use m1.Fruit
+        use dir.m1.Fruit
         fn main(): i32 {
-            let apple = Fruit::Ringo(m1.Apple { size: 58 });
+            let apple = Fruit::Ringo(dir.m1.Apple { size: 58 });
             let n = match apple {
                 Fruit::Ringo(a) => a.size,
                 Fruit::Ichigo(n) => n,
             }
-            if n == m1.get_58() {
+            if n == dir.m1.get_58() {
                 return n
             }
             return 123
@@ -848,7 +848,7 @@ fn import_hierarchical_module() -> anyhow::Result<()> {
     module4.write_str(
         r#"import dir2.m3
         pub fn f(): i32 {
-            return m3.get_58()
+            return dir2.m3.get_58()
         }"#,
     )?;
 
@@ -858,15 +858,15 @@ fn import_hierarchical_module() -> anyhow::Result<()> {
         import dir.dir2.m2
         import dir.dir2.m3
         import dir.m
-        use m2.Fruit
+        use dir.dir2.m2.Fruit
         fn main(): i32 {
-            let apple = Fruit::Ringo(m1.Apple { size: 58 });
+            let apple = Fruit::Ringo(dir.dir2.m1.Apple { size: 58 });
             let n = match apple {
                 Fruit::Ringo(a) => a.size,
                 Fruit::Ichigo(n) => n,
             }
-            if n == m3.get_58() {
-                return m.f()
+            if n == dir.dir2.m3.get_58() {
+                return dir.m.f()
             }
             return 123
         }"#,

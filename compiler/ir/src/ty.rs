@@ -373,6 +373,14 @@ impl UserDefinedType {
             UserDefinedTypeKind::Placeholder(qsym) => qsym.symbol(),
         }
     }
+
+    pub fn qualified_symbol(&self) -> QualifiedSymbol {
+        match &self.kind {
+            UserDefinedTypeKind::Struct(s) => s.name.clone(),
+            UserDefinedTypeKind::Enum(e) => e.name.clone(),
+            UserDefinedTypeKind::Placeholder(qsym) => qsym.clone(),
+        }
+    }
 }
 
 impl Display for UserDefinedType {

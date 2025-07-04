@@ -56,15 +56,10 @@ impl<'ctx> TypeCtx<'ctx> {
         symbol: Symbol,
         value: SymbolTableValue<'ctx>,
     ) {
-        if self
-            .symbol_tables
+        self.symbol_tables
             .last_mut()
             .unwrap()
-            .insert(symbol, Rc::new(RefCell::new(value)))
-            .is_some()
-        {
-            panic!("Symbol already declared: {}", symbol);
-        }
+            .insert(symbol, Rc::new(RefCell::new(value)));
     }
 
     pub fn push_symbol_table(&mut self, table: SymbolTable<'ctx>) {

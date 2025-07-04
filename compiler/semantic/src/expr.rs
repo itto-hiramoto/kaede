@@ -645,7 +645,10 @@ impl SemanticAnalyzer {
     fn analyze_match(&mut self, node: &ast::expr::Match) -> anyhow::Result<ir::expr::Expr> {
         let value = Rc::new(self.analyze_expr(&node.value)?);
 
-        Ok(match value.ty.kind.as_ref() {
+        // Add a symbol table for the match
+        self.push_scope(SymbolTable::new());
+
+        let result = match value.ty.kind.as_ref() {
             ir_type::TyKind::Reference(rty) => {
                 self.analyze_match_on_reference(node, &value, rty)?
             }
@@ -661,7 +664,11 @@ impl SemanticAnalyzer {
                 }
                 .into())
             }
-        })
+        };
+
+        self.pop_scope();
+
+        Ok(result)
     }
 
     fn analyze_loop(&mut self, node: &ast::expr::Loop) -> anyhow::Result<ir::expr::Expr> {
@@ -1655,7 +1662,7 @@ impl SemanticAnalyzer {
         field_name: Ident,
     ) -> anyhow::Result<ir::expr::Expr> {
         let struct_info = self
-            .lookup_symbol(udt.name())
+            .lookup_qualified_symbol(udt.qualified_symbol())
             .map(|value| match &value.borrow().kind {
                 SymbolTableValueKind::Struct(struct_info) => struct_info.clone(),
 
