@@ -1,4 +1,4 @@
-[![test](https://github.com/yohashinoio/kaede/actions/workflows/test.yml/badge.svg)](https://github.com/yohashinoio/kaede/actions/workflows/test.yml)
+[![test](https://github.com/itto-hiramoto/kaede/actions/workflows/test.yml/badge.svg)](https://github.com/itto-hiramoto/kaede/actions/workflows/test.yml)
 
 > [!WARNING]
 > As this project is still in the pre-release phase, there is still a possibility that the language specifications could change significantly!
