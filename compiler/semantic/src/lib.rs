@@ -96,9 +96,10 @@ impl SemanticAnalyzer {
                 .unwrap()
                 .to_path_buf()
                 .canonicalize()?;
+            let file_parent = file_path.path().parent().unwrap().canonicalize()?;
 
             // Try to strip the project root first, if that fails try the standard library root
-            if let Ok(relative_path) = file_path.path().strip_prefix(&root_dir) {
+            if let Ok(relative_path) = file_parent.strip_prefix(&root_dir) {
                 relative_path
                     .components()
                     .map(|c| {
@@ -110,7 +111,7 @@ impl SemanticAnalyzer {
                         }
                     })
                     .collect::<Vec<_>>()
-            } else if let Ok(relative_path) = file_path.path().strip_prefix(&kaede_lib_src_dir) {
+            } else if let Ok(relative_path) = file_parent.strip_prefix(&kaede_lib_src_dir) {
                 // For standard library modules, prepend "std" to the module path
                 let mut modules = vec![Symbol::from("std".to_string())];
                 modules.extend(relative_path.components().map(|c| {
@@ -124,7 +125,7 @@ impl SemanticAnalyzer {
             } else {
                 return Err(anyhow::anyhow!(
                     "File path '{}' is not within project root '{}' or standard library root '{}'",
-                    file_path,
+                    file_parent.display(),
                     root_dir.display(),
                     kaede_lib_src_dir.display()
                 ));
