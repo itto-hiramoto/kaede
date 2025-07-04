@@ -382,7 +382,7 @@ impl<'a, 'ctx> CodeGenerator<'ctx> {
             args
         };
 
-        let mangled_name = node.callee.decl.name.mangle();
+        let mangled_name = node.callee.name.mangle();
 
         let fn_value = match self.tcx.lookup_symbol(mangled_name) {
             Some(fn_) => match &*fn_.borrow() {
@@ -393,7 +393,7 @@ impl<'a, 'ctx> CodeGenerator<'ctx> {
                 // Try to find with non-mangled name (For foreign functions)
                 match &*self
                     .tcx
-                    .lookup_symbol(node.callee.decl.name.symbol())
+                    .lookup_symbol(node.callee.name.symbol())
                     .unwrap()
                     .borrow()
                 {

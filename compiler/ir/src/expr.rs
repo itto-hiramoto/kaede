@@ -5,7 +5,7 @@ use kaede_symbol::Symbol;
 
 use crate::{
     stmt::Block,
-    top::{Enum, Fn, Struct},
+    top::{Enum, FnDecl, Struct},
     ty::{Ty, UserDefinedType},
 };
 
@@ -25,7 +25,7 @@ pub struct Args(pub Vec<Expr>);
 
 #[derive(Debug)]
 pub struct FnCall {
-    pub callee: Rc<Fn>,
+    pub callee: Rc<FnDecl>,
     pub args: Args,
 }
 

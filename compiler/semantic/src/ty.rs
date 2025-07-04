@@ -2,8 +2,8 @@ use std::rc::Rc;
 
 use kaede_ast as ast;
 use kaede_ast_type as ast_type;
-use kaede_ir as ir;
 use kaede_ir::ty as ir_type;
+use kaede_ir::{self as ir, qualified_symbol::QualifiedSymbol};
 use kaede_span::Span;
 use kaede_symbol::Ident;
 
@@ -102,20 +102,41 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
-    fn create_generic_struct(
+    fn create_generic_type_impl<T>(
         &mut self,
-        ast: &ast::top::Struct,
+        ast: &T,
         generic_args: &[Rc<ir_type::Ty>],
+        get_generic_params: impl Fn(&T) -> &ast::top::GenericParams,
+        get_name: impl Fn(&T) -> Ident,
+        clone_and_clear: impl Fn(&T, Ident) -> T,
+        analyze: impl Fn(&mut SemanticAnalyzer, T) -> anyhow::Result<TopLevelAnalysisResult>,
+        extract_type: impl Fn(&SymbolTableValueKind) -> ir_type::UserDefinedTypeKind,
     ) -> anyhow::Result<Rc<ir_type::Ty>> {
-        let generic_params = ast.generic_params.as_ref().unwrap();
+        let generic_params = get_generic_params(ast);
 
         self.verify_generic_argument_length(generic_params, generic_args, generic_params.span)?;
 
-        let mut ast = ast.clone();
-        ast.generic_params = None;
         let generated_generic_key =
-            self.create_generated_generic_key(ast.name.symbol(), generic_args);
-        ast.name = Ident::new(generated_generic_key, ast.name.span());
+            self.create_generated_generic_key(get_name(ast).symbol(), generic_args);
+        let modified_ast =
+            clone_and_clear(ast, Ident::new(generated_generic_key, get_name(ast).span()));
+
+        if self.generating_generics.contains(&generated_generic_key) {
+            // Circular dependency detected - return a placeholder type
+            return Ok(Rc::new(ir_type::Ty {
+                kind: ir_type::TyKind::UserDefined(ir_type::UserDefinedType {
+                    kind: ir_type::UserDefinedTypeKind::Placeholder(QualifiedSymbol::new(
+                        self.current_module_path().clone(),
+                        generated_generic_key,
+                    )),
+                })
+                .into(),
+                mutability: ir_type::Mutability::Not,
+            }));
+        }
+
+        self.generating_generics
+            .insert(generated_generic_key.clone());
 
         let symbol = self.with_generic_arguments(generic_params, generic_args, |analyzer| {
             // If the symbol is already generated, return it
@@ -123,10 +144,9 @@ impl SemanticAnalyzer {
                 return Ok(symbol);
             }
 
-            let top_level = analyzer.analyze_struct(ast)?;
+            let top_level = analyze(analyzer, modified_ast)?;
 
             if let TopLevelAnalysisResult::TopLevel(top_level) = top_level {
-                assert!(matches!(top_level, ir::top::TopLevel::Struct(_)));
                 analyzer.generated_generics.push(top_level);
             } else {
                 unreachable!()
@@ -136,15 +156,9 @@ impl SemanticAnalyzer {
         })?;
 
         let symbol_value = symbol.borrow();
-
-        let udt_ir = match &symbol_value.kind {
-            SymbolTableValueKind::Struct(st) => {
-                ir_type::TyKind::UserDefined(ir_type::UserDefinedType {
-                    kind: ir_type::UserDefinedTypeKind::Struct(st.clone()),
-                })
-            }
-            _ => unreachable!(),
-        };
+        let udt_ir = ir_type::TyKind::UserDefined(ir_type::UserDefinedType {
+            kind: extract_type(&symbol_value.kind),
+        });
 
         Ok(Rc::new(ir_type::Ty {
             kind: udt_ir.into(),
@@ -152,54 +166,54 @@ impl SemanticAnalyzer {
         }))
     }
 
+    fn create_generic_struct(
+        &mut self,
+        ast: &ast::top::Struct,
+        generic_args: &[Rc<ir_type::Ty>],
+    ) -> anyhow::Result<Rc<ir_type::Ty>> {
+        self.create_generic_type_impl(
+            ast,
+            generic_args,
+            |ast| ast.generic_params.as_ref().unwrap(),
+            |ast| ast.name,
+            |ast, new_name| {
+                let mut cloned = ast.clone();
+                cloned.generic_params = None;
+                cloned.name = new_name;
+                cloned
+            },
+            |analyzer, ast| analyzer.analyze_struct(ast),
+            |kind| match kind {
+                SymbolTableValueKind::Struct(st) => {
+                    ir_type::UserDefinedTypeKind::Struct(st.clone())
+                }
+                _ => unreachable!(),
+            },
+        )
+    }
+
     fn create_generic_enum(
         &mut self,
         ast: &ast::top::Enum,
         generic_args: &[Rc<ir_type::Ty>],
     ) -> anyhow::Result<Rc<ir_type::Ty>> {
-        let generic_params = ast.generic_params.as_ref().unwrap();
-
-        self.verify_generic_argument_length(generic_params, generic_args, generic_params.span)?;
-
-        let mut ast = ast.clone();
-        ast.generic_params = None;
-        let generated_generic_key =
-            self.create_generated_generic_key(ast.name.symbol(), generic_args);
-        ast.name = Ident::new(generated_generic_key, ast.name.span());
-
-        let symbol = self.with_generic_arguments(generic_params, generic_args, |analyzer| {
-            // If the symbol is already generated, return it
-            if let Some(symbol) = analyzer.lookup_symbol(generated_generic_key) {
-                return Ok(symbol);
-            }
-
-            let top_level = analyzer.analyze_enum(ast)?;
-
-            if let TopLevelAnalysisResult::TopLevel(top_level) = top_level {
-                assert!(matches!(top_level, ir::top::TopLevel::Enum(_)));
-                analyzer.generated_generics.push(top_level);
-            } else {
-                unreachable!()
-            }
-
-            Ok(analyzer.lookup_symbol(generated_generic_key).unwrap())
-        })?;
-
-        let symbol_value = symbol.borrow();
-
-        let udt_ir = match &symbol_value.kind {
-            SymbolTableValueKind::Enum(en) => {
-                ir_type::TyKind::UserDefined(ir_type::UserDefinedType {
-                    kind: ir_type::UserDefinedTypeKind::Enum(en.clone()),
-                })
-            }
-            _ => unreachable!(),
-        };
-
-        Ok(Rc::new(ir_type::Ty {
-            kind: udt_ir.into(),
-            mutability: ir_type::Mutability::Not,
-        }))
+        self.create_generic_type_impl(
+            ast,
+            generic_args,
+            |ast| ast.generic_params.as_ref().unwrap(),
+            |ast| ast.name,
+            |ast, new_name| {
+                let mut cloned = ast.clone();
+                cloned.generic_params = None;
+                cloned.name = new_name;
+                cloned
+            },
+            |analyzer, ast| analyzer.analyze_enum(ast),
+            |kind| match kind {
+                SymbolTableValueKind::Enum(en) => ir_type::UserDefinedTypeKind::Enum(en.clone()),
+                _ => unreachable!(),
+            },
+        )
     }
 
     fn create_generic_type(
@@ -233,76 +247,96 @@ impl SemanticAnalyzer {
 
         let module_path = generic_info.module_path.clone();
 
-        // To avoid borrow checker error
-        drop(borrowed_symbol);
-
         self.with_module(module_path, |analyzer| {
-            let mut borrowed_mut_symbol = symbol.borrow_mut();
-
-            let generic_info = match &mut *&mut borrowed_mut_symbol.kind {
+            let generic_info = match &*&borrowed_symbol.kind {
                 SymbolTableValueKind::Generic(generic_info) => generic_info,
                 _ => unreachable!(),
             };
 
             // Create the user defined type with the generic arguments
-            let (ty, impl_info) = match &generic_info.kind {
-                GenericKind::Struct(info) => (
-                    analyzer.create_generic_struct(&info.ast, &generic_args)?,
-                    info.impl_info.as_ref(),
-                ),
-                GenericKind::Enum(info) => (
-                    analyzer.create_generic_enum(&info.ast, &generic_args)?,
-                    info.impl_info.as_ref(),
-                ),
+            let impl_info = match &generic_info.kind {
+                GenericKind::Struct(info) => info.impl_info.as_ref(),
+                GenericKind::Enum(info) => info.impl_info.as_ref(),
                 _ => unreachable!(),
             };
 
             // Create methods
             if impl_info.is_some() {
+                // To avoid borrow checker error
+                drop(borrowed_symbol);
+
+                let mut borrowed_mut_symbol = symbol.borrow_mut();
+
+                let generic_info = match &mut *&mut borrowed_mut_symbol.kind {
+                    SymbolTableValueKind::Generic(generic_info) => generic_info,
+                    _ => unreachable!(),
+                };
+
                 let impl_info = match &mut generic_info.kind {
                     GenericKind::Struct(info) => info.impl_info.as_mut().unwrap(),
                     GenericKind::Enum(info) => info.impl_info.as_mut().unwrap(),
                     _ => unreachable!(),
                 };
 
-                // If the generic arguments have already been generated, return the type
-                if impl_info.generateds.contains(&generic_args) {
-                    return Ok(ty);
-                } else {
+                // Check if the impl have already been generated
+                if !impl_info.generateds.contains(&generic_args) {
                     impl_info.generateds.push(generic_args.clone());
-                }
 
-                let generic_params = impl_info.impl_.generic_params.as_ref().unwrap().clone();
+                    let generic_params = impl_info.impl_.generic_params.as_ref().unwrap().clone();
 
-                // Check if the length of the generic arguments is the same as the number of generic parameters
-                if generic_params.names.len() != generic_args.len() {
-                    return Err(SemanticError::GenericArgumentLengthMismatch {
-                        expected: generic_params.names.len(),
-                        actual: generic_args.len(),
-                        span: generic_params.span,
+                    // Check if the length of the generic arguments is the same as the number of generic parameters
+                    if generic_params.names.len() != generic_args.len() {
+                        return Err(SemanticError::GenericArgumentLengthMismatch {
+                            expected: generic_params.names.len(),
+                            actual: generic_args.len(),
+                            span: generic_params.span,
+                        }
+                        .into());
                     }
-                    .into());
-                }
 
-                let mut impl_ = impl_info.impl_.clone();
-                impl_.generic_params = None;
+                    let mut impl_ = impl_info.impl_.clone();
+                    impl_.generic_params = None;
 
-                // To avoid borrow checker error
-                drop(borrowed_mut_symbol);
+                    // To avoid borrow checker error
+                    drop(borrowed_mut_symbol);
 
-                let impl_ir = analyzer.with_generic_arguments(
-                    &generic_params,
-                    &generic_args,
-                    |analyzer| analyzer.analyze_impl(impl_),
-                )?;
+                    let impl_ir = analyzer.with_generic_arguments(
+                        &generic_params,
+                        &generic_args,
+                        |analyzer| analyzer.analyze_impl(impl_),
+                    )?;
 
-                if let TopLevelAnalysisResult::TopLevel(top_level) = impl_ir {
-                    assert!(matches!(top_level, ir::top::TopLevel::Impl(_)));
-                    analyzer.generated_generics.push(top_level);
+                    if let TopLevelAnalysisResult::TopLevel(top_level) = impl_ir {
+                        assert!(matches!(top_level, ir::top::TopLevel::Impl(_)));
+                        analyzer.generated_generics.push(top_level);
+                    }
                 }
             }
 
-            Ok(ty)
+            let borrowed_symbol = symbol.borrow();
+
+            let generic_info = match &*&borrowed_symbol.kind {
+                SymbolTableValueKind::Generic(generic_info) => generic_info,
+                _ => unreachable!(),
+            };
+
+            // Create the user defined type with the generic arguments
+            let (struct_ast, enum_ast) = match &generic_info.kind {
+                GenericKind::Struct(info) => (Some(info.ast.clone()), None),
+                GenericKind::Enum(info) => (None, Some(info.ast.clone())),
+                _ => unreachable!(),
+            };
+
+            // To avoid borrow checker error
+            drop(borrowed_symbol);
+
+            if struct_ast.is_some() {
+                analyzer.create_generic_struct(&struct_ast.unwrap(), &generic_args)
+            } else if enum_ast.is_some() {
+                analyzer.create_generic_enum(&enum_ast.unwrap(), &generic_args)
+            } else {
+                unreachable!()
+            }
         })
     }
 

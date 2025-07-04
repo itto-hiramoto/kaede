@@ -2579,7 +2579,7 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
         None,
     }
 
-    pub struct List<T> {
+    struct List<T> {
         value: Option<T>,
         next: Option<List<T>>,
     }
@@ -2591,7 +2591,7 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
 
         fn len(self): u32 {
             return match self.next {
-                Option::Some(ne) => 1 + ne.len(),
+                Option::Some(ne) => (1 as u32) + ne.len(),
                 Option::None => {
                     match self.value {
                         Option::Some(_) => 1,
@@ -2625,10 +2625,10 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
         fn at(self, idx: u32): Option<T> {
             return match self.next {
                 Option::Some(ne) => {
-                    if idx == 0 {
+                    if idx == (0 as u32) {
                         self.value
                     } else {
-                        ne.at(idx - 1)
+                        ne.at(idx - (1 as u32))
                     }
                 },
 
@@ -2659,13 +2659,34 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
                 Option::None => break,
             }
 
-            i = i + 1
+            i = i + (1 as u32)
         }
 
         return sum
     }"#;
 
     assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn recursive_function() -> anyhow::Result<()> {
+    let program = r#"
+        fn f(n: i32): i32 {
+            if n == 10 {
+                return n
+            }
+
+            return f(n + 1)
+        }
+
+        fn main(): i32 {
+            return f(0)
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 10);
 
     Ok(())
 }

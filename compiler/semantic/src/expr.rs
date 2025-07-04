@@ -101,7 +101,18 @@ impl SemanticAnalyzer {
         };
 
         let struct_ir = match &udt_ir.kind {
-            ir_type::UserDefinedTypeKind::Struct(struct_ir) => struct_ir,
+            ir_type::UserDefinedTypeKind::Struct(struct_ir) => struct_ir.clone(),
+            ir_type::UserDefinedTypeKind::Placeholder(qsym) => {
+                match &self
+                    .lookup_qualified_symbol(qsym.clone())
+                    .unwrap()
+                    .borrow()
+                    .kind
+                {
+                    SymbolTableValueKind::Struct(struct_ir) => struct_ir.clone(),
+                    _ => unreachable!(),
+                }
+            }
             _ => unreachable!(),
         };
 
@@ -378,6 +389,9 @@ impl SemanticAnalyzer {
                 .into());
             }
 
+            let variant_ty =
+                change_mutability_dup(variant.ty.clone().unwrap(), target.ty.mutability);
+
             let udt = ir_type::UserDefinedType {
                 kind: ir_type::UserDefinedTypeKind::Enum(enum_ir.clone()),
             };
@@ -396,7 +410,7 @@ impl SemanticAnalyzer {
                     name,
                     SymbolTableValue::new(
                         SymbolTableValueKind::Variable(VariableInfo {
-                            ty: variant.ty.clone().unwrap(),
+                            ty: variant_ty.clone(),
                         }),
                         self,
                     ),
@@ -407,7 +421,7 @@ impl SemanticAnalyzer {
                     name,
                     enum_ty: udt,
                     enum_value: target.clone(),
-                    variant_ty: variant.ty.clone().unwrap(),
+                    variant_ty,
                 })
             }
         } else {
@@ -505,7 +519,18 @@ impl SemanticAnalyzer {
 
         let enum_ir = if let ir_type::TyKind::UserDefined(udt) = base_ty.kind.as_ref() {
             match &udt.kind {
-                ir_type::UserDefinedTypeKind::Enum(enum_ir) => enum_ir,
+                ir_type::UserDefinedTypeKind::Enum(enum_ir) => enum_ir.clone(),
+                ir_type::UserDefinedTypeKind::Placeholder(qsym) => {
+                    match &self
+                        .lookup_qualified_symbol(qsym.clone())
+                        .unwrap()
+                        .borrow()
+                        .kind
+                    {
+                        SymbolTableValueKind::Enum(enum_ir) => enum_ir.clone(),
+                        _ => unreachable!(),
+                    }
+                }
                 _ => return err(),
             }
         } else {
@@ -516,14 +541,16 @@ impl SemanticAnalyzer {
 
         let target = Rc::new(self.analyze_expr(&node.value)?);
 
+        let if_ = self.conv_match_arms_on_enum_to_if(
+            enum_ir.clone(),
+            target.clone(),
+            &node.arms.iter().collect::<Vec<_>>().as_slice(),
+            node.span,
+        )?;
+
         Ok(ir::expr::Expr {
-            kind: ir::expr::ExprKind::If(self.conv_match_arms_on_enum_to_if(
-                enum_ir.clone(),
-                target.clone(),
-                &node.arms.iter().collect::<Vec<_>>().as_slice(),
-                node.span,
-            )?),
-            ty: target.ty.clone(),
+            ty: if_.then.ty.clone(),
+            kind: ir::expr::ExprKind::If(if_),
             span: node.span,
         })
     }
@@ -739,7 +766,7 @@ impl SemanticAnalyzer {
         &mut self,
         info: &GenericFuncInfo,
         generic_args: &ast_type::GenericArgs,
-    ) -> anyhow::Result<Rc<ir::top::Fn>> {
+    ) -> anyhow::Result<Rc<ir::top::FnDecl>> {
         let generic_params = match info.ast.decl.generic_params.as_ref() {
             Some(generic_params) => generic_params,
             None => todo!("Error"),
@@ -773,7 +800,7 @@ impl SemanticAnalyzer {
         self.generated_generics
             .push(ir::top::TopLevel::Fn(fn_.clone()));
 
-        Ok(fn_)
+        Ok(Rc::new(fn_.decl.clone()))
     }
 
     fn analyze_generic_fn_call(
@@ -782,7 +809,7 @@ impl SemanticAnalyzer {
         node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
         // Generate the generic function
-        let callee = match &info.kind {
+        let callee_decl = match &info.kind {
             GenericKind::Func(info) => {
                 self.generate_generic_fn(info, node.generic_args.as_ref().unwrap())?
             }
@@ -795,14 +822,14 @@ impl SemanticAnalyzer {
             args.push(self.analyze_expr(arg)?);
         }
 
-        self.verify_fn_call_arguments(&callee, &args, node.span)?;
+        self.verify_fn_call_arguments(&callee_decl, &args, node.span)?;
 
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
-                callee: callee.clone(),
+                callee: callee_decl.clone(),
                 args: ir::expr::Args(args),
             }),
-            ty: match callee.decl.return_ty.as_ref() {
+            ty: match callee_decl.return_ty.as_ref() {
                 Some(ty) => ty.clone(),
                 None => Rc::new(ir_type::Ty::new_unit()),
             },
@@ -821,8 +848,8 @@ impl SemanticAnalyzer {
         // Create a separate binding for the borrowed value
         let borrowed = symbol_value.borrow();
         match &borrowed.kind {
-            SymbolTableValueKind::Function(fn_) => {
-                let callee = fn_.clone();
+            SymbolTableValueKind::Function(fn_decl) => {
+                let callee_decl = fn_decl.clone();
                 let span = Span::new(node.span.start, node.span.finish, node.span.file);
 
                 let args = node
@@ -832,16 +859,16 @@ impl SemanticAnalyzer {
                     .map(|arg| self.analyze_expr(arg))
                     .collect::<anyhow::Result<Vec<_>>>()?;
 
-                if !callee.decl.is_var_args {
-                    self.verify_fn_call_arguments(&callee, &args, node.span)?;
+                if !callee_decl.is_var_args {
+                    self.verify_fn_call_arguments(&callee_decl, &args, node.span)?;
                 }
 
                 Ok(ir::expr::Expr {
                     kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
-                        callee: callee.clone(),
+                        callee: callee_decl.clone(),
                         args: ir::expr::Args(args),
                     }),
-                    ty: match callee.decl.return_ty.as_ref() {
+                    ty: match callee_decl.return_ty.as_ref() {
                         Some(ty) => ty.clone(),
                         None => Rc::new(ir_type::Ty::new_unit()),
                     },
@@ -1171,7 +1198,18 @@ impl SemanticAnalyzer {
         let left_span = left_ident.span();
 
         let enum_ir = match &udt.kind {
-            ir_type::UserDefinedTypeKind::Enum(em) => em,
+            ir_type::UserDefinedTypeKind::Enum(em) => em.clone(),
+            ir_type::UserDefinedTypeKind::Placeholder(qsym) => {
+                match &self
+                    .lookup_qualified_symbol(qsym.clone())
+                    .unwrap()
+                    .borrow()
+                    .kind
+                {
+                    SymbolTableValueKind::Enum(enum_ir) => enum_ir.clone(),
+                    _ => unreachable!(),
+                }
+            }
             _ => {
                 return Err(SemanticError::NotAnEnum {
                     name: left_ident.symbol(),
@@ -1248,7 +1286,7 @@ impl SemanticAnalyzer {
         let method_name = self.create_method_key(udt.name(), call_node.callee.symbol(), true);
 
         // Lookup method from symbol table
-        let method = self
+        let method_decl = self
             .lookup_symbol(method_name)
             .ok_or(SemanticError::NoMethod {
                 method_name: call_node.callee.symbol(),
@@ -1256,9 +1294,8 @@ impl SemanticAnalyzer {
                 span: call_node.span,
             })?;
 
-        let method = method.borrow();
-        let method = match &method.kind {
-            SymbolTableValueKind::Function(fn_) => fn_,
+        let method_decl = match &method_decl.borrow().kind {
+            SymbolTableValueKind::Function(fn_) => fn_.clone(),
             _ => unreachable!(),
         };
 
@@ -1274,10 +1311,10 @@ impl SemanticAnalyzer {
 
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
-                callee: method.clone(),
+                callee: method_decl.clone(),
                 args: ir::expr::Args(args),
             }),
-            ty: match method.decl.return_ty.as_ref() {
+            ty: match method_decl.return_ty.as_ref() {
                 Some(ty) => ty.clone(),
                 None => Rc::new(ir_type::Ty::new_unit()),
             },
@@ -1467,14 +1504,14 @@ impl SemanticAnalyzer {
 
     fn verify_fn_call_arguments(
         &self,
-        fn_: &ir::top::Fn,
+        fn_decl: &ir::top::FnDecl,
         args: &[ir::expr::Expr],
         call_node_span: Span,
     ) -> anyhow::Result<()> {
-        match fn_.decl.params.len().cmp(&args.len()) {
+        match fn_decl.params.len().cmp(&args.len()) {
             std::cmp::Ordering::Less => {
                 return Err(SemanticError::TooManyArguments {
-                    name: fn_.decl.name.symbol(),
+                    name: fn_decl.name.symbol(),
                     span: call_node_span,
                 }
                 .into());
@@ -1482,14 +1519,14 @@ impl SemanticAnalyzer {
 
             std::cmp::Ordering::Greater => {
                 return Err(SemanticError::TooFewArguments {
-                    name: fn_.decl.name.symbol(),
+                    name: fn_decl.name.symbol(),
                     span: call_node_span,
                 }
                 .into());
             }
 
             std::cmp::Ordering::Equal => {
-                for (param, arg) in fn_.decl.params.iter().zip(args.iter()) {
+                for (param, arg) in fn_decl.params.iter().zip(args.iter()) {
                     if !ir_type::is_same_type(&param.ty, &arg.ty) {
                         return Err(SemanticError::MismatchedTypes {
                             types: (arg.ty.kind.to_string(), param.ty.kind.to_string()),
@@ -1703,7 +1740,6 @@ impl SemanticAnalyzer {
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::FnCall(call_node),
             ty: callee
-                .decl
                 .return_ty
                 .clone()
                 .unwrap_or_else(|| Rc::new(ir_type::Ty::new_unit())),

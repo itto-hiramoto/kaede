@@ -99,7 +99,7 @@ pub struct VariableInfo {
 
 #[derive(Debug)]
 pub enum SymbolTableValueKind {
-    Function(Rc<ir::top::Fn>),
+    Function(Rc<ir::top::FnDecl>),
     Variable(VariableInfo),
     Struct(Rc<ir::top::Struct>),
     Enum(Rc<ir::top::Enum>),

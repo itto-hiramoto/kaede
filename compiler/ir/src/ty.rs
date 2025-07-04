@@ -9,6 +9,7 @@ use kaede_symbol::Symbol;
 
 use crate::{
     module_path::ModulePath,
+    qualified_symbol::QualifiedSymbol,
     top::{Enum, Struct},
 };
 
@@ -343,6 +344,8 @@ impl Eq for PointerType {}
 pub enum UserDefinedTypeKind {
     Struct(Rc<Struct>),
     Enum(Rc<Enum>),
+    // For circular dependency
+    Placeholder(QualifiedSymbol),
 }
 
 #[derive(Debug, Clone)]
@@ -359,6 +362,7 @@ impl UserDefinedType {
         match &self.kind {
             UserDefinedTypeKind::Struct(s) => s.name.module_path().clone(),
             UserDefinedTypeKind::Enum(e) => e.name.module_path().clone(),
+            UserDefinedTypeKind::Placeholder(qsym) => qsym.module_path().clone(),
         }
     }
 
@@ -366,6 +370,7 @@ impl UserDefinedType {
         match &self.kind {
             UserDefinedTypeKind::Struct(s) => s.name.symbol(),
             UserDefinedTypeKind::Enum(e) => e.name.symbol(),
+            UserDefinedTypeKind::Placeholder(qsym) => qsym.symbol(),
         }
     }
 }

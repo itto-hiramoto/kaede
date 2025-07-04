@@ -155,15 +155,6 @@ impl SemanticAnalyzer {
 
                     TopLevelKind::Fn(fn_) => {
                         let fn_decl = analyzer.analyze_fn_decl(fn_.decl)?;
-                        let name = fn_decl.name.symbol();
-                        let symbol_table_value = SymbolTableValue::new(
-                            SymbolTableValueKind::Function(Rc::new(ir::top::Fn {
-                                decl: fn_decl.clone(),
-                                body: None,
-                            })),
-                            analyzer,
-                        );
-                        analyzer.insert_symbol_to_root_scope(name, symbol_table_value, fn_.span)?;
 
                         TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Fn(Rc::new(
                             ir::top::Fn {
@@ -204,18 +195,6 @@ impl SemanticAnalyzer {
                 _ => unreachable!(),
             };
         }
-
-        let name = fn_decl.name.symbol();
-
-        let symbol_table_value = SymbolTableValue::new(
-            SymbolTableValueKind::Function(Rc::new(ir::top::Fn {
-                decl: fn_decl.clone(),
-                body: None,
-            })),
-            self,
-        );
-
-        self.insert_symbol_to_root_scope(name, symbol_table_value, node.span)?;
 
         Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Fn(
             Rc::new(ir::top::Fn {
@@ -390,8 +369,6 @@ impl SemanticAnalyzer {
             self.push_scope(symbol_table);
         }
 
-        let name = fn_decl.name.symbol();
-
         let fn_ = Rc::new(ir::top::Fn {
             decl: fn_decl,
             body: Some(self.analyze_block(&node.body)?),
@@ -399,11 +376,6 @@ impl SemanticAnalyzer {
 
         // Pop the function symbol table.
         self.pop_scope();
-
-        let symbol_table_value =
-            SymbolTableValue::new(SymbolTableValueKind::Function(fn_.clone()), self);
-
-        self.insert_symbol_to_root_scope(name, symbol_table_value, node.span)?;
 
         Ok(fn_)
     }
@@ -423,7 +395,7 @@ impl SemanticAnalyzer {
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
-        Ok(ir::top::FnDecl {
+        let fn_decl = ir::top::FnDecl {
             lang_linkage: ir::top::LangLinkage::Default,
             name: QualifiedSymbol::new(self.current_module_path().clone(), name),
             is_var_args: node.params.is_var_args,
@@ -432,7 +404,16 @@ impl SemanticAnalyzer {
                 None => None,
                 Some(ty) => Some(self.analyze_type(ty)?.into()),
             },
-        })
+        };
+
+        let symbol_table_value = SymbolTableValue::new(
+            SymbolTableValueKind::Function(Rc::new(fn_decl.clone())),
+            self,
+        );
+
+        self.insert_symbol_to_root_scope(name, symbol_table_value, node.span)?;
+
+        Ok(fn_decl)
     }
 
     pub fn analyze_struct(

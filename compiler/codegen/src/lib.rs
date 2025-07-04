@@ -250,6 +250,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 let qualified_symbol = match &udt.kind {
                     UserDefinedTypeKind::Struct(sty) => sty.name.clone(),
                     UserDefinedTypeKind::Enum(ety) => ety.name.clone(),
+                    UserDefinedTypeKind::Placeholder(qsym) => qsym.clone(),
                 };
 
                 match self
