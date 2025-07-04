@@ -1948,7 +1948,7 @@ fn non_exhaustive_patterns() {
 }
 
 #[test]
-fn unreachable_pattern() {
+fn duplicate_pattern() {
     let program = r#"enum E {
         A,
         B,
@@ -1966,7 +1966,7 @@ fn unreachable_pattern() {
 
     assert!(matches!(
         extract_semantic_error(exec(program).unwrap_err()),
-        SemanticError::UnreachablePattern { .. }
+        SemanticError::DuplicatePattern { .. }
     ));
 }
 

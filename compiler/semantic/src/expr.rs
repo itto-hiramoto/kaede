@@ -1593,7 +1593,7 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<ir::expr::Expr> {
         let index = match &rhs.kind {
             ast::expr::ExprKind::Int(int) => int.as_u64() as u32,
-            _ => unreachable!(),
+            _ => return Err(SemanticError::TupleRequireAccessByIndex { span: rhs.span }.into()),
         };
 
         Ok(ir::expr::Expr {
