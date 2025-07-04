@@ -102,7 +102,7 @@ impl SemanticAnalyzer {
             let file_parent = file_path.path().parent().unwrap().canonicalize()?;
 
             // Try to strip the project root first, if that fails try the standard library root
-            if let Ok(relative_path) = file_parent.strip_prefix(&root_dir) {
+            if let Ok(relative_path) = file_parent.strip_prefix(&root_dir.canonicalize()?) {
                 relative_path
                     .components()
                     .map(|c| {
