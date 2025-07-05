@@ -43,8 +43,6 @@ impl SemanticAnalyzer {
             TopLevelKind::Extern(node) => self.analyze_extern(node),
             TopLevelKind::Import(node) => self.analyze_import(node),
             TopLevelKind::Use(node) => self.analyze_use(node),
-
-            _ => unreachable!(),
         }
     }
 
