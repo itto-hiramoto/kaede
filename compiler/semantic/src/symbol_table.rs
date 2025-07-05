@@ -182,7 +182,7 @@ impl GenericArgumentTable {
     #[allow(dead_code)]
     pub fn dump(&self) {
         for (symbol, ty) in self.map.iter() {
-            println!("{}: {:?}", symbol, ty);
+            println!("{symbol}: {ty:?}");
         }
     }
 }

@@ -223,9 +223,9 @@ impl SemanticAnalyzer {
         is_static: bool,
     ) -> Symbol {
         if is_static {
-            format!("{}::{}", parent_name, method_name).into()
+            format!("{parent_name}::{method_name}").into()
         } else {
-            format!("{}.{}", parent_name, method_name).into()
+            format!("{parent_name}.{method_name}").into()
         }
     }
 

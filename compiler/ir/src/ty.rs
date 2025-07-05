@@ -212,7 +212,7 @@ impl std::fmt::Display for TyKind {
         match self {
             Self::Fundamental(fty) => write!(f, "{}", fty.kind),
 
-            Self::UserDefined(udt) => write!(f, "{}", udt),
+            Self::UserDefined(udt) => write!(f, "{udt}"),
 
             Self::Reference(refee) => write!(f, "&{}", refee.refee_ty.kind),
 

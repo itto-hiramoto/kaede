@@ -266,7 +266,7 @@ impl SemanticAnalyzer {
             return Err(SemanticError::MatchNotExhaustive {
                 variant_name: dif
                     .into_iter()
-                    .map(|p| format!("`{}`", p))
+                    .map(|p| format!("`{p}`"))
                     .collect::<Vec<_>>()
                     .join(" and ")
                     .into(),

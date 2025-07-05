@@ -22,9 +22,9 @@ impl<'ctx> TypeCtx<'ctx> {
     #[allow(dead_code)]
     pub fn dump_symbol_tables(&self) {
         for (i, table) in self.symbol_tables.iter().enumerate() {
-            println!("Symbol table {}:", i);
+            println!("Symbol table {i}:");
             for (symbol, value) in table.iter() {
-                println!("  {}: {:?}", symbol, value);
+                println!("  {symbol}: {value:?}");
             }
         }
     }
@@ -47,7 +47,7 @@ impl<'ctx> TypeCtx<'ctx> {
             .insert(symbol, Rc::new(RefCell::new(value)))
             .is_some()
         {
-            panic!("Symbol already declared: {}", symbol);
+            panic!("Symbol already declared: {symbol}");
         }
     }
 

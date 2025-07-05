@@ -17,7 +17,7 @@ impl ImportTestProject {
 
     /// Create a module file with the given content
     fn create_module(&self, path: &str, content: &str) -> anyhow::Result<()> {
-        let file_path = self.temp_dir.path().join(format!("{}.kd", path));
+        let file_path = self.temp_dir.path().join(format!("{path}.kd"));
         if let Some(parent) = file_path.parent() {
             fs::create_dir_all(parent)?;
         }

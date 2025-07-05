@@ -16,7 +16,7 @@ pub fn semantic_analyze(program: &str) -> anyhow::Result<ir::CompileUnit> {
     let result = semantic_analyze_internal(program)?;
 
     // If you want to see the result, you can put --nocapture to the test command.
-    eprintln!("{:?}", result);
+    eprintln!("{result:?}");
 
     Ok(result)
 }
@@ -26,7 +26,7 @@ pub fn semantic_analyze_expect_error(program: &str) -> anyhow::Result<SemanticEr
     let result = semantic_analyze_internal(program).expect_err("Expected error");
 
     // If you want to see the result, you can put --nocapture to the test command.
-    eprintln!("{:?}", result);
+    eprintln!("{result:?}");
 
     Ok(result.downcast::<SemanticError>().unwrap())
 }
