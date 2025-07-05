@@ -68,7 +68,6 @@ impl SemanticAnalyzer {
         }
     }
 
-    #[cfg(debug_assertions)]
     pub fn new_for_single_file_test() -> Self {
         let mut context = AnalysisContext::new();
         let module_path = ModulePath::new(vec![Symbol::from("test".to_string())]);
