@@ -13,6 +13,14 @@ use crate::{
     SemanticAnalyzer, TopLevelAnalysisResult,
 };
 
+struct GenericTypeOps<T> {
+    get_generic_params: fn(&T) -> &ast::top::GenericParams,
+    get_name: fn(&T) -> Ident,
+    clone_and_clear: fn(&T, Ident) -> T,
+    analyze: fn(&mut SemanticAnalyzer, T) -> anyhow::Result<TopLevelAnalysisResult>,
+    extract_type: fn(&SymbolTableValueKind) -> ir_type::UserDefinedTypeKind,
+}
+
 impl SemanticAnalyzer {
     pub fn analyze_type(&mut self, ty: &ast_type::Ty) -> anyhow::Result<Rc<ir_type::Ty>> {
         match ty.kind.as_ref() {
@@ -102,24 +110,22 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
-    fn create_generic_type_impl<T>(
+    fn instantiate_generic_type<T>(
         &mut self,
         ast: &T,
         generic_args: &[Rc<ir_type::Ty>],
-        get_generic_params: impl Fn(&T) -> &ast::top::GenericParams,
-        get_name: impl Fn(&T) -> Ident,
-        clone_and_clear: impl Fn(&T, Ident) -> T,
-        analyze: impl Fn(&mut SemanticAnalyzer, T) -> anyhow::Result<TopLevelAnalysisResult>,
-        extract_type: impl Fn(&SymbolTableValueKind) -> ir_type::UserDefinedTypeKind,
+        ops: GenericTypeOps<T>,
     ) -> anyhow::Result<Rc<ir_type::Ty>> {
-        let generic_params = get_generic_params(ast);
+        let generic_params = (ops.get_generic_params)(ast);
 
         self.verify_generic_argument_length(generic_params, generic_args, generic_params.span)?;
 
         let generated_generic_key =
-            self.create_generated_generic_key(get_name(ast).symbol(), generic_args);
-        let modified_ast =
-            clone_and_clear(ast, Ident::new(generated_generic_key, get_name(ast).span()));
+            self.create_generated_generic_key((ops.get_name)(ast).symbol(), generic_args);
+        let modified_ast = (ops.clone_and_clear)(
+            ast,
+            Ident::new(generated_generic_key, (ops.get_name)(ast).span()),
+        );
 
         if self.generating_generics.contains(&generated_generic_key) {
             // Circular dependency detected - return a placeholder type
@@ -135,8 +141,7 @@ impl SemanticAnalyzer {
             }));
         }
 
-        self.generating_generics
-            .insert(generated_generic_key.clone());
+        self.generating_generics.insert(generated_generic_key);
 
         let symbol = self.with_generic_arguments(generic_params, generic_args, |analyzer| {
             // If the symbol is already generated, return it
@@ -144,7 +149,7 @@ impl SemanticAnalyzer {
                 return Ok(symbol);
             }
 
-            let top_level = analyze(analyzer, modified_ast)?;
+            let top_level = (ops.analyze)(analyzer, modified_ast)?;
 
             if let TopLevelAnalysisResult::TopLevel(top_level) = top_level {
                 analyzer.generated_generics.push(top_level);
@@ -157,7 +162,7 @@ impl SemanticAnalyzer {
 
         let symbol_value = symbol.borrow();
         let udt_ir = ir_type::TyKind::UserDefined(ir_type::UserDefinedType {
-            kind: extract_type(&symbol_value.kind),
+            kind: (ops.extract_type)(&symbol_value.kind),
         });
 
         Ok(Rc::new(ir_type::Ty {
@@ -171,23 +176,25 @@ impl SemanticAnalyzer {
         ast: &ast::top::Struct,
         generic_args: &[Rc<ir_type::Ty>],
     ) -> anyhow::Result<Rc<ir_type::Ty>> {
-        self.create_generic_type_impl(
+        self.instantiate_generic_type(
             ast,
             generic_args,
-            |ast| ast.generic_params.as_ref().unwrap(),
-            |ast| ast.name,
-            |ast, new_name| {
-                let mut cloned = ast.clone();
-                cloned.generic_params = None;
-                cloned.name = new_name;
-                cloned
-            },
-            |analyzer, ast| analyzer.analyze_struct(ast),
-            |kind| match kind {
-                SymbolTableValueKind::Struct(st) => {
-                    ir_type::UserDefinedTypeKind::Struct(st.clone())
-                }
-                _ => unreachable!(),
+            GenericTypeOps {
+                get_generic_params: |ast| ast.generic_params.as_ref().unwrap(),
+                get_name: |ast| ast.name,
+                clone_and_clear: |ast, new_name| {
+                    let mut cloned = ast.clone();
+                    cloned.generic_params = None;
+                    cloned.name = new_name;
+                    cloned
+                },
+                analyze: |analyzer, ast| analyzer.analyze_struct(ast),
+                extract_type: |kind| match kind {
+                    SymbolTableValueKind::Struct(st) => {
+                        ir_type::UserDefinedTypeKind::Struct(st.clone())
+                    }
+                    _ => unreachable!(),
+                },
             },
         )
     }
@@ -197,21 +204,25 @@ impl SemanticAnalyzer {
         ast: &ast::top::Enum,
         generic_args: &[Rc<ir_type::Ty>],
     ) -> anyhow::Result<Rc<ir_type::Ty>> {
-        self.create_generic_type_impl(
+        self.instantiate_generic_type(
             ast,
             generic_args,
-            |ast| ast.generic_params.as_ref().unwrap(),
-            |ast| ast.name,
-            |ast, new_name| {
-                let mut cloned = ast.clone();
-                cloned.generic_params = None;
-                cloned.name = new_name;
-                cloned
-            },
-            |analyzer, ast| analyzer.analyze_enum(ast),
-            |kind| match kind {
-                SymbolTableValueKind::Enum(en) => ir_type::UserDefinedTypeKind::Enum(en.clone()),
-                _ => unreachable!(),
+            GenericTypeOps {
+                get_generic_params: |ast| ast.generic_params.as_ref().unwrap(),
+                get_name: |ast| ast.name,
+                clone_and_clear: |ast, new_name| {
+                    let mut cloned = ast.clone();
+                    cloned.generic_params = None;
+                    cloned.name = new_name;
+                    cloned
+                },
+                analyze: |analyzer, ast| analyzer.analyze_enum(ast),
+                extract_type: |kind| match kind {
+                    SymbolTableValueKind::Enum(en) => {
+                        ir_type::UserDefinedTypeKind::Enum(en.clone())
+                    }
+                    _ => unreachable!(),
+                },
             },
         )
     }
@@ -240,7 +251,7 @@ impl SemanticAnalyzer {
 
         let borrowed_symbol = symbol.borrow();
 
-        let generic_info = match &*&borrowed_symbol.kind {
+        let generic_info = match &borrowed_symbol.kind {
             SymbolTableValueKind::Generic(generic_info) => generic_info,
             _ => unreachable!(),
         };
@@ -248,7 +259,7 @@ impl SemanticAnalyzer {
         let module_path = generic_info.module_path.clone();
 
         self.with_module(module_path, |analyzer| {
-            let generic_info = match &*&borrowed_symbol.kind {
+            let generic_info = match &borrowed_symbol.kind {
                 SymbolTableValueKind::Generic(generic_info) => generic_info,
                 _ => unreachable!(),
             };
@@ -267,7 +278,7 @@ impl SemanticAnalyzer {
 
                 let mut borrowed_mut_symbol = symbol.borrow_mut();
 
-                let generic_info = match &mut *&mut borrowed_mut_symbol.kind {
+                let generic_info = match &mut borrowed_mut_symbol.kind {
                     SymbolTableValueKind::Generic(generic_info) => generic_info,
                     _ => unreachable!(),
                 };
@@ -315,7 +326,7 @@ impl SemanticAnalyzer {
 
             let borrowed_symbol = symbol.borrow();
 
-            let generic_info = match &*&borrowed_symbol.kind {
+            let generic_info = match &borrowed_symbol.kind {
                 SymbolTableValueKind::Generic(generic_info) => generic_info,
                 _ => unreachable!(),
             };
@@ -330,10 +341,10 @@ impl SemanticAnalyzer {
             // To avoid borrow checker error
             drop(borrowed_symbol);
 
-            if struct_ast.is_some() {
-                analyzer.create_generic_struct(&struct_ast.unwrap(), &generic_args)
-            } else if enum_ast.is_some() {
-                analyzer.create_generic_enum(&enum_ast.unwrap(), &generic_args)
+            if let Some(struct_ast) = struct_ast {
+                analyzer.create_generic_struct(&struct_ast, &generic_args)
+            } else if let Some(enum_ast) = enum_ast {
+                analyzer.create_generic_enum(&enum_ast, &generic_args)
             } else {
                 unreachable!()
             }
@@ -347,7 +358,7 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<Rc<ir_type::Ty>> {
         // If this is a generic type, the type is generated here.
         if udt.generic_args.is_some() {
-            return self.create_generic_type(&udt);
+            return self.create_generic_type(udt);
         }
 
         if let Some(generic_arg) = self.lookup_generic_argument(udt.name.symbol()) {
@@ -363,7 +374,7 @@ impl SemanticAnalyzer {
 
         let borrowed_symbol = symbol.borrow();
 
-        let udt_kind = match &*&borrowed_symbol.kind {
+        let udt_kind = match &borrowed_symbol.kind {
             SymbolTableValueKind::Struct(st) => ir_type::UserDefinedTypeKind::Struct(st.clone()),
             SymbolTableValueKind::Enum(en) => ir_type::UserDefinedTypeKind::Enum(en.clone()),
 
@@ -392,7 +403,7 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<ir_type::Ty> {
         Ok(ir_type::Ty {
             kind: ir_type::TyKind::Reference(ir_type::ReferenceType {
-                refee_ty: self.analyze_type(&rty.refee_ty)?.into(),
+                refee_ty: self.analyze_type(&rty.refee_ty)?,
             })
             .into(),
             mutability,
@@ -406,7 +417,7 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<ir_type::Ty> {
         Ok(ir_type::Ty {
             kind: ir_type::TyKind::Pointer(ir_type::PointerType {
-                pointee_ty: self.analyze_type(&pty.pointee_ty)?.into(),
+                pointee_ty: self.analyze_type(&pty.pointee_ty)?,
             })
             .into(),
             mutability,
@@ -420,7 +431,7 @@ impl SemanticAnalyzer {
         mutability: ir_type::Mutability,
     ) -> anyhow::Result<ir_type::Ty> {
         Ok(ir_type::Ty {
-            kind: ir_type::TyKind::Array((self.analyze_type(&ety)?.into(), length)).into(),
+            kind: ir_type::TyKind::Array((self.analyze_type(ety)?, length)).into(),
             mutability,
         })
     }
@@ -436,7 +447,7 @@ impl SemanticAnalyzer {
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         Ok(ir_type::Ty {
-            kind: ir_type::TyKind::Tuple(etys.into_iter().map(|ty| ty.into()).collect()).into(),
+            kind: ir_type::TyKind::Tuple(etys.into_iter().collect()).into(),
             mutability,
         })
     }

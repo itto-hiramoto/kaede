@@ -58,11 +58,11 @@ impl Parser {
                 let span = self.new_span(expr.span.start, rhs.span.finish);
 
                 return Ok(Stmt {
-                    kind: StmtKind::Assign(Assign {
+                    kind: StmtKind::Assign(Box::new(Assign {
                         lhs: expr,
                         rhs,
                         span,
-                    }),
+                    })),
                     span,
                 });
             }

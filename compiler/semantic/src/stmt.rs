@@ -20,13 +20,13 @@ impl SemanticAnalyzer {
             StmtKind::Expr(expr) => ir::stmt::Stmt::Expr(self.analyze_expr(expr)?.into()),
 
             StmtKind::Let(node) => match self.analyze_let(node)? {
-                LetResult::NormalLet(let_stmt) => ir::stmt::Stmt::Let(let_stmt.into()),
+                LetResult::NormalLet(let_stmt) => ir::stmt::Stmt::Let(let_stmt),
                 LetResult::TupleUnpack(tuple_unpack_stmt) => {
-                    ir::stmt::Stmt::TupleUnpack(tuple_unpack_stmt.into())
+                    ir::stmt::Stmt::TupleUnpack(tuple_unpack_stmt)
                 }
             },
 
-            StmtKind::Assign(node) => ir::stmt::Stmt::Assign(self.analyze_assign(node)?.into()),
+            StmtKind::Assign(node) => ir::stmt::Stmt::Assign(self.analyze_assign(node)?),
         })
     }
 

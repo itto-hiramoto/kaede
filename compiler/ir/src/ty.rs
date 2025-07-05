@@ -25,22 +25,18 @@ pub fn change_mutability_dup(ty: Rc<Ty>, mutability: Mutability) -> Rc<Ty> {
 pub fn change_mutability(ty: &mut Ty, mutability: Mutability) {
     ty.mutability = mutability;
 
-    match ty.kind.as_ref() {
-        TyKind::Reference(rty) => {
-            let mut new_refee_ty = Ty {
-                kind: rty.refee_ty.kind.clone(),
-                mutability,
-            };
+    if let TyKind::Reference(rty) = ty.kind.as_ref() {
+        let mut new_refee_ty = Ty {
+            kind: rty.refee_ty.kind.clone(),
+            mutability,
+        };
 
-            change_mutability(&mut new_refee_ty, mutability);
+        change_mutability(&mut new_refee_ty, mutability);
 
-            ty.kind = TyKind::Reference(ReferenceType {
-                refee_ty: new_refee_ty.into(),
-            })
-            .into();
-        }
-
-        _ => {}
+        ty.kind = TyKind::Reference(ReferenceType {
+            refee_ty: new_refee_ty.into(),
+        })
+        .into();
     }
 }
 
@@ -216,7 +212,7 @@ impl std::fmt::Display for TyKind {
         match self {
             Self::Fundamental(fty) => write!(f, "{}", fty.kind),
 
-            Self::UserDefined(udt) => write!(f, "{}", udt.to_string()),
+            Self::UserDefined(udt) => write!(f, "{}", udt),
 
             Self::Reference(refee) => write!(f, "&{}", refee.refee_ty.kind),
 

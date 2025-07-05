@@ -137,7 +137,6 @@ impl SemanticAnalyzer {
 
     /// Decompose enum variant patterns (like `A::B` or `A::B(a, b, c)`)
     fn decompose_enum_variant_pattern<'p>(
-        &self,
         pattern: &'p ast::expr::Expr,
     ) -> DecomposedEnumVariantPattern<'p> {
         let (module_names, enum_name, variant_name, param) = match &pattern.kind {
@@ -164,9 +163,9 @@ impl SemanticAnalyzer {
                         ..
                     }) => {
                         let mut modules = Vec::new();
-                        self.collect_access_chain(&b.lhs, &mut modules);
+                        Self::collect_access_chain(&b.lhs, &mut modules);
 
-                        let decomposed = self.decompose_enum_variant_pattern(&b.rhs);
+                        let decomposed = Self::decompose_enum_variant_pattern(&b.rhs);
 
                         (
                             modules,
@@ -210,7 +209,7 @@ impl SemanticAnalyzer {
         let mut pattern_variant_names = BTreeSet::new();
 
         for arm in arms {
-            let decomposed = self.decompose_enum_variant_pattern(&arm.pattern);
+            let decomposed = Self::decompose_enum_variant_pattern(&arm.pattern);
 
             // Check if the module names are the same as the enum's external modules
             let enum_external_modules = enum_ir.name.module_path().get_module_names_from_root();
@@ -349,7 +348,6 @@ impl SemanticAnalyzer {
         enum_ir: Rc<ir::top::Enum>,
         target: Rc<ir::expr::Expr>,
         arms: &[&ast::expr::MatchArm],
-        span: Span,
     ) -> anyhow::Result<ir::expr::If> {
         // Skip catch-all arm for now, we'll handle it separately
         let non_catch_all_arms = arms
@@ -366,7 +364,7 @@ impl SemanticAnalyzer {
         let remaining_arms = &non_catch_all_arms[1..];
 
         // Get the pattern variant information
-        let decomposed = self.decompose_enum_variant_pattern(&current_arm.pattern);
+        let decomposed = Self::decompose_enum_variant_pattern(&current_arm.pattern);
         let variant = enum_ir
             .variants
             .iter()
@@ -486,7 +484,6 @@ impl SemanticAnalyzer {
                     enum_ir.clone(),
                     target.clone(),
                     remaining_arms,
-                    span,
                 )?)
                 .into(),
             )
@@ -544,8 +541,7 @@ impl SemanticAnalyzer {
         let if_ = self.conv_match_arms_on_enum_to_if(
             enum_ir.clone(),
             target.clone(),
-            &node.arms.iter().collect::<Vec<_>>().as_slice(),
-            node.span,
+            node.arms.iter().collect::<Vec<_>>().as_slice(),
         )?;
 
         Ok(ir::expr::Expr {
@@ -559,7 +555,6 @@ impl SemanticAnalyzer {
         &mut self,
         target: Rc<ir::expr::Expr>,
         arms: &[&ast::expr::MatchArm],
-        span: Span,
     ) -> anyhow::Result<ir::expr::If> {
         // Skip catch-all arm for now, we'll handle it separately
         let non_catch_all_arms = arms
@@ -597,12 +592,8 @@ impl SemanticAnalyzer {
             }
         } else {
             Some(
-                ir::expr::Else::If(self.conv_match_arms_on_int_to_if(
-                    target,
-                    remaining_arms,
-                    span,
-                )?)
-                .into(),
+                ir::expr::Else::If(self.conv_match_arms_on_int_to_if(target, remaining_arms)?)
+                    .into(),
             )
         };
 
@@ -634,8 +625,7 @@ impl SemanticAnalyzer {
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::If(self.conv_match_arms_on_int_to_if(
                 value.clone(),
-                &node.arms.iter().collect::<Vec<_>>().as_slice(),
-                node.span,
+                node.arms.iter().collect::<Vec<_>>().as_slice(),
             )?),
             ty: value.ty.clone(),
             span: node.span,
@@ -780,7 +770,7 @@ impl SemanticAnalyzer {
         };
 
         let generated_generic_key =
-            self.create_generated_generic_key(info.ast.decl.name.symbol(), &generic_args);
+            self.create_generated_generic_key(info.ast.decl.name.symbol(), generic_args);
 
         // If the generic function is already generated, return early
         if let Some(symbol_value) = self.lookup_symbol(generated_generic_key) {
@@ -792,7 +782,7 @@ impl SemanticAnalyzer {
         }
 
         // Generate the generic function
-        let fn_ = self.with_generic_arguments(generic_params, &generic_args, |analyzer| {
+        let fn_ = self.with_generic_arguments(generic_params, generic_args, |analyzer| {
             let mut fn_ = info.ast.clone();
             fn_.decl.name = Ident::new(generated_generic_key, Span::dummy());
             analyzer.analyze_fn_internal(fn_)
@@ -1165,11 +1155,11 @@ impl SemanticAnalyzer {
         let result = if let ast::expr::ExprKind::FnCall(right) = &node.rhs.kind {
             if right.args.0.len() != 1 {
                 // Static methods
-                self.analyze_static_method_call(&udt, right)
+                self.analyze_static_method_call(udt, right)
             } else {
                 let value = right.args.0.front().unwrap();
 
-                match self.analyze_enum_variant(&udt, right.callee, Some(value), *left) {
+                match self.analyze_enum_variant(udt, right.callee, Some(value), *left) {
                     Ok(val) => Ok(val),
                     Err(err) => {
                         err.downcast().and_then(|e| match e {
@@ -1183,7 +1173,7 @@ impl SemanticAnalyzer {
                                 ..
                             } if name == left.symbol() => {
                                 // Couldn't create enum variant, so try to call static methods
-                                self.analyze_static_method_call(&udt, right)
+                                self.analyze_static_method_call(udt, right)
                             }
                             _ => Err(e.into()),
                         })
@@ -1192,7 +1182,7 @@ impl SemanticAnalyzer {
             }
         } else if let ast::expr::ExprKind::Ident(right) = &node.rhs.kind {
             // Create enum variant without value.
-            self.analyze_enum_variant(&udt, *right, None, *left)
+            self.analyze_enum_variant(udt, *right, None, *left)
         } else {
             todo!()
         };
@@ -1280,7 +1270,7 @@ impl SemanticAnalyzer {
             kind: ir::expr::ExprKind::EnumVariant(ir::expr::EnumVariant {
                 enum_info: enum_ir.clone(),
                 variant_offset: variant_info.offset,
-                value: value.map(|v| Box::new(v)),
+                value: value.map(Box::new),
             }),
             ty: Rc::new(ir_type::wrap_in_ref(
                 Rc::new(ir_type::Ty {
@@ -1337,7 +1327,7 @@ impl SemanticAnalyzer {
         })
     }
 
-    fn collect_access_chain<'a>(&self, node: &'a ast::expr::Expr, out: &mut Vec<Ident>) {
+    fn collect_access_chain(node: &ast::expr::Expr, out: &mut Vec<Ident>) {
         use ast::expr::Binary;
         use ast::expr::BinaryKind::*;
         use ast::expr::ExprKind::*;
@@ -1349,16 +1339,15 @@ impl SemanticAnalyzer {
                 rhs,
                 ..
             }) => {
-                self.collect_access_chain(lhs, out);
+                Self::collect_access_chain(lhs, out);
 
-                match &rhs.kind {
-                    Ident(ident) => out.push(ident.clone()),
-                    _ => {}
+                if let Ident(ident) = &rhs.kind {
+                    out.push(*ident)
                 }
             }
 
             Ident(ident) => {
-                out.push(ident.clone());
+                out.push(*ident);
             }
 
             _ => {}
@@ -1371,7 +1360,7 @@ impl SemanticAnalyzer {
         // Try to collect module path from the left side
         {
             let mut modules = Vec::new();
-            self.collect_access_chain(&node.lhs, &mut modules);
+            Self::collect_access_chain(&node.lhs, &mut modules);
             let module_path = ModulePath::new(modules.iter().map(|i| i.symbol()).collect());
 
             // If the module path is valid, analyze the right side in the module
@@ -1397,10 +1386,10 @@ impl SemanticAnalyzer {
             ) {
                 self.analyze_struct_access_or_tuple_indexing(left, &node.rhs)
             } else {
-                return Err(SemanticError::HasNoFields {
+                Err(SemanticError::HasNoFields {
                     span: node.lhs.span,
                 }
-                .into());
+                .into())
             }
         } else {
             // Fundamental type method calling
@@ -1605,10 +1594,7 @@ impl SemanticAnalyzer {
 
         Ok(ir::expr::Expr {
             span: Span::new(lhs.span.start, rhs.span.finish, lhs.span.file),
-            ty: change_mutability_dup(
-                elements_ty[index as usize].clone(),
-                lhs.ty.mutability.into(),
-            ),
+            ty: change_mutability_dup(elements_ty[index as usize].clone(), lhs.ty.mutability),
             kind: ir::expr::ExprKind::TupleIndexing(ir::expr::TupleIndexing {
                 tuple: Rc::new(lhs),
                 index,
@@ -1626,7 +1612,7 @@ impl SemanticAnalyzer {
         match &rhs.kind {
             // Field
             ast::expr::ExprKind::Ident(field_name) => {
-                self.analyze_struct_field_access(lhs, rhs, udt, field_name.clone())
+                self.analyze_struct_field_access(lhs, rhs, udt, *field_name)
             }
 
             // Method
@@ -1688,7 +1674,7 @@ impl SemanticAnalyzer {
 
         Ok(ir::expr::Expr {
             span: Span::new(lhs.span.start, rhs.span.finish, lhs.span.file),
-            ty: change_mutability_dup(field_ty, lhs.ty.mutability.into()),
+            ty: change_mutability_dup(field_ty, lhs.ty.mutability),
             kind: ir::expr::ExprKind::FieldAccess(ir::expr::FieldAccess {
                 struct_info,
                 operand: Box::new(lhs),

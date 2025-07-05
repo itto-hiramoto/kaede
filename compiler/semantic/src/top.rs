@@ -64,8 +64,8 @@ impl SemanticAnalyzer {
 
         let symbol = self
             .lookup_qualified_symbol(QualifiedSymbol::new(path_to_use, name))
-            .ok_or_else(|| SemanticError::Undeclared {
-                name: name,
+            .ok_or(SemanticError::Undeclared {
+                name,
                 span: node.span,
             })?;
 
@@ -133,12 +133,9 @@ impl SemanticAnalyzer {
         module_context.push_scope(SymbolTable::new());
         self.modules.insert(module_path.clone(), module_context);
 
-        let parsed_module = Parser::new(
-            &fs::read_to_string(&path.path()).unwrap(),
-            path.clone().into(),
-        )
-        .run()
-        .unwrap();
+        let parsed_module = Parser::new(&fs::read_to_string(path.path()).unwrap(), path)
+            .run()
+            .unwrap();
 
         let mut top_level_irs = vec![];
 
@@ -245,7 +242,7 @@ impl SemanticAnalyzer {
                     }
                 })?;
 
-                match &mut *&mut symbol_kind.borrow_mut().kind {
+                match &mut symbol_kind.borrow_mut().kind {
                     SymbolTableValueKind::Generic(ref mut generic_info) => {
                         match &mut generic_info.kind {
                             GenericKind::Struct(info) => {
@@ -349,10 +346,13 @@ impl SemanticAnalyzer {
             let span = node.span;
 
             let symbol_table_value = SymbolTableValue::new(
-                SymbolTableValueKind::Generic(GenericInfo::new(
-                    GenericKind::Func(GenericFuncInfo { ast: node }),
-                    self.current_module_path().clone(),
-                )),
+                SymbolTableValueKind::Generic(
+                    GenericInfo::new(
+                        GenericKind::Func(GenericFuncInfo { ast: node }),
+                        self.current_module_path().clone(),
+                    )
+                    .into(),
+                ),
                 self,
             );
 
@@ -413,7 +413,7 @@ impl SemanticAnalyzer {
             .map(|p| -> anyhow::Result<ir::top::Param> {
                 Ok(ir::top::Param {
                     name: p.name.symbol(),
-                    ty: self.analyze_type(&p.ty)?.into(),
+                    ty: self.analyze_type(&p.ty)?,
                 })
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
@@ -425,7 +425,7 @@ impl SemanticAnalyzer {
             params,
             return_ty: match &node.return_ty {
                 None => None,
-                Some(ty) => Some(self.analyze_type(ty)?.into()),
+                Some(ty) => Some(self.analyze_type(ty)?),
             },
         };
 
@@ -449,10 +449,13 @@ impl SemanticAnalyzer {
         // For generic
         if node.generic_params.is_some() {
             let symbol_table_value = SymbolTableValue::new(
-                SymbolTableValueKind::Generic(GenericInfo::new(
-                    GenericKind::Struct(GenericStructInfo::new(node)),
-                    self.current_module_path().clone(),
-                )),
+                SymbolTableValueKind::Generic(
+                    GenericInfo::new(
+                        GenericKind::Struct(GenericStructInfo::new(node)),
+                        self.current_module_path().clone(),
+                    )
+                    .into(),
+                ),
                 self,
             );
 
@@ -468,7 +471,7 @@ impl SemanticAnalyzer {
             .map(|field| -> anyhow::Result<ir::top::StructField> {
                 Ok(ir::top::StructField {
                     name: field.name.symbol(),
-                    ty: self.analyze_type(&field.ty)?.into(),
+                    ty: self.analyze_type(&field.ty)?,
                     offset: field.offset,
                 })
             })
@@ -496,10 +499,13 @@ impl SemanticAnalyzer {
         // For generic
         if node.generic_params.is_some() {
             let symbol_table_value = SymbolTableValue::new(
-                SymbolTableValueKind::Generic(GenericInfo::new(
-                    GenericKind::Enum(GenericEnumInfo::new(node)),
-                    self.current_module_path().clone(),
-                )),
+                SymbolTableValueKind::Generic(
+                    GenericInfo::new(
+                        GenericKind::Enum(GenericEnumInfo::new(node)),
+                        self.current_module_path().clone(),
+                    )
+                    .into(),
+                ),
                 self,
             );
 

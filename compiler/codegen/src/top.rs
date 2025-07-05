@@ -19,7 +19,7 @@ use crate::{
 
 impl<'ctx> CodeGenerator<'ctx> {
     pub fn build_top_level(&mut self, tl: TopLevel) -> anyhow::Result<()> {
-        Ok(match tl {
+        match tl {
             TopLevel::Fn(node) => self.build_function(&node, false)?,
 
             TopLevel::Impl(node) => self.build_impl(&node)?,
@@ -27,7 +27,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             TopLevel::Struct(node) => self.build_struct(&node),
 
             TopLevel::Enum(node) => self.build_enum(&node),
-        })
+        };
+        Ok(())
     }
 
     fn build_enum(&mut self, node: &Enum) {
@@ -152,7 +153,7 @@ impl<'ctx> CodeGenerator<'ctx> {
     ) -> anyhow::Result<SymbolTable<'ctx>> {
         let mut table = SymbolTable::new();
 
-        for (idx, param) in params.into_iter().enumerate() {
+        for (idx, param) in params.iter().enumerate() {
             let llvm_param_ty = self.conv_to_llvm_type(&param.ty);
 
             let alloca = self
@@ -245,7 +246,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     fn build_impl(&mut self, node: &Impl) -> anyhow::Result<()> {
         for method in node.methods.iter() {
-            self.build_function(&method, false)?;
+            self.build_function(method, false)?;
         }
 
         Ok(())

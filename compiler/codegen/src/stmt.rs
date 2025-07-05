@@ -10,7 +10,7 @@ use crate::expr::Value;
 use crate::tcx::{SymbolTable, SymbolTableValue};
 use crate::{get_loaded_pointer, CodeGenerator};
 
-impl<'a, 'ctx> CodeGenerator<'ctx> {
+impl<'ctx> CodeGenerator<'ctx> {
     /// Generate statement code
     pub fn build_statement(&mut self, stmt: &Stmt) -> anyhow::Result<()> {
         match &stmt {

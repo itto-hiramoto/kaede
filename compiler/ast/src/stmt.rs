@@ -54,7 +54,7 @@ pub enum StmtKind {
     Expr(Rc<Expr>),
     Let(Let),
 
-    Assign(Assign),
+    Assign(Box<Assign>),
 }
 
 /// Statement list

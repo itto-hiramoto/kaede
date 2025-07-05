@@ -9,7 +9,7 @@ fn test(expect: i32, file_paths: &[&Path], root_dir: &Path) -> anyhow::Result<()
     let exe = assert_fs::NamedTempFile::new("a.out")?;
 
     let mut args = file_paths
-        .into_iter()
+        .iter()
         .map(|p| p.to_string_lossy().to_string())
         .collect::<Vec<String>>();
 

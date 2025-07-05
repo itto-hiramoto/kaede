@@ -103,7 +103,7 @@ pub enum SymbolTableValueKind {
     Variable(VariableInfo),
     Struct(Rc<ir::top::Struct>),
     Enum(Rc<ir::top::Enum>),
-    Generic(GenericInfo),
+    Generic(Box<GenericInfo>),
 }
 
 #[derive(Debug)]
@@ -123,6 +123,12 @@ impl SymbolTableValue {
 
 pub struct SymbolTable {
     table: HashMap<Symbol, Rc<RefCell<SymbolTableValue>>>,
+}
+
+impl Default for SymbolTable {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl SymbolTable {

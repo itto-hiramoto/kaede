@@ -15,6 +15,12 @@ pub struct AnalysisContext {
     is_inside_loop: bool,
 }
 
+impl Default for AnalysisContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AnalysisContext {
     pub fn new() -> Self {
         Self {

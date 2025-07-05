@@ -23,7 +23,7 @@ use kaede_ir::{
 
 pub type Value<'ctx> = Option<BasicValueEnum<'ctx>>;
 
-impl<'a, 'ctx> CodeGenerator<'ctx> {
+impl<'ctx> CodeGenerator<'ctx> {
     /// Generate expression code
     pub fn build_expr(&mut self, node: &Expr) -> anyhow::Result<Value<'ctx>> {
         Ok(match &node.kind {
@@ -792,7 +792,7 @@ impl<'a, 'ctx> CodeGenerator<'ctx> {
     }
 
     fn build_tuple_indexing(&mut self, node: &TupleIndexing) -> anyhow::Result<Value<'ctx>> {
-        return self.build_tuple_indexing_internal(node);
+        self.build_tuple_indexing_internal(node)
     }
 
     fn build_tuple_indexing_internal(

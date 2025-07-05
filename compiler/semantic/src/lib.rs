@@ -151,11 +151,9 @@ impl SemanticAnalyzer {
 
     pub fn lookup_symbol(&self, symbol: Symbol) -> Option<Rc<RefCell<SymbolTableValue>>> {
         self.modules
-            .get(&self.current_module_path())
-            .expect(&format!(
-                "Module not found: {:?}",
-                self.current_module_path().get_module_names_from_root()
-            ))
+            .get(self.current_module_path())
+            .unwrap_or_else(|| panic!("Module not found: {:?}",
+                self.current_module_path().get_module_names_from_root()))
             .lookup_symbol(&symbol)
     }
 
@@ -171,7 +169,7 @@ impl SemanticAnalyzer {
 
     pub fn lookup_generic_argument(&self, symbol: Symbol) -> Option<Rc<ir_type::Ty>> {
         self.modules
-            .get(&self.current_module_path())
+            .get(self.current_module_path())
             .unwrap()
             .lookup_generic_argument(symbol)
     }
