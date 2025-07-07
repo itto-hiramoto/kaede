@@ -98,6 +98,7 @@ impl ModuleContext {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_symbol_tables(&self) -> &[SymbolTable] {
         &self.symbol_table_stack
     }

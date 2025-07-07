@@ -91,7 +91,7 @@ impl SemanticAnalyzer {
     #[allow(dead_code)]
     fn dump_symbol_tables(&self) {
         for (module_path, module_context) in self.modules.iter() {
-            eprintln!("Module: {:?}", module_path);
+            eprintln!("Module: {module_path:?}");
             eprintln!("--- Symbol tables ---");
             for table in module_context.get_symbol_tables().iter() {
                 table.dump();
