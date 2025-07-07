@@ -5,6 +5,7 @@ use kaede_ast_type::{
     Mutability, PointerType, ReferenceType, Ty, TyKind, UserDefinedType,
 };
 use kaede_lex::token::TokenKind;
+use kaede_symbol::Ident;
 
 use crate::{
     error::{ParseError, ParseResult},
@@ -80,11 +81,11 @@ impl Parser {
 
             // If we have more than one segment, we have an access chain
             if segments.len() > 1 {
-                // Last segment is the type name, everything before is the access chain
-                let access_chain = segments;
-
                 // Create a basic type from the type name
-                let base_ty = self.ty_without_access_chain()?;
+                let base_ty = self.ty_from_ident(segments.pop().unwrap())?;
+
+                // Last segment was the type name, everything before is the access chain
+                let access_chain = segments;
 
                 Ok(Ty {
                     span: base_ty.span,
@@ -104,8 +105,6 @@ impl Parser {
     }
 
     pub fn ty_without_access_chain(&mut self) -> ParseResult<Ty> {
-        use FundamentalTypeKind::*;
-
         if self.consume_b(&TokenKind::Mut) {
             // Mutable type
             let mut ty = self.ty()?;
@@ -140,10 +139,16 @@ impl Parser {
             }
         };
 
-        // Span of the type identifier
-        let span = type_ident.span();
+        self.ty_from_ident(type_ident)
+    }
 
-        Ok(match type_ident.as_str() {
+    fn ty_from_ident(&mut self, ident: Ident) -> ParseResult<Ty> {
+        use FundamentalTypeKind::*;
+
+        // Span of the type identifier
+        let span = ident.span();
+
+        Ok(match ident.as_str() {
             "i8" => make_fundamental_type(I8, Mutability::Not, span),
             "u8" => make_fundamental_type(U8, Mutability::Not, span),
             "i32" => make_fundamental_type(I32, Mutability::Not, span),
@@ -164,7 +169,7 @@ impl Parser {
 
                 let mut is_generic_type = false;
                 for names in self.generic_param_names_stack.iter() {
-                    if names.contains(&type_ident.symbol()) {
+                    if names.contains(&ident.symbol()) {
                         is_generic_type = true;
                         break;
                     }
@@ -172,14 +177,13 @@ impl Parser {
 
                 if is_generic_type {
                     Ty {
-                        kind: TyKind::Generic(GenericType { name: type_ident }).into(),
+                        kind: TyKind::Generic(GenericType { name: ident }).into(),
                         mutability: Mutability::Not,
                         span,
                     }
                 } else {
                     wrap_in_reference(Ty {
-                        kind: TyKind::UserDefined(UserDefinedType::new(type_ident, generic_args))
-                            .into(),
+                        kind: TyKind::UserDefined(UserDefinedType::new(ident, generic_args)).into(),
                         mutability: Mutability::Not,
                         span,
                     })
