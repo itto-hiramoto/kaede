@@ -1144,6 +1144,8 @@ impl SemanticAnalyzer {
         };
         let udt = self.analyze_user_defined_type(&udt, ir_type::Mutability::Not)?;
 
+        eprintln!("udt: {:?}", left.symbol());
+
         // Expect the type to be a user defined type
         let udt = match udt.kind.as_ref() {
             ir_type::TyKind::UserDefined(udt) => udt,
@@ -1171,7 +1173,8 @@ impl SemanticAnalyzer {
                             | SemanticError::CannotAssignValueToVariant {
                                 variant_name: name,
                                 ..
-                            } if name == left.symbol() => {
+                                // TODO: Handle generic type errors (Fix to not use starts_with)
+                            } if name.as_str().starts_with(left.symbol().as_str()) => {
                                 // Couldn't create enum variant, so try to call static methods
                                 self.analyze_static_method_call(udt, right)
                             }
