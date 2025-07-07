@@ -1290,14 +1290,17 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<ir::expr::Expr> {
         let method_name = self.create_method_key(udt.name(), call_node.callee.symbol(), true);
 
+        let qualified_method_name =
+            QualifiedSymbol::new(udt.qualified_symbol().module_path().clone(), method_name);
+
         // Lookup method from symbol table
-        let method_decl = self
-            .lookup_symbol(method_name)
-            .ok_or(SemanticError::NoMethod {
-                method_name: call_node.callee.symbol(),
-                parent_name: udt.name(),
-                span: call_node.span,
-            })?;
+        let method_decl =
+            self.lookup_qualified_symbol(qualified_method_name)
+                .ok_or(SemanticError::NoMethod {
+                    method_name: call_node.callee.symbol(),
+                    parent_name: udt.name(),
+                    span: call_node.span,
+                })?;
 
         let method_decl = match &method_decl.borrow().kind {
             SymbolTableValueKind::Function(fn_) => fn_.clone(),
