@@ -98,6 +98,10 @@ impl ModuleContext {
         }
     }
 
+    pub fn get_symbol_tables(&self) -> &[SymbolTable] {
+        &self.symbol_table_stack
+    }
+
     pub fn file_path(&self) -> FilePath {
         self.file_path
     }
