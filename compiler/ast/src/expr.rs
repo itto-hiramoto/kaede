@@ -205,6 +205,34 @@ pub struct Expr {
     pub span: Span,
 }
 
+impl Expr {
+    pub fn collect_access_chain(&self, out: &mut Vec<Ident>) {
+        use BinaryKind;
+        use ExprKind;
+
+        match &self.kind {
+            ExprKind::Binary(Binary {
+                kind: BinaryKind::Access,
+                lhs,
+                rhs,
+                ..
+            }) => {
+                Self::collect_access_chain(lhs, out);
+
+                if let ExprKind::Ident(ident) = &rhs.kind {
+                    out.push(*ident)
+                }
+            }
+
+            ExprKind::Ident(ident) => {
+                out.push(*ident);
+            }
+
+            _ => {}
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ExprKind {
     Int(Int),
@@ -226,5 +254,5 @@ pub enum ExprKind {
     Break(Break),
     Match(Match),
     Block(Block),
-    Ty(Rc<Ty>),
+    Ty(Ty),
 }

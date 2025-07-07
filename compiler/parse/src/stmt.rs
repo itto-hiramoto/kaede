@@ -31,7 +31,8 @@ impl Parser {
                     expected: TokenKind::CloseBrace.to_string(),
                     but: self.first().kind.to_string(),
                     span: self.first().span,
-                });
+                }
+                .into());
             }
 
             body.push(self.stmt()?);

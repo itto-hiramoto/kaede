@@ -368,8 +368,8 @@ impl Parser {
             return Ok(node);
         }
 
-        if let Ok(ty) = self.ty() {
-            let ty = Rc::new(ty);
+        if let Ok(ty) = self.ty_without_access_chain() {
+            assert!(!matches!(ty.kind.as_ref(), TyKind::External(_, _)));
 
             if let TyKind::Reference(refty) = ty.kind.as_ref() {
                 if let TyKind::UserDefined(udt) = refty.refee_ty.kind.as_ref() {
@@ -415,7 +415,8 @@ impl Parser {
             expected: "expression".to_string(),
             but: self.first().kind.to_string(),
             span: self.first().span,
-        })
+        }
+        .into())
     }
 
     fn match_(&mut self) -> ParseResult<Expr> {
@@ -548,7 +549,7 @@ impl Parser {
         None
     }
 
-    fn struct_literal(&mut self, ty: Rc<Ty>) -> ParseResult<Expr> {
+    fn struct_literal(&mut self, ty: Ty) -> ParseResult<Expr> {
         let udt = match ty.kind.as_ref() {
             // X {}
             TyKind::Reference(rty)
@@ -621,7 +622,7 @@ impl Parser {
         }
     }
 
-    fn fn_call(&mut self, callee: Rc<Ty>) -> ParseResult<Expr> {
+    fn fn_call(&mut self, callee: Ty) -> ParseResult<Expr> {
         let callees = match callee.kind.as_ref() {
             // f()
             TyKind::Reference(rty)
@@ -685,7 +686,7 @@ impl Parser {
                         span: token.span,
                     }),
 
-                    Err(_) => Err(ParseError::OutOfRangeForI32(token.span)),
+                    Err(_) => Err(ParseError::OutOfRangeForI32(token.span).into()),
                 }
             }
 
@@ -693,7 +694,8 @@ impl Parser {
                 expected: "integer".to_string(),
                 but: token.kind.to_string(),
                 span: token.span,
-            }),
+            }
+            .into()),
         }
     }
 
@@ -709,7 +711,8 @@ impl Parser {
             expected: "identifier".to_string(),
             but: self.first().kind.to_string(),
             span: self.first().span,
-        })
+        }
+        .into())
     }
 
     fn break_(&mut self) -> ParseResult<Expr> {

@@ -58,6 +58,52 @@ impl Parser {
     }
 
     pub fn ty(&mut self) -> ParseResult<Ty> {
+        // Try to parse an access chain first
+        self.checkpoint();
+
+        let mut segments = Vec::new();
+
+        // Try to parse identifiers separated by dots
+        if let Ok(first_ident) = self.ident() {
+            segments.push(first_ident);
+
+            // Continue parsing dots and identifiers
+            while self.consume_b(&TokenKind::Dot) {
+                if let Ok(ident) = self.ident() {
+                    segments.push(ident);
+                } else {
+                    // Failed to parse identifier after dot, backtrack completely
+                    self.backtrack();
+                    return self.ty_without_access_chain();
+                }
+            }
+
+            // If we have more than one segment, we have an access chain
+            if segments.len() > 1 {
+                // Last segment is the type name, everything before is the access chain
+                let access_chain = segments;
+
+                // Create a basic type from the type name
+                let base_ty = self.ty_without_access_chain()?;
+
+                Ok(Ty {
+                    span: base_ty.span,
+                    kind: TyKind::External(base_ty, access_chain).into(),
+                    mutability: Mutability::Not,
+                })
+            } else {
+                // Only one segment, backtrack and parse normally
+                self.backtrack();
+                self.ty_without_access_chain()
+            }
+        } else {
+            // No identifier found, backtrack and parse normally
+            self.backtrack();
+            self.ty_without_access_chain()
+        }
+    }
+
+    pub fn ty_without_access_chain(&mut self) -> ParseResult<Ty> {
         use FundamentalTypeKind::*;
 
         if self.consume_b(&TokenKind::Mut) {
@@ -89,7 +135,8 @@ impl Parser {
                     expected: "type".to_string(),
                     but: self.first().kind.to_string(),
                     span: self.first().span,
-                })
+                }
+                .into())
             }
         };
 
@@ -166,14 +213,15 @@ impl Parser {
         if let TokenKind::Int(s) = &token.kind {
             match s.parse() {
                 Ok(n) => Ok(n),
-                Err(_) => Err(ParseError::OutOfRangeForU32(token.span)),
+                Err(_) => Err(ParseError::OutOfRangeForU32(token.span).into()),
             }
         } else {
             Err(ParseError::ExpectedError {
                 expected: "array size".to_string(),
                 but: token.kind.to_string(),
                 span: token.span,
-            })
+            }
+            .into())
         }
     }
 

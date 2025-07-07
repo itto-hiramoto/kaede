@@ -229,6 +229,12 @@ pub enum TyKind {
     Never,
 
     Inferred,
+
+    /// External type, e.g. `std.io.println`
+    /// If the type appearing in the expression is an external type,
+    /// it is basically handled as binary operators rather than here,
+    /// so this is not used. (except for generic arguments, etc., where the type can be anticipated)
+    External(Ty, Vec<Ident>),
 }
 
 impl std::fmt::Display for TyKind {
@@ -261,6 +267,17 @@ impl std::fmt::Display for TyKind {
             Self::Never => write!(f, "!"),
 
             Self::Inferred => write!(f, "_"),
+
+            Self::External(ty, access_chain) => write!(
+                f,
+                "{}.{}",
+                access_chain
+                    .iter()
+                    .map(|i| i.as_str())
+                    .collect::<Vec<_>>()
+                    .join("."),
+                ty.kind
+            ),
         }
     }
 }
@@ -272,6 +289,7 @@ impl TyKind {
             Self::UserDefined(_) => todo!(),
             Self::Generic(_) => todo!(),
             Self::Reference(ty) => ty.refee_ty.kind.is_signed(),
+            Self::External(t, _) => t.kind.is_signed(),
 
             Self::Pointer(_) => panic!("Cannot get sign information of pointer type!"),
             Self::Array(_) => panic!("Cannot get sign information of array type!"),
@@ -288,6 +306,7 @@ impl TyKind {
             Self::UserDefined(_) => todo!(),
             Self::Generic(_) => todo!(),
             Self::Reference(ty) => ty.refee_ty.kind.is_int_or_bool(),
+            Self::External(t, _) => t.kind.is_int_or_bool(),
 
             Self::Array(_)
             | Self::Tuple(_)

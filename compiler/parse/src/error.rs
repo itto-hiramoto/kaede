@@ -17,4 +17,4 @@ pub enum ParseError {
     OutOfRangeForU32(Span),
 }
 
-pub type ParseResult<T> = Result<T, ParseError>;
+pub type ParseResult<T> = anyhow::Result<T>;

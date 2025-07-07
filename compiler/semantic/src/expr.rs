@@ -163,7 +163,7 @@ impl SemanticAnalyzer {
                         ..
                     }) => {
                         let mut modules = Vec::new();
-                        Self::collect_access_chain(&b.lhs, &mut modules);
+                        b.lhs.collect_access_chain(&mut modules);
 
                         let decomposed = Self::decompose_enum_variant_pattern(&b.rhs);
 
@@ -1327,40 +1327,13 @@ impl SemanticAnalyzer {
         })
     }
 
-    fn collect_access_chain(node: &ast::expr::Expr, out: &mut Vec<Ident>) {
-        use ast::expr::Binary;
-        use ast::expr::BinaryKind::*;
-        use ast::expr::ExprKind::*;
-
-        match &node.kind {
-            Binary(Binary {
-                kind: Access,
-                lhs,
-                rhs,
-                ..
-            }) => {
-                Self::collect_access_chain(lhs, out);
-
-                if let Ident(ident) = &rhs.kind {
-                    out.push(*ident)
-                }
-            }
-
-            Ident(ident) => {
-                out.push(*ident);
-            }
-
-            _ => {}
-        }
-    }
-
     fn analyze_access(&mut self, node: &ast::expr::Binary) -> anyhow::Result<ir::expr::Expr> {
         assert!(matches!(node.kind, ast::expr::BinaryKind::Access));
 
         // Try to collect module path from the left side
         {
             let mut modules = Vec::new();
-            Self::collect_access_chain(&node.lhs, &mut modules);
+            node.lhs.collect_access_chain(&mut modules);
             let module_path = ModulePath::new(modules.iter().map(|i| i.symbol()).collect());
 
             // If the module path is valid, analyze the right side in the module

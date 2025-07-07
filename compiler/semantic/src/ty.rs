@@ -2,6 +2,7 @@ use std::rc::Rc;
 
 use kaede_ast as ast;
 use kaede_ast_type as ast_type;
+use kaede_ir::module_path::ModulePath;
 use kaede_ir::ty as ir_type;
 use kaede_ir::{self as ir, qualified_symbol::QualifiedSymbol};
 use kaede_span::Span;
@@ -53,6 +54,13 @@ impl SemanticAnalyzer {
                 .into()),
 
             ast_type::TyKind::Generic(gty) => self.analyze_generic_type(gty, ty.span),
+
+            ast_type::TyKind::External(ty, access_chain) => {
+                let module_path =
+                    ModulePath::new(access_chain.iter().map(|i| i.symbol()).collect());
+
+                self.with_module(module_path, |analyzer| analyzer.analyze_type(ty))
+            }
 
             ast_type::TyKind::Unit => Ok(ir_type::Ty::new_unit().into()),
             ast_type::TyKind::Never => Ok(ir_type::Ty::new_never().into()),
