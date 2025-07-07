@@ -923,7 +923,7 @@ fn import_same_name_module_with_same_name_struct() {
         }
 
         fn main(): i32 {
-            let apple = m.Apple::new_ringo(58)
+            let apple = dir.m.Apple::new_ringo(58)
             let apple2 = Apple { width: 48, height: 10 }
 
             if apple.get_size() == apple2.get() {
