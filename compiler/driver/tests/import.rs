@@ -1116,3 +1116,50 @@ fn import_function_returning_external_struct_with_methods() -> anyhow::Result<()
 
     test(58, &[m2.path(), m1.path(), test_m.path()], &tempdir)
 }
+
+#[test]
+fn import_generic_symbol_multiply_defined_linkonce_odr() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+
+    // m2.kd - defines a generic enum with implementation
+    let m2 = tempdir.child("m2.kd");
+    m2.write_str(
+        r#"pub enum Person<T> {
+            Bob(T),
+            Alice,
+        }
+
+        impl<T> Person<T> {
+            pub fn get_age(self): T {
+                return match self {
+                    Person::Bob(n) => n,
+                    Person::Alice => 3,
+                }
+            }
+        }"#,
+    )?;
+
+    // m1.kd - imports m2, uses Person<i32> which generates generic instantiation
+    let m1 = tempdir.child("m1.kd");
+    m1.write_str(
+        r#"import m2
+        use m2.Person
+
+        pub fn create_person(): Person<i32> {
+            return Person<i32>::Bob(58)
+        }"#,
+    )?;
+
+    // test.kd - imports m1, also uses Person<i32> which could generate the same symbols
+    let test_m = tempdir.child("test.kd");
+    test_m.write_str(
+        r#"import m1
+
+        fn main(): i32 {
+            let p = m1.create_person()
+            return p.get_age()
+        }"#,
+    )?;
+
+    test(58, &[m2.path(), m1.path(), test_m.path()], &tempdir)
+}
