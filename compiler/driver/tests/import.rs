@@ -464,8 +464,8 @@ fn nested_import() -> anyhow::Result<()> {
 }
 
 #[test]
-fn import_generic_struct_methods() {
-    let tempdir = assert_fs::TempDir::new().unwrap();
+fn import_generic_struct_methods() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
 
     let module = tempdir.child("m.kd");
     module
@@ -511,12 +511,12 @@ fn import_generic_struct_methods() {
     )
     .unwrap();
 
-    test(58, &[module.path(), main.path()], &tempdir).unwrap();
+    test(58, &[module.path(), main.path()], &tempdir)
 }
 
 #[test]
-fn import_generic_enum_methods_with_arg_of_self_type() {
-    let tempdir = assert_fs::TempDir::new().unwrap();
+fn import_generic_enum_methods_with_arg_of_self_type() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
 
     let module = tempdir.child("m.kd");
     module
@@ -556,12 +556,12 @@ fn import_generic_enum_methods_with_arg_of_self_type() {
     )
     .unwrap();
 
-    test(58, &[module.path(), main.path()], &tempdir).unwrap();
+    test(58, &[module.path(), main.path()], &tempdir)
 }
 
 #[test]
-fn import_generic_methods_with_arg_of_self_type() {
-    let tempdir = assert_fs::TempDir::new().unwrap();
+fn import_generic_methods_with_arg_of_self_type() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
 
     let module = tempdir.child("m.kd");
     module
@@ -600,7 +600,7 @@ fn import_generic_methods_with_arg_of_self_type() {
     )
     .unwrap();
 
-    test(58, &[module.path(), main.path()], &tempdir).unwrap();
+    test(58, &[module.path(), main.path()], &tempdir)
 }
 
 #[test]
@@ -886,8 +886,8 @@ fn import_hierarchical_module() -> anyhow::Result<()> {
 }
 
 #[test]
-fn import_same_name_module_with_same_name_struct() {
-    let tempdir = assert_fs::TempDir::new().unwrap();
+fn import_same_name_module_with_same_name_struct() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
 
     let module1 = tempdir.child("dir/m.kd");
     module1
@@ -934,12 +934,12 @@ fn import_same_name_module_with_same_name_struct() {
         )
         .unwrap();
 
-    test(58, &[module1.path(), module2.path()], &tempdir).unwrap();
+    test(58, &[module1.path(), module2.path()], &tempdir)
 }
 
 #[test]
-fn import_generic_struct_from_module_in_directory() {
-    let tempdir = assert_fs::TempDir::new().unwrap();
+fn import_generic_struct_from_module_in_directory() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
 
     let module1 = tempdir.child("dir/m.kd");
     module1
@@ -971,12 +971,12 @@ fn import_generic_struct_from_module_in_directory() {
         )
         .unwrap();
 
-    test(58, &[module1.path(), module2.path()], &tempdir).unwrap();
+    test(58, &[module1.path(), module2.path()], &tempdir)
 }
 
 #[test]
-fn import_function_with_non_public_generic_struct() {
-    let tempdir = assert_fs::TempDir::new().unwrap();
+fn import_function_with_non_public_generic_struct() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
 
     let module1 = tempdir.child("m1.kd");
     module1
@@ -1007,12 +1007,12 @@ fn import_function_with_non_public_generic_struct() {
         )
         .unwrap();
 
-    test(58, &[module1.path(), module2.path()], &tempdir).unwrap();
+    test(58, &[module1.path(), module2.path()], &tempdir)
 }
 
 #[test]
-fn import_generic_struct_and_impl_with_use_declaration() {
-    let tempdir = assert_fs::TempDir::new().unwrap();
+fn import_generic_struct_and_impl_with_use_declaration() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
 
     let module1 = tempdir.child("dir/m.kd");
     module1
@@ -1072,5 +1072,47 @@ fn import_generic_struct_and_impl_with_use_declaration() {
         &[module1.path(), module2.path(), module3.path()],
         &tempdir,
     )
-    .unwrap();
+}
+
+#[test]
+fn import_function_returning_external_struct_with_methods() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+
+    // m2.kd - defines a public struct with methods
+    let m2 = tempdir.child("m2.kd");
+    m2.write_str(
+        r#"pub struct Person {
+            age: i32
+        }
+
+        impl Person {
+            pub fn get_age(self): i32 {
+                return self.age
+            }
+        }"#,
+    )?;
+
+    // m1.kd - imports m2, uses Person in public function signature
+    let m1 = tempdir.child("m1.kd");
+    m1.write_str(
+        r#"import m2
+        use m2.Person
+
+        pub fn create_person(): Person {
+            return Person { age: 58 }
+        }"#,
+    )?;
+
+    // test.kd - imports m1, calls function that returns Person, then calls method on it
+    let test_m = tempdir.child("test.kd");
+    test_m.write_str(
+        r#"import m1
+
+        fn main(): i32 {
+            let p = m1.create_person()
+            return p.get_age()
+        }"#,
+    )?;
+
+    test(58, &[m2.path(), m1.path(), test_m.path()], &tempdir)
 }
