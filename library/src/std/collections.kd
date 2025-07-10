@@ -1,0 +1,58 @@
+import std.option
+
+use std.option.Option
+
+pub struct List<T> {
+    value: Option<T>,
+    next: Option<List<T>>,
+}
+
+impl<T> List<T> {
+    pub fn new(): mut List<T> {
+        return List<T> { value: Option<T>::None, next: Option<List<T>>::None }
+    }
+
+    pub fn len(self): u32 {
+        return match self.next {
+            Option::Some(ne) => (1 as u32) + ne.len(),
+            Option::None => 0
+        }
+    }
+
+    pub fn push(mut self, elem: T) {
+        match self.next {
+            Option::Some(ne) => {
+                ne.push(elem)
+            },
+
+            Option::None => {
+                match self.value {
+                    Option::Some(_) => {
+                        let tmp = List<T> { value: Option<T>::Some(elem), next: Option<List<T>>::None }
+                        self.next = Option<List<T>>::Some(tmp)
+                    },
+                    Option::None => {
+                        // For the first push
+                        self.value = Option<T>::Some(elem)
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn at(self, idx: u32): Option<T> {
+        return match self.next {
+            Option::Some(ne) => {
+                if idx == (0 as u32) {
+                    self.value
+                } else {
+                    ne.at(idx - (1 as u32))
+                }
+            },
+
+            Option::None => {
+                self.value
+            }
+        }
+    }
+}
