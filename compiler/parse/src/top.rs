@@ -23,12 +23,12 @@ impl Parser {
             }
 
             TokenKind::Fn => {
-                let kind = self.func()?;
+                let kind = self.func(vis)?;
                 (kind.span, TopLevelKind::Fn(kind))
             }
 
             TokenKind::Struct => {
-                let kind = self.struct_()?;
+                let kind = self.struct_(vis)?;
                 (kind.span, TopLevelKind::Struct(kind))
             }
 
@@ -38,17 +38,17 @@ impl Parser {
             }
 
             TokenKind::Enum => {
-                let kind = self.enum_()?;
+                let kind = self.enum_(vis)?;
                 (kind.span, TopLevelKind::Enum(kind))
             }
 
             TokenKind::Extern => {
-                let kind = self.extern_()?;
+                let kind = self.extern_(vis)?;
                 (kind.span, TopLevelKind::Extern(kind))
             }
 
             TokenKind::Use => {
-                let kind = self.use_()?;
+                let kind = self.use_(vis)?;
                 (kind.span, TopLevelKind::Use(kind))
             }
 
@@ -57,24 +57,21 @@ impl Parser {
 
         self.consume_semi()?;
 
-        Ok(TopLevel {
-            kind,
-            visibility: vis,
-            span,
-        })
+        Ok(TopLevel { kind, span })
     }
 
-    fn extern_(&mut self) -> ParseResult<Extern> {
+    fn extern_(&mut self, vis: Visibility) -> ParseResult<Extern> {
         let start = self.consume(&TokenKind::Extern).unwrap().start;
 
         let lang_linkage = self.string_literal_internal();
 
-        let fn_decl = self.fn_decl()?;
+        let fn_decl = self.fn_decl(vis)?;
 
         Ok(Extern {
             span: self.new_span(start, fn_decl.span.finish),
             lang_linkage,
             fn_decl,
+            vis,
         })
     }
 
@@ -167,14 +164,14 @@ impl Parser {
         })
     }
 
-    fn use_(&mut self) -> ParseResult<Use> {
+    fn use_(&mut self, vis: Visibility) -> ParseResult<Use> {
         let start = self.consume(&TokenKind::Use).unwrap().start;
 
         let path = self.path()?;
 
         let span = self.new_span(start, path.span.finish);
 
-        Ok(Use { path, span })
+        Ok(Use { path, span, vis })
     }
 
     fn import(&mut self) -> ParseResult<Import> {
@@ -192,7 +189,7 @@ impl Parser {
         Ok(Import { module_path, span })
     }
 
-    fn fn_decl(&mut self) -> ParseResult<FnDecl> {
+    fn fn_decl(&mut self, vis: Visibility) -> ParseResult<FnDecl> {
         let start = self.consume(&TokenKind::Fn).unwrap().start;
 
         let name = self.ident()?;
@@ -247,6 +244,7 @@ impl Parser {
         }
 
         Ok(FnDecl {
+            vis,
             self_: if has_self { Some(mutability) } else { None },
             name,
             generic_params,
@@ -256,8 +254,8 @@ impl Parser {
         })
     }
 
-    fn func(&mut self) -> ParseResult<Fn> {
-        let decl = self.fn_decl()?;
+    fn func(&mut self, vis: Visibility) -> ParseResult<Fn> {
+        let decl = self.fn_decl(vis)?;
 
         let body = Rc::new(self.block()?);
 
@@ -321,7 +319,7 @@ impl Parser {
         }
     }
 
-    fn enum_(&mut self) -> ParseResult<Enum> {
+    fn enum_(&mut self, vis: Visibility) -> ParseResult<Enum> {
         let start = self.consume(&TokenKind::Enum).unwrap().start;
 
         let name = self.ident()?;
@@ -350,6 +348,7 @@ impl Parser {
         }
 
         Ok(Enum {
+            vis,
             name,
             generic_params,
             variants,
@@ -396,7 +395,7 @@ impl Parser {
         Ok(variants)
     }
 
-    fn struct_(&mut self) -> ParseResult<Struct> {
+    fn struct_(&mut self, vis: Visibility) -> ParseResult<Struct> {
         let start = self.consume(&TokenKind::Struct).unwrap().start;
 
         let name = self.ident()?;
@@ -427,6 +426,7 @@ impl Parser {
         }
 
         Ok(Struct {
+            vis,
             name,
             generic_params,
             fields,

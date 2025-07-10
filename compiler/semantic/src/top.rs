@@ -13,7 +13,7 @@ use crate::{
     SemanticAnalyzer, SemanticError,
 };
 
-use kaede_ast as ast;
+use kaede_ast::{self as ast};
 use kaede_ast_type as ast_type;
 use kaede_common::kaede_lib_src_dir;
 use kaede_ir::{self as ir, module_path::ModulePath, qualified_symbol::QualifiedSymbol};
@@ -73,7 +73,7 @@ impl SemanticAnalyzer {
         self.modules
             .get_mut(&current_module_path)
             .unwrap()
-            .bind_symbol(name, symbol, node.span)?;
+            .bind_symbol(name, symbol, node.vis, node.span)?;
 
         Ok(TopLevelAnalysisResult::Imported(vec![]))
     }
@@ -171,8 +171,6 @@ impl SemanticAnalyzer {
             use ast::top::TopLevelKind;
 
             for top_level in parsed_module.top_levels {
-                // TODO: Check access modifier
-
                 let result = match top_level.kind {
                     TopLevelKind::Impl(impl_) => {
                         let mut methods = vec![];
@@ -223,9 +221,19 @@ impl SemanticAnalyzer {
 
                 match result {
                     TopLevelAnalysisResult::TopLevel(top_level) => top_level_irs.push(top_level),
+                    TopLevelAnalysisResult::Imported(imported_irs) => {
+                        top_level_irs.extend(imported_irs.iter().cloned())
+                    }
                     _ => continue,
                 }
             }
+
+            // Clear the private symbol table after analyzing the module
+            analyzer
+                .modules
+                .get_mut(&analyzer.current_module_path().clone())
+                .unwrap()
+                .clear_private_symbol_table();
 
             Ok::<(), anyhow::Error>(())
         })?;
@@ -369,6 +377,7 @@ impl SemanticAnalyzer {
     fn analyze_fn(&mut self, node: ast::top::Fn) -> anyhow::Result<TopLevelAnalysisResult> {
         assert_eq!(node.decl.self_, None);
 
+        let vis = node.decl.vis;
         let name = node.decl.name.symbol();
 
         // If the function is generic, register it in the symbol table and return early.
@@ -386,7 +395,7 @@ impl SemanticAnalyzer {
                 self,
             );
 
-            self.insert_symbol_to_root_scope(name, symbol_table_value, span)?;
+            self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)?;
 
             // Generic functions are not generated immediately, but are generated when they are used.
             return Ok(TopLevelAnalysisResult::GenericTopLevel);
@@ -464,7 +473,7 @@ impl SemanticAnalyzer {
             self,
         );
 
-        self.insert_symbol_to_root_scope(name, symbol_table_value, node.span)?;
+        self.insert_symbol_to_root_scope(name, symbol_table_value, node.vis, node.span)?;
 
         Ok(fn_decl)
     }
@@ -473,6 +482,7 @@ impl SemanticAnalyzer {
         &mut self,
         node: ast::top::Struct,
     ) -> anyhow::Result<TopLevelAnalysisResult> {
+        let vis = node.vis;
         let name = node.name.symbol();
         let span = node.span;
 
@@ -489,7 +499,7 @@ impl SemanticAnalyzer {
                 self,
             );
 
-            self.insert_symbol_to_root_scope(name, symbol_table_value, span)?;
+            self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)?;
 
             // Generic structs are not created immediately, but are created when they are used.
             return Ok(TopLevelAnalysisResult::GenericTopLevel);
@@ -515,7 +525,7 @@ impl SemanticAnalyzer {
         let symbol_table_value =
             SymbolTableValue::new(SymbolTableValueKind::Struct(ir.clone()), self);
 
-        self.insert_symbol_to_root_scope(name, symbol_table_value, span)?;
+        self.insert_symbol_to_root_scope(name, symbol_table_value, node.vis, span)?;
 
         Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Struct(
             ir,
@@ -523,6 +533,7 @@ impl SemanticAnalyzer {
     }
 
     pub fn analyze_enum(&mut self, node: ast::top::Enum) -> anyhow::Result<TopLevelAnalysisResult> {
+        let vis = node.vis;
         let name = node.name.symbol();
         let span = node.span;
 
@@ -539,7 +550,7 @@ impl SemanticAnalyzer {
                 self,
             );
 
-            self.insert_symbol_to_root_scope(name, symbol_table_value, span)?;
+            self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)?;
 
             // Generics are not created immediately, but are created when they are used.
             return Ok(TopLevelAnalysisResult::GenericTopLevel);
@@ -568,7 +579,7 @@ impl SemanticAnalyzer {
         let symbol_table_value =
             SymbolTableValue::new(SymbolTableValueKind::Enum(ir.clone()), self);
 
-        self.insert_symbol_to_root_scope(name, symbol_table_value, span)?;
+        self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)?;
 
         Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Enum(
             ir,

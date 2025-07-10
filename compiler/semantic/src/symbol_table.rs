@@ -138,6 +138,10 @@ impl SymbolTable {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.table.clear();
+    }
+
     #[cfg(debug_assertions)]
     pub fn dump(&self) {
         for (symbol, value) in self.table.iter() {

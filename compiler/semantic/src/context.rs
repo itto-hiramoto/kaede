@@ -1,5 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
+use kaede_ast::top::Visibility;
 use kaede_ir::{module_path::ModulePath, ty::Ty};
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::Symbol;
@@ -85,6 +86,8 @@ impl SemanticAnalyzer {
 
 pub struct ModuleContext {
     symbol_table_stack: Vec<SymbolTable>,
+    // This is used to store private items when importing modules
+    private_symbol_table: SymbolTable,
     generic_argument_table: Vec<GenericArgumentTable>,
     file_path: FilePath,
 }
@@ -93,6 +96,7 @@ impl ModuleContext {
     pub fn new(file_path: FilePath) -> Self {
         Self {
             symbol_table_stack: vec![SymbolTable::new()], // Root scope
+            private_symbol_table: SymbolTable::new(),
             generic_argument_table: vec![],
             file_path,
         }
@@ -149,6 +153,12 @@ impl ModuleContext {
                 return Some(value);
             }
         }
+
+        // Search from the private symbol table
+        if let Some(value) = self.private_symbol_table.lookup(symbol) {
+            return Some(value);
+        }
+
         None
     }
 
@@ -176,24 +186,39 @@ impl ModuleContext {
         &mut self,
         symbol: Symbol,
         value: SymbolTableValue,
+        vis: Visibility,
         span: Span,
     ) -> anyhow::Result<()> {
-        self.symbol_table_stack.first_mut().unwrap().insert(
-            symbol,
-            Rc::new(RefCell::new(value)),
-            span,
-        )
+        if vis.is_private() {
+            self.private_symbol_table
+                .insert(symbol, Rc::new(RefCell::new(value)), span)
+        } else {
+            self.symbol_table_stack.first_mut().unwrap().insert(
+                symbol,
+                Rc::new(RefCell::new(value)),
+                span,
+            )
+        }
     }
 
     pub fn bind_symbol(
         &mut self,
         symbol: Symbol,
         value: Rc<RefCell<SymbolTableValue>>,
+        vis: Visibility,
         span: Span,
     ) -> anyhow::Result<()> {
-        self.symbol_table_stack
-            .first_mut()
-            .unwrap()
-            .insert(symbol, value, span)
+        if vis.is_private() {
+            self.private_symbol_table.insert(symbol, value, span)
+        } else {
+            self.symbol_table_stack
+                .first_mut()
+                .unwrap()
+                .insert(symbol, value, span)
+        }
+    }
+
+    pub fn clear_private_symbol_table(&mut self) {
+        self.private_symbol_table.clear();
     }
 }

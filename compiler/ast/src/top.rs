@@ -2,7 +2,7 @@ use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast_type::{Mutability, Ty};
 use kaede_span::Span;
-use kaede_symbol::{Ident, Symbol};
+use kaede_symbol::Ident;
 
 use crate::{expr::StringLiteral, stmt::Block};
 
@@ -55,6 +55,7 @@ pub struct StructField {
 
 #[derive(Debug, Clone)]
 pub struct Struct {
+    pub vis: Visibility,
     pub name: Ident,
     pub generic_params: Option<GenericParams>,
     pub fields: Vec<StructField>,
@@ -77,6 +78,7 @@ pub struct Params {
 
 #[derive(Debug, Clone)]
 pub struct FnDecl {
+    pub vis: Visibility,
     pub self_: Option<Mutability>,
     pub name: Ident,
     pub generic_params: Option<GenericParams>,
@@ -116,6 +118,7 @@ pub struct EnumVariant {
 
 #[derive(Debug, Clone)]
 pub struct Enum {
+    pub vis: Visibility,
     pub name: Ident,
     pub generic_params: Option<GenericParams>,
     pub variants: Vec<EnumVariant>,
@@ -124,6 +127,7 @@ pub struct Enum {
 
 #[derive(Debug)]
 pub struct Extern {
+    pub vis: Visibility,
     pub lang_linkage: Option<StringLiteral>,
     pub fn_decl: FnDecl,
     pub span: Span,
@@ -131,6 +135,7 @@ pub struct Extern {
 
 #[derive(Debug)]
 pub struct Use {
+    pub vis: Visibility,
     pub path: Path,
     pub span: Span,
 }
@@ -138,20 +143,7 @@ pub struct Use {
 #[derive(Debug)]
 pub struct TopLevel {
     pub kind: TopLevelKind,
-    pub visibility: Visibility,
     pub span: Span,
-}
-
-#[derive(Debug)]
-pub struct GenericFnInstance {
-    pub mangled_name: Symbol,
-    pub fn_: Fn,
-}
-
-#[derive(Debug)]
-pub struct ExternalImpl {
-    pub impl_: Impl,
-    pub external_modules: Vec<Ident>,
 }
 
 #[derive(Debug)]

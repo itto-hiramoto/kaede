@@ -26,7 +26,7 @@ mod top;
 mod ty;
 
 pub use error::SemanticError;
-use kaede_ast as ast;
+use kaede_ast::{self as ast, top::Visibility};
 use kaede_ir as ir;
 pub use top::TopLevelAnalysisResult;
 
@@ -206,13 +206,14 @@ impl SemanticAnalyzer {
         &mut self,
         symbol: Symbol,
         value: SymbolTableValue,
+        vis: Visibility,
         span: Span,
     ) -> anyhow::Result<()> {
         let module_path = self.current_module_path().clone();
         self.modules
             .get_mut(&module_path)
             .unwrap()
-            .insert_symbol_to_root_scope(symbol, value, span)
+            .insert_symbol_to_root_scope(symbol, value, vis, span)
     }
 
     pub fn create_generated_generic_key(&self, name: Symbol, args: &[Rc<ir_type::Ty>]) -> Symbol {
@@ -299,7 +300,6 @@ impl SemanticAnalyzer {
                     },
                     span: Span::dummy(),
                 }),
-                visibility: ast::top::Visibility::Private,
                 span: Span::dummy(),
             };
 
