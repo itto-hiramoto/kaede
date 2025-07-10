@@ -7,7 +7,10 @@ const KAEDE_GC_LIB_PATH: &str = concat!(env!("HOME"), "/.kaede/lib/libkgc.so");
 
 #[test]
 fn leak_check_with_valgrind() -> anyhow::Result<()> {
-    let program_file = assert_fs::NamedTempFile::new("leak.kd")?;
+    // Create a temporary directory for all files
+    let temp_dir = assert_fs::TempDir::new()?;
+
+    let program_file = temp_dir.child("leak.kd");
     program_file.write_str(
         r"struct Num {
             n: i32,
@@ -41,15 +44,17 @@ fn leak_check_with_valgrind() -> anyhow::Result<()> {
         .args([
             "-O0",
             "--display-llvm-ir",
+            "--root-dir",
+            &temp_dir.path().to_string_lossy(),
             &program_file.path().to_string_lossy(),
         ])
         .assert()
         .success();
 
-    let llvm_ir = assert_fs::NamedTempFile::new("leak.ll")?;
+    let llvm_ir = temp_dir.child("leak.ll");
     llvm_ir.write_binary(&compile_output.get_output().stdout)?;
 
-    let asm = assert_fs::NamedTempFile::new("leak.s")?;
+    let asm = temp_dir.child("leak.s");
     asm.write_binary(
         &Command::new("llc")
             .args([&llvm_ir.path().to_string_lossy(), "-o", "-"])
@@ -59,7 +64,7 @@ fn leak_check_with_valgrind() -> anyhow::Result<()> {
             .stdout,
     )?;
 
-    let executable = assert_fs::NamedTempFile::new("leak")?;
+    let executable = temp_dir.child("leak");
     Command::new("cc")
         .args([
             "-g",

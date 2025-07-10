@@ -54,10 +54,10 @@ fn multi_numbers() {
 #[test]
 fn identifier() {
     lex_test(
-        "yoha io",
+        "michael jordan",
         vec![
-            Ident("yoha".to_string()),
-            Ident("io".to_string()),
+            Ident("michael".to_string()),
+            Ident("jordan".to_string()),
             Semi,
             Eoi,
         ],

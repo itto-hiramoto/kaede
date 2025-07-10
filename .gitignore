@@ -1,6 +1,9 @@
 **/target
 **/__pycache__
 
+.stfolder/
+.stignore
+
 *~
 *.exe
 *.out

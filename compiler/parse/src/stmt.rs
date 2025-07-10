@@ -2,11 +2,11 @@ use std::rc::Rc;
 
 use kaede_ast::{
     expr::Expr,
-    stmt::{Assign, AssignKind, Block, Let, LetKind, NormalLet, Stmt, StmtKind, TupleUnpack},
+    stmt::{Assign, Block, Let, LetKind, NormalLet, Stmt, StmtKind, TupleUnpack},
 };
+use kaede_ast_type::Ty;
 use kaede_lex::token::TokenKind;
 use kaede_span::Location;
-use kaede_type::Ty;
 
 use crate::{
     error::{ParseError, ParseResult},
@@ -31,7 +31,8 @@ impl Parser {
                     expected: TokenKind::CloseBrace.to_string(),
                     but: self.first().kind.to_string(),
                     span: self.first().span,
-                });
+                }
+                .into());
             }
 
             body.push(self.stmt()?);
@@ -52,18 +53,17 @@ impl Parser {
             let expr = self.expr()?;
 
             // Assignment statement
-            if let Some(kind) = self.assign_ops() {
+            if self.consume_b(&TokenKind::Eq) {
                 let rhs = self.expr()?;
 
                 let span = self.new_span(expr.span.start, rhs.span.finish);
 
                 return Ok(Stmt {
-                    kind: StmtKind::Assign(Assign {
+                    kind: StmtKind::Assign(Box::new(Assign {
                         lhs: expr,
-                        kind,
                         rhs,
                         span,
-                    }),
+                    })),
                     span,
                 });
             }
@@ -79,15 +79,6 @@ impl Parser {
             span: e.span,
             kind: StmtKind::Expr(Rc::new(e)),
         }
-    }
-
-    /// Assignment operators
-    fn assign_ops(&mut self) -> Option<AssignKind> {
-        if self.consume_b(&TokenKind::Eq) {
-            return Some(AssignKind::Simple);
-        }
-
-        None
     }
 
     fn let_(&mut self) -> ParseResult<Let> {
@@ -114,7 +105,7 @@ impl Parser {
                     name,
                     mutability,
                     init: Some(init.into()),
-                    ty: Ty::new_inferred(mutability).into(),
+                    ty: Ty::new_inferred(mutability, span).into(),
                     span,
                 }),
                 span,
@@ -122,7 +113,7 @@ impl Parser {
         }
 
         self.consume(&TokenKind::Colon)?;
-        let (ty, _) = self.ty()?;
+        let ty = self.ty()?;
 
         let init = if self.consume_b(&TokenKind::Eq) {
             Some(Rc::new(self.expr()?))

@@ -1,14 +1,13 @@
 use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::expr::{
-    Args, ArrayLiteral, Binary, BinaryKind, Break, Else, Expr, ExprKind, ExternalIdent, FnCall, If,
-    Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, MatchArmList, Return, StringLiteral,
-    StructLiteral, TupleLiteral,
+    Args, ArrayLiteral, Binary, BinaryKind, Break, Else, Expr, ExprKind, FnCall, If, Indexing, Int,
+    IntKind, LogicalNot, Loop, Match, MatchArm, Return, StringLiteral, StructLiteral, TupleLiteral,
 };
+use kaede_ast_type::{Ty, TyKind};
 use kaede_lex::token::TokenKind;
 use kaede_span::Location;
 use kaede_symbol::{Ident, Symbol};
-use kaede_type::{Ty, TyKind};
 
 use crate::{
     error::{ParseError, ParseResult},
@@ -369,17 +368,10 @@ impl Parser {
             return Ok(node);
         }
 
-        if let Ok((ty, span)) = self.ty() {
-            let ty = Rc::new(ty);
+        if let Ok(ty) = self.ty_without_access_chain() {
+            assert!(!matches!(ty.kind.as_ref(), TyKind::External(_, _)));
 
-            let (unwrapped, external_module_names) = if let TyKind::External(ety) = ty.kind.as_ref()
-            {
-                (ety.ty.clone(), ety.get_module_names_recursively())
-            } else {
-                (ty.clone(), vec![])
-            };
-
-            if let TyKind::Reference(refty) = unwrapped.kind.as_ref() {
+            if let TyKind::Reference(refty) = ty.kind.as_ref() {
                 if let TyKind::UserDefined(udt) = refty.refee_ty.kind.as_ref() {
                     // Function call
                     if self.first().kind == TokenKind::OpenParen {
@@ -398,27 +390,14 @@ impl Parser {
                         }
                     }
 
-                    // Identifier
-                    if !external_module_names.is_empty() {
-                        return Ok(Expr {
-                            span: udt.name.span(),
-                            kind: ExprKind::ExternalIdent(ExternalIdent {
-                                external_modules: external_module_names,
-                                ident: udt.name,
-                                generic_args: udt.generic_args.clone(),
-                                span: udt.name.span(),
-                            }),
-                        });
-                    }
-
                     if let Some(generic_args) = &udt.generic_args {
                         return Ok(Expr {
-                            span,
+                            span: ty.span,
                             kind: ExprKind::GenericIdent((udt.name, generic_args.clone())),
                         });
                     } else {
                         return Ok(Expr {
-                            span,
+                            span: ty.span,
                             kind: ExprKind::Ident(udt.name),
                         });
                     }
@@ -427,7 +406,7 @@ impl Parser {
 
             // Type
             return Ok(Expr {
-                span,
+                span: ty.span,
                 kind: ExprKind::Ty(ty),
             });
         }
@@ -436,7 +415,8 @@ impl Parser {
             expected: "expression".to_string(),
             but: self.first().kind.to_string(),
             span: self.first().span,
-        })
+        }
+        .into())
     }
 
     fn match_(&mut self) -> ParseResult<Expr> {
@@ -447,7 +427,6 @@ impl Parser {
         self.consume(&TokenKind::OpenBrace)?;
 
         let mut arms = Vec::new();
-        let mut wildcard = None;
 
         loop {
             if self.check(&TokenKind::CloseBrace) {
@@ -461,17 +440,14 @@ impl Parser {
 
             let code = self.expr()?;
 
-            let arm = MatchArm {
-                pattern: Box::new(pattern),
-                code: Rc::new(code),
-            };
+            let is_catch_all =
+                matches!(pattern.kind, ExprKind::Ident(ref ident) if ident.as_str() == "_");
 
-            if arm.is_wildcard() {
-                assert!(wildcard.is_none());
-                wildcard = Some(arm);
-            } else {
-                arms.push(arm);
-            }
+            arms.push(MatchArm {
+                pattern: Box::new(pattern),
+                is_catch_all,
+                code: Rc::new(code),
+            });
 
             // Allow commas to be omitted only in the last arm.
             if !self.consume_b(&TokenKind::Comma) {
@@ -487,8 +463,8 @@ impl Parser {
         Ok(Expr {
             span,
             kind: ExprKind::Match(Match {
-                target: value.into(),
-                arms: MatchArmList::new(arms, wildcard),
+                value: value.into(),
+                arms,
                 span,
             }),
         })
@@ -573,19 +549,17 @@ impl Parser {
         None
     }
 
-    fn struct_literal(&mut self, ty: Rc<Ty>) -> ParseResult<Expr> {
-        let (external_modules, udt) = match ty.kind.as_ref() {
+    fn struct_literal(&mut self, ty: Ty) -> ParseResult<Expr> {
+        let udt = match ty.kind.as_ref() {
             // X {}
             TyKind::Reference(rty)
                 if matches!(rty.refee_ty.kind.as_ref(), TyKind::UserDefined(_)) =>
             {
                 match rty.refee_ty.kind.as_ref() {
-                    TyKind::UserDefined(udt) => (vec![], udt.clone()),
+                    TyKind::UserDefined(udt) => udt.clone(),
                     _ => unreachable!(),
                 }
             }
-            // m.X {}
-            TyKind::External(ety) => ety.decompose_for_struct_literal(),
             _ => unreachable!(),
         };
 
@@ -618,7 +592,6 @@ impl Parser {
         Ok(Expr {
             span,
             kind: ExprKind::StructLiteral(StructLiteral {
-                external_modules,
                 struct_ty: udt,
                 values: inits,
                 span,
@@ -649,39 +622,28 @@ impl Parser {
         }
     }
 
-    fn fn_call(&mut self, callee: Rc<Ty>) -> ParseResult<Expr> {
+    fn fn_call(&mut self, callee: Ty) -> ParseResult<Expr> {
         let callees = match callee.kind.as_ref() {
             // f()
             TyKind::Reference(rty)
                 if matches!(rty.refee_ty.kind.as_ref(), TyKind::UserDefined(_)) =>
             {
                 match rty.refee_ty.kind.as_ref() {
-                    TyKind::UserDefined(udt) => (vec![], udt.name, udt.generic_args.clone()),
+                    TyKind::UserDefined(udt) => (udt.name, udt.generic_args.clone()),
                     _ => unreachable!(),
                 }
-            }
-            // m.f()
-            TyKind::External(ety) => {
-                let tmp = ety.decompose_for_fncall();
-                (tmp.0, tmp.1, None)
             }
             _ => unreachable!(),
         };
 
         let args = self.fn_call_args()?;
 
-        let start = if let Some(ev) = callees.0.first() {
-            ev.span().start
-        } else {
-            callees.1.span().start
-        };
-        let span = self.new_span(start, args.1.finish);
+        let span = self.new_span(callees.0.span().start, args.1.finish);
 
         Ok(Expr {
             kind: ExprKind::FnCall(FnCall {
-                external_modules: callees.0,
-                callee: callees.1,
-                generic_args: callees.2,
+                callee: callees.0,
+                generic_args: callees.1,
                 args,
                 span,
             }),
@@ -724,7 +686,7 @@ impl Parser {
                         span: token.span,
                     }),
 
-                    Err(_) => Err(ParseError::OutOfRangeForI32(token.span)),
+                    Err(_) => Err(ParseError::OutOfRangeForI32(token.span).into()),
                 }
             }
 
@@ -732,7 +694,8 @@ impl Parser {
                 expected: "integer".to_string(),
                 but: token.kind.to_string(),
                 span: token.span,
-            }),
+            }
+            .into()),
         }
     }
 
@@ -748,7 +711,8 @@ impl Parser {
             expected: "identifier".to_string(),
             but: self.first().kind.to_string(),
             span: self.first().span,
-        })
+        }
+        .into())
     }
 
     fn break_(&mut self) -> ParseResult<Expr> {
@@ -778,7 +742,7 @@ impl Parser {
 
         let cond = self.cond_expr()?;
 
-        let then = Rc::new(self.block()?);
+        let then = self.block()?;
 
         let else_ = self.else_()?.map(Box::new);
 

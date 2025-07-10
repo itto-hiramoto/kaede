@@ -10,9 +10,9 @@ anyhow = "1.0.68"
 thiserror = "1.0.38"
 inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm17-0"] }
 
-kaede_ast = { path = "../ast" }
+kaede_ir = { path = "../ir" }
 kaede_span = { path = "../span" }
 kaede_parse = { path = "../parse" }
-kaede_type = { path = "../type" }
 kaede_symbol = { path = "../symbol" }
 kaede_common = { path = "../common" }
+kaede_semantic = { path = "../semantic" }

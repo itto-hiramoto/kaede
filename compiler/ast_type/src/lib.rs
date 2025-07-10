@@ -20,47 +20,30 @@ pub fn change_mutability_dup(ty: Rc<Ty>, mutability: Mutability) -> Rc<Ty> {
 pub fn change_mutability(ty: &mut Ty, mutability: Mutability) {
     ty.mutability = mutability;
 
-    match ty.kind.as_ref() {
-        TyKind::External(ety) => {
-            let mut ety_ty = Ty {
-                kind: ety.ty.kind.clone(),
-                mutability,
-            };
+    if let TyKind::Reference(rty) = ty.kind.as_ref() {
+        let mut new_refee_ty = Ty {
+            kind: rty.refee_ty.kind.clone(),
+            mutability,
+            span: ty.span,
+        };
 
-            change_mutability(&mut ety_ty, mutability);
+        change_mutability(&mut new_refee_ty, mutability);
 
-            ty.kind = TyKind::External(ExternalType {
-                module_name: ety.module_name,
-                ty: ety_ty.into(),
-            })
-            .into();
-        }
-
-        TyKind::Reference(rty) => {
-            let mut new_refee_ty = Ty {
-                kind: rty.refee_ty.kind.clone(),
-                mutability,
-            };
-
-            change_mutability(&mut new_refee_ty, mutability);
-
-            ty.kind = TyKind::Reference(ReferenceType {
-                refee_ty: new_refee_ty.into(),
-            })
-            .into();
-        }
-
-        _ => {}
+        ty.kind = TyKind::Reference(ReferenceType {
+            refee_ty: new_refee_ty.into(),
+        })
+        .into();
     }
 }
 
-pub fn create_inferred_tuple(element_len: usize) -> TyKind {
+pub fn create_inferred_tuple(element_len: usize, span: Span) -> TyKind {
     TyKind::Tuple({
         let mut v = Vec::with_capacity(element_len);
         (0..element_len).for_each(|_| {
             v.push(Rc::new(Ty {
                 kind: Rc::new(TyKind::Inferred),
                 mutability: Mutability::Not,
+                span,
             }))
         });
         v
@@ -69,6 +52,7 @@ pub fn create_inferred_tuple(element_len: usize) -> TyKind {
 
 pub fn wrap_in_ref(ty: Rc<Ty>, mutability: Mutability) -> Ty {
     Ty {
+        span: ty.span,
         kind: TyKind::Reference(ReferenceType { refee_ty: ty }).into(),
         mutability,
     }
@@ -92,38 +76,42 @@ pub fn is_same_type(t1: &Ty, t2: &Ty) -> bool {
 pub struct Ty {
     pub kind: Rc<TyKind>,
     pub mutability: Mutability,
+    pub span: Span,
 }
 
 impl Ty {
-    pub fn new_inferred(mutability: Mutability) -> Self {
+    pub fn new_inferred(mutability: Mutability, span: Span) -> Self {
         Self {
             kind: TyKind::Inferred.into(),
             mutability,
+            span,
         }
     }
 
-    pub fn new_external(module_name: Ident, ty: Rc<Ty>) -> Self {
+    pub fn new_unit(span: Span) -> Self {
         Self {
-            mutability: ty.mutability,
-            kind: TyKind::External(ExternalType { module_name, ty }).into(),
+            kind: TyKind::Unit.into(),
+            mutability: Mutability::Not,
+            span,
         }
     }
 
-    pub fn wrap_in_externals(ty: Rc<Ty>, module_names: &[Ident]) -> Rc<Ty> {
-        let mut ty = ty;
-        for module_name in module_names.iter().rev() {
-            ty = Rc::new(Ty::new_external(*module_name, ty));
+    pub fn new_never(span: Span) -> Self {
+        Self {
+            kind: TyKind::Never.into(),
+            mutability: Mutability::Not,
+            span,
         }
-        ty
     }
 
-    pub fn new_str(mutability: Mutability) -> Self {
+    pub fn new_str(mutability: Mutability, span: Span) -> Self {
         Self {
             kind: TyKind::Fundamental(FundamentalType {
                 kind: FundamentalTypeKind::Str,
             })
             .into(),
             mutability,
+            span,
         }
     }
 
@@ -211,10 +199,11 @@ impl std::fmt::Display for FundamentalTypeKind {
     }
 }
 
-pub fn make_fundamental_type(kind: FundamentalTypeKind, mutability: Mutability) -> Ty {
+pub fn make_fundamental_type(kind: FundamentalTypeKind, mutability: Mutability, span: Span) -> Ty {
     Ty {
         kind: TyKind::Fundamental(FundamentalType { kind }).into(),
         mutability,
+        span,
     }
 }
 
@@ -241,7 +230,11 @@ pub enum TyKind {
 
     Inferred,
 
-    External(ExternalType),
+    /// External type, e.g. `std.io.println`
+    /// If the type appearing in the expression is an external type,
+    /// it is basically handled as binary operators rather than here,
+    /// so this is not used. (except for generic arguments, etc., where the type can be anticipated)
+    External(Ty, Vec<Ident>),
 }
 
 impl std::fmt::Display for TyKind {
@@ -275,7 +268,16 @@ impl std::fmt::Display for TyKind {
 
             Self::Inferred => write!(f, "_"),
 
-            Self::External(ety) => write!(f, "{}.{}", ety.module_name.as_str(), ety.ty.kind),
+            Self::External(ty, access_chain) => write!(
+                f,
+                "{}.{}",
+                access_chain
+                    .iter()
+                    .map(|i| i.as_str())
+                    .collect::<Vec<_>>()
+                    .join("."),
+                ty.kind
+            ),
         }
     }
 }
@@ -287,7 +289,7 @@ impl TyKind {
             Self::UserDefined(_) => todo!(),
             Self::Generic(_) => todo!(),
             Self::Reference(ty) => ty.refee_ty.kind.is_signed(),
-            Self::External(ety) => ety.ty.kind.is_signed(),
+            Self::External(t, _) => t.kind.is_signed(),
 
             Self::Pointer(_) => panic!("Cannot get sign information of pointer type!"),
             Self::Array(_) => panic!("Cannot get sign information of array type!"),
@@ -304,7 +306,7 @@ impl TyKind {
             Self::UserDefined(_) => todo!(),
             Self::Generic(_) => todo!(),
             Self::Reference(ty) => ty.refee_ty.kind.is_int_or_bool(),
-            Self::External(ety) => ety.ty.kind.is_int_or_bool(),
+            Self::External(t, _) => t.kind.is_int_or_bool(),
 
             Self::Array(_)
             | Self::Tuple(_)
@@ -392,84 +394,6 @@ impl PartialEq for PointerType {
 }
 
 impl Eq for PointerType {}
-
-#[derive(Debug, Clone)]
-pub struct ExternalType {
-    pub module_name: Ident,
-    pub ty: Rc<Ty>,
-}
-
-impl ExternalType {
-    pub fn get_module_names_recursively(&self) -> Vec<Ident> {
-        let mut v = vec![];
-        v.push(self.module_name);
-
-        if let TyKind::External(ety) = self.ty.kind.as_ref() {
-            v.extend(ety.get_module_names_recursively());
-        }
-
-        v
-    }
-
-    pub fn get_base_type(&self) -> Rc<Ty> {
-        if let TyKind::External(ety) = self.ty.kind.as_ref() {
-            return ety.get_base_type();
-        }
-
-        self.ty.clone()
-    }
-
-    pub fn decompose_for_fncall(&self) -> (Vec<Ident>, Ident) /* Module names, Function name */ {
-        let mut v = vec![];
-        v.push(self.module_name);
-
-        // m1.m2.f()
-        if let TyKind::External(ety) = self.ty.kind.as_ref() {
-            let tmp = ety.decompose_for_fncall();
-            v.extend(tmp.0);
-            return (v, tmp.1);
-        }
-
-        if let TyKind::Reference(rty) = self.ty.kind.as_ref() {
-            if matches!(rty.refee_ty.kind.as_ref(), TyKind::UserDefined(_)) {
-                if let TyKind::UserDefined(udt) = rty.refee_ty.kind.as_ref() {
-                    return (v, udt.name);
-                }
-            }
-        }
-
-        todo!("Error")
-    }
-
-    pub fn decompose_for_struct_literal(&self) -> (Vec<Ident>, UserDefinedType) {
-        let mut v = vec![];
-        v.push(self.module_name);
-
-        if let TyKind::External(ety) = self.ty.kind.as_ref() {
-            let tmp = ety.decompose_for_struct_literal();
-            v.extend(tmp.0);
-            return (v, tmp.1);
-        }
-
-        if let TyKind::Reference(rty) = self.ty.kind.as_ref() {
-            if matches!(rty.refee_ty.kind.as_ref(), TyKind::UserDefined(_)) {
-                if let TyKind::UserDefined(udt) = rty.refee_ty.kind.as_ref() {
-                    return (v, udt.clone());
-                }
-            }
-        }
-
-        todo!("Error")
-    }
-}
-
-impl PartialEq for ExternalType {
-    fn eq(&self, other: &Self) -> bool {
-        self.module_name.symbol() == other.module_name.symbol()
-    }
-}
-
-impl Eq for ExternalType {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GenericArgs {

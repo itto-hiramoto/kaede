@@ -44,7 +44,7 @@ impl SpanBuilder {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash, Default)]
 pub struct Span {
     pub start: Location,
     pub finish: Location,

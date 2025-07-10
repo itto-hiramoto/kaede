@@ -1,21 +1,14 @@
 use std::rc::Rc;
 
+use kaede_ast_type::{Mutability, Ty};
 use kaede_span::Span;
 use kaede_symbol::Ident;
-use kaede_type::{Mutability, Ty};
 
 use crate::expr::Expr;
 
 #[derive(Debug)]
-pub enum AssignKind {
-    /// '='
-    Simple,
-}
-
-#[derive(Debug)]
 pub struct Assign {
     pub lhs: Expr,
-    pub kind: AssignKind,
     pub rhs: Expr,
     pub span: Span,
 }
@@ -61,7 +54,7 @@ pub enum StmtKind {
     Expr(Rc<Expr>),
     Let(Let),
 
-    Assign(Assign),
+    Assign(Box<Assign>),
 }
 
 /// Statement list

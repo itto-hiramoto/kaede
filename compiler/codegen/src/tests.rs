@@ -10,8 +10,15 @@ use inkwell::{
 };
 use kaede_common::{kaede_gc_lib_path, kaede_lib_path};
 use kaede_parse::Parser;
+use kaede_semantic::{SemanticAnalyzer, SemanticError};
 
-use crate::{codegen_compile_unit, error::CodegenError, CodegenCtx};
+use crate::{CodeGenerator, CodegenCtx};
+
+/// Helper function to extract SemanticError from anyhow::Error for tests
+fn extract_semantic_error(err: anyhow::Error) -> SemanticError {
+    err.downcast::<SemanticError>()
+        .expect("Expected SemanticError in test")
+}
 
 fn jit_compile(module: &Module) -> anyhow::Result<i32> {
     let kaede_gc_lib_path = kaede_gc_lib_path();
@@ -43,20 +50,16 @@ fn jit_compile(module: &Module) -> anyhow::Result<i32> {
 }
 
 /// Return exit status
-fn exec(program: &str) -> Result<i32, CodegenError> {
+fn exec(program: &str) -> anyhow::Result<i32> {
     let context = Context::create();
-    let cgcx = CodegenCtx::new(&context).map_err(|e| e.downcast::<CodegenError>().unwrap())?;
+    let cgcx = CodegenCtx::new(&context).unwrap();
 
     let file = PathBuf::from("test").into();
 
-    let module = codegen_compile_unit(
-        &cgcx,
-        file,
-        &None,
-        Parser::new(program, file).run().unwrap(),
-        false,
-    )
-    .map_err(|e| e.downcast::<CodegenError>().unwrap())?;
+    let ast = Parser::new(program, file).run().unwrap();
+    let ir = SemanticAnalyzer::new_for_single_file_test().analyze(ast, false)?;
+
+    let module = CodeGenerator::new(&cgcx).unwrap().codegen(ir).unwrap();
 
     Ok(jit_compile(&module).unwrap())
 }
@@ -159,33 +162,33 @@ fn empty_return() -> anyhow::Result<()> {
 fn let_statement() -> anyhow::Result<()> {
     // Type inference
     let program = r"fn main(): i32 {
-        let yoha = 48
-        let io = 10
-        return yoha + io
+        let x = 48
+        let y = 10
+        return x + y
     }";
 
     assert_eq!(exec(program)?, 58);
 
     // Mutable, Type inference
     let program = r"fn main(): i32 {
-        let mut yohaio = 58
-        return yohaio
+        let mut x = 58
+        return x
     }";
 
     assert_eq!(exec(program)?, 58);
 
     // Specified type
     let program = r"fn main(): i32 {
-        let yohaio: i32 = 58
-        return yohaio
+        let x: i32 = 58
+        return x
     }";
 
     assert_eq!(exec(program)?, 58);
 
     // Mutable, Specified type
     let program = r"fn main(): i32 {
-        let mut yohaio: i32 = 58
-        return yohaio
+        let mut x: i32 = 58
+        return x
     }";
 
     assert_eq!(exec(program)?, 58);
@@ -351,8 +354,8 @@ fn break_outside_of_loop() {
     }";
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::BreakOutsideOfLoop { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::BreakOutsideOfLoop { .. }
     ));
 }
 
@@ -380,16 +383,16 @@ fn assign_to_immutable() {
     }";
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::CannotAssignTwiceToImutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignTwiceToImutable { .. }
     ));
 }
 
 #[test]
 fn string_literal() -> anyhow::Result<()> {
     let program = r#"fn main(): i32 {
-        let s1 = "yohaio"
-        let s2 = "よはいお"
+        let s1 = "hello, world"
+        let s2 = "こんにちは"
 
         return 58
     }"#;
@@ -493,8 +496,8 @@ fn has_no_fields() {
     }";
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::HasNoFields { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::HasNoFields { .. }
     ));
 }
 
@@ -770,8 +773,8 @@ fn immutable_array_as_mutable_argument() {
     }";
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::CannotAssignImmutableToMutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignImmutableToMutable { .. }
     ));
 }
 
@@ -901,8 +904,8 @@ fn tuples_require_access_by_index() {
     }";
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::TupleRequireAccessByIndex { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::TupleRequireAccessByIndex { .. }
     ));
 }
 
@@ -958,8 +961,8 @@ fn assign_to_immutable_struct_field() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::CannotAssignTwiceToImutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignTwiceToImutable { .. }
     ));
 }
 
@@ -995,8 +998,8 @@ fn assign_to_immutable_tuple_field() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::CannotAssignTwiceToImutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignTwiceToImutable { .. }
     ));
 }
 
@@ -1352,8 +1355,8 @@ fn assign_to_immutable_to_mutable() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::CannotAssignImmutableToMutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignImmutableToMutable { .. }
     ));
 
     // Tuple
@@ -1366,8 +1369,8 @@ fn assign_to_immutable_to_mutable() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::CannotAssignImmutableToMutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignImmutableToMutable { .. }
     ));
 
     // Struct
@@ -1384,8 +1387,8 @@ fn assign_to_immutable_to_mutable() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::CannotAssignImmutableToMutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignImmutableToMutable { .. }
     ));
 }
 
@@ -1556,8 +1559,8 @@ fn call_mutable_methods_from_immutable() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::CannotAssignImmutableToMutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignImmutableToMutable { .. }
     ));
 }
 
@@ -1586,8 +1589,8 @@ fn modify_fields_in_immutable_methods() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::CannotAssignTwiceToImutable { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotAssignTwiceToImutable { .. }
     ));
 }
 
@@ -1829,8 +1832,8 @@ fn match_on_int_without_wildcard() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::NonExhaustivePatterns { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::MatchNotExhaustive { .. }
     ));
 }
 
@@ -1863,8 +1866,8 @@ fn match_on_bool_without_true() -> anyhow::Result<()> {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::NonExhaustivePatterns { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::MatchNotExhaustive { .. }
     ));
 
     Ok(())
@@ -1881,8 +1884,8 @@ fn match_on_bool_without_false() -> anyhow::Result<()> {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::NonExhaustivePatterns { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::MatchNotExhaustive { .. }
     ));
 
     Ok(())
@@ -1939,13 +1942,13 @@ fn non_exhaustive_patterns() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::NonExhaustivePatterns { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::MatchNotExhaustive { .. }
     ));
 }
 
 #[test]
-fn unreachable_pattern() {
+fn duplicate_pattern() {
     let program = r#"enum E {
         A,
         B,
@@ -1962,8 +1965,8 @@ fn unreachable_pattern() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::UnreachablePattern { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::DuplicatePattern { .. }
     ));
 }
 
@@ -2256,8 +2259,8 @@ fn match_unpack_unit_variant() {
     }"#;
 
     assert!(matches!(
-        exec(program),
-        Err(CodegenError::UnitVariantCannotUnpack { .. })
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::UnitVariantCannotUnpack { .. }
     ));
 }
 
@@ -2576,7 +2579,7 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
         None,
     }
 
-    pub struct List<T> {
+    struct List<T> {
         value: Option<T>,
         next: Option<List<T>>,
     }
@@ -2588,7 +2591,7 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
 
         fn len(self): u32 {
             return match self.next {
-                Option::Some(ne) => 1 + ne.len(),
+                Option::Some(ne) => (1 as u32) + ne.len(),
                 Option::None => {
                     match self.value {
                         Option::Some(_) => 1,
@@ -2622,10 +2625,10 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
         fn at(self, idx: u32): Option<T> {
             return match self.next {
                 Option::Some(ne) => {
-                    if idx == 0 {
+                    if idx == (0 as u32) {
                         self.value
                     } else {
-                        ne.at(idx - 1)
+                        ne.at(idx - (1 as u32))
                     }
                 },
 
@@ -2656,13 +2659,34 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
                 Option::None => break,
             }
 
-            i = i + 1
+            i = i + (1 as u32)
         }
 
         return sum
     }"#;
 
     assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn recursive_function() -> anyhow::Result<()> {
+    let program = r#"
+        fn f(n: i32): i32 {
+            if n == 10 {
+                return n
+            }
+
+            return f(n + 1)
+        }
+
+        fn main(): i32 {
+            return f(0)
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 10);
 
     Ok(())
 }

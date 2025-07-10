@@ -9,7 +9,7 @@ fn test(expect: i32, file_paths: &[&Path], root_dir: &Path) -> anyhow::Result<()
     let exe = assert_fs::NamedTempFile::new("a.out")?;
 
     let mut args = file_paths
-        .into_iter()
+        .iter()
         .map(|p| p.to_string_lossy().to_string())
         .collect::<Vec<String>>();
 
@@ -39,17 +39,17 @@ fn import_functions() -> anyhow::Result<()> {
     let tempdir = assert_fs::TempDir::new()?;
 
     let module1 = tempdir.child("m1.kd");
-    module1.write_str("pub fn yoha(): i32 { return 48 }")?;
+    module1.write_str("pub fn f(): i32 { return 48 }")?;
 
     let module2 = tempdir.child("m2.kd");
-    module2.write_str("pub fn io(): i32 { return 10 }")?;
+    module2.write_str("pub fn f(): i32 { return 10 }")?;
 
     let main = tempdir.child("main.kd");
     main.write_str(
         r#"import m1
         import m2
         fn main(): i32 {
-            return m1.yoha() + m2.io()
+            return m1.f() + m2.f()
         }"#,
     )?;
 
@@ -464,8 +464,8 @@ fn nested_import() -> anyhow::Result<()> {
 }
 
 #[test]
-fn import_generic_struct_methods() {
-    let tempdir = assert_fs::TempDir::new().unwrap();
+fn import_generic_struct_methods() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
 
     let module = tempdir.child("m.kd");
     module
@@ -511,12 +511,12 @@ fn import_generic_struct_methods() {
     )
     .unwrap();
 
-    test(58, &[module.path(), main.path()], &tempdir).unwrap();
+    test(58, &[module.path(), main.path()], &tempdir)
 }
 
 #[test]
-fn import_generic_enum_methods_with_arg_of_self_type() {
-    let tempdir = assert_fs::TempDir::new().unwrap();
+fn import_generic_enum_methods_with_arg_of_self_type() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
 
     let module = tempdir.child("m.kd");
     module
@@ -556,12 +556,12 @@ fn import_generic_enum_methods_with_arg_of_self_type() {
     )
     .unwrap();
 
-    test(58, &[module.path(), main.path()], &tempdir).unwrap();
+    test(58, &[module.path(), main.path()], &tempdir)
 }
 
 #[test]
-fn import_generic_methods_with_arg_of_self_type() {
-    let tempdir = assert_fs::TempDir::new().unwrap();
+fn import_generic_methods_with_arg_of_self_type() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
 
     let module = tempdir.child("m.kd");
     module
@@ -600,7 +600,7 @@ fn import_generic_methods_with_arg_of_self_type() {
     )
     .unwrap();
 
-    test(58, &[module.path(), main.path()], &tempdir).unwrap();
+    test(58, &[module.path(), main.path()], &tempdir)
 }
 
 #[test]
@@ -802,14 +802,14 @@ fn import_module_in_directory() -> anyhow::Result<()> {
     let module2 = tempdir.child("m2.kd");
     module2.write_str(
         r#"import dir.m1
-        use m1.Fruit
+        use dir.m1.Fruit
         fn main(): i32 {
-            let apple = Fruit::Ringo(m1.Apple { size: 58 });
+            let apple = Fruit::Ringo(dir.m1.Apple { size: 58 });
             let n = match apple {
                 Fruit::Ringo(a) => a.size,
                 Fruit::Ichigo(n) => n,
             }
-            if n == m1.get_58() {
+            if n == dir.m1.get_58() {
                 return n
             }
             return 123
@@ -848,7 +848,7 @@ fn import_hierarchical_module() -> anyhow::Result<()> {
     module4.write_str(
         r#"import dir2.m3
         pub fn f(): i32 {
-            return m3.get_58()
+            return dir2.m3.get_58()
         }"#,
     )?;
 
@@ -858,15 +858,15 @@ fn import_hierarchical_module() -> anyhow::Result<()> {
         import dir.dir2.m2
         import dir.dir2.m3
         import dir.m
-        use m2.Fruit
+        use dir.dir2.m2.Fruit
         fn main(): i32 {
-            let apple = Fruit::Ringo(m1.Apple { size: 58 });
+            let apple = Fruit::Ringo(dir.dir2.m1.Apple { size: 58 });
             let n = match apple {
                 Fruit::Ringo(a) => a.size,
                 Fruit::Ichigo(n) => n,
             }
-            if n == m3.get_58() {
-                return m.f()
+            if n == dir.dir2.m3.get_58() {
+                return dir.m.f()
             }
             return 123
         }"#,
@@ -886,8 +886,8 @@ fn import_hierarchical_module() -> anyhow::Result<()> {
 }
 
 #[test]
-fn import_same_name_module_with_same_name_struct() {
-    let tempdir = assert_fs::TempDir::new().unwrap();
+fn import_same_name_module_with_same_name_struct() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
 
     let module1 = tempdir.child("dir/m.kd");
     module1
@@ -923,7 +923,7 @@ fn import_same_name_module_with_same_name_struct() {
         }
 
         fn main(): i32 {
-            let apple = m.Apple::new_ringo(58)
+            let apple = dir.m.Apple::new_ringo(58)
             let apple2 = Apple { width: 48, height: 10 }
 
             if apple.get_size() == apple2.get() {
@@ -934,12 +934,12 @@ fn import_same_name_module_with_same_name_struct() {
         )
         .unwrap();
 
-    test(58, &[module1.path(), module2.path()], &tempdir).unwrap();
+    test(58, &[module1.path(), module2.path()], &tempdir)
 }
 
 #[test]
-fn import_generic_struct_from_module_in_directory() {
-    let tempdir = assert_fs::TempDir::new().unwrap();
+fn import_generic_struct_from_module_in_directory() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
 
     let module1 = tempdir.child("dir/m.kd");
     module1
@@ -965,18 +965,18 @@ fn import_generic_struct_from_module_in_directory() {
         .write_str(
             r#"import dir.m
         fn main(): i32 {
-            let apple = m.Apple<i32>::new(58)
+            let apple = dir.m.Apple<i32>::new(58)
             return apple.get_size()
         }"#,
         )
         .unwrap();
 
-    test(58, &[module1.path(), module2.path()], &tempdir).unwrap();
+    test(58, &[module1.path(), module2.path()], &tempdir)
 }
 
 #[test]
-fn import_function_with_non_public_generic_struct() {
-    let tempdir = assert_fs::TempDir::new().unwrap();
+fn import_function_with_non_public_generic_struct() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
 
     let module1 = tempdir.child("m1.kd");
     module1
@@ -1007,5 +1007,159 @@ fn import_function_with_non_public_generic_struct() {
         )
         .unwrap();
 
-    test(58, &[module1.path(), module2.path()], &tempdir).unwrap();
+    test(58, &[module1.path(), module2.path()], &tempdir)
+}
+
+#[test]
+fn import_generic_struct_and_impl_with_use_declaration() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+
+    let module1 = tempdir.child("dir/m.kd");
+    module1
+        .write_str(
+            r#"pub enum Apple<T> {
+                Ringo(T),
+                Mango,
+            }
+            impl<T> Apple<T> {
+                pub fn get_size(self): T {
+                    return match self {
+                        Apple::Ringo(s) => s,
+                        Apple::Mango => 123,
+                    }
+                }
+            }"#,
+        )
+        .unwrap();
+
+    let module2 = tempdir.child("m2.kd");
+    module2
+        .write_str(
+            r#"import dir.m
+            use dir.m.Apple
+
+            pub struct Test<T> {
+                age: Apple<T>,
+            }
+
+            impl<T> Test<T> {
+                pub fn new(): Test<T> {
+                    let apple = Apple<T>::Ringo(58)
+                    return Test<T> { age: apple }
+                }
+
+                pub fn get_age(self): Apple<T> {
+                    return self.age
+                }
+            }"#,
+        )
+        .unwrap();
+
+    let module3 = tempdir.child("m3.kd");
+    module3
+        .write_str(
+            r#"import m2
+            fn main(): i32 {
+                let test = m2.Test<i32>::new()
+                let age = test.get_age()
+                return age.get_size()
+            }"#,
+        )
+        .unwrap();
+
+    test(
+        58,
+        &[module1.path(), module2.path(), module3.path()],
+        &tempdir,
+    )
+}
+
+#[test]
+fn import_function_returning_external_struct_with_methods() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+
+    // m2.kd - defines a public struct with methods
+    let m2 = tempdir.child("m2.kd");
+    m2.write_str(
+        r#"pub struct Person {
+            age: i32
+        }
+
+        impl Person {
+            pub fn get_age(self): i32 {
+                return self.age
+            }
+        }"#,
+    )?;
+
+    // m1.kd - imports m2, uses Person in public function signature
+    let m1 = tempdir.child("m1.kd");
+    m1.write_str(
+        r#"import m2
+        use m2.Person
+
+        pub fn create_person(): Person {
+            return Person { age: 58 }
+        }"#,
+    )?;
+
+    // test.kd - imports m1, calls function that returns Person, then calls method on it
+    let test_m = tempdir.child("test.kd");
+    test_m.write_str(
+        r#"import m1
+
+        fn main(): i32 {
+            let p = m1.create_person()
+            return p.get_age()
+        }"#,
+    )?;
+
+    test(58, &[m2.path(), m1.path(), test_m.path()], &tempdir)
+}
+
+#[test]
+fn import_generic_symbol_multiply_defined_linkonce_odr() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+
+    // m2.kd - defines a generic enum with implementation
+    let m2 = tempdir.child("m2.kd");
+    m2.write_str(
+        r#"pub enum Person<T> {
+            Bob(T),
+            Alice,
+        }
+
+        impl<T> Person<T> {
+            pub fn get_age(self): T {
+                return match self {
+                    Person::Bob(n) => n,
+                    Person::Alice => 3,
+                }
+            }
+        }"#,
+    )?;
+
+    // m1.kd - imports m2, uses Person<i32> which generates generic instantiation
+    let m1 = tempdir.child("m1.kd");
+    m1.write_str(
+        r#"import m2
+        use m2.Person
+
+        pub fn create_person(): Person<i32> {
+            return Person<i32>::Bob(58)
+        }"#,
+    )?;
+
+    // test.kd - imports m1, also uses Person<i32> which could generate the same symbols
+    let test_m = tempdir.child("test.kd");
+    test_m.write_str(
+        r#"import m1
+
+        fn main(): i32 {
+            let p = m1.create_person()
+            return p.get_age()
+        }"#,
+    )?;
+
+    test(58, &[m2.path(), m1.path(), test_m.path()], &tempdir)
 }

@@ -20,8 +20,8 @@ pub struct Parser {
 
     tokens: VecDeque<Token>,
     consumed_tokens: VecDeque<Token>,
-    // Record the number of elements in consumed_tokens.
-    checkpoint: usize,
+    // Stack of checkpoints - each checkpoint records the number of elements in consumed_tokens.
+    checkpoint_stack: Vec<usize>,
 
     end_token: Option<Token>,
 
@@ -37,7 +37,7 @@ impl Parser {
         Self {
             tokens: Lexer::new(source, file).run(),
             consumed_tokens: VecDeque::new(),
-            checkpoint: 0,
+            checkpoint_stack: Vec::new(),
             end_token: None,
             in_cond_expr: false,
             generic_param_names_stack: Vec::new(),
@@ -116,13 +116,18 @@ impl Parser {
 
     // Create a checkpoint.
     fn checkpoint(&mut self) {
-        self.checkpoint = self.consumed_tokens.len();
+        self.checkpoint_stack.push(self.consumed_tokens.len());
     }
 
-    // Backtrack to the checkpoint.
+    // Backtrack to the most recent checkpoint.
     fn backtrack(&mut self) {
+        let checkpoint = self
+            .checkpoint_stack
+            .pop()
+            .expect("Attempted to backtrack without a checkpoint");
+
         let len = self.consumed_tokens.len();
-        let diff = len - self.checkpoint;
+        let diff = len - checkpoint;
 
         for _ in 0..diff {
             self.tokens
@@ -147,7 +152,8 @@ impl Parser {
             expected: tok.to_string(),
             but: self.first().kind.to_string(),
             span: self.first().span,
-        })
+        }
+        .into())
     }
 
     /// Return boolean
@@ -175,7 +181,8 @@ impl Parser {
             expected: TokenKind::Semi.to_string(),
             but: self.first().kind.to_string(),
             span: self.first().span,
-        })
+        }
+        .into())
     }
 
     /// Check a semicolon (Not consumed)

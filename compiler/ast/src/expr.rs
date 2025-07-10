@@ -1,21 +1,13 @@
-use std::{collections::VecDeque, rc::Rc, slice::Iter};
+use std::{collections::VecDeque, rc::Rc};
 
 use inkwell::{context::Context, values::IntValue};
-use kaede_span::Span;
-use kaede_symbol::{Ident, Symbol};
-use kaede_type::{
+use kaede_ast_type::{
     make_fundamental_type, FundamentalTypeKind, GenericArgs, Mutability, Ty, UserDefinedType,
 };
+use kaede_span::Span;
+use kaede_symbol::{Ident, Symbol};
 
 use crate::stmt::Block;
-
-#[derive(Debug)]
-pub struct ExternalIdent {
-    pub external_modules: Vec<Ident>,
-    pub ident: Ident,
-    pub generic_args: Option<GenericArgs>,
-    pub span: Span,
-}
 
 #[derive(Debug)]
 pub struct StringLiteral {
@@ -25,7 +17,6 @@ pub struct StringLiteral {
 
 #[derive(Debug)]
 pub struct StructLiteral {
-    pub external_modules: Vec<Ident>,
     pub struct_ty: UserDefinedType,
     pub values: Vec<(Ident, Expr)>,
     pub span: Span,
@@ -36,7 +27,6 @@ pub struct Args(pub VecDeque<Expr>, pub Span);
 
 #[derive(Debug)]
 pub struct FnCall {
-    pub external_modules: Vec<Ident>,
     pub callee: Ident,
     pub generic_args: Option<GenericArgs>,
     pub args: Args,
@@ -77,8 +67,12 @@ impl Int {
 
     pub fn get_type(&self) -> Ty {
         match self.kind {
-            IntKind::I32(_) => make_fundamental_type(FundamentalTypeKind::I32, Mutability::Not),
-            IntKind::U64(_) => make_fundamental_type(FundamentalTypeKind::U64, Mutability::Not),
+            IntKind::I32(_) => {
+                make_fundamental_type(FundamentalTypeKind::I32, Mutability::Not, self.span)
+            }
+            IntKind::U64(_) => {
+                make_fundamental_type(FundamentalTypeKind::U64, Mutability::Not, self.span)
+            }
         }
     }
 }
@@ -123,13 +117,13 @@ pub enum BinaryKind {
 
 #[derive(Debug)]
 pub struct Binary {
-    pub lhs: Rc<Expr>,
+    pub lhs: Box<Expr>,
     pub kind: BinaryKind,
-    pub rhs: Rc<Expr>,
+    pub rhs: Box<Expr>,
 }
 
 impl Binary {
-    pub fn new(lhs: Rc<Expr>, op: BinaryKind, rhs: Rc<Expr>) -> Self {
+    pub fn new(lhs: Box<Expr>, op: BinaryKind, rhs: Box<Expr>) -> Self {
         Self { lhs, kind: op, rhs }
     }
 }
@@ -180,7 +174,7 @@ pub enum Else {
 #[derive(Debug)]
 pub struct If {
     pub cond: Box<Expr>,
-    pub then: Rc<Block>,
+    pub then: Block,
     pub else_: Option<Box<Else>>,
     pub span: Span,
 }
@@ -195,49 +189,13 @@ pub struct Return {
 pub struct MatchArm {
     pub pattern: Box<Expr>,
     pub code: Rc<Expr>,
-}
-
-impl MatchArm {
-    pub fn is_wildcard(&self) -> bool {
-        match &self.pattern.kind {
-            ExprKind::Ident(ident) => ident.as_str() == "_",
-            _ => false,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct MatchArmList {
-    arms: Vec<MatchArm>,
-    pub wildcard: Option<MatchArm>,
-}
-
-impl MatchArmList {
-    pub fn new(arms: Vec<MatchArm>, wildcard: Option<MatchArm>) -> Self {
-        Self { arms, wildcard }
-    }
-
-    pub fn non_wildcard_iter(&self) -> Iter<MatchArm> {
-        self.arms.iter()
-    }
-
-    pub fn at(&self, idx: usize) -> &MatchArm {
-        &self.arms[idx]
-    }
-
-    pub fn len(&self) -> usize {
-        self.arms.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
+    pub is_catch_all: bool,
 }
 
 #[derive(Debug)]
 pub struct Match {
-    pub target: Box<Expr>,
-    pub arms: MatchArmList,
+    pub value: Box<Expr>,
+    pub arms: Vec<MatchArm>,
     pub span: Span,
 }
 
@@ -247,13 +205,40 @@ pub struct Expr {
     pub span: Span,
 }
 
+impl Expr {
+    pub fn collect_access_chain(&self, out: &mut Vec<Ident>) {
+        use BinaryKind;
+        use ExprKind;
+
+        match &self.kind {
+            ExprKind::Binary(Binary {
+                kind: BinaryKind::Access,
+                lhs,
+                rhs,
+                ..
+            }) => {
+                Self::collect_access_chain(lhs, out);
+
+                if let ExprKind::Ident(ident) = &rhs.kind {
+                    out.push(*ident)
+                }
+            }
+
+            ExprKind::Ident(ident) => {
+                out.push(*ident);
+            }
+
+            _ => {}
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum ExprKind {
     Int(Int),
     StringLiteral(StringLiteral),
     Binary(Binary),
     Ident(Ident),
-    ExternalIdent(ExternalIdent),
     GenericIdent((Ident, GenericArgs)),
     FnCall(FnCall),
     StructLiteral(StructLiteral),
@@ -269,5 +254,5 @@ pub enum ExprKind {
     Break(Break),
     Match(Match),
     Block(Block),
-    Ty(Rc<Ty>),
+    Ty(Ty),
 }
