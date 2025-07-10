@@ -321,6 +321,28 @@ impl SemanticAnalyzer {
                     let mut impl_ = impl_info.impl_.clone();
                     impl_.generic_params = None;
 
+                    let mut methods = vec![];
+
+                    // Since the generic function is generated multiple times,
+                    // we need to set link_once to true to avoid errors
+                    for method in impl_.items.iter() {
+                        if let ast::top::TopLevelKind::Fn(fn_) = &method.kind {
+                            let mut fn_decl = fn_.decl.clone();
+                            fn_decl.link_once = true;
+
+                            methods.push(ast::top::TopLevel {
+                                kind: ast::top::TopLevelKind::Fn(ast::top::Fn {
+                                    decl: fn_decl,
+                                    body: fn_.body.clone(),
+                                    span: fn_.span,
+                                }),
+                                span: fn_.span,
+                            });
+                        }
+                    }
+
+                    impl_.items = Rc::new(methods);
+
                     // To avoid borrow checker error
                     drop(borrowed_mut_symbol);
 

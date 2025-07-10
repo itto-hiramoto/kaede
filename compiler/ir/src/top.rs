@@ -32,6 +32,8 @@ pub enum LangLinkage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FnDecl {
     pub lang_linkage: LangLinkage,
+    // For generic functions
+    pub link_once: bool,
     pub name: QualifiedSymbol,
     pub params: Vec<Param>,
     pub is_var_args: bool,

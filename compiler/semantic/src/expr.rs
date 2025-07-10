@@ -785,6 +785,9 @@ impl SemanticAnalyzer {
         let fn_ = self.with_generic_arguments(generic_params, generic_args, |analyzer| {
             let mut fn_ = info.ast.clone();
             fn_.decl.name = Ident::new(generated_generic_key, Span::dummy());
+            // Because generic functions maybe generated multiple times (across multiple files),
+            // we need to set link_once to true to avoid errors
+            fn_.decl.link_once = true;
             analyzer.analyze_fn_internal(fn_)
         })?;
 
@@ -1143,8 +1146,6 @@ impl SemanticAnalyzer {
             generic_args: generic_args.clone(),
         };
         let udt = self.analyze_user_defined_type(&udt, ir_type::Mutability::Not)?;
-
-        eprintln!("udt: {:?}", left.symbol());
 
         // Expect the type to be a user defined type
         let udt = match udt.kind.as_ref() {

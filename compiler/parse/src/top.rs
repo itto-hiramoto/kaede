@@ -245,6 +245,7 @@ impl Parser {
 
         Ok(FnDecl {
             vis,
+            link_once: false,
             self_: if has_self { Some(mutability) } else { None },
             name,
             generic_params,

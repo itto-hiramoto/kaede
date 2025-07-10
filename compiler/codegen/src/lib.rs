@@ -198,6 +198,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             name,
             &FnDecl {
                 lang_linkage: LangLinkage::Default,
+                link_once: false,
                 name: QualifiedSymbol::new(ModulePath::new(vec![]), name),
                 is_var_args: false,
                 return_ty: Some(return_ty),

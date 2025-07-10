@@ -463,6 +463,7 @@ impl SemanticAnalyzer {
 
         let fn_decl = ir::top::FnDecl {
             lang_linkage: ir::top::LangLinkage::Default,
+            link_once: node.link_once,
             name: QualifiedSymbol::new(self.current_module_path().clone(), name),
             is_var_args: node.params.is_var_args,
             params,

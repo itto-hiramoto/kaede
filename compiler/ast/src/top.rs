@@ -85,6 +85,8 @@ pub struct FnDecl {
     pub params: Params,
     pub return_ty: Option<Rc<Ty>>,
     pub span: Span,
+    // For generic functions
+    pub link_once: bool,
 }
 
 #[derive(Debug, Clone)]

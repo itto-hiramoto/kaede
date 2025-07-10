@@ -136,9 +136,15 @@ impl<'ctx> CodeGenerator<'ctx> {
             decl.is_var_args,
         )?;
 
-        let fn_value =
-            self.module
-                .add_function(mangled_name.as_str(), fn_type, Some(Linkage::External));
+        let linkage = if decl.link_once {
+            Linkage::LinkOnceODR
+        } else {
+            Linkage::External
+        };
+
+        let fn_value = self
+            .module
+            .add_function(mangled_name.as_str(), fn_type, Some(linkage));
 
         self.tcx
             .insert_symbol_to_root_scope(mangled_name, SymbolTableValue::Function(fn_value));
