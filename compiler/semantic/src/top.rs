@@ -70,10 +70,14 @@ impl SemanticAnalyzer {
             })?;
 
         let current_module_path = self.current_module_path().clone();
+        // TODO: Use the visibility of the use directive
+        // Why using public?
+        // Because generic structures, etc., are generated later,
+        // but if the module's use is not available at that time, an error will occur.
         self.modules
             .get_mut(&current_module_path)
             .unwrap()
-            .bind_symbol(name, symbol, node.vis, node.span)?;
+            .bind_symbol(name, symbol, ast::top::Visibility::Public, node.span)?;
 
         Ok(TopLevelAnalysisResult::Imported(vec![]))
     }
