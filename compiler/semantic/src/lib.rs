@@ -6,7 +6,7 @@ use std::{
 };
 
 use context::AnalysisContext;
-use kaede_common::kaede_autoload_dir;
+use kaede_common::{kaede_autoload_dir, kaede_lib_src_dir};
 use kaede_ir::{
     module_path::ModulePath,
     qualified_symbol::QualifiedSymbol,
@@ -105,11 +105,7 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<ModulePath> {
         let mut diff_from_root = {
             // Get the canonical paths
-            let kaede_lib_src_dir = kaede_autoload_dir()
-                .parent()
-                .unwrap()
-                .to_path_buf()
-                .canonicalize()?;
+            let kaede_lib_src_dir = kaede_lib_src_dir().canonicalize()?;
             let file_parent = file_path.path().parent().unwrap().canonicalize()?;
 
             // Try to strip the project root first, if that fails try the standard library root
@@ -126,16 +122,17 @@ impl SemanticAnalyzer {
                     })
                     .collect::<Vec<_>>()
             } else if let Ok(relative_path) = file_parent.strip_prefix(&kaede_lib_src_dir) {
-                // For standard library modules, prepend "std" to the module path
-                let mut modules = vec![Symbol::from("std".to_string())];
-                modules.extend(relative_path.components().map(|c| {
-                    if let Component::Normal(os_str) = c {
-                        Symbol::from(os_str.to_string_lossy().to_string())
-                    } else {
-                        unreachable!();
-                    }
-                }));
-                modules
+                // For standard library modules
+                relative_path
+                    .components()
+                    .map(|c| {
+                        if let Component::Normal(os_str) = c {
+                            Symbol::from(os_str.to_string_lossy().to_string())
+                        } else {
+                            unreachable!();
+                        }
+                    })
+                    .collect::<Vec<_>>()
             } else {
                 return Err(anyhow::anyhow!(
                     "File path '{}' is not within project root '{}' or standard library root '{}'",

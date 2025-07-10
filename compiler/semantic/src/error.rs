@@ -50,8 +50,12 @@ pub enum SemanticError {
     #[error("{}:{}:{} has no fields", span.file, span.start.line, span.start.column)]
     HasNoFields { span: Span },
 
-    #[error("{}:{}:{} file not found for module `{}`", span.file, span.start.line, span.start.column, mod_name)]
-    FileNotFoundForModule { span: Span, mod_name: Symbol },
+    #[error("{}:{}:{} file `{}` not found for module `{}`", span.file, span.start.line, span.start.column, file_path, mod_name)]
+    FileNotFoundForModule {
+        span: Span,
+        file_path: String,
+        mod_name: Symbol,
+    },
 
     #[error("{}:{}:{} tuples require access by index", span.file, span.start.line, span.start.column)]
     TupleRequireAccessByIndex { span: Span },

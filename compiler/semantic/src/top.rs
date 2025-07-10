@@ -50,7 +50,11 @@ impl SemanticAnalyzer {
     pub fn analyze_use(&mut self, node: ast::top::Use) -> anyhow::Result<TopLevelAnalysisResult> {
         let modules = node.path.segments[..node.path.segments.len() - 1].to_vec();
         let current_module_path = self.current_module_path().get_module_names_from_root();
-        let parent_module_path = current_module_path[..current_module_path.len() - 1].to_vec();
+        let parent_module_path = if current_module_path[0].as_str() == "std" {
+            vec![]
+        } else {
+            current_module_path[..current_module_path.len() - 1].to_vec()
+        };
 
         let access_chain = parent_module_path
             .into_iter()
@@ -126,6 +130,7 @@ impl SemanticAnalyzer {
         if !path.exists() {
             return Err(SemanticError::FileNotFoundForModule {
                 span,
+                file_path: path.to_string_lossy().to_string(),
                 mod_name: *access_chain.last().unwrap(),
             }
             .into());
