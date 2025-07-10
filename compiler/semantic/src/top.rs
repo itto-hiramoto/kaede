@@ -18,6 +18,7 @@ use kaede_ast_type as ast_type;
 use kaede_common::kaede_lib_src_dir;
 use kaede_ir::{self as ir, module_path::ModulePath, qualified_symbol::QualifiedSymbol};
 use kaede_parse::Parser;
+use kaede_span::{file::FilePath, Span};
 use kaede_symbol::{Ident, Symbol};
 
 /// If a top-level is generic, there is no IR that can be generated immediately, so this enum is used.
@@ -76,11 +77,21 @@ impl SemanticAnalyzer {
         Ok(TopLevelAnalysisResult::Imported(vec![]))
     }
 
-    pub fn analyze_import(
-        &mut self,
-        node: ast::top::Import,
-    ) -> anyhow::Result<TopLevelAnalysisResult> {
-        let path_prefix = if node.module_path.segments.first().unwrap().as_str() == "std" {
+    pub fn create_module_path_from_access_chain(
+        &self,
+        access_chain: &[Symbol],
+        span: Span,
+    ) -> anyhow::Result<(FilePath, ModulePath)> {
+        assert!(!access_chain.is_empty());
+
+        let path_prefix = if self
+            .current_module_path()
+            .get_module_names_from_root()
+            .is_empty()
+        {
+            // Root module
+            return Ok((FilePath::dummy(), ModulePath::new(Vec::from(access_chain))));
+        } else if access_chain.first().unwrap().as_str() == "std" {
             // Standard library
             kaede_lib_src_dir()
         } else {
@@ -97,8 +108,8 @@ impl SemanticAnalyzer {
         let mut path = path_prefix;
 
         // Build the file path to be imported
-        for (idx, segment) in node.module_path.segments.iter().enumerate() {
-            if idx == node.module_path.segments.len() - 1 {
+        for (idx, segment) in access_chain.iter().enumerate() {
+            if idx == access_chain.len() - 1 {
                 path = path.join(segment.as_str()).with_extension("kd");
                 break;
             }
@@ -109,22 +120,40 @@ impl SemanticAnalyzer {
         // Check if the file exists
         if !path.exists() {
             return Err(SemanticError::FileNotFoundForModule {
-                span: node.module_path.span,
-                mod_name: node.module_path.segments.last().unwrap().symbol(),
+                span,
+                mod_name: *access_chain.last().unwrap(),
             }
             .into());
-        }
-
-        // Prevent duplicate imports
-        if self.imported_module_paths.contains(&path) {
-            return Ok(TopLevelAnalysisResult::Imported(vec![]));
-        } else {
-            self.imported_module_paths.insert(path.canonicalize()?);
         }
 
         let path = path.to_path_buf().into();
 
         let module_path = Self::create_module_path_from_file_path(self.root_dir.clone(), path)?;
+
+        Ok((path, module_path))
+    }
+
+    pub fn analyze_import(
+        &mut self,
+        node: ast::top::Import,
+    ) -> anyhow::Result<TopLevelAnalysisResult> {
+        let (path, module_path) = self.create_module_path_from_access_chain(
+            node.module_path
+                .segments
+                .iter()
+                .map(|s| s.symbol())
+                .collect::<Vec<_>>()
+                .as_slice(),
+            node.span,
+        )?;
+
+        // Prevent duplicate imports
+        if self.imported_module_paths.contains(&path.path()) {
+            return Ok(TopLevelAnalysisResult::Imported(vec![]));
+        } else {
+            self.imported_module_paths
+                .insert(path.path().canonicalize()?);
+        }
 
         // Add the module to the module table
         let mut module_context = ModuleContext::new(path);

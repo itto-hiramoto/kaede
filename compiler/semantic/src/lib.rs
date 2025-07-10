@@ -54,8 +54,7 @@ impl SemanticAnalyzer {
             Self::create_module_path_from_file_path(root_dir.clone(), file_path).unwrap();
         context.set_module_path(module_path.clone());
 
-        let mut module_context = ModuleContext::new(file_path);
-        module_context.push_scope(SymbolTable::new());
+        let module_context = ModuleContext::new(file_path);
 
         Self {
             modules: HashMap::from([(module_path, module_context)]),

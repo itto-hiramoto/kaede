@@ -1340,11 +1340,22 @@ impl SemanticAnalyzer {
         {
             let mut modules = Vec::new();
             node.lhs.collect_access_chain(&mut modules);
-            let module_path = ModulePath::new(modules.iter().map(|i| i.symbol()).collect());
 
-            // If the module path is valid, analyze the right side in the module
-            if !modules.is_empty() && self.modules.contains_key(&module_path) {
-                return self.with_module(module_path, |analyzer| analyzer.analyze_expr(&node.rhs));
+            if !modules.is_empty() {
+                if let Ok((_, module_path)) = self.create_module_path_from_access_chain(
+                    modules
+                        .iter()
+                        .map(|i| i.symbol())
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                    node.lhs.span,
+                ) {
+                    // If the module path is valid, analyze the right side in the module
+                    if !modules.is_empty() && self.modules.contains_key(&module_path) {
+                        return self
+                            .with_module(module_path, |analyzer| analyzer.analyze_expr(&node.rhs));
+                    }
+                }
             }
         }
 
