@@ -965,7 +965,7 @@ fn import_generic_struct_from_module_in_directory() {
         .write_str(
             r#"import dir.m
         fn main(): i32 {
-            let apple = m.Apple<i32>::new(58)
+            let apple = dir.m.Apple<i32>::new(58)
             return apple.get_size()
         }"#,
         )
@@ -1036,7 +1036,7 @@ fn import_generic_struct_and_impl_with_use_declaration() {
     module2
         .write_str(
             r#"import dir.m
-            use m.Apple
+            use dir.m.Apple
 
             pub struct Test<T> {
                 age: Apple<T>,

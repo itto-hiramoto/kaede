@@ -52,12 +52,13 @@ impl SemanticAnalyzer {
         let current_module_path = self.current_module_path().get_module_names_from_root();
         let parent_module_path = current_module_path[..current_module_path.len() - 1].to_vec();
 
-        let path_to_use = ModulePath::new(
-            parent_module_path
-                .into_iter()
-                .chain(modules.into_iter().map(|s| s.symbol()))
-                .collect(),
-        );
+        let access_chain = parent_module_path
+            .into_iter()
+            .chain(modules.into_iter().map(|s| s.symbol()))
+            .collect::<Vec<_>>();
+
+        let (_, path_to_use) =
+            self.create_module_path_from_access_chain(&access_chain, node.span)?;
 
         let name = node.path.segments.last().unwrap().symbol();
 
@@ -214,6 +215,8 @@ impl SemanticAnalyzer {
                     TopLevelKind::Struct(struct_) => analyzer.analyze_struct(struct_)?,
 
                     TopLevelKind::Enum(enum_) => analyzer.analyze_enum(enum_)?,
+
+                    TopLevelKind::Use(use_) => analyzer.analyze_use(use_)?,
 
                     _ => unreachable!(),
                 };
