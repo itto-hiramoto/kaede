@@ -1,7 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use kaede_ast::top::Visibility;
-use kaede_ir::{module_path::ModulePath, ty::Ty};
+use kaede_ir::{self as ir, module_path::ModulePath, ty::Ty};
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::Symbol;
 
@@ -14,6 +14,7 @@ use crate::{
 pub struct AnalysisContext {
     module_path: ModulePath,
     is_inside_loop: bool,
+    current_function: Vec<Option<Rc<ir::top::FnDecl>>>,
 }
 
 impl Default for AnalysisContext {
@@ -27,7 +28,20 @@ impl AnalysisContext {
         Self {
             module_path: ModulePath::new(vec![]),
             is_inside_loop: false,
+            current_function: vec![None],
         }
+    }
+
+    pub fn set_current_function(&mut self, function: Rc<ir::top::FnDecl>) {
+        self.current_function.push(Some(function));
+    }
+
+    pub fn pop_current_function(&mut self) {
+        self.current_function.pop();
+    }
+
+    pub fn get_current_function(&self) -> Option<Rc<ir::top::FnDecl>> {
+        self.current_function.last().unwrap().clone()
     }
 
     pub fn set_module_path(&mut self, path: ModulePath) {

@@ -622,12 +622,14 @@ impl SemanticAnalyzer {
 
         self.check_exhaustiveness_for_match_on_int(fty, &node.arms, node.span)?;
 
+        let if_ = self.conv_match_arms_on_int_to_if(
+            value.clone(),
+            node.arms.iter().collect::<Vec<_>>().as_slice(),
+        )?;
+
         Ok(ir::expr::Expr {
-            kind: ir::expr::ExprKind::If(self.conv_match_arms_on_int_to_if(
-                value.clone(),
-                node.arms.iter().collect::<Vec<_>>().as_slice(),
-            )?),
-            ty: value.ty.clone(),
+            ty: if_.then.ty.clone(),
+            kind: ir::expr::ExprKind::If(if_),
             span: node.span,
         })
     }
@@ -932,6 +934,33 @@ impl SemanticAnalyzer {
             .map(|val| self.analyze_expr(val))
             .transpose()?
             .map(Box::new);
+
+        if let Some(expr) = &expr {
+            let fn_return_ty = &self.context.get_current_function().unwrap().return_ty;
+
+            match fn_return_ty {
+                Some(ty) => {
+                    if !ir::ty::is_same_type(&ty, &expr.ty) {
+                        return Err(SemanticError::MismatchedTypes {
+                            types: (ty.kind.to_string(), expr.ty.kind.to_string()),
+                            span: node.span,
+                        }
+                        .into());
+                    }
+                }
+
+                None => {
+                    return Err(SemanticError::MismatchedTypes {
+                        types: (
+                            ir_type::Ty::new_never().kind.to_string(),
+                            expr.ty.kind.to_string(),
+                        ),
+                        span: node.span,
+                    }
+                    .into());
+                }
+            }
+        }
 
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::Return(expr),
@@ -1532,8 +1561,12 @@ impl SemanticAnalyzer {
 
                     // Check mutability
                     if arg.ty.mutability.is_not() && param.ty.mutability.is_mut() {
-                        return Err(SemanticError::CannotAssignImmutableToMutable {
-                            span: arg.span,
+                        return Err(if param.name.as_str() == "self" {
+                            SemanticError::CannotCallMutableMethodOnImmutableValue {
+                                span: arg.span,
+                            }
+                        } else {
+                            SemanticError::CannotAssignImmutableToMutable { span: arg.span }
                         }
                         .into());
                     }

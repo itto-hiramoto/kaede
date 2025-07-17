@@ -1560,7 +1560,7 @@ fn call_mutable_methods_from_immutable() {
 
     assert!(matches!(
         extract_semantic_error(exec(program).unwrap_err()),
-        SemanticError::CannotAssignImmutableToMutable { .. }
+        SemanticError::CannotCallMutableMethodOnImmutableValue { .. }
     ));
 }
 

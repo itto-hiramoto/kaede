@@ -14,6 +14,9 @@ pub enum SemanticError {
         span: Span,
     },
 
+    #[error("{}:{}:{} cannot call mutable method on immutable value", span.file, span.start.line, span.start.column)]
+    CannotCallMutableMethodOnImmutableValue { span: Span },
+
     #[error("{}:{}:{} expected variable, found `{}`", span.file, span.start.line, span.start.column, .name)]
     ExpectedVariable { name: Symbol, span: Span },
 

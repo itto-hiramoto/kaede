@@ -420,6 +420,8 @@ impl SemanticAnalyzer {
 
         let fn_decl = self.analyze_fn_decl(node.decl)?;
 
+        self.context.set_current_function(Rc::new(fn_decl.clone()));
+
         // Create a new symbol table for the function parameters.
         {
             let mut symbol_table = SymbolTable::new();
@@ -447,6 +449,8 @@ impl SemanticAnalyzer {
 
         // Pop the function symbol table.
         self.pop_scope();
+
+        self.context.pop_current_function();
 
         Ok(fn_)
     }

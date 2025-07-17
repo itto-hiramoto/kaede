@@ -61,10 +61,16 @@ pub fn is_same_type(t1: &Ty, t2: &Ty) -> bool {
     false
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Eq, Clone)]
 pub struct Ty {
     pub kind: Rc<TyKind>,
     pub mutability: Mutability,
+}
+
+impl PartialEq for Ty {
+    fn eq(&self, other: &Self) -> bool {
+        is_same_type(self, other)
+    }
 }
 
 impl Ty {
@@ -387,8 +393,7 @@ impl Display for UserDefinedType {
 
 impl PartialEq for UserDefinedType {
     fn eq(&self, other: &Self) -> bool {
-        // TODO: Compare the actual type
-        self.to_string() == other.to_string()
+        self.qualified_symbol() == other.qualified_symbol()
     }
 }
 
