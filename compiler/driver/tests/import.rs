@@ -1163,3 +1163,21 @@ fn import_generic_symbol_multiply_defined_linkonce_odr() -> anyhow::Result<()> {
 
     test(58, &[m2.path(), m1.path(), test_m.path()], &tempdir)
 }
+
+#[test]
+fn import_extern_c() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+
+    let extern_c = tempdir.child("extern_c.kd");
+    extern_c.write_str(r#"pub extern "C" fn puts(s: *i8): i32"#)?;
+
+    let module = tempdir.child("m.kd");
+    module.write_str(
+        r#"import extern_c
+        fn main(): i32 {
+            return extern_c.puts("Hello, world!".as_ptr())
+        }"#,
+    )?;
+
+    test(14, &[extern_c.path(), module.path()], &tempdir)
+}

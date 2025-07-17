@@ -225,7 +225,7 @@ impl SemanticAnalyzer {
 
                     TopLevelKind::Use(use_) => analyzer.analyze_use(use_)?,
 
-                    _ => unreachable!(),
+                    TopLevelKind::Extern(extern_) => analyzer.analyze_extern(extern_)?,
                 };
 
                 match result {
