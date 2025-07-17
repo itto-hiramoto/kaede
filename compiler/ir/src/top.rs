@@ -27,6 +27,7 @@ pub struct Param {
 pub enum LangLinkage {
     Default,
     C,
+    Rust,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

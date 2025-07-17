@@ -119,6 +119,9 @@ pub enum TokenKind {
     /// "false"
     False,
 
+    /// "bridge"
+    Bridge,
+
     /// End of input
     Eoi,
 
@@ -187,6 +190,8 @@ impl std::fmt::Display for TokenKind {
 
             True => write!(f, "'true'"),
             False => write!(f, "'false'"),
+
+            Bridge => write!(f, "'bridge'"),
 
             Eoi => write!(f, "end of input"),
 

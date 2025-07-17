@@ -6,8 +6,9 @@ use inkwell::{
     values::FunctionValue,
 };
 
+use kaede_common::rust_function_prefix;
 use kaede_ir::{
-    top::{Enum, EnumVariant, Fn, FnDecl, Impl, Param, Struct, StructField, TopLevel},
+    top::{Enum, EnumVariant, Fn, FnDecl, Impl, LangLinkage, Param, Struct, StructField, TopLevel},
     ty::Ty,
 };
 use kaede_symbol::Symbol;
@@ -64,8 +65,6 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     pub fn build_function(&mut self, node: &Fn, only_declare: bool) -> anyhow::Result<()> {
-        use kaede_ir::top::LangLinkage;
-
         let mangled_name = if node.decl.name.symbol().as_str() == "main" {
             // Suppress mangling of main function
             String::from("kdmain").into()
@@ -74,7 +73,11 @@ impl<'ctx> CodeGenerator<'ctx> {
                 // C functions are not mangled
                 LangLinkage::C => node.decl.name.symbol(),
 
-                _ => node.decl.name.mangle(),
+                LangLinkage::Rust => {
+                    format!("{}{}", rust_function_prefix(), node.decl.name.symbol()).into()
+                }
+
+                LangLinkage::Default => node.decl.name.mangle(),
             }
         };
 

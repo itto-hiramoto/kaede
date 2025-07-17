@@ -143,6 +143,14 @@ pub struct Use {
 }
 
 #[derive(Debug)]
+pub struct Bridge {
+    pub vis: Visibility,
+    pub lang: StringLiteral,
+    pub fn_decl: FnDecl,
+    pub span: Span,
+}
+
+#[derive(Debug)]
 pub struct TopLevel {
     pub kind: TopLevelKind,
     pub span: Span,
@@ -157,4 +165,5 @@ pub enum TopLevelKind {
     Enum(Enum),
     Extern(Extern),
     Use(Use),
+    Bridge(Bridge),
 }

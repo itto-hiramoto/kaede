@@ -11,6 +11,7 @@ use inkwell::{
     IntPredicate,
 };
 
+use kaede_common::rust_function_prefix;
 use kaede_ir::{
     expr::{
         ArrayLiteral, Binary, BinaryKind, Cast, Else, EnumUnpack, EnumVariant, Expr, ExprKind,
@@ -384,23 +385,33 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         let mangled_name = node.callee.name.mangle();
 
-        let fn_value = match self.tcx.lookup_symbol(mangled_name) {
-            Some(fn_) => match &*fn_.borrow() {
-                SymbolTableValue::Function(fn_) => *fn_,
-                _ => unreachable!(),
-            },
-            None => {
-                // Try to find with non-mangled name (For foreign functions)
-                match &*self
-                    .tcx
-                    .lookup_symbol(node.callee.name.symbol())
-                    .unwrap()
-                    .borrow()
-                {
-                    SymbolTableValue::Function(fn_) => *fn_,
-                    _ => unreachable!(),
+        let fn_value = {
+            let names = [
+                mangled_name,
+                format!("{}{}", rust_function_prefix(), node.callee.name.symbol()).into(), // For Rust functions
+                node.callee.name.symbol(), // For C functions
+            ];
+
+            let mut i = 0;
+
+            let fn_value = loop {
+                if i >= names.len() {
+                    break None;
                 }
-            }
+
+                let name = names[i];
+
+                match self.tcx.lookup_symbol(name) {
+                    Some(fn_) => match &*fn_.borrow() {
+                        SymbolTableValue::Function(fn_) => break Some(*fn_),
+                        _ => i += 1,
+                    },
+
+                    _ => i += 1,
+                }
+            };
+
+            fn_value.unwrap()
         };
 
         Ok(self

@@ -1,0 +1,6 @@
+import kaede_rust_bridge_example
+
+fn main(): i32 {
+    kaede_rust_bridge_example.greetings()
+    return 0
+}

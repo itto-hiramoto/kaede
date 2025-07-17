@@ -44,6 +44,7 @@ impl SemanticAnalyzer {
             TopLevelKind::Extern(node) => self.analyze_extern(node),
             TopLevelKind::Import(node) => self.analyze_import(node),
             TopLevelKind::Use(node) => self.analyze_use(node),
+            TopLevelKind::Bridge(node) => self.analyze_bridge(node),
         }
     }
 
@@ -226,6 +227,8 @@ impl SemanticAnalyzer {
                     TopLevelKind::Use(use_) => analyzer.analyze_use(use_)?,
 
                     TopLevelKind::Extern(extern_) => analyzer.analyze_extern(extern_)?,
+
+                    TopLevelKind::Bridge(bridge) => analyzer.analyze_bridge(bridge)?,
                 };
 
                 match result {
@@ -248,6 +251,25 @@ impl SemanticAnalyzer {
         })?;
 
         Ok(TopLevelAnalysisResult::Imported(top_level_irs))
+    }
+
+    pub fn analyze_bridge(
+        &mut self,
+        node: ast::top::Bridge,
+    ) -> anyhow::Result<TopLevelAnalysisResult> {
+        let mut fn_decl = self.analyze_fn_decl(node.fn_decl)?;
+
+        fn_decl.lang_linkage = match node.lang.syb.as_str() {
+            "Rust" => ir::top::LangLinkage::Rust,
+            _ => unreachable!(),
+        };
+
+        Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Fn(
+            Rc::new(ir::top::Fn {
+                decl: fn_decl,
+                body: None,
+            }),
+        )))
     }
 
     pub fn analyze_extern(

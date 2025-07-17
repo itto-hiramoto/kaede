@@ -21,3 +21,7 @@ pub fn kaede_lib_src_dir() -> PathBuf {
 pub fn kaede_autoload_dir() -> PathBuf {
     kaede_lib_src_dir().join("autoload")
 }
+
+pub fn rust_function_prefix() -> &'static str {
+    "kaede_rust_bridge_"
+}

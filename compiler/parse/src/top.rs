@@ -1,14 +1,17 @@
 use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::top::{
-    Enum, EnumVariant, Extern, Fn, FnDecl, GenericParams, Impl, Import, Param, Params, Path,
-    Struct, StructField, TopLevel, TopLevelKind, Use, Visibility,
+    Bridge, Enum, EnumVariant, Extern, Fn, FnDecl, GenericParams, Impl, Import, Param, Params,
+    Path, Struct, StructField, TopLevel, TopLevelKind, Use, Visibility,
 };
 use kaede_ast_type::Mutability;
 use kaede_lex::token::TokenKind;
 use kaede_span::Location;
 
-use crate::{error::ParseResult, Parser};
+use crate::{
+    error::{ParseError, ParseResult},
+    Parser,
+};
 
 impl Parser {
     pub fn top_level(&mut self) -> ParseResult<TopLevel> {
@@ -52,12 +55,42 @@ impl Parser {
                 (kind.span, TopLevelKind::Use(kind))
             }
 
+            TokenKind::Bridge => {
+                let kind = self.bridge(vis)?;
+                (kind.span, TopLevelKind::Bridge(kind))
+            }
+
             _ => unreachable!("{:?}", token.kind),
         };
 
         self.consume_semi()?;
 
         Ok(TopLevel { kind, span })
+    }
+
+    fn bridge(&mut self, vis: Visibility) -> ParseResult<Bridge> {
+        let start = self.consume(&TokenKind::Bridge).unwrap().start;
+
+        let lang = match self.string_literal_internal() {
+            Some(lang) => lang,
+            None => {
+                return Err(ParseError::ExpectedError {
+                    expected: "bridging language name".to_string(),
+                    but: self.first().kind.to_string(),
+                    span: self.first().span,
+                }
+                .into())
+            }
+        };
+
+        let fn_decl = self.fn_decl(vis)?;
+
+        Ok(Bridge {
+            span: self.new_span(start, fn_decl.span.finish),
+            lang,
+            fn_decl,
+            vis,
+        })
     }
 
     fn extern_(&mut self, vis: Visibility) -> ParseResult<Extern> {
