@@ -940,7 +940,7 @@ impl SemanticAnalyzer {
 
             match fn_return_ty {
                 Some(ty) => {
-                    if !ir::ty::is_same_type(&ty, &expr.ty) {
+                    if !ir::ty::is_same_type(ty, &expr.ty) {
                         return Err(SemanticError::MismatchedTypes {
                             types: (ty.kind.to_string(), expr.ty.kind.to_string()),
                             span: node.span,
