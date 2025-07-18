@@ -59,30 +59,47 @@ impl SemanticAnalyzer {
 
         let access_chain = parent_module_path
             .into_iter()
-            .chain(modules.into_iter().map(|s| s.symbol()))
+            .chain(modules.into_iter().map(|s| match s {
+                ast::top::PathSegment::Segment(ident) => ident.symbol(),
+                ast::top::PathSegment::Star => todo!(),
+            }))
             .collect::<Vec<_>>();
 
         let (_, path_to_use) =
             self.create_module_path_from_access_chain(&access_chain, node.span)?;
 
-        let name = node.path.segments.last().unwrap().symbol();
+        let bind = |analyzer: &mut SemanticAnalyzer, name: Symbol| -> anyhow::Result<()> {
+            let symbol = analyzer
+                .lookup_qualified_symbol(QualifiedSymbol::new(path_to_use.clone(), name))
+                .ok_or(SemanticError::Undeclared {
+                    name,
+                    span: node.span,
+                })?;
 
-        let symbol = self
-            .lookup_qualified_symbol(QualifiedSymbol::new(path_to_use, name))
-            .ok_or(SemanticError::Undeclared {
-                name,
-                span: node.span,
-            })?;
+            let current_module_path = analyzer.current_module_path().clone();
+            // TODO: Use the visibility of the use directive
+            // Why using public?
+            // Because generic structures, etc., are generated later,
+            // but if the module's use is not available at that time, an error will occur.
+            analyzer
+                .modules
+                .get_mut(&current_module_path)
+                .unwrap()
+                .bind_symbol(name, symbol, ast::top::Visibility::Public, node.span)
+        };
 
-        let current_module_path = self.current_module_path().clone();
-        // TODO: Use the visibility of the use directive
-        // Why using public?
-        // Because generic structures, etc., are generated later,
-        // but if the module's use is not available at that time, an error will occur.
-        self.modules
-            .get_mut(&current_module_path)
-            .unwrap()
-            .bind_symbol(name, symbol, ast::top::Visibility::Public, node.span)?;
+        match node.path.segments.last().unwrap() {
+            ast::top::PathSegment::Segment(ident) => bind(self, ident.symbol())?,
+
+            // Use all symbols in the module
+            ast::top::PathSegment::Star => {
+                let symbols = self.modules[&path_to_use].get_all_symbols();
+
+                for symbol in symbols {
+                    bind(self, symbol)?;
+                }
+            }
+        }
 
         Ok(TopLevelAnalysisResult::Imported(vec![]))
     }
@@ -152,7 +169,10 @@ impl SemanticAnalyzer {
             node.module_path
                 .segments
                 .iter()
-                .map(|s| s.symbol())
+                .map(|s| match s {
+                    ast::top::PathSegment::Segment(ident) => ident.symbol(),
+                    ast::top::PathSegment::Star => todo!(),
+                })
                 .collect::<Vec<_>>()
                 .as_slice(),
             node.span,

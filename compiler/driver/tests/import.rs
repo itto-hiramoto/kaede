@@ -1181,3 +1181,41 @@ fn import_extern_c() -> anyhow::Result<()> {
 
     test(14, &[extern_c.path(), module.path()], &tempdir)
 }
+
+#[test]
+fn import_and_use_with_wildcard() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+
+    let module = tempdir.child("m.kd");
+    module.write_str(
+        r#"pub struct Apple {
+            size: i32,
+        }
+
+        impl Apple {
+            pub fn get_size(self): i32 {
+                return self.size
+            }
+        }
+
+        pub fn f(): Apple {
+            return Apple { size: 10 }
+        }
+
+        pub fn g(a: Apple): i32 {
+            return a.get_size()
+        }"#,
+    )?;
+
+    let main = tempdir.child("main.kd");
+    main.write_str(
+        r#"import m
+        use m.*
+        fn main(): i32 {
+            let apple = Apple { size: 20 }
+            return f().get_size() + g(apple)
+        }"#,
+    )?;
+
+    test(30, &[module.path(), main.path()], &tempdir)
+}

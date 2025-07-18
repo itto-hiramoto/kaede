@@ -2,10 +2,10 @@ use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::top::{
     Bridge, Enum, EnumVariant, Extern, Fn, FnDecl, GenericParams, Impl, Import, Param, Params,
-    Path, Struct, StructField, TopLevel, TopLevelKind, Use, Visibility,
+    Path, PathSegment, Struct, StructField, TopLevel, TopLevelKind, Use, Visibility,
 };
 use kaede_ast_type::Mutability;
-use kaede_lex::token::TokenKind;
+use kaede_lex::token::{Token, TokenKind};
 use kaede_span::Location;
 
 use crate::{
@@ -180,9 +180,20 @@ impl Parser {
         let mut segments = Vec::new();
 
         loop {
+            // Wildcard
+            if let Ok(span) = self.consume(&TokenKind::Asterisk) {
+                segments.push(PathSegment::Star);
+                // Insert a semi-colon because the star token isn't semi-colon insertable.
+                self.tokens.push_front(Token {
+                    kind: TokenKind::Semi,
+                    span,
+                });
+                break;
+            }
+
             let segment = self.ident()?;
 
-            segments.push(segment);
+            segments.push(PathSegment::Segment(segment));
 
             if !self.consume_b(&TokenKind::Dot) {
                 break;
@@ -212,7 +223,11 @@ impl Parser {
 
         let module_path = self.path()?;
 
-        let last = module_path.segments.last().unwrap().symbol();
+        let last = match module_path.segments.last().unwrap() {
+            PathSegment::Segment(ident) => ident.symbol(),
+            PathSegment::Star => todo!(),
+        };
+
         if !self.imported_modules.contains(&last) {
             self.imported_modules.push(last);
         }

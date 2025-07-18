@@ -8,8 +8,14 @@ use crate::{expr::StringLiteral, stmt::Block};
 
 #[derive(Debug)]
 pub struct Path {
-    pub segments: Vec<Ident>,
+    pub segments: Vec<PathSegment>,
     pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum PathSegment {
+    Segment(Ident),
+    Star,
 }
 
 /// Accessibility

@@ -286,7 +286,12 @@ impl SemanticAnalyzer {
         for lib in autoload_libs {
             let segments = lib
                 .iter()
-                .map(|s| Ident::new(s.to_string_lossy().to_string().into(), Span::dummy()))
+                .map(|s| {
+                    ast::top::PathSegment::Segment(Ident::new(
+                        s.to_string_lossy().to_string().into(),
+                        Span::dummy(),
+                    ))
+                })
                 .collect::<Vec<_>>();
 
             let import_ast = ast::top::TopLevel {

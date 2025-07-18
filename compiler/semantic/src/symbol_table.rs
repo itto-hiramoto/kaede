@@ -165,6 +165,10 @@ impl SymbolTable {
 
         Ok(())
     }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&Symbol, &Rc<RefCell<SymbolTableValue>>)> {
+        self.table.iter()
+    }
 }
 
 pub struct GenericArgumentTable {

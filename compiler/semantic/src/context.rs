@@ -121,6 +121,13 @@ impl ModuleContext {
         &self.symbol_table_stack
     }
 
+    pub fn get_all_symbols(&self) -> Vec<Symbol> {
+        self.symbol_table_stack
+            .iter()
+            .flat_map(|table| table.iter().map(|(symbol, _)| *symbol))
+            .collect()
+    }
+
     pub fn file_path(&self) -> FilePath {
         self.file_path
     }
