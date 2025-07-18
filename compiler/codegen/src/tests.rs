@@ -2690,3 +2690,21 @@ fn recursive_function() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn prelude() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let mut v = List<i32>::new()
+            v.push(58)
+            return match v.at(0 as u32) {
+                Option::Some(n) => n,
+                Option::None => 123,
+            }
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
