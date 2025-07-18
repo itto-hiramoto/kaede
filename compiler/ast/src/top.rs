@@ -18,6 +18,12 @@ pub enum PathSegment {
     Star,
 }
 
+impl PathSegment {
+    pub fn is_std(&self) -> bool {
+        matches!(self, PathSegment::Segment(ident) if ident.symbol().as_str() == "std")
+    }
+}
+
 /// Accessibility
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Copy)]
 pub enum Visibility {
