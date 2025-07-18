@@ -8,7 +8,7 @@ use kaede_span::file::FilePath;
 fn semantic_analyze_internal(program: &str) -> anyhow::Result<ir::CompileUnit> {
     let ast = Parser::new(program, FilePath::from(PathBuf::from("test.kd"))).run()?;
     let mut analyzer = SemanticAnalyzer::new_for_single_file_test();
-    analyzer.analyze(ast, false)
+    analyzer.analyze(ast, false, false)
 }
 
 #[allow(dead_code)]

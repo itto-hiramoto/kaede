@@ -1,0 +1,26 @@
+pub enum Any {
+    I8(i8),
+    U8(u8),
+    I32(i32),
+    U32(u32),
+    I64(i64),
+    U64(u64),
+    Bool(bool),
+    Str(str),
+}
+
+impl Any {
+    // pub fn stringify(self): string.String {
+    //     return match self {
+    //         Any::I32(n)  => n.stringify(),
+    //         Any::I8(n)   => n.stringify(),
+    //         Any::U8(n)   => n.stringify(),
+    //         Any::I32(n)  => n.stringify(),
+    //         Any::U32(n)  => n.stringify(),
+    //         Any::I64(n)  => n.stringify(),
+    //         Any::U64(n)  => n.stringify(),
+    //         Any::Bool(f) => f.stringify(),
+    //         Any::Str(s)  => string.String::from(s),
+    //     }
+    // }
+}

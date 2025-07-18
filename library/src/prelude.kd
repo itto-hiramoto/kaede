@@ -1,0 +1,10 @@
+// This file is special; it is not treated as a module and is automatically loaded into the programs
+// And this is not included in the standard library and will not be compiled
+
+import std.collections
+import std.any
+import std.option
+
+pub use std.collections.List
+pub use std.any.Any
+pub use std.option.Option

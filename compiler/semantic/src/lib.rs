@@ -13,6 +13,7 @@ use kaede_ir::{
     ty::{self as ir_type},
 };
 
+use kaede_parse::Parser;
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::{Ident, Symbol};
 use symbol_table::SymbolTableValue;
@@ -175,7 +176,12 @@ impl SemanticAnalyzer {
     ) -> Option<Rc<RefCell<SymbolTableValue>>> {
         self.modules
             .get(symbol.module_path())
-            .unwrap()
+            .unwrap_or_else(|| {
+                panic!(
+                    "Module not found: {:?}",
+                    symbol.module_path().get_module_names_from_root()
+                )
+            })
             .lookup_symbol(&symbol.symbol())
     }
 
@@ -262,6 +268,20 @@ impl SemanticAnalyzer {
         compile_unit
     }
 
+    fn insert_prelude(&mut self, compile_unit: &mut ast::CompileUnit) -> anyhow::Result<()> {
+        let prelude_file_path = FilePath::from(kaede_lib_src_dir().join("prelude.kd"));
+        let prelude_source = std::fs::read_to_string(prelude_file_path.path())?;
+
+        let prelude_ast = Parser::new(prelude_source.as_str(), prelude_file_path).run()?;
+
+        // Extend from the front
+        for top_level in prelude_ast.top_levels.into_iter().rev() {
+            compile_unit.top_levels.push_front(top_level);
+        }
+
+        Ok(())
+    }
+
     fn import_autoloads(
         &mut self,
         top_level_irs: &mut Vec<ir::top::TopLevel>,
@@ -321,8 +341,9 @@ impl SemanticAnalyzer {
 
     pub fn analyze(
         &mut self,
-        compile_unit: ast::CompileUnit,
+        mut compile_unit: ast::CompileUnit,
         no_autoload: bool,
+        no_prelude: bool,
     ) -> anyhow::Result<ir::CompileUnit> {
         let mut top_level_irs = vec![];
 
@@ -330,6 +351,10 @@ impl SemanticAnalyzer {
         let mut root_module = ModuleContext::new(FilePath::dummy());
         root_module.push_scope(SymbolTable::new());
         self.modules.insert(ModulePath::new(vec![]), root_module);
+
+        if !no_prelude {
+            self.insert_prelude(&mut compile_unit)?;
+        }
 
         if !no_autoload {
             self.import_autoloads(&mut top_level_irs)?;

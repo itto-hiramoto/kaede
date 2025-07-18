@@ -136,7 +136,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         let fn_type = self.create_fn_type(
             &decl.params.iter().map(|p| p.ty.clone()).collect::<Vec<_>>(),
             &decl.return_ty,
-            decl.is_var_args,
+            decl.is_c_variadic,
         )?;
 
         let linkage = if decl.link_once {

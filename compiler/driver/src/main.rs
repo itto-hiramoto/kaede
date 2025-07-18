@@ -52,6 +52,9 @@ struct Args {
     // Will not be used except when building standard libraries
     #[arg(long, action)]
     no_autoload: bool,
+
+    #[arg(long, action)]
+    no_prelude: bool,
 }
 
 fn to_inkwell_opt_level(level: u8) -> OptimizationLevel {
@@ -124,6 +127,7 @@ fn compile<'ctx>(
     unit_infos: Vec<CompileUnitInfo>,
     root_dir: &'ctx Path,
     no_autoload: bool,
+    no_prelude: bool,
 ) -> anyhow::Result<Module<'ctx>> {
     let mut compiled_modules = Vec::new();
 
@@ -132,7 +136,11 @@ fn compile<'ctx>(
 
         let ast = Parser::new(&unit_info.program, file).run()?;
 
-        let ir = SemanticAnalyzer::new(file, root_dir.to_path_buf()).analyze(ast, no_autoload)?;
+        let ir = SemanticAnalyzer::new(file, root_dir.to_path_buf()).analyze(
+            ast,
+            no_autoload,
+            no_prelude,
+        )?;
 
         let code_generator = CodeGenerator::new(cgcx)?;
 
@@ -215,7 +223,13 @@ fn compile_and_output_obj(
 
     let root_dir = option.root_dir.unwrap_or(PathBuf::from("."));
 
-    let module = compile(&cgcx, unit_infos, &root_dir, option.no_autoload)?;
+    let module = compile(
+        &cgcx,
+        unit_infos,
+        &root_dir,
+        option.no_autoload,
+        option.no_prelude,
+    )?;
 
     // Emit
     if option.display_llvm_ir {
@@ -235,7 +249,13 @@ fn compile_and_link(unit_infos: Vec<CompileUnitInfo>, option: CompileOption) -> 
 
     let root_dir = option.root_dir.unwrap_or(PathBuf::from("."));
 
-    let module = compile(&cgcx, unit_infos, &root_dir, option.no_autoload)?;
+    let module = compile(
+        &cgcx,
+        unit_infos,
+        &root_dir,
+        option.no_autoload,
+        option.no_prelude,
+    )?;
 
     if module.get_function("main").is_none() {
         return Err(CodegenError::MainNotFound.into());
@@ -259,6 +279,7 @@ struct CompileOption {
     output_file_path: PathBuf,
     root_dir: Option<PathBuf>,
     no_autoload: bool,
+    no_prelude: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -278,6 +299,7 @@ fn main() -> anyhow::Result<()> {
         })),
         root_dir: args.root_dir,
         no_autoload: args.no_autoload,
+        no_prelude: args.no_prelude,
     };
 
     if let Some(program) = args.program {

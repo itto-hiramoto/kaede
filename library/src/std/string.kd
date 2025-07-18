@@ -1,0 +1,14 @@
+//import collections
+//
+//use collections.List
+//
+//struct String {
+//    chars: List<u8>,
+//}
+//
+//impl String {
+//    pub fn new(): mut String {
+//        return String { chars: List<u8>::new() }
+//    }
+//}
+//

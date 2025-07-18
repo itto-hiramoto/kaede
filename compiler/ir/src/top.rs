@@ -37,7 +37,7 @@ pub struct FnDecl {
     pub link_once: bool,
     pub name: QualifiedSymbol,
     pub params: Vec<Param>,
-    pub is_var_args: bool,
+    pub is_c_variadic: bool,
     pub return_ty: Option<Rc<Ty>>,
 }
 

@@ -80,12 +80,23 @@ pub struct Param {
     pub ty: Rc<Ty>,
 }
 
+#[derive(Debug, Clone, Default)]
+pub enum VariadicKind {
+    // (a, b, ...)
+    C,
+    // (a, b, ...args)
+    Default(Ident),
+    #[default]
+    // (a, b)
+    None,
+}
+
 /// Deque because sometimes it is necessary to insert self (C++ style: this) at the front
 #[derive(Debug, Clone, Default)]
 pub struct Params {
     pub v: VecDeque<Param>,
     pub span: Span,
-    pub is_var_args: bool,
+    pub variadic: VariadicKind,
 }
 
 #[derive(Debug, Clone)]

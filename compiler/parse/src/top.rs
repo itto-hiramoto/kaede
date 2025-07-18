@@ -2,7 +2,7 @@ use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::top::{
     Bridge, Enum, EnumVariant, Extern, Fn, FnDecl, GenericParams, Impl, Import, Param, Params,
-    Path, PathSegment, Struct, StructField, TopLevel, TopLevelKind, Use, Visibility,
+    Path, PathSegment, Struct, StructField, TopLevel, TopLevelKind, Use, VariadicKind, Visibility,
 };
 use kaede_ast_type::Mutability;
 use kaede_lex::token::{Token, TokenKind};
@@ -320,17 +320,17 @@ impl Parser {
             return Ok(Params {
                 v: params,
                 span: self.new_span(span_start, span.finish),
-                is_var_args: false,
+                variadic: VariadicKind::None,
             });
         }
 
         loop {
-            if self.var_arg().is_some() {
+            if let Some(variadic) = self.vararg() {
                 let finish = self.consume(&TokenKind::CloseParen)?.finish;
                 break Ok(Params {
                     v: params,
                     span: self.new_span(span_start, finish),
-                    is_var_args: true,
+                    variadic,
                 });
             }
 
@@ -341,7 +341,7 @@ impl Parser {
                 break Ok(Params {
                     v: params,
                     span: self.new_span(span_start, finish),
-                    is_var_args: false,
+                    variadic: VariadicKind::None,
                 });
             }
         }
@@ -360,9 +360,13 @@ impl Parser {
         })
     }
 
-    fn var_arg(&mut self) -> Option<()> {
+    fn vararg(&mut self) -> Option<VariadicKind> {
         if self.consume_b(&TokenKind::DotDotDot) {
-            Some(())
+            if let Ok(ident) = self.ident() {
+                Some(VariadicKind::Default(ident))
+            } else {
+                Some(VariadicKind::C)
+            }
         } else {
             None
         }

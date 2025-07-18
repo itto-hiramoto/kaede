@@ -57,7 +57,7 @@ fn exec(program: &str) -> anyhow::Result<i32> {
     let file = PathBuf::from("test").into();
 
     let ast = Parser::new(program, file).run().unwrap();
-    let ir = SemanticAnalyzer::new_for_single_file_test().analyze(ast, false)?;
+    let ir = SemanticAnalyzer::new_for_single_file_test().analyze(ast, false, false)?;
 
     let module = CodeGenerator::new(&cgcx).unwrap().codegen(ir).unwrap();
 
@@ -2132,13 +2132,13 @@ fn generic_function_with_array_type() -> anyhow::Result<()> {
 
 #[test]
 fn generic_struct_with_single_parameter() -> anyhow::Result<()> {
-    let program = r#"struct Any<T> {
+    let program = r#"struct A<T> {
         value: T,
     }
     fn main(): i32 {
-        let any = Any<i32> { value: 58 }
+        let a = A<i32> { value: 58 }
 
-        return any.value
+        return a.value
     }"#;
 
     assert_eq!(exec(program)?, 58);
@@ -2172,7 +2172,7 @@ fn generic_struct_with_multiple_parameters() -> anyhow::Result<()> {
         apple: T1,
         ichigo: T2,
     }
-    struct Any<T> {
+    struct A<T> {
         value: T,
     }
     struct Number {
@@ -2180,7 +2180,7 @@ fn generic_struct_with_multiple_parameters() -> anyhow::Result<()> {
     }
     fn main(): i32 {
         let fr1 = Fruits<i32, i32> { apple: 48, ichigo: 10 }
-        let fr2 = Fruits<Any<i32>, Number> { apple: Any<i32> { value: 48 }, ichigo: Number { value: 10 } }
+        let fr2 = Fruits<A<i32>, Number> { apple: A<i32> { value: 48 }, ichigo: Number { value: 10 } }
 
         let fr1_sum = fr1.apple + fr1.ichigo
         let fr2_sum = fr2.apple.value + fr2.ichigo.value
@@ -2574,28 +2574,28 @@ fn generic_method() -> anyhow::Result<()> {
 
 #[test]
 fn complex_generic_struct_method() -> anyhow::Result<()> {
-    let program = r#"pub enum Option<T> {
+    let program = r#"pub enum MyOption<T> {
         Some(T),
         None,
     }
 
-    struct List<T> {
-        value: Option<T>,
-        next: Option<List<T>>,
+    struct MyList<T> {
+        value: MyOption<T>,
+        next: MyOption<MyList<T>>,
     }
 
-    impl<T> List<T> {
-        fn new(): mut List<T> {
-            return List<T> { value: Option<T>::None, next: Option<List<T>>::None }
+    impl<T> MyList<T> {
+        fn new(): mut MyList<T> {
+            return MyList<T> { value: MyOption<T>::None, next: MyOption<MyList<T>>::None }
         }
 
         fn len(self): u32 {
             return match self.next {
-                Option::Some(ne) => (1 as u32) + ne.len(),
-                Option::None => {
+                MyOption::Some(ne) => (1 as u32) + ne.len(),
+                MyOption::None => {
                     match self.value {
-                        Option::Some(_) => 1,
-                        Option::None => 0
+                        MyOption::Some(_) => 1,
+                        MyOption::None => 0
                     }
                 }
             }
@@ -2603,28 +2603,28 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
 
         fn push(mut self, elem: T) {
             match self.next {
-                Option::Some(ne) => {
+                MyOption::Some(ne) => {
                     ne.push(elem)
                 },
 
-                Option::None => {
+                MyOption::None => {
                     match self.value {
-                        Option::Some(_) => {
-                            let tmp = List<T> { value: Option<T>::Some(elem), next: Option<List<T>>::None }
-                            self.next = Option<List<T>>::Some(tmp)
+                        MyOption::Some(_) => {
+                            let tmp = MyList<T> { value: MyOption<T>::Some(elem), next: MyOption<MyList<T>>::None }
+                            self.next = MyOption<MyList<T>>::Some(tmp)
                         },
-                        Option::None => {
+                        MyOption::None => {
                             // For the first push
-                            self.value = Option<T>::Some(elem)
+                            self.value = MyOption<T>::Some(elem)
                         }
                     }
                 }
             }
         }
 
-        fn at(self, idx: u32): Option<T> {
+        fn at(self, idx: u32): MyOption<T> {
             return match self.next {
-                Option::Some(ne) => {
+                MyOption::Some(ne) => {
                     if idx == (0 as u32) {
                         self.value
                     } else {
@@ -2632,7 +2632,7 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
                     }
                 },
 
-                Option::None => {
+                MyOption::None => {
                     self.value
                 }
             }
@@ -2640,7 +2640,7 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
     }
 
     fn main(): i32 {
-        let mut v = List<i32>::new()
+        let mut v = MyList<i32>::new()
         v.push(48)
         v.push(10)
 
@@ -2655,8 +2655,8 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
             }
 
             sum = sum + match v.at(i) {
-                Option::Some(tmp) => tmp,
-                Option::None => break,
+                MyOption::Some(tmp) => tmp,
+                MyOption::None => break,
             }
 
             i = i + (1 as u32)

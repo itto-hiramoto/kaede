@@ -200,7 +200,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 lang_linkage: LangLinkage::Default,
                 link_once: false,
                 name: QualifiedSymbol::new(ModulePath::new(vec![]), name),
-                is_var_args: false,
+                is_c_variadic: false,
                 return_ty: Some(return_ty),
                 params,
             },

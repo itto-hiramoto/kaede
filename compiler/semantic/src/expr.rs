@@ -866,7 +866,7 @@ impl SemanticAnalyzer {
                     .map(|arg| self.analyze_expr(arg))
                     .collect::<anyhow::Result<Vec<_>>>()?;
 
-                if !callee_decl.is_var_args {
+                if !callee_decl.is_c_variadic {
                     self.verify_fn_call_arguments(&callee_decl, &args, node.span)?;
                 }
 

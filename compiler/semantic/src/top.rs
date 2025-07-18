@@ -516,7 +516,7 @@ impl SemanticAnalyzer {
             lang_linkage: ir::top::LangLinkage::Default,
             link_once: node.link_once,
             name: QualifiedSymbol::new(self.current_module_path().clone(), name),
-            is_var_args: node.params.is_var_args,
+            is_c_variadic: matches!(node.params.variadic, ast::top::VariadicKind::C),
             params,
             return_ty: match &node.return_ty {
                 None => None,

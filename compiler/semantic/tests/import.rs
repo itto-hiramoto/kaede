@@ -41,7 +41,7 @@ impl ImportTestProject {
             self.temp_dir.path().to_path_buf(),
         );
 
-        analyzer.analyze(ast, false)
+        analyzer.analyze(ast, false, false)
     }
 
     /// Expect analysis to fail
