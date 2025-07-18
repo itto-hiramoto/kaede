@@ -1,6 +1,6 @@
-import kaede_rust_bridge_example
+import krb_generated
 
-use kaede_rust_bridge_example.*
+use krb_generated.*
 
 fn main(): i32 {
     greetings()

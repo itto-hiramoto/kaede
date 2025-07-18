@@ -6,7 +6,7 @@ use std::{
     io::Write,
     path::{Path, PathBuf},
 };
-use syn::{File, parse_file};
+use syn::{parse_file, File};
 
 pub fn generate(input_path: &str, kaede_out_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
     let content = fs::read_to_string(input_path)?;
@@ -63,10 +63,7 @@ pub fn generate(input_path: &str, kaede_out_dir: &str) -> Result<(), Box<dyn std
 }
 
 fn create_kaede_decls_file_path(kaede_out_dir: &str) -> PathBuf {
-    let project_name = std::env::var("CARGO_PKG_NAME").unwrap();
-    let project_name = project_name.replace("-", "_");
-
-    PathBuf::from(kaede_out_dir).join(format!("{project_name}.kd"))
+    PathBuf::from(kaede_out_dir).join("krb_generated.kd")
 }
 
 fn generate_kaede_decls(
@@ -83,7 +80,6 @@ fn generate_kaede_decls(
     let out_path = create_kaede_decls_file_path(kaede_out_dir);
     let mut file = OpenOptions::new()
         .create(true)
-        
         .append(true)
         .open(out_path)
         .unwrap();
