@@ -1,11 +1,13 @@
 import kaede_rust_bridge_example
 
-fn main(): i32 {
-    kaede_rust_bridge_example.greetings()
+use kaede_rust_bridge_example.*
 
-    return if kaede_rust_bridge_example.is_even(10) {
-        kaede_rust_bridge_example.add(10, 20)
+fn main(): i32 {
+    greetings()
+
+    return if is_even(10) {
+        add(10, 20)
     } else {
-        kaede_rust_bridge_example.add(30, 40)
+        add(30, 40)
     }
 }
