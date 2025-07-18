@@ -1,11 +1,21 @@
 use proc_macro2::TokenStream;
 use quote::quote;
-use std::{fs, io::Write, path::Path};
+use std::fs::OpenOptions;
+use std::{
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
 use syn::{parse_file, File};
 
 pub fn generate(input_path: &str, kaede_out_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
     let content = fs::read_to_string(input_path)?;
     let ast: File = parse_file(&content)?;
+
+    let out_path = create_kaede_decls_file_path(kaede_out_dir);
+    if out_path.exists() {
+        fs::remove_file(out_path)?;
+    }
 
     let mut tokens = TokenStream::new();
     for item in ast.items {
@@ -52,6 +62,13 @@ pub fn generate(input_path: &str, kaede_out_dir: &str) -> Result<(), Box<dyn std
     Ok(())
 }
 
+fn create_kaede_decls_file_path(kaede_out_dir: &str) -> PathBuf {
+    let project_name = std::env::var("CARGO_PKG_NAME").unwrap();
+    let project_name = project_name.replace("-", "_");
+
+    PathBuf::from(kaede_out_dir).join(format!("{}.kd", project_name))
+}
+
 fn generate_kaede_decls(
     func: syn::ItemFn,
     kaede_out_dir: &str,
@@ -63,19 +80,28 @@ fn generate_kaede_decls(
     let inputs = &sig.inputs;
     let output = &sig.output;
 
-    let project_name = std::env::var("CARGO_PKG_NAME").unwrap();
+    let out_path = create_kaede_decls_file_path(kaede_out_dir);
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .append(true)
+        .open(out_path)
+        .unwrap();
 
-    // Convert - to _
-    let project_name = project_name.replace("-", "_");
+    let output = match output {
+        syn::ReturnType::Default => "".to_string(),
+        syn::ReturnType::Type(_, ty) => format!(": {}", quote! { #ty }),
+    };
 
-    let out_path = Path::new(kaede_out_dir).join(format!("{}.kd", project_name));
-    let mut file = fs::File::create(out_path)?;
     write!(
         file,
-        "{}",
-        quote! {
-            pub bridge "Rust" fn #name(#inputs) #output
-        }
+        "{}\n",
+        format!(
+            r#"pub bridge "Rust" fn {}({}){}"#,
+            quote! { #name },
+            quote! { #inputs },
+            output
+        )
     )?;
 
     Ok(())
