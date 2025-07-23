@@ -11,6 +11,7 @@ pub enum TokenKind {
     Int(String),
     Ident(String),
     StringLiteral(String),
+    CharLiteral(char),
 
     // Punctuators
     /// "("
@@ -136,6 +137,7 @@ impl std::fmt::Display for TokenKind {
             Int(_) => write!(f, "integer"),
             Ident(_) => write!(f, "identifier"),
             StringLiteral(_) => write!(f, "string literal"),
+            CharLiteral(_) => write!(f, "character literal"),
 
             OpenParen => write!(f, "'('"),
             CloseParen => write!(f, "')'"),

@@ -15,6 +15,11 @@ pub struct StringLiteral {
 }
 
 #[derive(Debug)]
+pub struct CharLiteral {
+    pub ch: char,
+}
+
+#[derive(Debug)]
 pub struct StructLiteral {
     pub struct_info: Rc<Struct>,
     pub values: Vec<(Symbol, Expr)>,
@@ -177,6 +182,7 @@ pub struct Variable {
 pub enum ExprKind {
     Int(Int),
     StringLiteral(StringLiteral),
+    CharLiteral(CharLiteral),
     StructLiteral(StructLiteral),
     ArrayLiteral(ArrayLiteral),
     TupleLiteral(TupleLiteral),

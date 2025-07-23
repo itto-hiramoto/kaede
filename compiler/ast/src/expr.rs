@@ -16,6 +16,12 @@ pub struct StringLiteral {
 }
 
 #[derive(Debug)]
+pub struct CharLiteral {
+    pub ch: char,
+    pub span: Span,
+}
+
+#[derive(Debug)]
 pub struct StructLiteral {
     pub struct_ty: UserDefinedType,
     pub values: Vec<(Ident, Expr)>,
@@ -237,6 +243,7 @@ impl Expr {
 pub enum ExprKind {
     Int(Int),
     StringLiteral(StringLiteral),
+    CharLiteral(CharLiteral),
     Binary(Binary),
     Ident(Ident),
     GenericIdent((Ident, GenericArgs)),

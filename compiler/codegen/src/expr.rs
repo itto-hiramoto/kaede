@@ -14,9 +14,9 @@ use inkwell::{
 use kaede_common::rust_function_prefix;
 use kaede_ir::{
     expr::{
-        ArrayLiteral, Binary, BinaryKind, Cast, Else, EnumUnpack, EnumVariant, Expr, ExprKind,
-        FieldAccess, FnCall, If, Indexing, Int, LogicalNot, Loop, StringLiteral, StructLiteral,
-        TupleIndexing, TupleLiteral, Variable,
+        ArrayLiteral, Binary, BinaryKind, Cast, CharLiteral, Else, EnumUnpack, EnumVariant, Expr,
+        ExprKind, FieldAccess, FnCall, If, Indexing, Int, LogicalNot, Loop, StringLiteral,
+        StructLiteral, TupleIndexing, TupleLiteral, Variable,
     },
     stmt::Block,
     ty::{make_fundamental_type, FundamentalType, FundamentalTypeKind, Mutability, Ty, TyKind},
@@ -43,6 +43,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             ExprKind::StructLiteral(node) => self.struct_literal(node)?,
 
             ExprKind::StringLiteral(node) => self.build_string_literal(node)?,
+
+            ExprKind::CharLiteral(node) => self.build_char_literal(node)?,
 
             ExprKind::LogicalNot(node) => self.build_logical_not(node)?,
 
@@ -332,6 +334,11 @@ impl<'ctx> CodeGenerator<'ctx> {
         )?;
 
         Ok(Some(p.into()))
+    }
+
+    fn build_char_literal(&mut self, node: &CharLiteral) -> anyhow::Result<Value<'ctx>> {
+        let char_val = self.context().i8_type().const_int(node.ch as u64, false);
+        Ok(Some(char_val.into()))
     }
 
     fn build_logical_not(&mut self, node: &LogicalNot) -> anyhow::Result<Value<'ctx>> {
