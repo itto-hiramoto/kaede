@@ -1,14 +1,40 @@
-//import collections
-//
-//use collections.List
-//
-//struct String {
-//    chars: List<u8>,
-//}
-//
-//impl String {
-//    pub fn new(): mut String {
-//        return String { chars: List<u8>::new() }
-//    }
-//}
-//
+import std.collections
+import std.option
+
+use std.collections.List
+use std.option.Option
+
+pub struct String {
+    chars: List<char>,
+}
+
+impl String {
+    pub fn new(): mut String {
+        return String { chars: List<char>::new() }
+    }
+
+    pub fn from(s: str): mut String {
+        let mut chars = List<char>::new()
+
+        let mut i = 0 as u64
+        loop {
+            if i == s.len() {
+                break
+            }
+
+            chars.push(s[i])
+
+            i = i + 1 as u64
+        }
+
+        return String { chars: chars }
+    }
+
+    pub fn at(self, idx: u32): Option<char> {
+        return self.chars.at(idx)
+    }
+
+    pub fn push(mut self, ch: char) {
+        self.chars.push(ch)
+    }
+}
