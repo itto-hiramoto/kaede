@@ -275,6 +275,15 @@ pub struct FundamentalType {
 }
 
 impl FundamentalType {
+    pub fn create_llvm_str_type<'ctx>(context: &'ctx Context) -> BasicTypeEnum<'ctx> {
+        let str_ty = context.ptr_type(AddressSpace::default());
+        let len_ty = context.i64_type();
+        // { *i8, i64 }
+        context
+            .struct_type(&[str_ty.into(), len_ty.into()], true)
+            .into()
+    }
+
     pub fn as_llvm_type<'ctx>(&self, context: &'ctx Context) -> BasicTypeEnum<'ctx> {
         use FundamentalTypeKind::*;
 
@@ -287,14 +296,7 @@ impl FundamentalType {
             U64 => context.i64_type().as_basic_type_enum(),
 
             Bool => context.bool_type().as_basic_type_enum(),
-            Str => {
-                let str_ty = context.ptr_type(AddressSpace::default());
-                let len_ty = context.i64_type();
-                // { *i8, i64 }
-                context
-                    .struct_type(&[str_ty.into(), len_ty.into()], true)
-                    .into()
-            }
+            Str => Self::create_llvm_str_type(context),
         }
     }
 

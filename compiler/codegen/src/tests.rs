@@ -2708,3 +2708,17 @@ fn prelude() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn string_indexing() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let s = "Hello, World!"
+            return s[0] as i32
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 72);
+
+    Ok(())
+}

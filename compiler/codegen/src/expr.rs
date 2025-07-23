@@ -19,7 +19,7 @@ use kaede_ir::{
         TupleIndexing, TupleLiteral, Variable,
     },
     stmt::Block,
-    ty::{make_fundamental_type, FundamentalTypeKind, Mutability, Ty, TyKind},
+    ty::{make_fundamental_type, FundamentalType, FundamentalTypeKind, Mutability, Ty, TyKind},
 };
 
 pub type Value<'ctx> = Option<BasicValueEnum<'ctx>>;
@@ -550,6 +550,14 @@ impl<'ctx> CodeGenerator<'ctx> {
                 TyKind::Reference(rty) => {
                     if matches!(rty.get_base_type().kind.as_ref(), TyKind::Array(_)) {
                         rty.get_base_type().clone()
+                    } else if matches!(
+                        rty.get_base_type().kind.as_ref(),
+                        TyKind::Fundamental(FundamentalType {
+                            kind: FundamentalTypeKind::Str,
+                            ..
+                        })
+                    ) {
+                        return self.build_string_indexing(node);
                     } else {
                         todo!("Error");
                     }
@@ -581,6 +589,50 @@ impl<'ctx> CodeGenerator<'ctx> {
         Ok(Some(self.builder.build_load(
             array_llvm_ty.get_element_type(),
             gep,
+            "",
+        )?))
+    }
+
+    fn build_string_indexing(&mut self, node: &Indexing) -> anyhow::Result<Value<'ctx>> {
+        let string_ref_value = self.build_expr(&node.operand)?.unwrap();
+
+        let string_llvm_ty = FundamentalType::create_llvm_str_type(self.context());
+
+        let index = self.build_expr(&node.index)?.unwrap();
+
+        let gep = unsafe {
+            self.builder.build_in_bounds_gep(
+                string_llvm_ty,
+                string_ref_value.into_pointer_value(),
+                &[
+                    self.context().i32_type().const_zero(),
+                    self.context().i32_type().const_zero(),
+                ],
+                "",
+            )?
+        };
+
+        let loaded = self.builder.build_load(
+            string_llvm_ty
+                .into_struct_type()
+                .get_field_type_at_index(0)
+                .unwrap(),
+            gep,
+            "",
+        )?;
+
+        let char_gep = unsafe {
+            self.builder.build_in_bounds_gep(
+                self.context().i8_type(),
+                loaded.into_pointer_value(),
+                &[index.into_int_value()],
+                "",
+            )?
+        };
+
+        Ok(Some(self.builder.build_load(
+            self.context().i8_type(),
+            char_gep,
             "",
         )?))
     }

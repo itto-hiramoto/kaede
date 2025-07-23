@@ -44,7 +44,7 @@ impl SemanticAnalyzer {
             ExprKind::Ident(node) => self.analyze_ident(node),
             ExprKind::LogicalNot(node) => self.analyze_logical_not(node),
             ExprKind::Return(node) => self.analyze_return(node),
-            ExprKind::Indexing(node) => self.analyze_arary_indexing(node),
+            ExprKind::Indexing(node) => self.analyze_array_indexing(node),
             ExprKind::FnCall(node) => self.analyze_fn_call(node),
             ExprKind::If(node) => self.analyze_if(node),
             ExprKind::Break(node) => self.analyze_break(node),
@@ -889,7 +889,7 @@ impl SemanticAnalyzer {
         }
     }
 
-    fn analyze_arary_indexing(
+    fn analyze_array_indexing(
         &mut self,
         node: &ast::expr::Indexing,
     ) -> anyhow::Result<ir::expr::Expr> {
@@ -903,17 +903,35 @@ impl SemanticAnalyzer {
             operand.span.file,
         );
 
+        let not_indexable = |ty: &ir_type::TyKind| {
+            Err(SemanticError::NotIndexable {
+                ty: ty.to_string(),
+                span,
+            }
+            .into())
+        };
+
         let elem_ty = match operand.ty.kind.as_ref() {
             ir_type::TyKind::Reference(rty) => {
                 if let ir_type::TyKind::Array((elem_ty, _)) = rty.get_base_type().kind.as_ref() {
                     elem_ty.clone()
+                } else if let ir_type::TyKind::Fundamental(fty) = rty.get_base_type().kind.as_ref()
+                {
+                    if fty.kind == ir_type::FundamentalTypeKind::Str {
+                        Rc::new(ir_type::make_fundamental_type(
+                            ir_type::FundamentalTypeKind::U8,
+                            ir_type::Mutability::Not,
+                        ))
+                    } else {
+                        return not_indexable(&operand.ty.kind);
+                    }
                 } else {
-                    return Err(SemanticError::IndexingNonArray { span }.into());
+                    return not_indexable(&operand.ty.kind);
                 }
             }
 
             _ => {
-                return Err(SemanticError::IndexingNonArray { span }.into());
+                return not_indexable(&operand.ty.kind);
             }
         };
 

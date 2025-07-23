@@ -109,8 +109,8 @@ pub enum SemanticError {
         span: Span,
     },
 
-    #[error("{}:{}:{} cannot index into a non-array", span.file, span.start.line, span.start.column)]
-    IndexingNonArray { span: Span },
+    #[error("{}:{}:{} type `{}` is not indexable", span.file, span.start.line, span.start.column, ty)]
+    NotIndexable { ty: String, span: Span },
 
     #[error("{}:{}:{} unreachable pattern", span.file, span.start.line, span.start.column)]
     UnreachablePattern { span: Span },
