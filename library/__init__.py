@@ -59,8 +59,8 @@ def install_standard_library(kaede_lib_dir):
     t1 = tempfile.NamedTemporaryFile()
     t2 = tempfile.NamedTemporaryFile()
     subprocess.run(["cargo", "run", "--release", "--", "--root-dir", os.path.join(kaede_lib_src_dir, "autoload"), "--no-autoload",
-                   "-c", "-o", t1.name, *autoload_files]).check_returncode()
-    subprocess.run(["cargo", "run", "--release", "--", "--root-dir", os.path.join(kaede_lib_src_dir, "std"), "--no-prelude",
+                    "--no-prelude", "-c", "-o", t1.name, *autoload_files]).check_returncode()
+    subprocess.run(["cargo", "run", "--release", "--", "--root-dir", os.path.join(kaede_lib_src_dir), "--no-prelude",
                    "-c", "-o", t2.name, *std_lib_files]).check_returncode()
     subprocess.run(["gcc", "-shared", "-fPIC", "-o",
                    os.path.join(kaede_lib_dir, "libkd.so"), t1.name, t2.name]).check_returncode()
