@@ -44,7 +44,7 @@ impl SemanticAnalyzer {
             ExprKind::Ident(node) => self.analyze_ident(node),
             ExprKind::LogicalNot(node) => self.analyze_logical_not(node),
             ExprKind::Return(node) => self.analyze_return(node),
-            ExprKind::Indexing(node) => self.analyze_arary_indexing(node),
+            ExprKind::Indexing(node) => self.analyze_array_indexing(node),
             ExprKind::FnCall(node) => self.analyze_fn_call(node),
             ExprKind::If(node) => self.analyze_if(node),
             ExprKind::Break(node) => self.analyze_break(node),
@@ -889,7 +889,7 @@ impl SemanticAnalyzer {
         }
     }
 
-    fn analyze_arary_indexing(
+    fn analyze_array_indexing(
         &mut self,
         node: &ast::expr::Indexing,
     ) -> anyhow::Result<ir::expr::Expr> {
