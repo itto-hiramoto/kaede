@@ -177,6 +177,7 @@ pub enum FundamentalTypeKind {
     U32,
     I64,
     U64,
+    Char,
     Bool,
     Str,
 }
@@ -192,7 +193,7 @@ impl std::fmt::Display for FundamentalTypeKind {
             U32 => write!(f, "u32"),
             I64 => write!(f, "i64"),
             U64 => write!(f, "u64"),
-
+            Char => write!(f, "char"),
             Bool => write!(f, "bool"),
             Str => write!(f, "str"),
         }
@@ -338,7 +339,7 @@ impl FundamentalType {
             U32 => context.i32_type().as_basic_type_enum(),
             I64 => context.i64_type().as_basic_type_enum(),
             U64 => context.i64_type().as_basic_type_enum(),
-
+            Char => context.i8_type().as_basic_type_enum(),
             Bool => context.bool_type().as_basic_type_enum(),
             Str => {
                 let str_ty = context.ptr_type(AddressSpace::default());
@@ -357,6 +358,7 @@ impl FundamentalType {
         match self.kind {
             I8 | I32 | I64 => true,
             U8 | U32 | U64 => false,
+            Char => true,
             Bool => false,
             Str => false,
         }
@@ -366,7 +368,7 @@ impl FundamentalType {
         use FundamentalTypeKind::*;
 
         match self.kind {
-            I8 | U8 | I32 | U32 | I64 | U64 | Bool => true,
+            I8 | U8 | I32 | U32 | I64 | U64 | Bool | Char => true,
             Str => false,
         }
     }

@@ -40,6 +40,7 @@ impl SemanticAnalyzer {
             ExprKind::False => self.analyze_boolean_literal(false, span),
             ExprKind::Block(node) => self.analyze_block_expr(node),
             ExprKind::StringLiteral(node) => self.analyze_string_literal(node),
+            ExprKind::CharLiteral(node) => self.analyze_char_literal(node),
             ExprKind::Binary(node) => self.analyze_binary(node),
             ExprKind::Ident(node) => self.analyze_ident(node),
             ExprKind::LogicalNot(node) => self.analyze_logical_not(node),
@@ -919,7 +920,7 @@ impl SemanticAnalyzer {
                 {
                     if fty.kind == ir_type::FundamentalTypeKind::Str {
                         Rc::new(ir_type::make_fundamental_type(
-                            ir_type::FundamentalTypeKind::U8,
+                            ir_type::FundamentalTypeKind::Char,
                             ir_type::Mutability::Not,
                         ))
                     } else {
@@ -1152,6 +1153,20 @@ impl SemanticAnalyzer {
                     ir_type::FundamentalTypeKind::Str,
                     ir_type::Mutability::Not,
                 )),
+                ir_type::Mutability::Not,
+            )),
+            span: node.span,
+        })
+    }
+
+    fn analyze_char_literal(
+        &self,
+        node: &ast::expr::CharLiteral,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::CharLiteral(ir::expr::CharLiteral { ch: node.ch }),
+            ty: Rc::new(ir_type::make_fundamental_type(
+                ir_type::FundamentalTypeKind::Char,
                 ir_type::Mutability::Not,
             )),
             span: node.span,

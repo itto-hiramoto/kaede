@@ -48,6 +48,7 @@ fn is_semi_insertable(token: &TokenKind) -> bool {
             | Ident(_)
             | Self_
             | StringLiteral(_)
+            | CharLiteral(_)
             | CloseParen
             | CloseBrace
             | CloseBracket

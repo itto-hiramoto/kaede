@@ -169,6 +169,12 @@ impl Cursor<'_> {
                 self.create_token(TokenKind::StringLiteral(lit))
             }
 
+            // Character literal
+            '\'' => {
+                let ch = self.char_literal();
+                self.create_token(TokenKind::CharLiteral(ch))
+            }
+
             // Punctuators
             '(' => self.create_token(TokenKind::OpenParen),
             ')' => self.create_token(TokenKind::CloseParen),
@@ -353,6 +359,42 @@ impl Cursor<'_> {
             lit.push(c);
             self.bump().unwrap();
         }
+    }
+
+    fn char_literal(&mut self) -> char {
+        let c = self.first();
+
+        // Escape sequence
+        if c == '\\' {
+            self.bump().unwrap();
+            let c = self.bump().unwrap();
+            let result = match c {
+                'n' => '\n',
+                'r' => '\r',
+                't' => '\t',
+                '\\' => '\\',
+                '\'' => '\'',
+                _ => unreachable!(),
+            };
+
+            // Consume closing quote
+            assert_eq!(self.first(), '\'');
+            self.bump().unwrap();
+            return result;
+        }
+
+        // Regular character
+        let result = c;
+        self.bump().unwrap();
+
+        // Consume closing quote
+        if self.first() == '\'' {
+            self.bump().unwrap();
+        } else {
+            todo!()
+        }
+
+        result
     }
 
     fn number(&mut self, first_digit: char) -> String {

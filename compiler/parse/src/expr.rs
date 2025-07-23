@@ -1,8 +1,9 @@
 use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::expr::{
-    Args, ArrayLiteral, Binary, BinaryKind, Break, Else, Expr, ExprKind, FnCall, If, Indexing, Int,
-    IntKind, LogicalNot, Loop, Match, MatchArm, Return, StringLiteral, StructLiteral, TupleLiteral,
+    Args, ArrayLiteral, Binary, BinaryKind, Break, CharLiteral, Else, Expr, ExprKind, FnCall, If,
+    Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, Return, StringLiteral,
+    StructLiteral, TupleLiteral,
 };
 use kaede_ast_type::{Ty, TyKind};
 use kaede_lex::token::TokenKind;
@@ -333,6 +334,10 @@ impl Parser {
             return Ok(lit);
         }
 
+        if let Some(lit) = self.char_literal() {
+            return Ok(lit);
+        }
+
         if let Some(lit) = self.boolean_literal() {
             return Ok(lit);
         }
@@ -620,6 +625,24 @@ impl Parser {
         } else {
             None
         }
+    }
+
+    fn char_literal(&mut self) -> Option<Expr> {
+        if matches!(self.first().kind, TokenKind::CharLiteral(_)) {
+            let token = self.bump().unwrap();
+
+            if let TokenKind::CharLiteral(ch) = token.kind {
+                return Some(Expr {
+                    span: token.span,
+                    kind: ExprKind::CharLiteral(CharLiteral {
+                        ch,
+                        span: token.span,
+                    }),
+                });
+            }
+        }
+
+        None
     }
 
     fn fn_call(&mut self, callee: Ty) -> ParseResult<Expr> {
