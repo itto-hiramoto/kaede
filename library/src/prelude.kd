@@ -4,7 +4,9 @@
 import std.collections
 import std.any
 import std.option
+import std.string
 
 pub use std.collections.List
 pub use std.any.Any
 pub use std.option.Option
+pub use std.string.String
