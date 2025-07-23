@@ -903,17 +903,35 @@ impl SemanticAnalyzer {
             operand.span.file,
         );
 
+        let not_indexable = |ty: &ir_type::TyKind| {
+            Err(SemanticError::NotIndexable {
+                ty: ty.to_string(),
+                span,
+            }
+            .into())
+        };
+
         let elem_ty = match operand.ty.kind.as_ref() {
             ir_type::TyKind::Reference(rty) => {
                 if let ir_type::TyKind::Array((elem_ty, _)) = rty.get_base_type().kind.as_ref() {
                     elem_ty.clone()
+                } else if let ir_type::TyKind::Fundamental(fty) = rty.get_base_type().kind.as_ref()
+                {
+                    if fty.kind == ir_type::FundamentalTypeKind::Str {
+                        Rc::new(ir_type::make_fundamental_type(
+                            ir_type::FundamentalTypeKind::U8,
+                            ir_type::Mutability::Not,
+                        ))
+                    } else {
+                        return not_indexable(&operand.ty.kind);
+                    }
                 } else {
-                    return Err(SemanticError::IndexingNonArray { span }.into());
+                    return not_indexable(&operand.ty.kind);
                 }
             }
 
             _ => {
-                return Err(SemanticError::IndexingNonArray { span }.into());
+                return not_indexable(&operand.ty.kind);
             }
         };
 
