@@ -621,20 +621,21 @@ impl<'ctx> CodeGenerator<'ctx> {
             "",
         )?;
 
+        let char_llvm_ty = self.conv_to_llvm_type(&make_fundamental_type(
+            FundamentalTypeKind::Char,
+            Mutability::Not,
+        ));
+
         let char_gep = unsafe {
             self.builder.build_in_bounds_gep(
-                self.context().i8_type(),
+                char_llvm_ty,
                 loaded.into_pointer_value(),
                 &[index.into_int_value()],
                 "",
             )?
         };
 
-        Ok(Some(self.builder.build_load(
-            self.context().i8_type(),
-            char_gep,
-            "",
-        )?))
+        Ok(Some(self.builder.build_load(char_llvm_ty, char_gep, "")?))
     }
 
     fn build_arithmetic_binary(&mut self, node: &Binary) -> anyhow::Result<Value<'ctx>> {

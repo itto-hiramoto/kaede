@@ -166,6 +166,7 @@ pub enum FundamentalTypeKind {
     U64,
     Bool,
     Str,
+    Char,
 }
 
 impl std::fmt::Display for FundamentalTypeKind {
@@ -182,6 +183,7 @@ impl std::fmt::Display for FundamentalTypeKind {
 
             Bool => write!(f, "bool"),
             Str => write!(f, "str"),
+            Char => write!(f, "char"),
         }
     }
 }
@@ -294,7 +296,7 @@ impl FundamentalType {
             U32 => context.i32_type().as_basic_type_enum(),
             I64 => context.i64_type().as_basic_type_enum(),
             U64 => context.i64_type().as_basic_type_enum(),
-
+            Char => context.i8_type().as_basic_type_enum(),
             Bool => context.bool_type().as_basic_type_enum(),
             Str => Self::create_llvm_str_type(context),
         }
@@ -308,6 +310,7 @@ impl FundamentalType {
             U8 | U32 | U64 => false,
             Bool => false,
             Str => false,
+            Char => true,
         }
     }
 
@@ -315,7 +318,7 @@ impl FundamentalType {
         use FundamentalTypeKind::*;
 
         match self.kind {
-            I8 | U8 | I32 | U32 | I64 | U64 | Bool => true,
+            I8 | U8 | I32 | U32 | I64 | U64 | Bool | Char => true,
             Str => false,
         }
     }

@@ -919,7 +919,7 @@ impl SemanticAnalyzer {
                 {
                     if fty.kind == ir_type::FundamentalTypeKind::Str {
                         Rc::new(ir_type::make_fundamental_type(
-                            ir_type::FundamentalTypeKind::U8,
+                            ir_type::FundamentalTypeKind::Char,
                             ir_type::Mutability::Not,
                         ))
                     } else {

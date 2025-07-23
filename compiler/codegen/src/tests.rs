@@ -2722,3 +2722,21 @@ fn string_indexing() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn char_type() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let c1 = 'a'
+            let c2 = "abc"[0]
+            if c1 == c2 {
+                return 123
+            }
+            return 256
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 123);
+
+    Ok(())
+}
