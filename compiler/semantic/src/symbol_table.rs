@@ -2,6 +2,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use kaede_ir::{
     module_path::ModulePath,
+    qualified_symbol::QualifiedSymbol,
     ty::{self as ir_type},
 };
 use kaede_span::Span;
@@ -104,6 +105,7 @@ pub enum SymbolTableValueKind {
     Struct(Rc<ir::top::Struct>),
     Enum(Rc<ir::top::Enum>),
     Generic(Box<GenericInfo>),
+    Placeholder(QualifiedSymbol),
 }
 
 #[derive(Debug)]
@@ -159,7 +161,11 @@ impl SymbolTable {
         value: Rc<RefCell<SymbolTableValue>>,
         span: Span,
     ) -> anyhow::Result<()> {
-        if self.table.insert(symbol, value).is_some() {
+        if let Some(existing) = self.table.insert(symbol, value) {
+            if let SymbolTableValueKind::Placeholder(_) = existing.borrow().kind {
+                return Ok(());
+            }
+
             return Err(SemanticError::AlreadyDeclared { name: symbol, span }.into());
         }
 

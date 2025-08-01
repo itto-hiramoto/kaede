@@ -2787,3 +2787,41 @@ fn match_with_catch_all() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn recursive_field_type_on_struct() -> anyhow::Result<()> {
+    let program = r#"
+        struct A {
+            a: Option<A>,
+        }
+
+        fn main(): i32 {
+            let a = A { a: Option<A>::None }
+            return 123
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 123);
+
+    Ok(())
+}
+
+#[test]
+fn recursive_field_type_on_enum() -> anyhow::Result<()> {
+    let program = r#"
+        enum E {
+            A,
+            B,
+            C(Option<E>),
+        }
+
+        fn main(): i32 {
+            let e = E::C(Option<E>::None)
+            return 123
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 123);
+
+    Ok(())
+}

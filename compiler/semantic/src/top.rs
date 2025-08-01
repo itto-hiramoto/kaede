@@ -574,6 +574,15 @@ impl SemanticAnalyzer {
             return Ok(TopLevelAnalysisResult::GenericTopLevel);
         }
 
+        let qualified_name = QualifiedSymbol::new(self.current_module_path().clone(), name);
+
+        // This placeholder allows recursive struct definitions
+        let symbol_table_value = SymbolTableValue::new(
+            SymbolTableValueKind::Placeholder(qualified_name.clone()),
+            self,
+        );
+        self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)?;
+
         let fields = node
             .fields
             .into_iter()
@@ -587,7 +596,7 @@ impl SemanticAnalyzer {
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         let ir = Rc::new(ir::top::Struct {
-            name: QualifiedSymbol::new(self.current_module_path().clone(), name),
+            name: qualified_name,
             fields,
         });
 
@@ -625,6 +634,15 @@ impl SemanticAnalyzer {
             return Ok(TopLevelAnalysisResult::GenericTopLevel);
         }
 
+        let qualified_name = QualifiedSymbol::new(self.current_module_path().clone(), name);
+
+        // This placeholder allows recursive enum definitions
+        let symbol_table_value = SymbolTableValue::new(
+            SymbolTableValueKind::Placeholder(qualified_name.clone()),
+            self,
+        );
+        self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)?;
+
         let variants = node
             .variants
             .into_iter()
@@ -641,7 +659,7 @@ impl SemanticAnalyzer {
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         let ir = Rc::new(ir::top::Enum {
-            name: QualifiedSymbol::new(self.current_module_path().clone(), name),
+            name: qualified_name,
             variants,
         });
 
