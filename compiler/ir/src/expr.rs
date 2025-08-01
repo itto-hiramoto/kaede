@@ -179,6 +179,11 @@ pub struct Variable {
 }
 
 #[derive(Debug)]
+pub enum BuiltinFnCallKind {
+    Unreachable,
+}
+
+#[derive(Debug)]
 pub enum ExprKind {
     Int(Int),
     StringLiteral(StringLiteral),
@@ -201,6 +206,7 @@ pub enum ExprKind {
     Loop(Loop),
     Break,
     Block(Block),
+    BuiltinFnCall(BuiltinFnCallKind),
 }
 
 #[derive(Debug)]

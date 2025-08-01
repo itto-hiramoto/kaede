@@ -85,7 +85,9 @@ impl SemanticAnalyzer {
                 .modules
                 .get_mut(&current_module_path)
                 .unwrap()
-                .bind_symbol(name, symbol, ast::top::Visibility::Public, node.span)
+                .bind_symbol(name, symbol, ast::top::Visibility::Public);
+
+            Ok(())
         };
 
         match node.path.segments.last().unwrap() {
@@ -191,13 +193,24 @@ impl SemanticAnalyzer {
         module_context.push_scope(SymbolTable::new());
         self.modules.insert(module_path.clone(), module_context);
 
-        let parsed_module = Parser::new(&fs::read_to_string(path.path()).unwrap(), path)
+        let mut parsed_module = Parser::new(&fs::read_to_string(path.path()).unwrap(), path)
             .run()
             .unwrap();
 
+        if !self.context.no_prelude()
+            && module_path
+                .get_module_names_from_root()
+                .first()
+                .unwrap()
+                .as_str()
+                != "std"
+        {
+            self.insert_prelude(&mut parsed_module)?;
+        }
+
         let mut top_level_irs = vec![];
 
-        self.with_module(module_path, |analyzer| {
+        self.with_module(module_path.clone(), |analyzer| {
             use ast::top::TopLevelKind;
 
             for top_level in parsed_module.top_levels {

@@ -97,6 +97,9 @@ impl SemanticAnalyzer {
                 table.dump();
             }
             eprintln!("---------------------");
+            eprintln!("--- Private symbol table ---");
+            module_context.get_private_symbol_table().dump();
+            eprintln!("---------------------");
         }
     }
 
@@ -303,40 +306,42 @@ impl SemanticAnalyzer {
             .filter(|path| path.is_file() && path.extension().is_some_and(|e| e == "kd")) // Exclude non-source files
             .collect::<Vec<_>>();
 
-        for lib in autoload_libs {
-            let segments = lib
-                .iter()
-                .map(|s| {
-                    ast::top::PathSegment::Segment(Ident::new(
-                        s.to_string_lossy().to_string().into(),
-                        Span::dummy(),
-                    ))
-                })
-                .collect::<Vec<_>>();
+        self.with_no_prelude(|analyzer| {
+            for lib in autoload_libs {
+                let segments = lib
+                    .iter()
+                    .map(|s| {
+                        ast::top::PathSegment::Segment(Ident::new(
+                            s.to_string_lossy().to_string().into(),
+                            Span::dummy(),
+                        ))
+                    })
+                    .collect::<Vec<_>>();
 
-            let import_ast = ast::top::TopLevel {
-                kind: ast::top::TopLevelKind::Import(ast::top::Import {
-                    module_path: ast::top::Path {
-                        segments,
+                let import_ast = ast::top::TopLevel {
+                    kind: ast::top::TopLevelKind::Import(ast::top::Import {
+                        module_path: ast::top::Path {
+                            segments,
+                            span: Span::dummy(),
+                        },
                         span: Span::dummy(),
-                    },
+                    }),
                     span: Span::dummy(),
-                }),
-                span: Span::dummy(),
-            };
+                };
 
-            let import_ir = self.analyze_top_level(import_ast)?;
+                let import_ir = analyzer.analyze_top_level(import_ast)?;
 
-            if let TopLevelAnalysisResult::Imported(imported_irs) = import_ir {
-                imported_irs.iter().for_each(|top_level| {
-                    top_level_irs.push(top_level.clone());
-                });
-            } else {
-                unreachable!("{:?}", import_ir);
+                if let TopLevelAnalysisResult::Imported(imported_irs) = import_ir {
+                    imported_irs.iter().for_each(|top_level| {
+                        top_level_irs.push(top_level.clone());
+                    });
+                } else {
+                    unreachable!("{:?}", import_ir);
+                }
             }
-        }
 
-        Ok(())
+            Ok(())
+        })
     }
 
     pub fn analyze(
@@ -351,6 +356,8 @@ impl SemanticAnalyzer {
         let mut root_module = ModuleContext::new(FilePath::dummy());
         root_module.push_scope(SymbolTable::new());
         self.modules.insert(ModulePath::new(vec![]), root_module);
+
+        self.context.set_no_prelude(no_prelude);
 
         if !no_prelude {
             self.insert_prelude(&mut compile_unit)?;

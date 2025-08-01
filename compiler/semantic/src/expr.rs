@@ -845,7 +845,37 @@ impl SemanticAnalyzer {
         })
     }
 
+    fn analyze_builtin_fn_call(
+        &mut self,
+        node: &ast::expr::FnCall,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        match node.callee.symbol().as_str() {
+            "__unreachable" => {
+                Ok(ir::expr::Expr {
+                    kind: ir::expr::ExprKind::BuiltinFnCall(
+                        ir::expr::BuiltinFnCallKind::Unreachable,
+                    ),
+                    ty: Rc::new(ir_type::Ty::new_never()),
+                    span: node.span,
+                })
+            }
+
+            _ => {
+                Err(SemanticError::Undeclared {
+                    name: node.callee.symbol(),
+                    span: node.span,
+                }
+                .into())
+            }
+        }
+    }
+
     fn analyze_fn_call(&mut self, node: &ast::expr::FnCall) -> anyhow::Result<ir::expr::Expr> {
+        // Builtin functions
+        if node.callee.symbol().as_str().starts_with("__") {
+            return self.analyze_builtin_fn_call(node);
+        }
+
         let symbol_value =
             self.lookup_symbol(node.callee.symbol())
                 .ok_or_else(|| SemanticError::Undeclared {

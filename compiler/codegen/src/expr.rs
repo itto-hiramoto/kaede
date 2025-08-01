@@ -14,9 +14,9 @@ use inkwell::{
 use kaede_common::rust_function_prefix;
 use kaede_ir::{
     expr::{
-        ArrayLiteral, Binary, BinaryKind, Cast, CharLiteral, Else, EnumUnpack, EnumVariant, Expr,
-        ExprKind, FieldAccess, FnCall, If, Indexing, Int, LogicalNot, Loop, StringLiteral,
-        StructLiteral, TupleIndexing, TupleLiteral, Variable,
+        ArrayLiteral, Binary, BinaryKind, BuiltinFnCallKind, Cast, CharLiteral, Else, EnumUnpack,
+        EnumVariant, Expr, ExprKind, FieldAccess, FnCall, If, Indexing, Int, LogicalNot, Loop,
+        StringLiteral, StructLiteral, TupleIndexing, TupleLiteral, Variable,
     },
     stmt::Block,
     ty::{make_fundamental_type, FundamentalType, FundamentalTypeKind, Mutability, Ty, TyKind},
@@ -69,7 +69,18 @@ impl<'ctx> CodeGenerator<'ctx> {
             ExprKind::TupleIndexing(node) => self.build_tuple_indexing(node)?,
 
             ExprKind::EnumVariant(node) => self.build_enum_variant(node)?,
+
+            ExprKind::BuiltinFnCall(node) => self.build_builtin_fn_call(node)?,
         })
+    }
+
+    fn build_builtin_fn_call(&mut self, node: &BuiltinFnCallKind) -> anyhow::Result<Value<'ctx>> {
+        match node {
+            BuiltinFnCallKind::Unreachable => {
+                self.builder.build_unreachable()?;
+                Ok(None)
+            }
+        }
     }
 
     fn build_int(&self, int: &Int) -> anyhow::Result<Value<'ctx>> {

@@ -15,6 +15,7 @@ pub struct AnalysisContext {
     module_path: ModulePath,
     is_inside_loop: bool,
     current_function: Vec<Option<Rc<ir::top::FnDecl>>>,
+    no_prelude: bool,
 }
 
 impl Default for AnalysisContext {
@@ -29,7 +30,16 @@ impl AnalysisContext {
             module_path: ModulePath::new(vec![]),
             is_inside_loop: false,
             current_function: vec![None],
+            no_prelude: false,
         }
+    }
+
+    pub fn set_no_prelude(&mut self, no_prelude: bool) {
+        self.no_prelude = no_prelude;
+    }
+
+    pub fn no_prelude(&self) -> bool {
+        self.no_prelude
     }
 
     pub fn set_current_function(&mut self, function: Rc<ir::top::FnDecl>) {
@@ -93,6 +103,17 @@ impl SemanticAnalyzer {
         result
     }
 
+    pub fn with_no_prelude<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        let old_no_prelude = self.context.no_prelude;
+        self.context.no_prelude = true;
+        let result = f(self);
+        self.context.no_prelude = old_no_prelude;
+        result
+    }
+
     pub fn is_inside_loop(&self) -> bool {
         self.context.is_inside_loop
     }
@@ -119,6 +140,11 @@ impl ModuleContext {
     #[allow(dead_code)]
     pub fn get_symbol_tables(&self) -> &[SymbolTable] {
         &self.symbol_table_stack
+    }
+
+    #[allow(dead_code)]
+    pub fn get_private_symbol_table(&self) -> &SymbolTable {
+        &self.private_symbol_table
     }
 
     pub fn get_all_symbols(&self) -> Vec<Symbol> {
@@ -227,15 +253,14 @@ impl ModuleContext {
         symbol: Symbol,
         value: Rc<RefCell<SymbolTableValue>>,
         vis: Visibility,
-        span: Span,
-    ) -> anyhow::Result<()> {
+    ) {
         if vis.is_private() {
-            self.private_symbol_table.insert(symbol, value, span)
+            self.private_symbol_table.bind(symbol, value)
         } else {
             self.symbol_table_stack
                 .first_mut()
                 .unwrap()
-                .insert(symbol, value, span)
+                .bind(symbol, value)
         }
     }
 

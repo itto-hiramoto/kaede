@@ -166,6 +166,11 @@ impl SymbolTable {
         Ok(())
     }
 
+    // Accepts already declared symbols
+    pub fn bind(&mut self, symbol: Symbol, value: Rc<RefCell<SymbolTableValue>>) {
+        self.table.insert(symbol, value);
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (&Symbol, &Rc<RefCell<SymbolTableValue>>)> {
         self.table.iter()
     }
