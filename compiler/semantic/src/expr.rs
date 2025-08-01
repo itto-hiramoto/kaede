@@ -198,7 +198,13 @@ impl SemanticAnalyzer {
         node: &ast::expr::Match,
         enum_ir: &ir::top::Enum,
     ) -> anyhow::Result<()> {
-        // If there is a catch-all arm, we don't need to check exhaustiveness
+        // Check if there are only catch-all arms (which is not allowed)
+        let non_catch_all_count = node.arms.iter().filter(|arm| !arm.is_catch_all).count();
+        if non_catch_all_count == 0 {
+            return Err(SemanticError::MatchMustHaveNonCatchAllArm { span: node.span }.into());
+        }
+
+        // If there is a catch-all arm, we don't need to check exhaustiveness for specific patterns
         if node.arms.iter().any(|arm| arm.is_catch_all) {
             return Ok(());
         }
@@ -285,7 +291,13 @@ impl SemanticAnalyzer {
         arms: &[ast::expr::MatchArm],
         span: Span,
     ) -> anyhow::Result<()> {
-        // If there is a catch-all arm, we don't need to check exhaustiveness
+        // Check if there are only catch-all arms (which is not allowed)
+        let non_catch_all_count = arms.iter().filter(|arm| !arm.is_catch_all).count();
+        if non_catch_all_count == 0 {
+            return Err(SemanticError::MatchMustHaveNonCatchAllArm { span }.into());
+        }
+
+        // If there is a catch-all arm, we don't need to check exhaustiveness for specific patterns
         if arms.iter().any(|arm| arm.is_catch_all) {
             return Ok(());
         }
@@ -480,11 +492,16 @@ impl SemanticAnalyzer {
                 None
             }
         } else {
+            // Include catch-all arm in recursive call
+            let mut remaining_with_catch_all = remaining_arms.to_vec();
+            if let Some(catch_all) = catch_all_arm {
+                remaining_with_catch_all.push(catch_all);
+            }
             Some(
                 ir::expr::Else::If(self.conv_match_arms_on_enum_to_if(
                     enum_ir.clone(),
                     target.clone(),
-                    remaining_arms,
+                    &remaining_with_catch_all,
                 )?)
                 .into(),
             )
@@ -592,9 +609,16 @@ impl SemanticAnalyzer {
                 None
             }
         } else {
+            // Include catch-all arm in recursive call
+            let mut remaining_with_catch_all = remaining_arms.to_vec();
+            if let Some(catch_all) = catch_all_arm {
+                remaining_with_catch_all.push(catch_all);
+            }
             Some(
-                ir::expr::Else::If(self.conv_match_arms_on_int_to_if(target, remaining_arms)?)
-                    .into(),
+                ir::expr::Else::If(
+                    self.conv_match_arms_on_int_to_if(target, &remaining_with_catch_all)?,
+                )
+                .into(),
             )
         };
 
@@ -850,23 +874,17 @@ impl SemanticAnalyzer {
         node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
         match node.callee.symbol().as_str() {
-            "__unreachable" => {
-                Ok(ir::expr::Expr {
-                    kind: ir::expr::ExprKind::BuiltinFnCall(
-                        ir::expr::BuiltinFnCallKind::Unreachable,
-                    ),
-                    ty: Rc::new(ir_type::Ty::new_never()),
-                    span: node.span,
-                })
-            }
+            "__unreachable" => Ok(ir::expr::Expr {
+                kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCallKind::Unreachable),
+                ty: Rc::new(ir_type::Ty::new_never()),
+                span: node.span,
+            }),
 
-            _ => {
-                Err(SemanticError::Undeclared {
-                    name: node.callee.symbol(),
-                    span: node.span,
-                }
-                .into())
+            _ => Err(SemanticError::Undeclared {
+                name: node.callee.symbol(),
+                span: node.span,
             }
+            .into()),
         }
     }
 

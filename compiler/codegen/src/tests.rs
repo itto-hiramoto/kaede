@@ -2740,3 +2740,50 @@ fn char_type() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn match_with_catch_all_and_non_catch_all() {
+    let program = r#"
+        fn main(): i32 {
+            let n = 123
+            return match n {
+                _ => 124
+            }
+        }
+    "#;
+
+    assert!(matches!(
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::MatchMustHaveNonCatchAllArm { .. }
+    ));
+}
+
+#[test]
+fn match_with_catch_all() -> anyhow::Result<()> {
+    let program = r#"
+        enum E {
+            A,
+            B,
+            C,
+        }
+
+        fn f(): i32 {
+            return 123
+        }
+
+        fn main(): i32 {
+            let e = E::C
+            return match e {
+                E::A => 124,
+                E::B => 125,
+                _ => {
+                    return f()
+                }
+            }
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 123);
+
+    Ok(())
+}

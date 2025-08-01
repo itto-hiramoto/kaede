@@ -273,3 +273,60 @@ fn enum_variant() -> anyhow::Result<()> {
     )?;
     Ok(())
 }
+
+#[test]
+fn match_catch_all_only_int_error() -> anyhow::Result<()> {
+    semantic_analyze_expect_error(
+        "fn f(): i32 {
+            let x = 42
+            return match x {
+                _ => 1
+            }
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn match_catch_all_only_enum_error() -> anyhow::Result<()> {
+    semantic_analyze_expect_error(
+        "enum Foo { A, B }
+        fn f(): i32 {
+            let x = Foo::A
+            return match x {
+                _ => 1
+            }
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn match_catch_all_undefined_function_int_error() -> anyhow::Result<()> {
+    semantic_analyze_expect_error(
+        "fn f(): i32 {
+            let x = 42
+            return match x {
+                1 => 10,
+                2 => 20,
+                _ => g()  // g() is undefined
+            }
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn match_catch_all_undefined_function_enum_error() -> anyhow::Result<()> {
+    semantic_analyze_expect_error(
+        "enum Foo { A, B }
+        fn f(): i32 {
+            let x = Foo::A
+            return match x {
+                Foo::A => 10,
+                _ => g()  // g() is undefined
+            }
+        }",
+    )?;
+    Ok(())
+}

@@ -121,6 +121,9 @@ pub enum SemanticError {
     #[error("{}:{}:{} match not exhaustive: {} not covered", span.file, span.start.line, span.start.column, variant_name)]
     MatchNotExhaustive { variant_name: Symbol, span: Span },
 
+    #[error("{}:{}:{} match must have at least one non-catch-all arm", span.file, span.start.line, span.start.column)]
+    MatchMustHaveNonCatchAllArm { span: Span },
+
     #[error("{}:{}:{} duplicate pattern: {}", span.file, span.start.line, span.start.column, variant_name)]
     DuplicatePattern { variant_name: Symbol, span: Span },
 
