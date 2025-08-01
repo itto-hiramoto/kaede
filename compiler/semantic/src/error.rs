@@ -7,6 +7,9 @@ pub enum SemanticError {
     #[error("{}:{}:{} `{}` was not declared in this scope", span.file, span.start.line, span.start.column, .name)]
     Undeclared { name: Symbol, span: Span },
 
+    #[error("{}:{}:{} invalid types for arithmetic operation: `{}` and `{}`", span.file, span.start.line, span.start.column, types.0, types.1)]
+    InvalidTypeForArithmeticOperation { types: (String, String), span: Span },
+
     #[error("{}:{}:{} generic argument length mismatch: {} vs {}", span.file, span.start.line, span.start.column, .expected, .actual)]
     GenericArgumentLengthMismatch {
         expected: usize,

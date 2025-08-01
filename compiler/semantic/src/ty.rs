@@ -7,6 +7,7 @@ use kaede_ir::{self as ir, qualified_symbol::QualifiedSymbol};
 use kaede_span::Span;
 use kaede_symbol::Ident;
 
+use crate::context::AnalyzeCommand;
 use crate::{
     error::SemanticError,
     symbol_table::{GenericKind, SymbolTableValueKind},
@@ -394,7 +395,10 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<Rc<ir_type::Ty>> {
         // If this is a generic type, the type is generated here.
         if udt.generic_args.is_some() {
-            return self.create_generic_type(udt);
+            // Generic methods must be defined, so NoCommand
+            return self.with_analyze_command(AnalyzeCommand::NoCommand, |analyzer| {
+                analyzer.create_generic_type(udt)
+            });
         }
 
         if let Some(generic_arg) = self.lookup_generic_argument(udt.name.symbol()) {

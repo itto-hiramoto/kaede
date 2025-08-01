@@ -10,12 +10,20 @@ use crate::{
     SemanticAnalyzer,
 };
 
+#[derive(Debug, Clone, Copy)]
+pub enum AnalyzeCommand {
+    OnlyFnDeclare,
+    WithoutFnDeclare,
+    NoCommand,
+}
+
 #[derive(Debug, Clone)]
 pub struct AnalysisContext {
     module_path: ModulePath,
     is_inside_loop: bool,
     current_function: Vec<Option<Rc<ir::top::FnDecl>>>,
     no_prelude: bool,
+    analyze_command: AnalyzeCommand,
 }
 
 impl Default for AnalysisContext {
@@ -31,6 +39,7 @@ impl AnalysisContext {
             is_inside_loop: false,
             current_function: vec![None],
             no_prelude: false,
+            analyze_command: AnalyzeCommand::NoCommand,
         }
     }
 
@@ -56,6 +65,10 @@ impl AnalysisContext {
 
     pub fn set_module_path(&mut self, path: ModulePath) {
         self.module_path = path;
+    }
+
+    pub fn analyze_command(&self) -> AnalyzeCommand {
+        self.analyze_command
     }
 }
 
@@ -116,6 +129,17 @@ impl SemanticAnalyzer {
 
     pub fn is_inside_loop(&self) -> bool {
         self.context.is_inside_loop
+    }
+
+    pub fn with_analyze_command<F, R>(&mut self, command: AnalyzeCommand, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        let old_command = self.context.analyze_command;
+        self.context.analyze_command = command;
+        let result = f(self);
+        self.context.analyze_command = old_command;
+        result
     }
 }
 

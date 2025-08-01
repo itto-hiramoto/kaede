@@ -108,6 +108,20 @@ impl Ty {
         }
     }
 
+    pub fn is_enum(&self) -> bool {
+        match self.kind.as_ref() {
+            TyKind::Reference(rty) => {
+                matches!(
+                    rty.get_base_type().kind.as_ref(),
+                    TyKind::UserDefined(UserDefinedType {
+                        kind: UserDefinedTypeKind::Enum(_),
+                    })
+                )
+            }
+            _ => false,
+        }
+    }
+
     pub fn is_str(&self) -> bool {
         if let TyKind::Reference(rty) = self.kind.as_ref() {
             if let TyKind::Fundamental(fty) = rty.refee_ty.kind.as_ref() {
@@ -262,11 +276,25 @@ impl TyKind {
 
     pub fn is_int_or_bool(&self) -> bool {
         match &self {
-            Self::Fundamental(fty) => fty.is_int_or_bool(),
+            Self::Fundamental(fty) => fty.is_int_or_char_or_bool(),
             Self::UserDefined(_) => todo!(),
             Self::Reference(ty) => ty.refee_ty.kind.is_int_or_bool(),
 
             Self::Array(_) | Self::Tuple(_) | Self::Pointer(_) | Self::Unit | Self::Never => false,
+        }
+    }
+
+    pub fn can_be_arithmetic_operand(&self) -> bool {
+        match &self {
+            Self::Fundamental(fty) => fty.can_be_arithmetic_operand(),
+            Self::Reference(ty) => ty.refee_ty.kind.can_be_arithmetic_operand(),
+
+            Self::UserDefined(_)
+            | Self::Array(_)
+            | Self::Tuple(_)
+            | Self::Pointer(_)
+            | Self::Unit
+            | Self::Never => false,
         }
     }
 }
@@ -314,11 +342,21 @@ impl FundamentalType {
         }
     }
 
-    pub fn is_int_or_bool(&self) -> bool {
+    pub fn is_int_or_char_or_bool(&self) -> bool {
         use FundamentalTypeKind::*;
 
         match self.kind {
             I8 | U8 | I32 | U32 | I64 | U64 | Bool | Char => true,
+            Str => false,
+        }
+    }
+
+    pub fn can_be_arithmetic_operand(&self) -> bool {
+        use FundamentalTypeKind::*;
+
+        match self.kind {
+            I8 | U8 | I32 | U32 | I64 | U64 | Char => true,
+            Bool => true,
             Str => false,
         }
     }

@@ -5,7 +5,7 @@ use std::{
 };
 
 use crate::{
-    context::ModuleContext,
+    context::{AnalyzeCommand, ModuleContext},
     symbol_table::{
         GenericEnumInfo, GenericFuncInfo, GenericImplInfo, GenericInfo, GenericKind,
         GenericStructInfo, SymbolTable, SymbolTableValue, SymbolTableValueKind, VariableInfo,
@@ -438,7 +438,7 @@ impl SemanticAnalyzer {
         }
     }
 
-    fn analyze_fn(&mut self, node: ast::top::Fn) -> anyhow::Result<TopLevelAnalysisResult> {
+    pub fn analyze_fn(&mut self, node: ast::top::Fn) -> anyhow::Result<TopLevelAnalysisResult> {
         assert_eq!(node.decl.self_, None);
 
         let vis = node.decl.vis;
@@ -473,7 +473,33 @@ impl SemanticAnalyzer {
     pub fn analyze_fn_internal(&mut self, node: ast::top::Fn) -> anyhow::Result<Rc<ir::top::Fn>> {
         assert_eq!(node.decl.self_, None);
 
-        let fn_decl = self.analyze_fn_decl(node.decl)?;
+        let fn_decl = if let AnalyzeCommand::WithoutFnDeclare = self.context.analyze_command() {
+            // Lookup the function declaration from the symbol table
+            let symbol_table_value =
+                self.lookup_symbol(node.decl.name.symbol())
+                    .ok_or(SemanticError::Undeclared {
+                        name: node.decl.name.symbol(),
+                        span: node.span,
+                    })?;
+
+            let borrowed = symbol_table_value.borrow();
+            match &borrowed.kind {
+                SymbolTableValueKind::Function(fn_decl) => fn_decl.as_ref().clone(),
+                _ => unreachable!(),
+            }
+        } else {
+            self.analyze_fn_decl(node.decl)?
+        };
+
+        if matches!(
+            self.context.analyze_command(),
+            AnalyzeCommand::OnlyFnDeclare
+        ) {
+            return Ok(Rc::new(ir::top::Fn {
+                decl: fn_decl,
+                body: None,
+            }));
+        }
 
         self.context.set_current_function(Rc::new(fn_decl.clone()));
 

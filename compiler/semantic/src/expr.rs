@@ -302,7 +302,7 @@ impl SemanticAnalyzer {
             return Ok(());
         }
 
-        assert!(fty.is_int_or_bool());
+        assert!(fty.is_int_or_char_or_bool());
 
         if fty.kind == ir_type::FundamentalTypeKind::Bool {
             let mut has_true = false;
@@ -637,7 +637,7 @@ impl SemanticAnalyzer {
         value: Rc<ir::expr::Expr>,
         fty: &ir_type::FundamentalType,
     ) -> anyhow::Result<ir::expr::Expr> {
-        if !fty.is_int_or_bool() {
+        if !fty.is_int_or_char_or_bool() {
             return Err(SemanticError::MatchCannotBeUsedWithValueOfType {
                 ty: value.ty.kind.to_string(),
                 span: node.span,

@@ -31,7 +31,10 @@ use kaede_ast::{self as ast, top::Visibility};
 use kaede_ir as ir;
 pub use top::TopLevelAnalysisResult;
 
-use crate::{context::ModuleContext, symbol_table::SymbolTable};
+use crate::{
+    context::{AnalyzeCommand, ModuleContext},
+    symbol_table::SymbolTable,
+};
 
 pub struct SemanticAnalyzer {
     modules: HashMap<ModulePath, ModuleContext>,
@@ -271,7 +274,36 @@ impl SemanticAnalyzer {
         compile_unit
     }
 
-    fn insert_prelude(&mut self, compile_unit: &mut ast::CompileUnit) -> anyhow::Result<()> {
+    fn analyze_prelude(
+        &mut self,
+        top_level_irs: &mut Vec<ir::top::TopLevel>,
+    ) -> anyhow::Result<()> {
+        let prelude_file_path = FilePath::from(kaede_lib_src_dir().join("prelude.kd"));
+        let prelude_source = std::fs::read_to_string(prelude_file_path.path())?;
+
+        let prelude_ast = Parser::new(prelude_source.as_str(), prelude_file_path).run()?;
+
+        // Extend from the front
+        for top_level in prelude_ast.top_levels.into_iter() {
+            match self.analyze_top_level(top_level)? {
+                TopLevelAnalysisResult::TopLevel(top_level) => {
+                    top_level_irs.push(top_level);
+                }
+
+                TopLevelAnalysisResult::Imported(imported_irs) => {
+                    imported_irs.iter().for_each(|top_level| {
+                        top_level_irs.push(top_level.clone());
+                    });
+                }
+
+                _ => unreachable!(),
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn insert_prelude(&mut self, compile_unit: &mut ast::CompileUnit) -> anyhow::Result<()> {
         let prelude_file_path = FilePath::from(kaede_lib_src_dir().join("prelude.kd"));
         let prelude_source = std::fs::read_to_string(prelude_file_path.path())?;
 
@@ -346,7 +378,7 @@ impl SemanticAnalyzer {
 
     pub fn analyze(
         &mut self,
-        mut compile_unit: ast::CompileUnit,
+        compile_unit: ast::CompileUnit,
         no_autoload: bool,
         no_prelude: bool,
     ) -> anyhow::Result<ir::CompileUnit> {
@@ -359,29 +391,102 @@ impl SemanticAnalyzer {
 
         self.context.set_no_prelude(no_prelude);
 
-        if !no_prelude {
-            self.insert_prelude(&mut compile_unit)?;
-        }
-
         if !no_autoload {
             self.import_autoloads(&mut top_level_irs)?;
         }
 
-        for top_level in compile_unit.top_levels {
+        if !no_prelude {
+            self.analyze_prelude(&mut top_level_irs)?;
+        }
+
+        let (types, others): (Vec<_>, Vec<_>) =
+            compile_unit.top_levels.into_iter().partition(|top| {
+                matches!(
+                    top.kind,
+                    ast::top::TopLevelKind::Struct(_) | ast::top::TopLevelKind::Enum(_)
+                )
+            });
+
+        let (imports, others): (Vec<_>, Vec<_>) = others
+            .into_iter()
+            .partition(|top| matches!(top.kind, ast::top::TopLevelKind::Import(_)));
+
+        let (uses, others): (Vec<_>, Vec<_>) = others
+            .into_iter()
+            .partition(|top| matches!(top.kind, ast::top::TopLevelKind::Use(_)));
+
+        // Analyze all imports
+        for top_level in imports {
+            if let TopLevelAnalysisResult::Imported(imported_irs) =
+                self.analyze_top_level(top_level)?
+            {
+                imported_irs.iter().for_each(|top_level| {
+                    top_level_irs.push(top_level.clone());
+                });
+            } else {
+                unreachable!()
+            }
+        }
+
+        // Analyze all use directives
+        for top_level in uses {
+            if let TopLevelAnalysisResult::Imported(imported_irs) =
+                self.analyze_top_level(top_level)?
+            {
+                if !imported_irs.is_empty() {
+                    unreachable!()
+                }
+            } else {
+                unreachable!()
+            }
+        }
+
+        // Declare all types
+        // (This is necessary to avoid errors when declaring functions and methods)
+        for top_level in types {
             match self.analyze_top_level(top_level)? {
                 TopLevelAnalysisResult::TopLevel(top_level) => {
                     top_level_irs.push(top_level);
                 }
-
-                TopLevelAnalysisResult::Imported(imported_irs) => {
-                    imported_irs.iter().for_each(|top_level| {
-                        top_level_irs.push(top_level.clone());
-                    });
-                }
-
-                _ => {}
+                TopLevelAnalysisResult::GenericTopLevel => {}
+                _ => unreachable!(),
             }
         }
+
+        // Declare all functions and methods
+        // (This process removes the need to worry about function declaration order)
+        self.with_analyze_command(AnalyzeCommand::OnlyFnDeclare, |analyzer| {
+            for top_level in others.iter() {
+                match &top_level.kind {
+                    ast::top::TopLevelKind::Fn(function) => {
+                        analyzer.analyze_fn(function.clone())?;
+                    }
+
+                    ast::top::TopLevelKind::Impl(impl_block) => {
+                        analyzer.analyze_impl(impl_block.clone())?;
+                    }
+
+                    _ => {}
+                }
+            }
+            Ok::<(), anyhow::Error>(())
+        })?;
+
+        // Analyze all top levels
+        self.with_analyze_command(AnalyzeCommand::WithoutFnDeclare, |analyzer| {
+            for top_level in others {
+                match analyzer.analyze_top_level(top_level)? {
+                    TopLevelAnalysisResult::TopLevel(top_level) => {
+                        top_level_irs.push(top_level);
+                    }
+
+                    TopLevelAnalysisResult::GenericTopLevel => {}
+
+                    _ => unreachable!(),
+                }
+            }
+            Ok::<(), anyhow::Error>(())
+        })?;
 
         Ok(
             self.inject_generated_generics_to_compile_unit(ir::CompileUnit {
