@@ -1,4 +1,18 @@
+pub extern "C" fn abort()
+
 pub enum Option<T> {
     Some(T),
     None,
+}
+
+impl<T> Option<T> {
+    pub fn unwrap(self): T {
+        return match self {
+            Option::Some(value) => value,
+            Option::None => {
+                abort()
+                __unreachable()
+            }
+        }
+    }
 }
