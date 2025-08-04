@@ -1,6 +1,7 @@
 use std::{collections::BTreeSet, rc::Rc, vec};
 
 use crate::{
+    context::AnalyzeCommand,
     error::SemanticError,
     symbol_table::{
         GenericFuncInfo, GenericInfo, GenericKind, SymbolTable, SymbolTableValue,
@@ -117,16 +118,20 @@ impl SemanticAnalyzer {
             _ => unreachable!(),
         };
 
+        let values = node
+            .values
+            .iter()
+            .map(|(name, value)| {
+                let value = self.analyze_expr(value)?;
+                Ok((name.symbol(), value))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        self.verify_struct_literal_values(&struct_ir, values.as_slice())?;
+
         let ir = ir::expr::StructLiteral {
             struct_info: struct_ir.clone(),
-            values: node
-                .values
-                .iter()
-                .map(|(name, value)| {
-                    let value = self.analyze_expr(value)?;
-                    Ok((name.symbol(), value))
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?,
+            values,
         };
 
         Ok(ir::expr::Expr {
@@ -134,6 +139,37 @@ impl SemanticAnalyzer {
             ty: Rc::new(ir::ty::wrap_in_ref(struct_ty, ir_type::Mutability::Mut)),
             span: node.span,
         })
+    }
+
+    fn verify_struct_literal_values(
+        &mut self,
+        struct_ir: &ir::top::Struct,
+        values: &[(Symbol, ir::expr::Expr)],
+    ) -> anyhow::Result<()> {
+        for (name, value) in values {
+            let field_info = struct_ir.fields.iter().find(|f| f.name == *name);
+
+            if field_info.is_none() {
+                return Err(SemanticError::NoField {
+                    field_name: *name,
+                    parent_name: struct_ir.name.symbol(),
+                    span: value.span,
+                }
+                .into());
+            }
+
+            let field_info = field_info.unwrap();
+
+            if !ir::ty::is_same_type(&field_info.ty, &value.ty) {
+                return Err(SemanticError::MismatchedTypes {
+                    types: (field_info.ty.kind.to_string(), value.ty.kind.to_string()),
+                    span: value.span,
+                }
+                .into());
+            }
+        }
+
+        Ok(())
     }
 
     /// Decompose enum variant patterns (like `A::B` or `A::B(a, b, c)`)
@@ -808,14 +844,17 @@ impl SemanticAnalyzer {
             }
         }
 
-        // Generate the generic function
-        let fn_ = self.with_generic_arguments(generic_params, generic_args, |analyzer| {
-            let mut fn_ = info.ast.clone();
-            fn_.decl.name = Ident::new(generated_generic_key, Span::dummy());
-            // Because generic functions maybe generated multiple times (across multiple files),
-            // we need to set link_once to true to avoid errors
-            fn_.decl.link_once = true;
-            analyzer.analyze_fn_internal(fn_)
+        // Generic functions must always be generated regardless of the analyze command, so it is overwritten
+        let fn_ = self.with_analyze_command(AnalyzeCommand::NoCommand, |analyzer| {
+            // Generate the generic function
+            analyzer.with_generic_arguments(generic_params, generic_args, |analyzer| {
+                let mut fn_ = info.ast.clone();
+                fn_.decl.name = Ident::new(generated_generic_key, Span::dummy());
+                // Because generic functions maybe generated multiple times (across multiple files),
+                // we need to set link_once to true to avoid errors
+                fn_.decl.link_once = true;
+                analyzer.analyze_fn_internal(fn_)
+            })
         })?;
 
         self.generated_generics

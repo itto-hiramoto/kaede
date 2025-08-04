@@ -288,7 +288,7 @@ fn import_enums() -> anyhow::Result<()> {
                     Blue
                 }
 
-                pub enum Option<T> {
+                pub enum Opt<T> {
                     Some(T),
                     None
                 }

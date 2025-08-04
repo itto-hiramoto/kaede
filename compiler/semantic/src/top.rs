@@ -446,6 +446,13 @@ impl SemanticAnalyzer {
 
         // If the function is generic, register it in the symbol table and return early.
         if node.decl.generic_params.is_some() {
+            if matches!(
+                self.context.analyze_command(),
+                AnalyzeCommand::WithoutFnDeclare
+            ) {
+                return Ok(TopLevelAnalysisResult::GenericTopLevel);
+            }
+
             let span = node.span;
 
             let symbol_table_value = SymbolTableValue::new(
