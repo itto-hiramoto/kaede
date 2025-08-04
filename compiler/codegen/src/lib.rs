@@ -54,6 +54,8 @@ pub struct CodegenCtx<'ctx> {
     target_data: TargetData,
 
     context: &'ctx Context,
+
+    malloc_symbol: Symbol,
 }
 
 impl<'ctx> CodegenCtx<'ctx> {
@@ -84,16 +86,23 @@ impl<'ctx> CodegenCtx<'ctx> {
         }
     }
 
-    pub fn new(context: &'ctx Context) -> anyhow::Result<Self> {
+    pub fn new(context: &'ctx Context, no_gc: bool) -> anyhow::Result<Self> {
         // Without initialization, target creation will always fail
         Target::initialize_all(&InitializationConfig::default());
 
         let machine = Self::create_target_machine()?;
 
+        let malloc_symbol = if no_gc {
+            Symbol::from("malloc".to_owned())
+        } else {
+            Symbol::from("GC_malloc".to_owned())
+        };
+
         Ok(Self {
             target_data: machine.get_target_data(),
             _target_machine: machine,
             context,
+            malloc_symbol,
         })
     }
 }
@@ -192,14 +201,12 @@ impl<'ctx> CodeGenerator<'ctx> {
             ty: make_fundamental_type(FundamentalTypeKind::U64, Mutability::Not).into(),
         }];
 
-        let name = Symbol::from("GC_malloc".to_owned());
-
         self.declare_function(
-            name,
+            self.cgcx.malloc_symbol,
             &FnDecl {
                 lang_linkage: LangLinkage::Default,
                 link_once: false,
-                name: QualifiedSymbol::new(ModulePath::new(vec![]), name),
+                name: QualifiedSymbol::new(ModulePath::new(vec![]), self.cgcx.malloc_symbol),
                 is_c_variadic: false,
                 return_ty: Some(return_ty),
                 params,
@@ -210,7 +217,10 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     fn gc_malloc(&mut self, ty: BasicTypeEnum<'ctx>) -> anyhow::Result<PointerValue<'ctx>> {
-        let gc_mallocd = self.module.get_function("GC_malloc").unwrap();
+        let gc_mallocd = self
+            .module
+            .get_function(self.cgcx.malloc_symbol.as_str())
+            .unwrap();
 
         let size = ty.size_of().unwrap().into();
 

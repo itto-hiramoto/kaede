@@ -52,7 +52,7 @@ fn jit_compile(module: &Module) -> anyhow::Result<i32> {
 /// Return exit status
 fn exec(program: &str) -> anyhow::Result<i32> {
     let context = Context::create();
-    let cgcx = CodegenCtx::new(&context).unwrap();
+    let cgcx = CodegenCtx::new(&context, false).unwrap();
 
     let file = PathBuf::from("test").into();
 
