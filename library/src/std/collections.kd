@@ -15,7 +15,7 @@ impl<T> List<T> {
     pub fn len(self): u32 {
         return match self.next {
             Option::Some(ne) => (1 as u32) + ne.len(),
-            Option::None => 0
+            Option::None => 1 as u32
         }
     }
 
@@ -41,18 +41,13 @@ impl<T> List<T> {
     }
 
     pub fn at(self, idx: u32): Option<T> {
-        return match self.next {
-            Option::Some(ne) => {
-                if idx == (0 as u32) {
-                    self.value
-                } else {
-                    ne.at(idx - (1 as u32))
-                }
-            },
+        if idx == 0 as u32 {
+            return self.value
+        }
 
-            Option::None => {
-                self.value
-            }
+        return match self.next {
+            Option::Some(ne) => ne.at(idx - 1 as u32),
+            Option::None     => Option<T>::None,
         }
     }
 }
