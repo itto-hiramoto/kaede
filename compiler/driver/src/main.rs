@@ -55,6 +55,9 @@ struct Args {
 
     #[arg(long, action)]
     no_prelude: bool,
+
+    #[arg(long, action)]
+    no_gc: bool,
 }
 
 fn to_inkwell_opt_level(level: u8) -> OptimizationLevel {
@@ -219,7 +222,7 @@ fn compile_and_output_obj(
     option: CompileOption,
 ) -> anyhow::Result<()> {
     let context = Context::create();
-    let cgcx = CodegenCtx::new(&context)?;
+    let cgcx = CodegenCtx::new(&context, option.no_gc)?;
 
     let root_dir = option.root_dir.unwrap_or(PathBuf::from("."));
 
@@ -245,7 +248,7 @@ fn compile_and_output_obj(
 
 fn compile_and_link(unit_infos: Vec<CompileUnitInfo>, option: CompileOption) -> anyhow::Result<()> {
     let context = Context::create();
-    let cgcx = CodegenCtx::new(&context)?;
+    let cgcx = CodegenCtx::new(&context, option.no_gc)?;
 
     let root_dir = option.root_dir.unwrap_or(PathBuf::from("."));
 
@@ -280,6 +283,7 @@ struct CompileOption {
     root_dir: Option<PathBuf>,
     no_autoload: bool,
     no_prelude: bool,
+    no_gc: bool,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -300,6 +304,7 @@ fn main() -> anyhow::Result<()> {
         root_dir: args.root_dir,
         no_autoload: args.no_autoload,
         no_prelude: args.no_prelude,
+        no_gc: args.no_gc,
     };
 
     if let Some(program) = args.program {
