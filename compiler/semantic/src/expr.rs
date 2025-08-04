@@ -151,7 +151,7 @@ impl SemanticAnalyzer {
 
             if field_info.is_none() {
                 return Err(SemanticError::NoField {
-                    field_name: name.clone(),
+                    field_name: *name,
                     parent_name: struct_ir.name.symbol(),
                     span: value.span,
                 }
