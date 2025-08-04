@@ -107,17 +107,25 @@ fn emit_object_file_to_tempfile(bitcode_path: &Path) -> anyhow::Result<TempPath>
     Ok(temppath)
 }
 
-fn emit_exe_file(obj_path: &Path, output_file_path: &Path) -> anyhow::Result<()> {
-    let status = Command::new("cc")
-        .args([
-            OsStr::new("-fPIE"), // Enable position-independent executable
-            OsStr::new("-o"),
-            output_file_path.as_os_str(),
-            obj_path.as_os_str(),
-            kaede_gc_lib_path().as_os_str(), // Link with garbage collector
-            kaede_lib_path().as_os_str(),    // Link with standard library
-        ])
-        .status()?;
+fn emit_exe_file(obj_path: &Path, output_file_path: &Path, no_gc: bool) -> anyhow::Result<()> {
+    let gc_lib_path = kaede_gc_lib_path();
+    let kaede_lib_path = kaede_lib_path();
+
+    let mut args = vec![
+        OsStr::new("-fPIE"), // Enable position-independent executable
+        OsStr::new("-o"),
+        output_file_path.as_os_str(),
+        obj_path.as_os_str(),
+    ];
+
+    // Link with GC library when GC is enabled
+    if !no_gc {
+        args.push(gc_lib_path.as_os_str()); // Link with garbage collector
+    }
+
+    args.push(kaede_lib_path.as_os_str()); // Link with standard library
+
+    let status = Command::new("cc").args(args).status()?;
 
     if !status.success() {
         anyhow::bail!("Failed to emit executable file using 'cc'")
@@ -271,7 +279,7 @@ fn compile_and_link(unit_infos: Vec<CompileUnitInfo>, option: CompileOption) -> 
     } else {
         let obj_path = emit_optimized_object_file_to_tempfile(option.opt_level, &module)?;
 
-        emit_exe_file(&obj_path, &option.output_file_path)?;
+        emit_exe_file(&obj_path, &option.output_file_path, option.no_gc)?;
     }
 
     Ok(())
