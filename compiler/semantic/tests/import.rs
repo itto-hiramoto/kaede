@@ -399,3 +399,26 @@ fn import_private_items() -> anyhow::Result<()> {
     }
     .run()
 }
+
+#[test]
+fn import_mutual_recursive_functions() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "mutual_recursive_function",
+        modules: HashMap::from([(
+            "a",
+            r#"
+            pub fn a(i: i32): i32 {
+                if i == 0 {
+                    return 0
+                }
+                return b(i - 1)
+            }
+            fn b(i: i32): i32 { return a(i - 1) }
+        "#,
+        )]),
+        main_content: "import a\nfn main(): i32 { return a.a(10) }",
+        expected_min_top_levels: 1,
+        should_fail: false,
+    }
+    .run()
+}

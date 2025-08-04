@@ -211,63 +211,76 @@ impl SemanticAnalyzer {
         let mut top_level_irs = vec![];
 
         self.with_module(module_path.clone(), |analyzer| {
-            use ast::top::TopLevelKind;
+            let mut results = vec![];
 
-            for top_level in parsed_module.top_levels {
-                let result = match top_level.kind {
-                    TopLevelKind::Impl(impl_) => {
-                        let mut methods = vec![];
+            let (types, others): (Vec<_>, Vec<_>) =
+                parsed_module.top_levels.into_iter().partition(|top| {
+                    matches!(
+                        top.kind,
+                        ast::top::TopLevelKind::Struct(_) | ast::top::TopLevelKind::Enum(_)
+                    )
+                });
 
-                        // Remove the body of the methods
-                        if let TopLevelAnalysisResult::TopLevel(top_level) =
-                            analyzer.analyze_impl(impl_)?
-                        {
-                            match top_level {
-                                ir::top::TopLevel::Impl(impl_) => {
-                                    for method in impl_.methods.iter() {
-                                        methods.push(Rc::new(ir::top::Fn {
-                                            decl: method.decl.clone(),
-                                            body: None,
-                                        }));
-                                    }
-                                }
-                                _ => unreachable!(),
-                            }
+            let (imports, others): (Vec<_>, Vec<_>) = others
+                .into_iter()
+                .partition(|top| matches!(top.kind, ast::top::TopLevelKind::Import(_)));
+
+            let (uses, others): (Vec<_>, Vec<_>) = others
+                .into_iter()
+                .partition(|top| matches!(top.kind, ast::top::TopLevelKind::Use(_)));
+
+            let (funcs, others): (Vec<_>, Vec<_>) = others.into_iter().partition(|top| {
+                matches!(
+                    top.kind,
+                    ast::top::TopLevelKind::Fn(_) | ast::top::TopLevelKind::Impl(_)
+                )
+            });
+
+            // Analyze all imports
+            for top_level in imports {
+                results.push(analyzer.analyze_top_level(top_level)?);
+            }
+
+            // Analyze all use directives
+            for top_level in uses {
+                results.push(analyzer.analyze_top_level(top_level)?);
+            }
+
+            // Declare all types
+            // (This is necessary to avoid errors when declaring functions and methods)
+            for top_level in types {
+                results.push(analyzer.analyze_top_level(top_level)?);
+            }
+
+            // Declare all functions and methods
+            // (This process removes the need to worry about function declaration order)
+            analyzer.with_analyze_command(AnalyzeCommand::OnlyFnDeclare, |analyzer| {
+                for top_level in funcs.iter() {
+                    match &top_level.kind {
+                        ast::top::TopLevelKind::Fn(function) => {
+                            results.push(analyzer.analyze_fn(function.clone())?);
                         }
 
-                        TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Impl(Rc::new(
-                            ir::top::Impl { methods },
-                        )))
+                        ast::top::TopLevelKind::Impl(impl_block) => {
+                            results.push(analyzer.analyze_impl(impl_block.clone())?);
+                        }
+
+                        _ => {}
                     }
+                }
+                Ok::<(), anyhow::Error>(())
+            })?;
 
-                    TopLevelKind::Import(import_) => analyzer.analyze_import(import_)?,
+            // Analyze all top levels
+            for top_level in others {
+                results.push(analyzer.analyze_top_level(top_level)?);
+            }
 
-                    TopLevelKind::Fn(fn_) => {
-                        let fn_decl = analyzer.analyze_fn_decl(fn_.decl)?;
-
-                        TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Fn(Rc::new(
-                            ir::top::Fn {
-                                decl: fn_decl,
-                                body: None,
-                            },
-                        )))
-                    }
-
-                    TopLevelKind::Struct(struct_) => analyzer.analyze_struct(struct_)?,
-
-                    TopLevelKind::Enum(enum_) => analyzer.analyze_enum(enum_)?,
-
-                    TopLevelKind::Use(use_) => analyzer.analyze_use(use_)?,
-
-                    TopLevelKind::Extern(extern_) => analyzer.analyze_extern(extern_)?,
-
-                    TopLevelKind::Bridge(bridge) => analyzer.analyze_bridge(bridge)?,
-                };
-
+            for result in results {
                 match result {
                     TopLevelAnalysisResult::TopLevel(top_level) => top_level_irs.push(top_level),
                     TopLevelAnalysisResult::Imported(imported_irs) => {
-                        top_level_irs.extend(imported_irs.iter().cloned())
+                        top_level_irs.extend(imported_irs)
                     }
                     _ => continue,
                 }
