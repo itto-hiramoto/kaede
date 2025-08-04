@@ -1,3 +1,5 @@
+import std.io
+
 pub extern "C" fn abort()
 
 pub enum Option<T> {
@@ -10,6 +12,7 @@ impl<T> Option<T> {
         return match self {
             Option::Some(value) => value,
             Option::None => {
+                std.io.eputs("Error: Attempted to unwrap a None value\n")
                 abort()
                 __unreachable()
             }

@@ -51,19 +51,23 @@ def install_standard_library(kaede_lib_dir):
     # Build standard library
     autoload_files = []
     std_lib_files = []
+    std_c_files = []
     for file in pathlib.Path(os.path.join(kaede_lib_src_dir, "autoload")).glob("**/*.kd"):
         autoload_files.append(str(file))
     for file in pathlib.Path(os.path.join(kaede_lib_src_dir, "std")).glob("**/*.kd"):
         std_lib_files.append(str(file))
+    for file in pathlib.Path(os.path.join(kaede_lib_src_dir, "std")).glob("**/*.c"):
+        std_c_files.append(str(file))
     std_lib_files = [file for file in std_lib_files if file not in autoload_files]
     t1 = tempfile.NamedTemporaryFile()
     t2 = tempfile.NamedTemporaryFile()
+    t3 = tempfile.NamedTemporaryFile()
     subprocess.run(["cargo", "run", "--release", "--", "--root-dir", os.path.join(kaede_lib_src_dir, "autoload"), "--no-autoload",
                     "--no-prelude", "-c", "-o", t1.name, *autoload_files]).check_returncode()
     subprocess.run(["cargo", "run", "--release", "--", "--root-dir", os.path.join(kaede_lib_src_dir), "--no-prelude",
                    "-c", "-o", t2.name, *std_lib_files]).check_returncode()
     subprocess.run(["gcc", "-shared", "-fPIC", "-o",
-                   os.path.join(kaede_lib_dir, "libkd.so"), t1.name, t2.name]).check_returncode()
+                   os.path.join(kaede_lib_dir, "libkd.so"), t1.name, t2.name, t3.name, *std_c_files]).check_returncode()
 
     print("Done!")
 
