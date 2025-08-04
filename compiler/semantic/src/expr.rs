@@ -1,6 +1,7 @@
 use std::{collections::BTreeSet, rc::Rc, vec};
 
 use crate::{
+    context::AnalyzeCommand,
     error::SemanticError,
     symbol_table::{
         GenericFuncInfo, GenericInfo, GenericKind, SymbolTable, SymbolTableValue,
@@ -808,14 +809,17 @@ impl SemanticAnalyzer {
             }
         }
 
-        // Generate the generic function
-        let fn_ = self.with_generic_arguments(generic_params, generic_args, |analyzer| {
-            let mut fn_ = info.ast.clone();
-            fn_.decl.name = Ident::new(generated_generic_key, Span::dummy());
-            // Because generic functions maybe generated multiple times (across multiple files),
-            // we need to set link_once to true to avoid errors
-            fn_.decl.link_once = true;
-            analyzer.analyze_fn_internal(fn_)
+        // Generic functions must always be generated regardless of the analyze command, so it is overwritten
+        let fn_ = self.with_analyze_command(AnalyzeCommand::NoCommand, |analyzer| {
+            // Generate the generic function
+            analyzer.with_generic_arguments(generic_params, generic_args, |analyzer| {
+                let mut fn_ = info.ast.clone();
+                fn_.decl.name = Ident::new(generated_generic_key, Span::dummy());
+                // Because generic functions maybe generated multiple times (across multiple files),
+                // we need to set link_once to true to avoid errors
+                fn_.decl.link_once = true;
+                analyzer.analyze_fn_internal(fn_)
+            })
         })?;
 
         self.generated_generics
