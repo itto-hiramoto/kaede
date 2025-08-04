@@ -54,8 +54,7 @@ pub struct CodegenCtx<'ctx> {
     target_data: TargetData,
 
     context: &'ctx Context,
-
-    malloc_symbol: Symbol,
+    no_gc: bool,
 }
 
 impl<'ctx> CodegenCtx<'ctx> {
@@ -92,17 +91,11 @@ impl<'ctx> CodegenCtx<'ctx> {
 
         let machine = Self::create_target_machine()?;
 
-        let malloc_symbol = if no_gc {
-            Symbol::from("malloc".to_owned())
-        } else {
-            Symbol::from("GC_malloc".to_owned())
-        };
-
         Ok(Self {
             target_data: machine.get_target_data(),
             _target_machine: machine,
             context,
-            malloc_symbol,
+            no_gc,
         })
     }
 }
@@ -185,8 +178,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         Ok(builder.build_alloca(ty, name)?)
     }
 
-    fn gc_init(&mut self) -> anyhow::Result<()> {
-        // Declare GC_malloc in boehm-gc
+    fn declare_malloc_function(&mut self, symbol: Symbol) -> anyhow::Result<()> {
         let return_ty = Ty {
             kind: TyKind::Reference(ReferenceType {
                 refee_ty: make_fundamental_type(FundamentalTypeKind::I8, Mutability::Mut).into(),
@@ -202,11 +194,11 @@ impl<'ctx> CodeGenerator<'ctx> {
         }];
 
         self.declare_function(
-            self.cgcx.malloc_symbol,
+            symbol,
             &FnDecl {
                 lang_linkage: LangLinkage::Default,
                 link_once: false,
-                name: QualifiedSymbol::new(ModulePath::new(vec![]), self.cgcx.malloc_symbol),
+                name: QualifiedSymbol::new(ModulePath::new(vec![]), symbol),
                 is_c_variadic: false,
                 return_ty: Some(return_ty),
                 params,
@@ -216,10 +208,23 @@ impl<'ctx> CodeGenerator<'ctx> {
         Ok(())
     }
 
+    fn gc_init(&mut self) -> anyhow::Result<()> {
+        self.declare_malloc_function(Symbol::from("GC_malloc".to_owned()))?;
+
+        // For failing memory leak test
+        self.declare_malloc_function(Symbol::from("malloc".to_owned()))?;
+
+        Ok(())
+    }
+
     fn gc_malloc(&mut self, ty: BasicTypeEnum<'ctx>) -> anyhow::Result<PointerValue<'ctx>> {
         let gc_mallocd = self
             .module
-            .get_function(self.cgcx.malloc_symbol.as_str())
+            .get_function(if self.cgcx.no_gc {
+                "malloc"
+            } else {
+                "GC_malloc"
+            })
             .unwrap();
 
         let size = ty.size_of().unwrap().into();
