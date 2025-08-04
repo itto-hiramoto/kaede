@@ -1,0 +1,148 @@
+pub enum Token {
+    Num(i32),
+    Add,
+    Sub,
+    Mul,
+    Div,
+    LParen,
+    RParen,
+}
+
+impl Token {
+    pub fn eq(self, other: Token): bool {
+        return match self {
+            Token::Add => match other {
+                Token::Add => true,
+                _ => false,
+            },
+
+            Token::Sub => match other {
+                Token::Sub => true,
+                _ => false,
+            },
+
+            Token::Mul => match other {
+                Token::Mul => true,
+                _ => false,
+            },
+
+            Token::Div => match other {
+                Token::Div => true,
+                _ => false,
+            },
+
+            Token::LParen => match other {
+                Token::LParen => true,
+                _ => false,
+            },
+
+            Token::RParen => match other {
+                Token::RParen => true,
+                _ => false,
+            },
+
+            Token::Num(n) => match other {
+                Token::Num(m) => n == m,
+                _ => false,
+            },
+        }
+    }
+}
+
+pub struct Tokenizer {}
+
+impl Tokenizer {
+    pub fn new(): Tokenizer {
+        return Tokenizer {}
+    }
+
+    fn string_to_int(s: String): i32 {
+        let mut i = 0
+        let mut n = 0
+
+        loop {
+            match s.at(i as u32) {
+                Option::Some(ch) => {
+                    i = i + 1
+                    n = n * 10 + (ch - '0') as i32
+                },
+
+                Option::None => break,
+            }
+        }
+
+        return n
+    }
+
+    pub fn tokenize(self, program: String): Option<List<Token>> {
+        let mut tokens = List<Token>::new()
+
+        let mut i = 0
+
+        loop {
+            let ch = match program.at(i as u32) {
+                Option::Some(c) => c,
+                Option::None => break,
+            }
+
+            match ch {
+                '+' => {
+                    i = i + 1
+                    tokens.push(Token::Add)
+                },
+
+                '-' => {
+                    i = i + 1
+                    tokens.push(Token::Sub)
+                },
+
+                '*' => {
+                    i = i + 1
+                    tokens.push(Token::Mul)
+                },
+
+                '/' => {
+                    i = i + 1
+                    tokens.push(Token::Div)
+                },
+
+                ' ' => {
+                    i = i + 1
+                },
+
+                '(' => {
+                    i = i + 1
+                    tokens.push(Token::LParen)
+                },
+
+                ')' => {
+                    i = i + 1
+                    tokens.push(Token::RParen)
+                },
+
+                _ => {
+                    // Expect numbers
+                    let mut n = String::new()
+
+                    loop {
+                        let ch = match program.at(i as u32) {
+                            Option::Some(ch) => ch,
+                            Option::None => break,
+                        }
+
+                        if '0' <= ch && ch <= '9' {
+                            n.push(ch)
+                            i = i + 1
+                        } else {
+                            break
+                        }
+                    }
+
+                    tokens.push(Token::Num(Tokenizer::string_to_int(n)))
+                }
+            }
+        }
+
+        return Option<List<Token>>::Some(tokens)
+    }
+}

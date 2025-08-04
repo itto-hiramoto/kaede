@@ -1,0 +1,33 @@
+import ast
+import std.io
+
+use ast.NodeKind
+
+pub struct Evaluator {}
+
+impl Evaluator {
+    pub fn new(): Evaluator {
+        return Evaluator {}
+    }
+
+    pub fn eval(self, node: ast.Node): i32 {
+        match node.kind {
+            NodeKind::Num(n) => {
+                return n
+            },
+            _ => {}
+        }
+
+        let left = self.eval(node.left.unwrap())
+        let right = self.eval(node.right.unwrap())
+
+        return match node.kind {
+            NodeKind::Add => left + right,
+            NodeKind::Sub => left - right,
+            NodeKind::Mul => left * right,
+            NodeKind::Div => left / right,
+
+            NodeKind::Num(_) => __unreachable(),
+        }
+    }
+}

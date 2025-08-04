@@ -1,0 +1,13 @@
+pub enum NodeKind {
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Num(i32),
+}
+
+pub struct Node {
+    kind: NodeKind,
+    left: Option<Node>,
+    right: Option<Node>,
+}
