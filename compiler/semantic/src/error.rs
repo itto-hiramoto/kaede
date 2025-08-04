@@ -56,6 +56,13 @@ pub enum SemanticError {
     #[error("{}:{}:{} has no fields", span.file, span.start.line, span.start.column)]
     HasNoFields { span: Span },
 
+    #[error("{}:{}:{} no field named `{}` in `{}`", span.file, span.start.line, span.start.column, field_name, parent_name)]
+    NoField {
+        field_name: Symbol,
+        parent_name: Symbol,
+        span: Span,
+    },
+
     #[error("{}:{}:{} file `{}` not found for module `{}`", span.file, span.start.line, span.start.column, file_path, mod_name)]
     FileNotFoundForModule {
         span: Span,

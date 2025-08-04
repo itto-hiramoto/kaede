@@ -2825,3 +2825,23 @@ fn recursive_field_type_on_enum() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn not_wrapped_option() {
+    let program = r#"
+        struct Test {
+            opt: Option<i32>,
+        }
+
+        fn f(): i32 {
+            let test = Test {
+                opt: 123,
+            }
+            return 123
+        }"#;
+
+    assert!(matches!(
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::MismatchedTypes { .. }
+    ));
+}

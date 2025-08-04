@@ -118,16 +118,20 @@ impl SemanticAnalyzer {
             _ => unreachable!(),
         };
 
+        let values = node
+            .values
+            .iter()
+            .map(|(name, value)| {
+                let value = self.analyze_expr(value)?;
+                Ok((name.symbol(), value))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        self.verify_struct_literal_values(&struct_ir, values.as_slice())?;
+
         let ir = ir::expr::StructLiteral {
             struct_info: struct_ir.clone(),
-            values: node
-                .values
-                .iter()
-                .map(|(name, value)| {
-                    let value = self.analyze_expr(value)?;
-                    Ok((name.symbol(), value))
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?,
+            values,
         };
 
         Ok(ir::expr::Expr {
@@ -135,6 +139,37 @@ impl SemanticAnalyzer {
             ty: Rc::new(ir::ty::wrap_in_ref(struct_ty, ir_type::Mutability::Mut)),
             span: node.span,
         })
+    }
+
+    fn verify_struct_literal_values(
+        &mut self,
+        struct_ir: &ir::top::Struct,
+        values: &[(Symbol, ir::expr::Expr)],
+    ) -> anyhow::Result<()> {
+        for (name, value) in values {
+            let field_info = struct_ir.fields.iter().find(|f| f.name == *name);
+
+            if field_info.is_none() {
+                return Err(SemanticError::NoField {
+                    field_name: name.clone(),
+                    parent_name: struct_ir.name.symbol(),
+                    span: value.span,
+                }
+                .into());
+            }
+
+            let field_info = field_info.unwrap();
+
+            if !ir::ty::is_same_type(&field_info.ty, &value.ty) {
+                return Err(SemanticError::MismatchedTypes {
+                    types: (field_info.ty.kind.to_string(), value.ty.kind.to_string()),
+                    span: value.span,
+                }
+                .into());
+            }
+        }
+
+        Ok(())
     }
 
     /// Decompose enum variant patterns (like `A::B` or `A::B(a, b, c)`)
