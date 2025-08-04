@@ -107,6 +107,7 @@ fn emit_object_file_to_tempfile(bitcode_path: &Path) -> anyhow::Result<TempPath>
 fn emit_exe_file(obj_path: &Path, output_file_path: &Path) -> anyhow::Result<()> {
     let status = Command::new("cc")
         .args([
+            OsStr::new("-fPIE"), // Enable position-independent executable
             OsStr::new("-o"),
             output_file_path.as_os_str(),
             obj_path.as_os_str(),
