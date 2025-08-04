@@ -114,8 +114,8 @@ fn emit_exe_file(obj_path: &Path, output_file_path: &Path) -> anyhow::Result<()>
             OsStr::new("-o"),
             output_file_path.as_os_str(),
             obj_path.as_os_str(),
-            kaede_gc_lib_path().as_os_str(), // Link with garbage collector
-            kaede_lib_path().as_os_str(),    // Link with standard library
+            kaede_lib_path().as_os_str(), // Link with standard library first
+            kaede_gc_lib_path().as_os_str(), // Then link with garbage collector
         ])
         .status()?;
 
