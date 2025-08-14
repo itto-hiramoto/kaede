@@ -12,7 +12,7 @@ pub struct Parser {
 impl Parser {
     pub fn new(): mut Parser {
         return Parser {
-            current_idx: 0,
+            current_idx: 0 as u32,
             tokens: List<Token>::new(),
         }
     }
