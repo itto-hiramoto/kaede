@@ -559,6 +559,12 @@ impl SemanticAnalyzer {
     fn analyze_fn_decl(&mut self, node: ast::top::FnDecl) -> anyhow::Result<ir::top::FnDecl> {
         let name = node.name.symbol();
 
+        let qualified_name = if name.as_str() == "main" {
+            QualifiedSymbol::new(ModulePath::new(vec![]), "kdmain".to_owned().into())
+        } else {
+            QualifiedSymbol::new(self.current_module_path().clone(), name)
+        };
+
         let params = node
             .params
             .v
@@ -574,7 +580,7 @@ impl SemanticAnalyzer {
         let fn_decl = ir::top::FnDecl {
             lang_linkage: ir::top::LangLinkage::Default,
             link_once: node.link_once,
-            name: QualifiedSymbol::new(self.current_module_path().clone(), name),
+            name: qualified_name,
             is_c_variadic: matches!(node.params.variadic, ast::top::VariadicKind::C),
             params,
             return_ty: match &node.return_ty {
