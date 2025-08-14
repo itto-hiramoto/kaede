@@ -1219,3 +1219,26 @@ fn import_and_use_with_wildcard() -> anyhow::Result<()> {
 
     test(30, &[module.path(), main.path()], &tempdir)
 }
+
+#[test]
+fn call_imported_function_with_local_variable() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+
+    let module = tempdir.child("m.kd");
+    module.write_str(
+        r#"pub fn f(n: i32): i32 {
+            return n
+        }"#,
+    )?;
+
+    let main = tempdir.child("test.kd");
+    main.write_str(
+        r#"import m
+        fn main(): i32 {
+            let n = 10
+            return m.f(n)
+        }"#,
+    )?;
+
+    test(10, &[module.path(), main.path()], &tempdir)
+}
