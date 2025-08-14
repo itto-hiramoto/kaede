@@ -33,7 +33,7 @@ pub use top::TopLevelAnalysisResult;
 
 use crate::{
     context::{AnalyzeCommand, ModuleContext},
-    symbol_table::SymbolTable,
+    symbol_table::{SymbolTable, SymbolTableValueKind},
 };
 
 pub struct SemanticAnalyzer {
@@ -376,6 +376,69 @@ impl SemanticAnalyzer {
         })
     }
 
+    fn build_main_function(
+        &mut self,
+        top_level_irs: &mut Vec<ir::top::TopLevel>,
+    ) -> anyhow::Result<()> {
+        let main_fn_decl = ir::top::FnDecl {
+            lang_linkage: ir::top::LangLinkage::Default,
+            link_once: false,
+            name: QualifiedSymbol::new(ModulePath::new(vec![]), "main".to_owned().into()),
+            params: vec![],
+            is_c_variadic: false,
+            return_ty: Some(Rc::new(ir::ty::make_fundamental_type(
+                ir::ty::FundamentalTypeKind::I32,
+                ir::ty::Mutability::Not,
+            ))),
+        };
+
+        let kdmain_symbol =
+            self.lookup_symbol("main".to_owned().into())
+                .ok_or(SemanticError::Undeclared {
+                    name: "main".to_owned().into(),
+                    span: Span::dummy(),
+                })?;
+
+        let kdmain_decl = match &kdmain_symbol.borrow().kind {
+            SymbolTableValueKind::Function(fn_decl) => fn_decl.clone(),
+            _ => unreachable!(),
+        };
+
+        let kdmain_call_node = ir::expr::FnCall {
+            callee: kdmain_decl.clone(),
+            args: ir::expr::Args(vec![]),
+        };
+
+        let return_statement = ir::expr::ExprKind::Return(Some(Box::new(ir::expr::Expr {
+            kind: ir::expr::ExprKind::FnCall(kdmain_call_node),
+            ty: kdmain_decl
+                .return_ty
+                .clone()
+                .unwrap_or_else(|| ir::ty::Ty::new_never().into()),
+            span: Span::dummy(),
+        })));
+
+        let main_fn = ir::top::TopLevel::Fn(Rc::new(ir::top::Fn {
+            decl: main_fn_decl,
+            body: Some(ir::stmt::Block {
+                body: vec![],
+                last_expr: Some(Box::new(ir::expr::Expr {
+                    kind: return_statement,
+                    ty: ir::ty::make_fundamental_type(
+                        ir::ty::FundamentalTypeKind::I32,
+                        ir::ty::Mutability::Not,
+                    )
+                    .into(),
+                    span: Span::dummy(),
+                })),
+            }),
+        }));
+
+        top_level_irs.push(main_fn);
+
+        Ok(())
+    }
+
     pub fn analyze(
         &mut self,
         compile_unit: ast::CompileUnit,
@@ -487,6 +550,11 @@ impl SemanticAnalyzer {
             }
             Ok::<(), anyhow::Error>(())
         })?;
+
+        // Add main function
+        if self.lookup_symbol("main".to_owned().into()).is_some() {
+            self.build_main_function(&mut top_level_irs)?;
+        }
 
         Ok(
             self.inject_generated_generics_to_compile_unit(ir::CompileUnit {
