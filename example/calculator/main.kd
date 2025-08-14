@@ -1,16 +1,24 @@
 import tokenize
 import eval
 import parse
+import std.io
 
 use tokenize.Tokenizer
 use parse.Parser
 use eval.Evaluator
 
-fn main(): i32 {
-    let program = String::from("12 + 4 / 2")
+fn main(args: List<str>): i32 {
+    let expr = String::from(match args.at(1 as u32) {
+        Option::Some(expr) => expr,
+
+        Option::None => {
+            std.io.puts("Please provide an expression as an command line argument!")
+            return 1
+        }
+    })
 
     let tokenizer = Tokenizer::new()
-    let tokens = tokenizer.tokenize(program).unwrap()
+    let tokens = tokenizer.tokenize(expr).unwrap()
 
     let mut parser = Parser::new()
     let ast = parser.parse(tokens)
