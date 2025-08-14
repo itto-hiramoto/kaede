@@ -53,10 +53,10 @@ impl SemanticAnalyzer {
         }
 
         // Set the current module name in the context.
-        let mut context = AnalysisContext::new();
         let module_path =
             Self::create_module_path_from_file_path(root_dir.clone(), file_path).unwrap();
-        context.set_module_path(module_path.clone());
+        let mut context = AnalysisContext::new(module_path.clone());
+        context.set_current_module_path(module_path.clone());
 
         let module_context = ModuleContext::new(file_path);
 
@@ -72,9 +72,9 @@ impl SemanticAnalyzer {
     }
 
     pub fn new_for_single_file_test() -> Self {
-        let mut context = AnalysisContext::new();
         let module_path = ModulePath::new(vec![Symbol::from("test".to_string())]);
-        context.set_module_path(module_path.clone());
+        let mut context = AnalysisContext::new(module_path.clone());
+        context.set_current_module_path(module_path.clone());
 
         let mut module_context = ModuleContext::new(FilePath::from(PathBuf::from("test.kd")));
         module_context.push_scope(SymbolTable::new());
@@ -102,6 +102,19 @@ impl SemanticAnalyzer {
             eprintln!("---------------------");
             eprintln!("--- Private symbol table ---");
             module_context.get_private_symbol_table().dump();
+            eprintln!("---------------------");
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    #[allow(dead_code)]
+    fn dump_variables(&self) {
+        for (module_path, module_context) in self.modules.iter() {
+            eprintln!("Module: {module_path:?}");
+            eprintln!("--- Variables ---");
+            for symbol_table in module_context.get_symbol_tables().iter() {
+                symbol_table.dump_variables();
+            }
             eprintln!("---------------------");
         }
     }
@@ -165,15 +178,23 @@ impl SemanticAnalyzer {
     }
 
     pub fn lookup_symbol(&self, symbol: Symbol) -> Option<Rc<RefCell<SymbolTableValue>>> {
+        let panic = || {
+            panic!(
+                "Module not found: {:?}",
+                self.current_module_path().get_module_names_from_root()
+            )
+        };
+
         self.modules
             .get(self.current_module_path())
-            .unwrap_or_else(|| {
-                panic!(
-                    "Module not found: {:?}",
-                    self.current_module_path().get_module_names_from_root()
-                )
-            })
+            .unwrap_or_else(panic)
             .lookup_symbol(&symbol)
+            .or_else(|| {
+                self.modules
+                    .get(self.module_path())
+                    .unwrap_or_else(panic)
+                    .lookup_symbol(&symbol)
+            })
     }
 
     pub fn lookup_qualified_symbol(
@@ -376,15 +397,101 @@ impl SemanticAnalyzer {
         })
     }
 
+    // Analyze argc and argv and convert them into an easy-to-use format
+    fn prepare_command_line_arguments(&mut self) -> anyhow::Result<ir::expr::Expr> {
+        let argc_ty = Rc::new(ir::ty::make_fundamental_type(
+            ir::ty::FundamentalTypeKind::I32,
+            ir::ty::Mutability::Not,
+        ));
+
+        let argv_ty = Rc::new(ir::ty::Ty::wrap_in_pointer(
+            ir::ty::Ty::wrap_in_pointer(
+                ir::ty::make_fundamental_type(
+                    ir::ty::FundamentalTypeKind::Char,
+                    ir::ty::Mutability::Not,
+                )
+                .into(),
+            )
+            .into(),
+        ));
+
+        let argc_expr = ir::expr::Expr {
+            kind: ir::expr::ExprKind::Variable(ir::expr::Variable {
+                name: "argc".to_owned().into(),
+                ty: argc_ty.clone(),
+            }),
+            ty: argc_ty,
+            span: Span::dummy(),
+        };
+
+        let argv_expr = ir::expr::Expr {
+            kind: ir::expr::ExprKind::Variable(ir::expr::Variable {
+                name: "argv".to_owned().into(),
+                ty: argv_ty.clone(),
+            }),
+            ty: argv_ty,
+            span: Span::dummy(),
+        };
+
+        let prepare_command_line_arguments_symbol = self
+            .lookup_symbol("__prepare_command_line_arguments".to_owned().into())
+            .unwrap();
+
+        let prepare_command_line_arguments_decl =
+            match &prepare_command_line_arguments_symbol.borrow().kind {
+                SymbolTableValueKind::Function(fn_decl) => fn_decl.clone(),
+                _ => unreachable!(),
+            };
+
+        let fn_call = ir::expr::Expr {
+            kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
+                callee: prepare_command_line_arguments_decl.clone(),
+                args: ir::expr::Args(vec![argc_expr, argv_expr]),
+            }),
+            ty: prepare_command_line_arguments_decl
+                .return_ty
+                .clone()
+                .unwrap(),
+            span: Span::dummy(),
+        };
+
+        Ok(fn_call)
+    }
+
     fn build_main_function(
         &mut self,
         top_level_irs: &mut Vec<ir::top::TopLevel>,
     ) -> anyhow::Result<()> {
+        let params = vec![
+            ir::top::Param {
+                name: "argc".to_owned().into(),
+                ty: ir::ty::make_fundamental_type(
+                    ir::ty::FundamentalTypeKind::I32,
+                    ir::ty::Mutability::Not,
+                )
+                .into(),
+            },
+            ir::top::Param {
+                name: "argv".to_owned().into(),
+                ty: ir::ty::Ty::wrap_in_pointer(
+                    ir::ty::Ty::wrap_in_pointer(
+                        ir::ty::make_fundamental_type(
+                            ir::ty::FundamentalTypeKind::Char,
+                            ir::ty::Mutability::Not,
+                        )
+                        .into(),
+                    )
+                    .into(),
+                )
+                .into(),
+            },
+        ];
+
         let main_fn_decl = ir::top::FnDecl {
             lang_linkage: ir::top::LangLinkage::Default,
             link_once: false,
             name: QualifiedSymbol::new(ModulePath::new(vec![]), "main".to_owned().into()),
-            params: vec![],
+            params,
             is_c_variadic: false,
             return_ty: Some(Rc::new(ir::ty::make_fundamental_type(
                 ir::ty::FundamentalTypeKind::I32,
@@ -404,9 +511,17 @@ impl SemanticAnalyzer {
             _ => unreachable!(),
         };
 
+        let args = if kdmain_decl.params.len() == 1 {
+            // Expect that main has command line arguments parameter
+            let prepare_command_line_arguments = self.prepare_command_line_arguments()?;
+            vec![prepare_command_line_arguments]
+        } else {
+            vec![]
+        };
+
         let kdmain_call_node = ir::expr::FnCall {
             callee: kdmain_decl.clone(),
-            args: ir::expr::Args(vec![]),
+            args: ir::expr::Args(args),
         };
 
         let return_statement = ir::expr::ExprKind::Return(Some(Box::new(ir::expr::Expr {
