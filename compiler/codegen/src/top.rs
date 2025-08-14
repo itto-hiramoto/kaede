@@ -65,20 +65,15 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     pub fn build_function(&mut self, node: &Fn, only_declare: bool) -> anyhow::Result<()> {
-        let mangled_name = if node.decl.name.symbol().as_str() == "main" {
-            // Suppress mangling of main function
-            String::from("kdmain").into()
-        } else {
-            match node.decl.lang_linkage {
-                // C functions are not mangled
-                LangLinkage::C => node.decl.name.symbol(),
+        let mangled_name = match node.decl.lang_linkage {
+            // C functions are not mangled
+            LangLinkage::C => node.decl.name.symbol(),
 
-                LangLinkage::Rust => {
-                    format!("{}{}", rust_function_prefix(), node.decl.name.symbol()).into()
-                }
-
-                LangLinkage::Default => node.decl.name.mangle(),
+            LangLinkage::Rust => {
+                format!("{}{}", rust_function_prefix(), node.decl.name.symbol()).into()
             }
+
+            LangLinkage::Default => node.decl.name.mangle(),
         };
 
         self.build_fn(mangled_name, node, only_declare)

@@ -304,31 +304,6 @@ impl<'ctx> CodeGenerator<'ctx> {
         })
     }
 
-    /// If there was no user-defined main in the module, do nothing
-    fn build_main_fn(&mut self) -> anyhow::Result<()> {
-        let main_internal = match self.module.get_function("kdmain") {
-            Some(fn_v) => fn_v,
-            None => return Ok(()),
-        };
-
-        let main =
-            self.module
-                .add_function("main", self.context().i32_type().fn_type(&[], false), None);
-        self.builder
-            .position_at_end(self.context().append_basic_block(main, "entry"));
-
-        let exit_status = self
-            .builder
-            .build_call(main_internal, &[], "")?
-            .try_as_basic_value()
-            .left()
-            .unwrap();
-
-        self.builder.build_return(Some(&exit_status))?;
-
-        Ok(())
-    }
-
     // This function doesn't optimize modules.
     // Please execute 'opt' command to optimize the module.
     pub fn codegen(mut self, compile_unit: CompileUnit) -> anyhow::Result<Module<'ctx>> {
@@ -364,8 +339,6 @@ impl<'ctx> CodeGenerator<'ctx> {
         for top in others {
             self.build_top_level(top)?;
         }
-
-        self.build_main_fn()?;
 
         self.verify_module()?;
 
