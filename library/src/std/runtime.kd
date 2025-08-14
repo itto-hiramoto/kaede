@@ -1,0 +1,18 @@
+import std.collections
+
+use std.collections.List
+
+pub extern "C" fn strlen(s: *char): u64
+
+pub fn __prepare_command_line_arguments(argc: i32, argv: **char): List<str> {
+    let mut i = 0
+    let mut args = List<str>::new()
+    loop {
+        if i >= argc {
+            break
+        }
+        args.push(__str(argv[i], strlen(argv[i])))
+        i = i + 1
+    }
+    return args
+}

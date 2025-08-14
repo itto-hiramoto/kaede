@@ -19,23 +19,22 @@ pub enum AnalyzeCommand {
 
 #[derive(Debug, Clone)]
 pub struct AnalysisContext {
+    // std.io.puts(s) in test.kd -> [std, io]
+    current_module_path: ModulePath,
+    // std.io.puts(s) in test.kd -> [test]
     module_path: ModulePath,
+
     is_inside_loop: bool,
     current_function: Vec<Option<Rc<ir::top::FnDecl>>>,
     no_prelude: bool,
     analyze_command: AnalyzeCommand,
 }
 
-impl Default for AnalysisContext {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl AnalysisContext {
-    pub fn new() -> Self {
+    pub fn new(module_path: ModulePath) -> Self {
         Self {
-            module_path: ModulePath::new(vec![]),
+            current_module_path: ModulePath::new(vec![]),
+            module_path,
             is_inside_loop: false,
             current_function: vec![None],
             no_prelude: false,
@@ -63,8 +62,8 @@ impl AnalysisContext {
         self.current_function.last().unwrap().clone()
     }
 
-    pub fn set_module_path(&mut self, path: ModulePath) {
-        self.module_path = path;
+    pub fn set_current_module_path(&mut self, path: ModulePath) {
+        self.current_module_path = path;
     }
 
     pub fn analyze_command(&self) -> AnalyzeCommand {
@@ -74,6 +73,10 @@ impl AnalysisContext {
 
 impl SemanticAnalyzer {
     pub fn current_module_path(&self) -> &ModulePath {
+        &self.context.current_module_path
+    }
+
+    pub fn module_path(&self) -> &ModulePath {
         &self.context.module_path
     }
 
@@ -94,7 +97,7 @@ impl SemanticAnalyzer {
         F: FnOnce(&mut Self) -> R,
     {
         let mut new_context = self.context.clone();
-        new_context.module_path = path;
+        new_context.current_module_path = path;
         self.with_context(new_context, f)
     }
 
