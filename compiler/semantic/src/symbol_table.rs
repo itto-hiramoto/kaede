@@ -93,7 +93,7 @@ impl GenericInfo {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VariableInfo {
     pub ty: Rc<ir_type::Ty>,
 }
@@ -148,6 +148,15 @@ impl SymbolTable {
     pub fn dump(&self) {
         for (symbol, value) in self.table.iter() {
             println!("{}: {:?}", symbol, value.borrow().kind);
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    pub fn dump_variables(&self) {
+        for (symbol, value) in self.table.iter() {
+            if let SymbolTableValueKind::Variable(_) = value.borrow().kind {
+                println!("{}: {:?}", symbol, value.borrow().kind);
+            }
         }
     }
 

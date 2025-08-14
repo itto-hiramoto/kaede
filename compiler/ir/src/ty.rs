@@ -131,6 +131,16 @@ impl Ty {
 
         false
     }
+
+    pub fn wrap_in_pointer(wrapped: Rc<Ty>) -> Ty {
+        Ty {
+            kind: TyKind::Pointer(PointerType {
+                pointee_ty: wrapped,
+            })
+            .into(),
+            mutability: Mutability::Not,
+        }
+    }
 }
 
 /// Represents whether a value can be changed
