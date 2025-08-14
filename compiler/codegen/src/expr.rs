@@ -14,12 +14,15 @@ use inkwell::{
 use kaede_common::rust_function_prefix;
 use kaede_ir::{
     expr::{
-        ArrayLiteral, Binary, BinaryKind, BuiltinFnCallKind, Cast, CharLiteral, Else, EnumUnpack,
-        EnumVariant, Expr, ExprKind, FieldAccess, FnCall, If, Indexing, Int, LogicalNot, Loop,
-        StringLiteral, StructLiteral, TupleIndexing, TupleLiteral, Variable,
+        ArrayLiteral, Binary, BinaryKind, BuiltinFnCall, BuiltinFnCallKind, Cast, CharLiteral,
+        Else, EnumUnpack, EnumVariant, Expr, ExprKind, FieldAccess, FnCall, If, Indexing, Int,
+        LogicalNot, Loop, StringLiteral, StructLiteral, TupleIndexing, TupleLiteral, Variable,
     },
     stmt::Block,
-    ty::{make_fundamental_type, FundamentalType, FundamentalTypeKind, Mutability, Ty, TyKind},
+    ty::{
+        make_fundamental_type, FundamentalType, FundamentalTypeKind, Mutability, PointerType, Ty,
+        TyKind,
+    },
 };
 
 pub type Value<'ctx> = Option<BasicValueEnum<'ctx>>;
@@ -60,7 +63,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
             ExprKind::Cast(node) => self.build_cast(node)?,
 
-            ExprKind::Indexing(node) => self.build_array_indexing(node)?,
+            ExprKind::Indexing(node) => self.build_indexing(node)?,
 
             ExprKind::Binary(node) => self.build_arithmetic_binary(node)?,
 
@@ -74,11 +77,17 @@ impl<'ctx> CodeGenerator<'ctx> {
         })
     }
 
-    fn build_builtin_fn_call(&mut self, node: &BuiltinFnCallKind) -> anyhow::Result<Value<'ctx>> {
-        match node {
+    fn build_builtin_fn_call(&mut self, node: &BuiltinFnCall) -> anyhow::Result<Value<'ctx>> {
+        match node.kind {
             BuiltinFnCallKind::Unreachable => {
                 self.builder.build_unreachable()?;
                 Ok(None)
+            }
+
+            BuiltinFnCallKind::Str => {
+                let p = self.build_expr(&node.args.0[0])?.unwrap();
+                let len = self.build_expr(&node.args.0[1])?.unwrap();
+                self.build_string_literal_internal(p, len.into_int_value())
             }
         }
     }
@@ -328,21 +337,25 @@ impl<'ctx> CodeGenerator<'ctx> {
             .builder
             .build_global_string_ptr(node.syb.as_str(), "str")?;
 
+        self.build_string_literal_internal(
+            global_s.as_basic_value_enum(),
+            self.context()
+                .i64_type()
+                .const_int(node.syb.as_str().len() as u64, false),
+        )
+    }
+
+    fn build_string_literal_internal(
+        &mut self,
+        str: BasicValueEnum<'ctx>,
+        len: IntValue<'ctx>,
+    ) -> anyhow::Result<Value<'ctx>> {
         let str_llvm_ty = self.conv_to_llvm_type(&Rc::new(make_fundamental_type(
             FundamentalTypeKind::Str,
             Mutability::Not,
         )));
 
-        let p = self.create_gc_struct(
-            str_llvm_ty,
-            &[
-                global_s.as_basic_value_enum(),
-                self.context()
-                    .i64_type()
-                    .const_int(node.syb.as_str().len() as u64, false)
-                    .into(),
-            ],
-        )?;
+        let p = self.create_gc_struct(str_llvm_ty, &[str, len.as_basic_value_enum()])?;
 
         Ok(Some(p.into()))
     }
@@ -559,11 +572,12 @@ impl<'ctx> CodeGenerator<'ctx> {
         ))
     }
 
-    fn build_array_indexing(&mut self, node: &Indexing) -> anyhow::Result<Value<'ctx>> {
+    // Build indexing for array and pointer and str
+    fn build_indexing(&mut self, node: &Indexing) -> anyhow::Result<Value<'ctx>> {
         // A raw array cannot be passed, but a pointer(reference) to an array
-        let array_ref_value = self.build_expr(&node.operand)?.unwrap();
+        let ref_value = self.build_expr(&node.operand)?.unwrap();
 
-        let array_ty = {
+        let refee_ty = {
             match node.operand.ty.kind.as_ref() {
                 TyKind::Reference(rty) => {
                     if matches!(rty.get_base_type().kind.as_ref(), TyKind::Array(_)) {
@@ -581,13 +595,15 @@ impl<'ctx> CodeGenerator<'ctx> {
                     }
                 }
 
+                TyKind::Pointer(pty) => return self.build_pointer_indexing(node, ref_value, pty),
+
                 _ => unreachable!(),
             }
         };
 
-        let array_llvm_ty = self.conv_to_llvm_type(&array_ty).into_array_type();
+        let array_llvm_ty = self.conv_to_llvm_type(&refee_ty).into_array_type();
 
-        let ptr_to_array = array_ref_value.into_pointer_value();
+        let ptr_to_array = ref_value.into_pointer_value();
 
         let index = self.build_expr(&node.index)?.unwrap();
 
@@ -609,6 +625,28 @@ impl<'ctx> CodeGenerator<'ctx> {
             gep,
             "",
         )?))
+    }
+
+    fn build_pointer_indexing(
+        &mut self,
+        node: &Indexing,
+        ptr_value: BasicValueEnum<'ctx>,
+        pty: &PointerType,
+    ) -> anyhow::Result<Value<'ctx>> {
+        let pointee_llvm_ty = self.conv_to_llvm_type(&pty.pointee_ty);
+
+        let index = self.build_expr(&node.index)?.unwrap();
+
+        let gep = unsafe {
+            self.builder.build_in_bounds_gep(
+                pointee_llvm_ty,
+                ptr_value.into_pointer_value(),
+                &[index.into_int_value()],
+                "",
+            )?
+        };
+
+        Ok(Some(self.builder.build_load(pointee_llvm_ty, gep, "")?))
     }
 
     fn build_string_indexing(&mut self, node: &Indexing) -> anyhow::Result<Value<'ctx>> {

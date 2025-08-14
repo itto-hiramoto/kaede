@@ -46,7 +46,7 @@ impl SemanticAnalyzer {
             ExprKind::Ident(node) => self.analyze_ident(node),
             ExprKind::LogicalNot(node) => self.analyze_logical_not(node),
             ExprKind::Return(node) => self.analyze_return(node),
-            ExprKind::Indexing(node) => self.analyze_array_indexing(node),
+            ExprKind::Indexing(node) => self.analyze_array_or_ptr_indexing(node),
             ExprKind::FnCall(node) => self.analyze_fn_call(node),
             ExprKind::If(node) => self.analyze_if(node),
             ExprKind::Break(node) => self.analyze_break(node),
@@ -914,10 +914,34 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<ir::expr::Expr> {
         match node.callee.symbol().as_str() {
             "__unreachable" => Ok(ir::expr::Expr {
-                kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCallKind::Unreachable),
+                kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                    kind: ir::expr::BuiltinFnCallKind::Unreachable,
+                    args: ir::expr::Args(vec![]),
+                }),
                 ty: Rc::new(ir_type::Ty::new_never()),
                 span: node.span,
             }),
+
+            "__str" => {
+                let args = node
+                    .args
+                    .0
+                    .iter()
+                    .map(|arg| self.analyze_expr(arg))
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+
+                Ok(ir::expr::Expr {
+                    kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                        kind: ir::expr::BuiltinFnCallKind::Str,
+                        args: ir::expr::Args(args),
+                    }),
+                    ty: Rc::new(ir_type::wrap_in_ref(
+                        Rc::new(ir_type::Ty::new_str(ir_type::Mutability::Not)),
+                        ir_type::Mutability::Not,
+                    )),
+                    span: node.span,
+                })
+            }
 
             _ => Err(SemanticError::Undeclared {
                 name: node.callee.symbol(),
@@ -977,7 +1001,7 @@ impl SemanticAnalyzer {
         }
     }
 
-    fn analyze_array_indexing(
+    fn analyze_array_or_ptr_indexing(
         &mut self,
         node: &ast::expr::Indexing,
     ) -> anyhow::Result<ir::expr::Expr> {
@@ -1000,6 +1024,8 @@ impl SemanticAnalyzer {
         };
 
         let elem_ty = match operand.ty.kind.as_ref() {
+            ir_type::TyKind::Pointer(pty) => pty.pointee_ty.clone(),
+
             ir_type::TyKind::Reference(rty) => {
                 if let ir_type::TyKind::Array((elem_ty, _)) = rty.get_base_type().kind.as_ref() {
                     elem_ty.clone()
