@@ -84,9 +84,8 @@ def create_shell_script_for_setting_env():
 
 if __name__ == '__main__':
     if os.path.exists(kaede_dir):
-        print(
-            "If you need to reinstall, delete '%s' and run this program again!" % kaede_dir)
-        exit(1)
+        print("Existing installation found at '%s'. Removing and reinstalling..." % kaede_dir)
+        shutil.rmtree(kaede_dir)
 
     if not os.path.exists(kaede_dir):
         os.mkdir(kaede_dir)
