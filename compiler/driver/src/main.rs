@@ -11,7 +11,7 @@ use anyhow::{anyhow, Context as _};
 use colored::Colorize;
 use inkwell::{context::Context, module::Module, OptimizationLevel};
 use kaede_codegen::{error::CodegenError, CodeGenerator, CodegenCtx};
-use kaede_common::{kaede_gc_lib_path, kaede_lib_path};
+use kaede_common::{kaede_gc_lib_path, kaede_lib_path, kaede_rust_bridge_codegen_path};
 use kaede_parse::Parser;
 use kaede_semantic::SemanticAnalyzer;
 use tempfile::{NamedTempFile, TempPath};
@@ -19,6 +19,9 @@ use tempfile::{NamedTempFile, TempPath};
 #[derive(clap::Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
     #[arg(long, action)]
     display_llvm_ir: bool,
 
@@ -58,6 +61,17 @@ struct Args {
 
     #[arg(long, action)]
     no_gc: bool,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum Commands {
+    /// Create a new Kaede Rust bridge project
+    New {
+        /// Name of the project to create
+        project_name: String,
+    },
+    /// Build a Kaede Rust bridge project
+    Build,
 }
 
 fn to_inkwell_opt_level(level: u8) -> OptimizationLevel {
@@ -107,17 +121,31 @@ fn emit_object_file_to_tempfile(bitcode_path: &Path) -> anyhow::Result<TempPath>
     Ok(temppath)
 }
 
-fn emit_exe_file(obj_path: &Path, output_file_path: &Path) -> anyhow::Result<()> {
-    let status = Command::new("cc")
-        .args([
-            OsStr::new("-fPIE"), // Enable position-independent executable
-            OsStr::new("-o"),
-            output_file_path.as_os_str(),
-            obj_path.as_os_str(),
-            kaede_lib_path().as_os_str(), // Link with standard library first
-            kaede_gc_lib_path().as_os_str(), // Then link with garbage collector
-        ])
-        .status()?;
+fn emit_exe_file(
+    obj_path: &Path,
+    output_file_path: &Path,
+    additional_libs: &[PathBuf],
+) -> anyhow::Result<()> {
+    let mut args = vec![
+        OsStr::new("-fPIE"), // Enable position-independent executable
+        OsStr::new("-o"),
+        output_file_path.as_os_str(),
+        obj_path.as_os_str(),
+    ];
+
+    // Add additional libraries first (like Rust libraries)
+    for lib in additional_libs {
+        args.push(lib.as_os_str());
+    }
+
+    let kaede_lib_path = kaede_lib_path();
+    let kaede_gc_lib_path = kaede_gc_lib_path();
+
+    // Add standard libraries
+    args.push(kaede_lib_path.as_os_str()); // Link with standard library
+    args.push(kaede_gc_lib_path.as_os_str()); // Link with garbage collector
+
+    let status = Command::new("cc").args(&args).status()?;
 
     if !status.success() {
         anyhow::bail!("Failed to emit executable file using 'cc'")
@@ -271,8 +299,234 @@ fn compile_and_link(unit_infos: Vec<CompileUnitInfo>, option: CompileOption) -> 
     } else {
         let obj_path = emit_optimized_object_file_to_tempfile(option.opt_level, &module)?;
 
-        emit_exe_file(&obj_path, &option.output_file_path)?;
+        emit_exe_file(&obj_path, &option.output_file_path, &option.additional_libs)?;
     }
+
+    Ok(())
+}
+
+fn create_new_project(project_name: String) -> anyhow::Result<()> {
+    use std::fs;
+
+    // Step 1: Create new Rust library project
+    let status = Command::new("cargo")
+        .args(["new", "--lib", &project_name])
+        .status()
+        .context("Failed to run 'cargo new --lib'")?;
+
+    if !status.success() {
+        anyhow::bail!("Failed to create new Rust library project");
+    }
+
+    let project_dir = Path::new(&project_name);
+    let rust_dir = project_dir.join("rust");
+    let src_dir = project_dir.join("src");
+
+    // Create rust subdirectory and move cargo files there
+    fs::create_dir_all(&rust_dir)?;
+    fs::rename(project_dir.join("Cargo.toml"), rust_dir.join("Cargo.toml"))?;
+    fs::rename(project_dir.join("src"), rust_dir.join("src"))?;
+
+    // Step 2: Modify Cargo.toml to add cdylib crate-type and dependencies
+    let cargo_toml_path = rust_dir.join("Cargo.toml");
+    let mut cargo_toml_content = fs::read_to_string(&cargo_toml_path)?;
+
+    // Add [lib] section with crate-type at the beginning
+    let lib_section = "[lib]\ncrate-type = [\"cdylib\"]\n\n";
+    cargo_toml_content = lib_section.to_string() + &cargo_toml_content;
+
+    // Add build-dependencies section
+    cargo_toml_content.push_str("\n[build-dependencies]\n");
+    let codegen_path = kaede_rust_bridge_codegen_path();
+    cargo_toml_content.push_str(&format!(
+        "kaede-rust-bridge-codegen = {{ path = \"{}\" }}\n",
+        codegen_path.display()
+    ));
+
+    // Add workspace section
+    cargo_toml_content.push_str("\n[workspace]\n");
+
+    fs::write(&cargo_toml_path, cargo_toml_content)?;
+
+    // Step 3: Create build.rs file
+    let build_rs_path = rust_dir.join("build.rs");
+    let build_rs_content = r#"fn main() {
+    kaede_rust_bridge_codegen::generate("src/lib.rs", "../src").unwrap();
+}
+"#;
+    fs::write(&build_rs_path, build_rs_content)?;
+
+    // Step 4: Create src directory
+    fs::create_dir_all(&src_dir)?;
+    fs::write(
+        src_dir.join("main.kd"),
+        r#"import krb_generated
+use krb_generated.*
+
+fn main(): i32 {
+    if is_even(2) {
+        greetings()
+    }
+
+    return 0
+}"#,
+    )?;
+
+    // Step 5: Create lib.rs file
+    let lib_rs_path = rust_dir.join("src/lib.rs");
+    let lib_rs_content = r#"pub fn greetings() {
+    println!("hello, world!");
+}
+
+pub fn is_even(n: i32) -> bool {
+    n % 2 == 0
+}
+
+include!(concat!(env!("OUT_DIR"), "/kaede_bindings.rs"));"#;
+    fs::write(&lib_rs_path, lib_rs_content)?;
+
+    println!(
+        "✅ Successfully created Kaede Rust bridge project: {}",
+        project_name
+    );
+    println!("📁 Project structure:");
+    println!("  {}/", project_name);
+    println!("  ├── src/");
+    println!("  │   └── main.kd");
+    println!("  └── rust/");
+    println!("      ├── Cargo.toml");
+    println!("      ├── build.rs");
+    println!("      └── src/");
+    println!("          └── lib.rs");
+    println!();
+    println!("🚀 To get started:");
+    println!(
+        "  1. Add your Rust functions to {}/rust/src/lib.rs",
+        project_name
+    );
+    println!("  2. Create your Kaede files in {}/src/", project_name);
+    println!("  3. Build with: cd {} && kaede build", project_name);
+
+    Ok(())
+}
+
+fn build_project() -> anyhow::Result<()> {
+    use std::fs;
+
+    // Check if we're in a Kaede Rust bridge project
+    if !Path::new("rust").exists() || !Path::new("src").exists() {
+        anyhow::bail!(
+            "This is not a Kaede Rust bridge project.\n\
+             Expected structure:\n\
+             ├── rust/          (Rust code and Cargo.toml)\n\
+             └── src/           (Kaede source files)\n\
+             \n\
+             To create a new project: kaede new <project_name>\n\
+             Current directory: {}",
+            std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from("unknown"))
+                .display()
+        );
+    }
+
+    // Check if rust/Cargo.toml exists
+    if !Path::new("rust/Cargo.toml").exists() {
+        anyhow::bail!(
+            "rust/Cargo.toml not found. Make sure you're in a Kaede Rust bridge project directory.\n\
+             Current directory: {}", 
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("unknown")).display()
+        );
+    }
+
+    // Step 1: Build Rust library
+    println!("🔨 Building Rust library...");
+    let status = Command::new("cargo")
+        .args(["build"])
+        .current_dir("rust")
+        .status()
+        .context("Failed to run 'cargo build'")?;
+
+    if !status.success() {
+        anyhow::bail!("Failed to build Rust library");
+    }
+
+    // Step 2: Get package name from Cargo.toml
+    let cargo_toml_content =
+        fs::read_to_string("rust/Cargo.toml").context("Failed to read rust/Cargo.toml")?;
+
+    let package_name = cargo_toml_content
+        .lines()
+        .find(|line| line.starts_with("name = "))
+        .and_then(|line| line.split('"').nth(1))
+        .ok_or_else(|| anyhow!("Could not find package name in rust/Cargo.toml"))?;
+
+    // Step 3: Find all .kd files in kaede directory
+    fn find_kd_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+        let mut kd_files = Vec::new();
+        let entries = fs::read_dir(dir)?;
+
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.is_file() && path.extension().map_or(false, |ext| ext == "kd") {
+                kd_files.push(path);
+            } else if path.is_dir() {
+                kd_files.extend(find_kd_files(&path)?);
+            }
+        }
+
+        Ok(kd_files)
+    }
+
+    let file_paths = find_kd_files(&PathBuf::from("src"))?;
+
+    if file_paths.is_empty() {
+        anyhow::bail!("No .kd files found in kaede directory");
+    }
+
+    // Step 4: Create build directory
+    fs::create_dir_all("build").context("Failed to create build directory")?;
+
+    // Step 5: Prepare unit infos for compilation
+    println!("🔨 Compiling Kaede files...");
+    let mut unit_infos = Vec::new();
+    for file_path in &file_paths {
+        unit_infos.push(CompileUnitInfo {
+            program: fs::read_to_string(file_path)
+                .with_context(|| format!("Failed to read file: {}", file_path.display()))?,
+            file_path: file_path.clone(),
+        });
+    }
+
+    // Step 6: Set up Rust library path
+    let rust_lib_path = format!("rust/target/debug/lib{}.so", package_name.replace('-', "_"));
+    if !Path::new(&rust_lib_path).exists() {
+        anyhow::bail!(
+            "Rust library not found at: {}. Make sure cargo build succeeded.",
+            rust_lib_path
+        );
+    }
+
+    // Step 7: Create compile option with Rust library
+    let option = CompileOption {
+        opt_level: OptimizationLevel::Default,
+        display_llvm_ir: false,
+        output_file_path: PathBuf::from("build/main"),
+        root_dir: Some(PathBuf::from("src")),
+        no_autoload: false,
+        no_prelude: false,
+        no_gc: false,
+        additional_libs: vec![PathBuf::from(rust_lib_path)],
+    };
+
+    // Step 8: Use existing compile_and_link function
+    println!("🔗 Linking with Rust library...");
+    compile_and_link(unit_infos, option)?;
+
+    println!("✅ Build completed successfully!");
+    println!("📁 Output: build/main");
+    println!("🚀 Run with: ./build/main");
 
     Ok(())
 }
@@ -285,12 +539,27 @@ struct CompileOption {
     no_autoload: bool,
     no_prelude: bool,
     no_gc: bool,
+    additional_libs: Vec<PathBuf>,
 }
 
 fn main() -> anyhow::Result<()> {
     use clap::Parser;
 
     let args = Args::parse();
+
+    // Handle subcommands first
+    if let Some(command) = args.command {
+        match command {
+            Commands::New { project_name } => {
+                create_new_project(project_name)?;
+                return Ok(());
+            }
+            Commands::Build => {
+                build_project()?;
+                return Ok(());
+            }
+        }
+    }
 
     let file_paths = args.files;
 
@@ -306,6 +575,7 @@ fn main() -> anyhow::Result<()> {
         no_autoload: args.no_autoload,
         no_prelude: args.no_prelude,
         no_gc: args.no_gc,
+        additional_libs: Vec::new(),
     };
 
     if let Some(program) = args.program {
