@@ -469,7 +469,7 @@ fn build_project() -> anyhow::Result<()> {
             let entry = entry?;
             let path = entry.path();
 
-            if path.is_file() && path.extension().map_or(false, |ext| ext == "kd") {
+            if path.is_file() && path.extension().is_some_and(|ext| ext == "kd") {
                 kd_files.push(path);
             } else if path.is_dir() {
                 kd_files.extend(find_kd_files(&path)?);
