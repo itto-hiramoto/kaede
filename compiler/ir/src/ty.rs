@@ -315,7 +315,7 @@ pub struct FundamentalType {
 }
 
 impl FundamentalType {
-    pub fn create_llvm_str_type<'ctx>(context: &'ctx Context) -> BasicTypeEnum<'ctx> {
+    pub fn create_llvm_str_type(context: &Context) -> BasicTypeEnum<'_> {
         let str_ty = context.ptr_type(AddressSpace::default());
         let len_ty = context.i64_type();
         // { *i8, i64 }

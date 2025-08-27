@@ -173,9 +173,9 @@ impl SemanticAnalyzer {
     }
 
     /// Decompose enum variant patterns (like `A::B` or `A::B(a, b, c)`)
-    fn decompose_enum_variant_pattern<'p>(
-        pattern: &'p ast::expr::Expr,
-    ) -> DecomposedEnumVariantPattern<'p> {
+    fn decompose_enum_variant_pattern(
+        pattern: &ast::expr::Expr,
+    ) -> DecomposedEnumVariantPattern<'_> {
         let (module_names, enum_name, variant_name, param) = match &pattern.kind {
             ast::expr::ExprKind::Binary(b) => match b.kind {
                 ast::expr::BinaryKind::ScopeResolution => match &b.lhs.kind {
