@@ -40,6 +40,20 @@ def create_link_to_bdwgc(bdwgc_install_dir, dst):
     os.symlink(bdwgc_lib_path, dst)
 
 
+def install_kaede_rust_bridge_codegen(kaede_dir):
+    print("Installing kaede-rust-bridge-codegen...")
+    
+    codegen_src_dir = os.path.join(this_dir, "kaede-rust-bridge-codegen")
+    codegen_dst_dir = os.path.join(kaede_dir, "kaede-rust-bridge-codegen")
+    
+    # Copy the codegen crate
+    if os.path.exists(codegen_dst_dir):
+        shutil.rmtree(codegen_dst_dir)
+    shutil.copytree(codegen_src_dir, codegen_dst_dir)
+    
+    print("Done!")
+
+
 def install_standard_library(kaede_lib_dir):
     print("Installing standard library...")
 
@@ -85,6 +99,7 @@ def install(kaede_dir):
         os.mkdir(kaede_lib_dir)
 
     install_standard_library(kaede_lib_dir)
+    install_kaede_rust_bridge_codegen(kaede_dir)
 
     kaede_libgc_path = os.path.join(kaede_lib_dir, "libkgc.so")
     create_link_to_bdwgc(bdwgc_install_dir, kaede_libgc_path)

@@ -13,8 +13,19 @@ pub fn generate(input_path: &str, kaede_out_dir: &str) -> Result<(), Box<dyn std
     let ast: File = parse_file(&content)?;
 
     let out_path = create_kaede_decls_file_path(kaede_out_dir);
+
+    // Check if the output directory exists
+    if let Some(parent) = out_path.parent() {
+        if !parent.exists() {
+            return Err(format!(
+                "Output directory '{}' does not exist. Please create the directory before running the build.",
+                parent.display()
+            ).into());
+        }
+    }
+
     if out_path.exists() {
-        fs::remove_file(out_path)?;
+        fs::remove_file(&out_path)?;
     }
 
     let mut tokens = TokenStream::new();
@@ -78,11 +89,21 @@ fn generate_kaede_decls(
     let output = &sig.output;
 
     let out_path = create_kaede_decls_file_path(kaede_out_dir);
+
+    // Check if the directory exists (should be caught by main generate function)
+    if let Some(parent) = out_path.parent() {
+        if !parent.exists() {
+            return Err(format!(
+                "Output directory '{}' does not exist. Please create the directory before running the build.",
+                parent.display()
+            ).into());
+        }
+    }
+
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open(out_path)
-        .unwrap();
+        .open(out_path)?;
 
     let output = match output {
         syn::ReturnType::Default => "".to_string(),
