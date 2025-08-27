@@ -1,0 +1,57 @@
+# Rust build artifacts
+target/
+Cargo.lock
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+
+# IDE/Editor settings
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Documentation
+*.md
+README*
+docs/
+
+# Tests (might include in full development environment, but excluded in base image)
+**/tests/
+test_*
+
+# Log files
+*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Coverage reports
+coverage/
+*.coverage
+
+# Node.js (if any)
+node_modules/
+npm-debug.log*
+
+# Docker files themselves
+Dockerfile*
+docker-compose*
+.dockerignore
