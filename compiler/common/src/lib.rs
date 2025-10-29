@@ -6,12 +6,20 @@ fn kaede_dir() -> PathBuf {
     )
 }
 
+pub fn lib_extension() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "dylib"
+    } else {
+        "so"
+    }
+}
+
 pub fn kaede_gc_lib_path() -> PathBuf {
-    kaede_dir().join("lib/libkgc.so")
+    kaede_dir().join(format!("lib/libkgc.{}", lib_extension()))
 }
 
 pub fn kaede_lib_path() -> PathBuf {
-    kaede_dir().join("lib/libkd.so")
+    kaede_dir().join(format!("lib/libkd.{}", lib_extension()))
 }
 
 pub fn kaede_lib_src_dir() -> PathBuf {
