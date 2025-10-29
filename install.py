@@ -57,14 +57,24 @@ def install():
 
 
 def create_shell_script_for_setting_env():
+    import platform
+
+    lib_extension = (
+        "DYLD_LIBRARY_PATH" if platform.system() == "Darwin" else "LD_LIBRARY_PATH"
+    )
+    bdwgc_lib_path = os.path.join(unexpanded_kaede_dir, "third_party", "bdwgc", "lib")
+
     env_script_path = os.path.join(unexpanded_kaede_dir, "env")
     with open(os.path.expandvars(env_script_path), "w+") as f:
-        f.writelines(["#!/bin/sh\n",
-                      "\n",
-                      'export PATH="%s:$PATH"\n' % unexpanded_kaede_bin_dir,
-                      "\n",
-                      'export LD_LIBRARY_PATH="%s:$LD_LIBRARY_PATH"\n'
-                      % os.path.join(unexpanded_kaede_dir, "third_party", "bdwgc", "lib")])
+        f.writelines(
+            [
+                "#!/bin/sh\n",
+                "\n",
+                'export PATH="%s:$PATH"\n' % unexpanded_kaede_bin_dir,
+                "\n",
+                'export %s="%s:$%s"\n' % (lib_extension, bdwgc_lib_path, lib_extension),
+            ]
+        )
 
     if "--no-setenv" in sys.argv:
         return
@@ -82,9 +92,12 @@ def create_shell_script_for_setting_env():
         print("source %s" % shell_init_file)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     if os.path.exists(kaede_dir):
-        print("Existing installation found at '%s'. Removing and reinstalling..." % kaede_dir)
+        print(
+            "Existing installation found at '%s'. Removing and reinstalling..."
+            % kaede_dir
+        )
         shutil.rmtree(kaede_dir)
 
     if not os.path.exists(kaede_dir):
