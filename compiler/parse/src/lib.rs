@@ -14,6 +14,7 @@ use kaede_lex::{
 };
 use kaede_span::{file::FilePath, Location, Span};
 use kaede_symbol::Symbol;
+use kaede_type_infer::InferContext;
 
 pub struct Parser {
     file: FilePath,
@@ -30,6 +31,8 @@ pub struct Parser {
     generic_param_names_stack: Vec<Vec<Symbol>>,
 
     imported_modules: Vec<Symbol>,
+
+    infer_context: InferContext,
 }
 
 impl Parser {
@@ -43,6 +46,7 @@ impl Parser {
             generic_param_names_stack: Vec::new(),
             file,
             imported_modules: Vec::new(),
+            infer_context: InferContext::default(),
         }
     }
 

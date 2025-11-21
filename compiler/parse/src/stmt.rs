@@ -105,7 +105,7 @@ impl Parser {
                     name,
                     mutability,
                     init: Some(init.into()),
-                    ty: Ty::new_inferred(mutability, span).into(),
+                    ty: self.infer_context.fresh(),
                     span,
                 }),
                 span,

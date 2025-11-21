@@ -1,0 +1,8 @@
+[package]
+name = "kaede_type_infer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+kaede_span = { path = "../span" }
+kaede_ast_type = { path = "../ast_type" }

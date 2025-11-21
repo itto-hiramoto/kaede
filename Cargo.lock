@@ -454,6 +454,7 @@ dependencies = [
  "kaede_lex",
  "kaede_span",
  "kaede_symbol",
+ "kaede_type_infer",
  "thiserror",
 ]
 
@@ -488,6 +489,14 @@ dependencies = [
  "kaede_span",
  "once_cell",
  "slab",
+]
+
+[[package]]
+name = "kaede_type_infer"
+version = "0.1.0"
+dependencies = [
+ "kaede_ast_type",
+ "kaede_span",
 ]
 
 [[package]]
