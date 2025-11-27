@@ -454,6 +454,7 @@ dependencies = [
  "kaede_lex",
  "kaede_span",
  "kaede_symbol",
+ "kaede_type_infer",
  "thiserror",
 ]
 
@@ -469,6 +470,8 @@ dependencies = [
  "kaede_parse",
  "kaede_span",
  "kaede_symbol",
+ "kaede_symbol_table",
+ "kaede_type_infer",
  "tempfile",
  "thiserror",
 ]
@@ -488,6 +491,30 @@ dependencies = [
  "kaede_span",
  "once_cell",
  "slab",
+]
+
+[[package]]
+name = "kaede_symbol_table"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kaede_ast",
+ "kaede_ir",
+ "kaede_span",
+ "kaede_symbol",
+ "thiserror",
+]
+
+[[package]]
+name = "kaede_type_infer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kaede_ir",
+ "kaede_span",
+ "kaede_symbol",
+ "kaede_symbol_table",
+ "thiserror",
 ]
 
 [[package]]

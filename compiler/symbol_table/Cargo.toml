@@ -1,0 +1,13 @@
+[package]
+name = "kaede_symbol_table"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.68"
+thiserror = "1.0.38"
+
+kaede_span = { path = "../span" }
+kaede_ast = { path = "../ast" }
+kaede_ir = { path = "../ir" }
+kaede_symbol = { path = "../symbol" }

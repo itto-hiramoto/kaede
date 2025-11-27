@@ -46,40 +46,32 @@ pub struct Int {
 }
 
 #[derive(Debug)]
+/// Integer literals are always non-negative.
+/// Negative numbers like `-123` are represented as unary minus operator applied to `123`.
+/// Type suffixes are not yet supported; all literals have inferred types.
 pub enum IntKind {
-    I32(i32),
-    U64(u64),
+    /// Integer literal with inferred type
+    Unsuffixed(u64),
 }
 
 impl Int {
     pub fn as_u64(&self) -> u64 {
-        use IntKind::*;
-
-        match self.kind {
-            I32(n) => n as u64,
-
-            U64(n) => n,
-        }
+        let IntKind::Unsuffixed(n) = self.kind;
+        n
     }
 
     pub fn as_llvm_int<'ctx>(&self, context: &'ctx Context) -> IntValue<'ctx> {
-        use IntKind::*;
-
-        match self.kind {
-            I32(n) => context.i32_type().const_int(n as u64, true),
-            U64(n) => context.i64_type().const_int(n, false),
-        }
+        let IntKind::Unsuffixed(n) = self.kind;
+        // Default to i32 for LLVM codegen
+        // (actual type will be determined by type inference)
+        context.i32_type().const_int(n, true)
     }
 
     pub fn get_type(&self) -> Ty {
-        match self.kind {
-            IntKind::I32(_) => {
-                make_fundamental_type(FundamentalTypeKind::I32, Mutability::Not, self.span)
-            }
-            IntKind::U64(_) => {
-                make_fundamental_type(FundamentalTypeKind::U64, Mutability::Not, self.span)
-            }
-        }
+        // Unsuffixed literals have no concrete type yet
+        // Type will be determined by type inference
+        // Return i32 as a placeholder
+        make_fundamental_type(FundamentalTypeKind::I32, Mutability::Not, self.span)
     }
 }
 

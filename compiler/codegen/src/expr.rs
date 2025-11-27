@@ -96,11 +96,31 @@ impl<'ctx> CodeGenerator<'ctx> {
         use kaede_ir::expr::IntKind::*;
 
         match int.kind {
+            I8(n) => Ok(Some(
+                self.context().i8_type().const_int(n as u64, true).into(),
+            )),
+
+            U8(n) => Ok(Some(
+                self.context().i8_type().const_int(n as u64, false).into(),
+            )),
+
             I32(n) => Ok(Some(
                 self.context().i32_type().const_int(n as u64, true).into(),
             )),
 
+            U32(n) => Ok(Some(
+                self.context().i32_type().const_int(n as u64, false).into(),
+            )),
+
+            I64(n) => Ok(Some(
+                self.context().i64_type().const_int(n as u64, true).into(),
+            )),
+
             U64(n) => Ok(Some(self.context().i64_type().const_int(n, false).into())),
+
+            Infer(_) => {
+                anyhow::bail!("IntKind::Infer should have been resolved by type inference phase")
+            }
         }
     }
 

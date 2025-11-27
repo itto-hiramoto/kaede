@@ -16,7 +16,7 @@ use kaede_ir::{
 use kaede_parse::Parser;
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::{Ident, Symbol};
-use symbol_table::SymbolTableValue;
+use kaede_symbol_table::{SymbolTable, SymbolTableValue, SymbolTableValueKind};
 
 mod context;
 mod error;
@@ -29,12 +29,10 @@ mod ty;
 pub use error::SemanticError;
 use kaede_ast::{self as ast, top::Visibility};
 use kaede_ir as ir;
+use kaede_type_infer::InferContext;
 pub use top::TopLevelAnalysisResult;
 
-use crate::{
-    context::{AnalyzeCommand, ModuleContext},
-    symbol_table::{SymbolTable, SymbolTableValueKind},
-};
+use crate::context::{AnalyzeCommand, ModuleContext};
 
 pub struct SemanticAnalyzer {
     modules: HashMap<ModulePath, ModuleContext>,
@@ -44,6 +42,7 @@ pub struct SemanticAnalyzer {
     imported_module_paths: HashSet<PathBuf>,
     root_dir: PathBuf,
     autoloads_imported: bool,
+    infer_context: InferContext,
 }
 
 impl SemanticAnalyzer {
@@ -68,6 +67,7 @@ impl SemanticAnalyzer {
             imported_module_paths: HashSet::new(),
             root_dir,
             autoloads_imported: false,
+            infer_context: InferContext::default(),
         }
     }
 
@@ -87,6 +87,7 @@ impl SemanticAnalyzer {
             imported_module_paths: HashSet::new(),
             root_dir: PathBuf::from("."),
             autoloads_imported: false,
+            infer_context: InferContext::default(),
         }
     }
 
@@ -550,6 +551,43 @@ impl SemanticAnalyzer {
         }));
 
         top_level_irs.push(main_fn);
+
+        Ok(())
+    }
+
+    /// Run type inference on a function body while scopes are still active
+    /// This should be called during semantic analysis, not after
+    pub fn infer_function_body_inline(
+        &mut self,
+        body: &mut kaede_ir::stmt::Block,
+        _decl: &ir::top::FnDecl,
+    ) -> anyhow::Result<()> {
+        use kaede_type_infer::TypeInferrer;
+
+        // Get all symbol tables currently in scope
+        let module_path = self.current_module_path().clone();
+        let module = self.modules.get(&module_path).unwrap();
+
+        // Merge all symbol tables from the stack (includes root scope + all local scopes)
+        // This allows type inference to see all symbols: globals, function params, and locals
+        // TODO: Support shadowing
+        let symbol_table = SymbolTable::merge_for_inference(module.get_symbol_tables());
+
+        // Create a type inferrer with the merged symbol table
+        let mut inferrer = TypeInferrer::new(symbol_table);
+
+        // Infer types for all statements in the block
+        for stmt in &body.body {
+            inferrer.infer_stmt(stmt)?;
+        }
+
+        // Infer the last expression if present
+        if let Some(last_expr) = &body.last_expr {
+            inferrer.infer_expr(last_expr)?;
+        }
+
+        // Apply inferred types back to the IR
+        inferrer.apply_block(body);
 
         Ok(())
     }

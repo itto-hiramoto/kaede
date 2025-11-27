@@ -8,11 +8,8 @@ use kaede_span::Span;
 use kaede_symbol::Ident;
 
 use crate::context::AnalyzeCommand;
-use crate::{
-    error::SemanticError,
-    symbol_table::{GenericKind, SymbolTableValueKind},
-    SemanticAnalyzer, TopLevelAnalysisResult,
-};
+use crate::{error::SemanticError, SemanticAnalyzer, TopLevelAnalysisResult};
+use kaede_symbol_table::{GenericKind, SymbolTableValueKind};
 
 struct GenericTypeOps<T> {
     get_generic_params: fn(&T) -> &ast::top::GenericParams,
@@ -70,7 +67,7 @@ impl SemanticAnalyzer {
 
             ast_type::TyKind::Unit => Ok(ir_type::Ty::new_unit().into()),
             ast_type::TyKind::Never => Ok(ir_type::Ty::new_never().into()),
-            ast_type::TyKind::Inferred => todo!(),
+            ast_type::TyKind::Var => Ok(self.infer_context.fresh().into()),
         }
     }
 

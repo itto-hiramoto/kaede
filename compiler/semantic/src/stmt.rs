@@ -1,10 +1,7 @@
-use crate::{
-    symbol_table::{SymbolTableValue, SymbolTableValueKind, VariableInfo},
-    SemanticAnalyzer, SemanticError,
-};
+use crate::{SemanticAnalyzer, SemanticError};
+use kaede_symbol_table::{SymbolTableValue, SymbolTableValueKind, VariableInfo};
 
 use kaede_ast as ast;
-use kaede_ast_type as ast_type;
 use kaede_ir as ir;
 
 enum LetResult {
@@ -77,25 +74,27 @@ impl SemanticAnalyzer {
                 return Err(SemanticError::CannotAssignImmutableToMutable { span }.into());
             }
 
-            let var_ty = ir::ty::change_mutability_dup(init.ty.clone(), mutability.into());
-
-            if !node.ty.kind.is_inferred() {
-                // Check if the type of the initializer is the same as the type of the variable
-                if !ir::ty::is_same_type(self.analyze_type(&node.ty)?.as_ref(), &init.ty) {
-                    return Err(SemanticError::MismatchedTypes {
-                        types: (node.ty.kind.to_string(), init.ty.kind.to_string()),
-                        span: node.span,
-                    }
-                    .into());
+            // Determine the variable type
+            let var_ty = if node.ty.kind.is_inferred() {
+                // No type annotation
+                // If init expression has a concrete type (not a type variable), use it
+                // Otherwise, create fresh type variable for type inference pass to resolve
+                if matches!(init.ty.kind.as_ref(), ir::ty::TyKind::Var(_)) {
+                    ir::ty::change_mutability_dup(self.infer_context.fresh(), mutability.into())
+                } else {
+                    ir::ty::change_mutability_dup(init.ty.clone(), mutability.into())
                 }
-            }
+            } else {
+                // Type annotation present - use the annotated type
+                ir::ty::change_mutability_dup(self.analyze_type(&node.ty)?, mutability.into())
+            };
 
             // Insert the variable into the symbol table
             self.insert_symbol_to_current_scope(
                 node.name.symbol(),
                 SymbolTableValue::new(
                     SymbolTableValueKind::Variable(VariableInfo { ty: var_ty.clone() }),
-                    self,
+                    self.current_module_path().clone(),
                 ),
                 span,
             )?;
@@ -124,27 +123,10 @@ impl SemanticAnalyzer {
             match rty.refee_ty.kind.as_ref() {
                 ir::ty::TyKind::Tuple(element_types) => (element_types, tuple_ref_ty.mutability),
 
-                kind => {
-                    return Err(SemanticError::MismatchedTypes {
-                        types: (
-                            ast_type::create_inferred_tuple(node.names.len(), node.span)
-                                .to_string(),
-                            kind.to_string(),
-                        ),
-                        span: node.span,
-                    }
-                    .into());
-                }
+                _ => todo!("Error"),
             }
         } else {
-            return Err(SemanticError::MismatchedTypes {
-                types: (
-                    ast_type::create_inferred_tuple(node.names.len(), node.span).to_string(),
-                    tuple_ref_ty.kind.to_string(),
-                ),
-                span: node.span,
-            }
-            .into());
+            todo!("Error")
         };
 
         let element_len = element_types.len();
@@ -170,7 +152,7 @@ impl SemanticAnalyzer {
                             SymbolTableValueKind::Variable(VariableInfo {
                                 ty: element_types[index].clone(),
                             }),
-                            self,
+                            self.current_module_path().clone(),
                         ),
                         node.span,
                     )?;

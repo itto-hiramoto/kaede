@@ -41,8 +41,14 @@ pub struct Int {
 
 #[derive(Debug)]
 pub enum IntKind {
+    I8(i8),
+    U8(u8),
     I32(i32),
+    U32(u32),
+    I64(i64),
     U64(u64),
+    /// Integer literal with inferred type (value stored as i64)
+    Infer(i64),
 }
 
 impl Int {
@@ -50,9 +56,13 @@ impl Int {
         use IntKind::*;
 
         match self.kind {
+            I8(n) => n as u64,
+            U8(n) => n as u64,
             I32(n) => n as u64,
-
+            U32(n) => n as u64,
+            I64(n) => n as u64,
             U64(n) => n,
+            Infer(n) => n as u64,
         }
     }
 }

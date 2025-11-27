@@ -1,14 +1,6 @@
 use std::{collections::BTreeSet, rc::Rc, vec};
 
-use crate::{
-    context::AnalyzeCommand,
-    error::SemanticError,
-    symbol_table::{
-        GenericFuncInfo, GenericInfo, GenericKind, SymbolTable, SymbolTableValue,
-        SymbolTableValueKind, VariableInfo,
-    },
-    SemanticAnalyzer,
-};
+use crate::{context::AnalyzeCommand, error::SemanticError, SemanticAnalyzer};
 
 use kaede_ast as ast;
 use kaede_ast_type::{self as ast_type};
@@ -20,6 +12,10 @@ use kaede_ir::{
 use kaede_ir::{module_path::ModulePath, ty as ir_type};
 use kaede_span::Span;
 use kaede_symbol::{Ident, Symbol};
+use kaede_symbol_table::{
+    GenericFuncInfo, GenericInfo, GenericKind, SymbolTable, SymbolTableValue, SymbolTableValueKind,
+    VariableInfo,
+};
 
 struct DecomposedEnumVariantPattern<'p> {
     module_names: Vec<Ident>,
@@ -459,7 +455,7 @@ impl SemanticAnalyzer {
                         SymbolTableValueKind::Variable(VariableInfo {
                             ty: variant_ty.clone(),
                         }),
-                        self,
+                        self.current_module_path().clone(),
                     ),
                     current_arm.pattern.span,
                 )?;
@@ -995,7 +991,7 @@ impl SemanticAnalyzer {
                 })
             }
 
-            SymbolTableValueKind::Generic(info) => self.analyze_generic_fn_call(info, node),
+            SymbolTableValueKind::Generic(info) => self.analyze_generic_fn_call(&info, node),
 
             _ => unreachable!(),
         }
@@ -1067,33 +1063,6 @@ impl SemanticAnalyzer {
             .transpose()?
             .map(Box::new);
 
-        if let Some(expr) = &expr {
-            let fn_return_ty = &self.context.get_current_function().unwrap().return_ty;
-
-            match fn_return_ty {
-                Some(ty) => {
-                    if !ir::ty::is_same_type(ty, &expr.ty) {
-                        return Err(SemanticError::MismatchedTypes {
-                            types: (ty.kind.to_string(), expr.ty.kind.to_string()),
-                            span: node.span,
-                        }
-                        .into());
-                    }
-                }
-
-                None => {
-                    return Err(SemanticError::MismatchedTypes {
-                        types: (
-                            ir_type::Ty::new_never().kind.to_string(),
-                            expr.ty.kind.to_string(),
-                        ),
-                        span: node.span,
-                    }
-                    .into());
-                }
-            }
-        }
-
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::Return(expr),
             ty: Rc::new(ir_type::Ty::new_never()),
@@ -1157,10 +1126,13 @@ impl SemanticAnalyzer {
             elements.push(self.analyze_expr(element)?);
         }
 
+        // Create a fresh type variable for the element type
+        // The type inference pass will unify all element types
+        let elem_ty = self.infer_context.fresh();
+
         let ty = Rc::new(ir_type::wrap_in_ref(
             Rc::new(ir_type::Ty {
-                kind: ir_type::TyKind::Array((elements[0].ty.clone(), elements.len() as u32))
-                    .into(),
+                kind: ir_type::TyKind::Array((elem_ty, elements.len() as u32)).into(),
                 mutability: ir_type::Mutability::Not,
             }),
             ir_type::Mutability::Mut,
@@ -1173,21 +1145,18 @@ impl SemanticAnalyzer {
         })
     }
 
-    fn analyze_int(&self, node: &ast::expr::Int) -> anyhow::Result<ir::expr::Expr> {
-        let kind = match node.kind {
-            ast::expr::IntKind::I32(n) => ir::expr::IntKind::I32(n),
-            ast::expr::IntKind::U64(n) => ir::expr::IntKind::U64(n),
-        };
+    fn analyze_int(&mut self, node: &ast::expr::Int) -> anyhow::Result<ir::expr::Expr> {
+        // Integer literals are always non-negative
+        // Negative numbers are represented as unary minus operator
+        let ast::expr::IntKind::Unsuffixed(n) = node.kind;
 
+        // All integer literals use type inference
+        // Type can be inferred to any integer type (i8, u8, i32, u32, i64, u64)
         Ok(ir::expr::Expr {
-            ty: Rc::new(ir_type::make_fundamental_type(
-                match kind {
-                    ir::expr::IntKind::I32(_) => ir_type::FundamentalTypeKind::I32,
-                    ir::expr::IntKind::U64(_) => ir_type::FundamentalTypeKind::U64,
-                },
-                ir_type::Mutability::Not,
-            )),
-            kind: ir::expr::ExprKind::Int(ir::expr::Int { kind }),
+            ty: self.infer_context.fresh(),
+            kind: ir::expr::ExprKind::Int(ir::expr::Int {
+                kind: ir::expr::IntKind::Infer(n as i64),
+            }),
             span: node.span,
         })
     }
@@ -1418,17 +1387,8 @@ impl SemanticAnalyzer {
             None => None,
         };
 
-        // Type checking
-        if let Some(value) = &value {
-            if let Some(ty) = &variant_info.ty {
-                if !ir_type::is_same_type(&value.ty, ty) {
-                    return Err(SemanticError::MismatchedTypes {
-                        types: (value.ty.kind.to_string(), ty.kind.to_string()),
-                        span: left_span,
-                    }
-                    .into());
-                }
-            } else {
+        if value.is_some() {
+            if variant_info.ty.is_none() {
                 // No type is specified for the variant, but a value is provided.
                 return Err(SemanticError::CannotAssignValueToVariant {
                     variant_name: variant_name.symbol(),
@@ -1695,29 +1655,7 @@ impl SemanticAnalyzer {
                 .into());
             }
 
-            std::cmp::Ordering::Equal => {
-                for (param, arg) in fn_decl.params.iter().zip(args.iter()) {
-                    if !ir_type::is_same_type(&param.ty, &arg.ty) {
-                        return Err(SemanticError::MismatchedTypes {
-                            types: (arg.ty.kind.to_string(), param.ty.kind.to_string()),
-                            span: arg.span,
-                        }
-                        .into());
-                    }
-
-                    // Check mutability
-                    if arg.ty.mutability.is_not() && param.ty.mutability.is_mut() {
-                        return Err(if param.name.as_str() == "self" {
-                            SemanticError::CannotCallMutableMethodOnImmutableValue {
-                                span: arg.span,
-                            }
-                        } else {
-                            SemanticError::CannotAssignImmutableToMutable { span: arg.span }
-                        }
-                        .into());
-                    }
-                }
-            }
+            std::cmp::Ordering::Equal => {}
         }
 
         Ok(())
@@ -1973,15 +1911,6 @@ impl SemanticAnalyzer {
             node.rhs.span.finish,
             node.lhs.span.file,
         );
-
-        // Type checking
-        if !ir_type::is_same_type(&lhs.ty, &rhs.ty) {
-            return Err(SemanticError::MismatchedTypes {
-                types: (lhs.ty.kind.to_string(), rhs.ty.kind.to_string()),
-                span,
-            }
-            .into());
-        }
 
         let to = |kind, ty| ir::expr::Expr {
             kind: ir::expr::ExprKind::Binary(ir::expr::Binary {

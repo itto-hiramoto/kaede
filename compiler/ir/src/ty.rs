@@ -219,6 +219,8 @@ pub fn make_fundamental_type(kind: FundamentalTypeKind, mutability: Mutability) 
     }
 }
 
+pub type VarId = usize;
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TyKind {
     Fundamental(FundamentalType),
@@ -232,6 +234,9 @@ pub enum TyKind {
     Array((Rc<Ty> /* Element type */, u32 /* Size */)),
 
     Tuple(Vec<Rc<Ty>> /* Element types */),
+
+    // Inferred type
+    Var(VarId),
 
     Unit,
 
@@ -262,6 +267,8 @@ impl std::fmt::Display for TyKind {
                     .join(", ")
             ),
 
+            Self::Var(_) => write!(f, "_"),
+
             Self::Unit => write!(f, "()"),
 
             Self::Never => write!(f, "!"),
@@ -281,6 +288,8 @@ impl TyKind {
             Self::Tuple(_) => panic!("Cannot get sign information of tuple type!"),
             Self::Unit => panic!("Cannot get sign information of unit type!"),
             Self::Never => panic!("Cannot get sign information of never type!"),
+
+            Self::Var(_) => unreachable!(),
         }
     }
 
@@ -291,6 +300,8 @@ impl TyKind {
             Self::Reference(ty) => ty.refee_ty.kind.is_int_or_bool(),
 
             Self::Array(_) | Self::Tuple(_) | Self::Pointer(_) | Self::Unit | Self::Never => false,
+
+            Self::Var(_) => unreachable!(),
         }
     }
 
@@ -305,6 +316,8 @@ impl TyKind {
             | Self::Pointer(_)
             | Self::Unit
             | Self::Never => false,
+
+            Self::Var(_) => unreachable!(),
         }
     }
 }
