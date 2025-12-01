@@ -420,6 +420,7 @@ impl SemanticAnalyzer {
             kind: ir::expr::ExprKind::Variable(ir::expr::Variable {
                 name: "argc".to_owned().into(),
                 ty: argc_ty.clone(),
+                span: Span::dummy(),
             }),
             ty: argc_ty,
             span: Span::dummy(),
@@ -429,6 +430,7 @@ impl SemanticAnalyzer {
             kind: ir::expr::ExprKind::Variable(ir::expr::Variable {
                 name: "argv".to_owned().into(),
                 ty: argv_ty.clone(),
+                span: Span::dummy(),
             }),
             ty: argv_ty,
             span: Span::dummy(),
@@ -447,7 +449,8 @@ impl SemanticAnalyzer {
         let fn_call = ir::expr::Expr {
             kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
                 callee: prepare_command_line_arguments_decl.clone(),
-                args: ir::expr::Args(vec![argc_expr, argv_expr]),
+                args: ir::expr::Args(vec![argc_expr, argv_expr], Span::dummy()),
+                span: Span::dummy(),
             }),
             ty: prepare_command_line_arguments_decl
                 .return_ty
@@ -522,7 +525,8 @@ impl SemanticAnalyzer {
 
         let kdmain_call_node = ir::expr::FnCall {
             callee: kdmain_decl.clone(),
-            args: ir::expr::Args(args),
+            args: ir::expr::Args(args, Span::dummy()),
+            span: Span::dummy(),
         };
 
         let return_statement = ir::expr::ExprKind::Return(Some(Box::new(ir::expr::Expr {
@@ -547,6 +551,7 @@ impl SemanticAnalyzer {
                     .into(),
                     span: Span::dummy(),
                 })),
+                span: Span::dummy(),
             }),
         }));
 

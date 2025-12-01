@@ -355,7 +355,10 @@ impl TypeInferrer {
             }
         }
 
-        Err(TypeInferError::UndefinedVariableNoSpan { name: var.name })
+        Err(TypeInferError::UndefinedVariable {
+            name: var.name,
+            span: var.span,
+        })
     }
 
     // Binary operations
@@ -449,8 +452,9 @@ impl TypeInferrer {
         {
             Ok(field_def.ty.clone())
         } else {
-            Err(TypeInferError::FieldNotFoundNoSpan {
+            Err(TypeInferError::FieldNotFound {
                 field_name: field.field_name,
+                span: field.span,
             })
         }
     }
@@ -462,10 +466,12 @@ impl TypeInferrer {
         let tuple_ty = self.infer_expr(&tuple_idx.tuple)?;
         let unwrapped = Self::unwrap_reference(&tuple_ty);
 
-        let bail_expected_tuple = || TypeInferError::NotATupleNoSpan {
+        let span = tuple_idx.span;
+        let bail_expected_tuple = || TypeInferError::NotATuple {
             index: tuple_idx.index,
             ty: tuple_ty.kind.to_string(),
             unwrapped_ty: unwrapped.kind.to_string(),
+            span,
         };
 
         match unwrapped.kind.as_ref() {
@@ -474,8 +480,9 @@ impl TypeInferrer {
                 if idx < elem_tys.len() {
                     Ok(elem_tys[idx].clone())
                 } else {
-                    return Err(TypeInferError::TupleIndexOutOfBoundsNoSpan {
+                    return Err(TypeInferError::TupleIndexOutOfBounds {
                         index: tuple_idx.index as u64,
+                        span,
                     });
                 }
             }
@@ -497,7 +504,7 @@ impl TypeInferrer {
                         ))
                     }
                     _ => {
-                        return Err(TypeInferError::StrIndexOutOfBoundsNoSpan);
+                        return Err(TypeInferError::StrIndexOutOfBounds { span });
                     }
                 };
 
@@ -555,7 +562,7 @@ impl TypeInferrer {
                 let elem_ty = self.context.fresh();
                 Ok(elem_ty)
             }
-            _ => Err(TypeInferError::NotIndexableNoSpan),
+            _ => Err(TypeInferError::NotIndexable { span: idx.span }),
         }
     }
 
@@ -579,10 +586,11 @@ impl TypeInferrer {
 
         // Check argument count
         if fn_call.args.0.len() != decl.params.len() && !decl.is_c_variadic {
-            return Err(TypeInferError::ArgumentCountMismatchNoSpan {
+            return Err(TypeInferError::ArgumentCountMismatch {
                 fn_name: decl.name.clone(),
                 expected: decl.params.len(),
                 actual: fn_call.args.0.len(),
+                span: fn_call.span,
             });
         }
 
@@ -789,9 +797,10 @@ impl TypeInferrer {
         match unwrapped.kind.as_ref() {
             TyKind::Tuple(elem_tys) => {
                 if elem_tys.len() != tuple_unpack.names.len() {
-                    return Err(TypeInferError::TupleUnpackCountMismatchNoSpan {
+                    return Err(TypeInferError::TupleUnpackCountMismatch {
                         expected: tuple_unpack.names.len(),
                         actual: elem_tys.len(),
+                        span: tuple_unpack.span,
                     });
                 }
 
@@ -812,7 +821,9 @@ impl TypeInferrer {
                 }
             }
             _ => {
-                return Err(TypeInferError::ExpectedTupleForUnpackNoSpan);
+                return Err(TypeInferError::ExpectedTupleForUnpack {
+                    span: tuple_unpack.span,
+                });
             }
         }
 
@@ -911,7 +922,9 @@ impl TypeInferrer {
 
                 // Error on unresolved type variables
                 if matches!(var.ty.kind.as_ref(), TyKind::Var(_)) {
-                    return Err(TypeInferError::CannotInferVariableTypeNoSpan);
+                    return Err(TypeInferError::CannotInferVariableType {
+                        span: expr.span,
+                    });
                 }
             }
 
@@ -1017,7 +1030,9 @@ impl TypeInferrer {
 
                 // Error on unresolved type variables
                 if matches!(let_stmt.ty.kind.as_ref(), TyKind::Var(_)) {
-                    return Err(TypeInferError::CannotInferVariableTypeNoSpan);
+                    return Err(TypeInferError::CannotInferVariableType {
+                        span: let_stmt.span,
+                    });
                 }
             }
             Stmt::TupleUnpack(tuple_unpack) => {

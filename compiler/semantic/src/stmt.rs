@@ -47,6 +47,7 @@ impl SemanticAnalyzer {
         Ok(ir::stmt::Assign {
             assignee: left,
             value: right,
+            span: node.span,
         })
     }
 
@@ -103,6 +104,7 @@ impl SemanticAnalyzer {
                 name: node.name.symbol(),
                 ty: var_ty,
                 init: Some(init),
+                span: node.span,
             })
         } else {
             todo!()
@@ -173,7 +175,11 @@ impl SemanticAnalyzer {
             }
         }
 
-        Ok(ir::stmt::TupleUnpack { names, init: tuple })
+        Ok(ir::stmt::TupleUnpack {
+            names,
+            init: tuple,
+            span: node.span,
+        })
     }
 
     pub fn analyze_block(&mut self, block: &ast::stmt::Block) -> anyhow::Result<ir::stmt::Block> {
@@ -186,6 +192,7 @@ impl SemanticAnalyzer {
         Ok(ir::stmt::Block {
             body: stmts,
             last_expr: None,
+            span: block.span,
         })
     }
 }

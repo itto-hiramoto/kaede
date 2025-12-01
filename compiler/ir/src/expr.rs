@@ -12,31 +12,36 @@ use crate::{
 #[derive(Debug)]
 pub struct StringLiteral {
     pub syb: Symbol,
+    pub span: Span,
 }
 
 #[derive(Debug)]
 pub struct CharLiteral {
     pub ch: char,
+    pub span: Span,
 }
 
 #[derive(Debug)]
 pub struct StructLiteral {
     pub struct_info: Rc<Struct>,
     pub values: Vec<(Symbol, Expr)>,
+    pub span: Span,
 }
 
 #[derive(Debug)]
-pub struct Args(pub Vec<Expr>);
+pub struct Args(pub Vec<Expr>, pub Span);
 
 #[derive(Debug)]
 pub struct FnCall {
     pub callee: Rc<FnDecl>,
     pub args: Args,
+    pub span: Span,
 }
 
 #[derive(Debug)]
 pub struct Int {
     pub kind: IntKind,
+    pub span: Span,
 }
 
 #[derive(Debug)]
@@ -103,12 +108,14 @@ pub struct Binary {
     pub lhs: Rc<Expr>,
     pub kind: BinaryKind,
     pub rhs: Rc<Expr>,
+    pub span: Span,
 }
 
 #[derive(Debug)]
 pub struct Cast {
     pub operand: Box<Expr>,
     pub target_ty: Rc<Ty>,
+    pub span: Span,
 }
 
 #[derive(Debug)]
@@ -116,6 +123,7 @@ pub struct TupleIndexing {
     pub tuple: Rc<Expr>,
     pub element_ty: Rc<Ty>,
     pub index: u32,
+    pub span: Span,
 }
 
 #[derive(Debug)]
@@ -124,6 +132,7 @@ pub struct FieldAccess {
     pub operand: Box<Expr>,
     pub field_name: Symbol,
     pub field_offset: u64,
+    pub span: Span,
 }
 
 #[derive(Debug)]
@@ -131,32 +140,38 @@ pub struct EnumVariant {
     pub enum_info: Rc<Enum>,
     pub variant_offset: u32,
     pub value: Option<Box<Expr>>,
+    pub span: Span,
 }
 
 #[derive(Debug)]
 pub struct LogicalNot {
     pub operand: Box<Expr>,
+    pub span: Span,
 }
 
 #[derive(Debug)]
 pub struct ArrayLiteral {
     pub elements: Vec<Expr>,
+    pub span: Span,
 }
 
 #[derive(Debug)]
 pub struct TupleLiteral {
     pub elements: Vec<Expr>,
+    pub span: Span,
 }
 
 #[derive(Debug)]
 pub struct Indexing {
     pub operand: Rc<Expr>,
     pub index: Box<Expr>,
+    pub span: Span,
 }
 
 #[derive(Debug)]
 pub struct Loop {
     pub body: Block,
+    pub span: Span,
 }
 
 #[derive(Debug)]
@@ -171,6 +186,7 @@ pub struct EnumUnpack {
     pub enum_ty: UserDefinedType,
     pub enum_value: Rc<Expr>,
     pub variant_ty: Rc<Ty>,
+    pub span: Span,
 }
 
 #[derive(Debug)]
@@ -180,12 +196,14 @@ pub struct If {
     pub else_: Option<Box<Else>>,
     pub enum_unpack: Option<Box<EnumUnpack>>,
     pub is_match: bool,
+    pub span: Span,
 }
 
 #[derive(Debug)]
 pub struct Variable {
     pub name: Symbol,
     pub ty: Rc<Ty>,
+    pub span: Span,
 }
 
 #[derive(Debug)]
@@ -198,6 +216,7 @@ pub enum BuiltinFnCallKind {
 pub struct BuiltinFnCall {
     pub kind: BuiltinFnCallKind,
     pub args: Args,
+    pub span: Span,
 }
 
 #[derive(Debug)]

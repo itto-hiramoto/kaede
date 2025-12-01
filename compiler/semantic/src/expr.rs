@@ -74,6 +74,7 @@ impl SemanticAnalyzer {
 
         let tuple_ir = ir::expr::TupleLiteral {
             elements: element_values,
+            span: node.span,
         };
 
         Ok(ir::expr::Expr {
@@ -128,6 +129,7 @@ impl SemanticAnalyzer {
         let ir = ir::expr::StructLiteral {
             struct_info: struct_ir.clone(),
             values,
+            span: node.span,
         };
 
         Ok(ir::expr::Expr {
@@ -465,6 +467,7 @@ impl SemanticAnalyzer {
                     enum_ty: udt,
                     enum_value: target.clone(),
                     variant_ty,
+                    span: current_arm.pattern.span,
                 })
             }
         } else {
@@ -484,6 +487,7 @@ impl SemanticAnalyzer {
                 )
                 .into(),
                 index: 0,
+                span: current_arm.pattern.span,
             }),
             ty: Rc::new(make_fundamental_type(
                 ir_type::FundamentalTypeKind::I32,
@@ -500,6 +504,7 @@ impl SemanticAnalyzer {
                 rhs: Rc::new(ir::expr::Expr {
                     kind: ir::expr::ExprKind::Int(ir::expr::Int {
                         kind: ir::expr::IntKind::I32(pattern_variant_offset as i32),
+                        span: current_arm.pattern.span,
                     }),
                     ty: Rc::new(make_fundamental_type(
                         ir_type::FundamentalTypeKind::I32,
@@ -507,6 +512,7 @@ impl SemanticAnalyzer {
                     )),
                     span: current_arm.pattern.span,
                 }),
+                span: current_arm.pattern.span,
             }),
             ty: Rc::new(ir_type::make_fundamental_type(
                 ir_type::FundamentalTypeKind::Bool,
@@ -545,6 +551,7 @@ impl SemanticAnalyzer {
             else_,
             enum_unpack: enum_unpack.map(Box::new),
             is_match: true,
+            span: current_arm.pattern.span,
         })
     }
 
@@ -624,6 +631,7 @@ impl SemanticAnalyzer {
                 kind: ir::expr::BinaryKind::Eq,
                 lhs: target.clone(),
                 rhs: Rc::new(self.analyze_expr(&current_arm.pattern)?),
+                span: current_arm.pattern.span,
             }),
             ty: Rc::new(ir_type::make_fundamental_type(
                 ir_type::FundamentalTypeKind::Bool,
@@ -660,6 +668,7 @@ impl SemanticAnalyzer {
             else_,
             enum_unpack: None,
             is_match: true,
+            span: current_arm.pattern.span,
         })
     }
 
@@ -726,7 +735,10 @@ impl SemanticAnalyzer {
 
             if let ir::expr::ExprKind::Block(block) = body.kind {
                 Ok(ir::expr::Expr {
-                    kind: ir::expr::ExprKind::Loop(ir::expr::Loop { body: block }),
+                    kind: ir::expr::ExprKind::Loop(ir::expr::Loop {
+                        body: block,
+                        span: node.span,
+                    }),
                     ty: Rc::new(ir_type::Ty::new_unit()),
                     span: node.span,
                 })
@@ -792,6 +804,7 @@ impl SemanticAnalyzer {
                 else_,
                 enum_unpack: None,
                 is_match: false,
+                span: node.span,
             }),
             span: node.span,
         })
@@ -873,7 +886,8 @@ impl SemanticAnalyzer {
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
                 callee: callee_decl.clone(),
-                args: ir::expr::Args(args),
+                args: ir::expr::Args(args, node.span),
+                span: node.span,
             }),
             ty: match callee_decl.return_ty.as_ref() {
                 Some(ty) => ty.clone(),
@@ -891,7 +905,8 @@ impl SemanticAnalyzer {
             "__unreachable" => Ok(ir::expr::Expr {
                 kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
                     kind: ir::expr::BuiltinFnCallKind::Unreachable,
-                    args: ir::expr::Args(vec![]),
+                    args: ir::expr::Args(vec![], node.span),
+                    span: node.span,
                 }),
                 ty: Rc::new(ir_type::Ty::new_never()),
                 span: node.span,
@@ -908,7 +923,8 @@ impl SemanticAnalyzer {
                 Ok(ir::expr::Expr {
                     kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
                         kind: ir::expr::BuiltinFnCallKind::Str,
-                        args: ir::expr::Args(args),
+                        args: ir::expr::Args(args, node.span),
+                        span: node.span,
                     }),
                     ty: Rc::new(ir_type::wrap_in_ref(
                         Rc::new(ir_type::Ty::new_str(ir_type::Mutability::Not)),
@@ -960,7 +976,8 @@ impl SemanticAnalyzer {
                 Ok(ir::expr::Expr {
                     kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
                         callee: callee_decl.clone(),
-                        args: ir::expr::Args(args),
+                        args: ir::expr::Args(args, node.span),
+                        span,
                     }),
                     ty: match callee_decl.return_ty.as_ref() {
                         Some(ty) => ty.clone(),
@@ -1029,6 +1046,7 @@ impl SemanticAnalyzer {
             kind: ir::expr::ExprKind::Indexing(ir::expr::Indexing {
                 operand: Rc::new(operand),
                 index: Box::new(index),
+                span,
             }),
             span,
         })
@@ -1058,6 +1076,7 @@ impl SemanticAnalyzer {
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::LogicalNot(ir::expr::LogicalNot {
                 operand: Box::new(operand),
+                span: node.span,
             }),
             ty: Rc::new(ir_type::make_fundamental_type(
                 ir_type::FundamentalTypeKind::Bool,
@@ -1102,7 +1121,7 @@ impl SemanticAnalyzer {
         ));
 
         Ok(ir::expr::Expr {
-            kind: ir::expr::ExprKind::ArrayLiteral(ir::expr::ArrayLiteral { elements }),
+            kind: ir::expr::ExprKind::ArrayLiteral(ir::expr::ArrayLiteral { elements, span }),
             ty,
             span,
         })
@@ -1119,6 +1138,7 @@ impl SemanticAnalyzer {
             ty: self.infer_context.fresh(),
             kind: ir::expr::ExprKind::Int(ir::expr::Int {
                 kind: ir::expr::IntKind::Infer(n as i64),
+                span: node.span,
             }),
             span: node.span,
         })
@@ -1130,6 +1150,7 @@ impl SemanticAnalyzer {
                 kind: ir::expr::ExprKind::Block(kaede_ir::stmt::Block {
                     body: vec![],
                     last_expr: None,
+                    span: node.span,
                 }),
                 ty: Rc::new(ir_type::Ty::new_unit()),
                 span: node.span,
@@ -1162,6 +1183,7 @@ impl SemanticAnalyzer {
                     kind: ir::expr::ExprKind::Block(kaede_ir::stmt::Block {
                         body,
                         last_expr: Some(last_expr),
+                        span: node.span,
                     }),
                     span: node.span,
                 }
@@ -1175,6 +1197,7 @@ impl SemanticAnalyzer {
                     kind: ir::expr::ExprKind::Block(kaede_ir::stmt::Block {
                         body,
                         last_expr: None,
+                        span: node.span,
                     }),
                     ty: Rc::new(ir_type::Ty::new_unit()),
                     span: node.span,
@@ -1192,7 +1215,10 @@ impl SemanticAnalyzer {
         node: &ast::expr::StringLiteral,
     ) -> anyhow::Result<ir::expr::Expr> {
         Ok(ir::expr::Expr {
-            kind: ir::expr::ExprKind::StringLiteral(ir::expr::StringLiteral { syb: node.syb }),
+            kind: ir::expr::ExprKind::StringLiteral(ir::expr::StringLiteral {
+                syb: node.syb,
+                span: node.span,
+            }),
             ty: Rc::new(ir_type::wrap_in_ref(
                 Rc::new(ir_type::make_fundamental_type(
                     ir_type::FundamentalTypeKind::Str,
@@ -1209,7 +1235,10 @@ impl SemanticAnalyzer {
         node: &ast::expr::CharLiteral,
     ) -> anyhow::Result<ir::expr::Expr> {
         Ok(ir::expr::Expr {
-            kind: ir::expr::ExprKind::CharLiteral(ir::expr::CharLiteral { ch: node.ch }),
+            kind: ir::expr::ExprKind::CharLiteral(ir::expr::CharLiteral {
+                ch: node.ch,
+                span: node.span,
+            }),
             ty: Rc::new(ir_type::make_fundamental_type(
                 ir_type::FundamentalTypeKind::Char,
                 ir_type::Mutability::Not,
@@ -1373,6 +1402,7 @@ impl SemanticAnalyzer {
                 enum_info: enum_ir.clone(),
                 variant_offset: variant_info.offset,
                 value: value.map(Box::new),
+                span,
             }),
             ty: Rc::new(ir_type::wrap_in_ref(
                 Rc::new(ir_type::Ty {
@@ -1422,7 +1452,8 @@ impl SemanticAnalyzer {
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
                 callee: method_decl.clone(),
-                args: ir::expr::Args(args),
+                args: ir::expr::Args(args, call_node.span),
+                span: call_node.span,
             }),
             ty: match method_decl.return_ty.as_ref() {
                 Some(ty) => ty.clone(),
@@ -1587,6 +1618,7 @@ impl SemanticAnalyzer {
                 tuple: Rc::new(left),
                 element_ty: ty.clone(),
                 index: index as u32,
+                span,
             }),
             ty,
             span,
@@ -1678,18 +1710,21 @@ impl SemanticAnalyzer {
         rhs: &ast::expr::Expr,
         elements_ty: &[Rc<ir_type::Ty>],
     ) -> anyhow::Result<ir::expr::Expr> {
+        let span = Span::new(lhs.span.start, rhs.span.finish, lhs.span.file);
+
         let index = match &rhs.kind {
             ast::expr::ExprKind::Int(int) => int.as_u64() as u32,
             _ => return Err(SemanticError::TupleRequireAccessByIndex { span: rhs.span }.into()),
         };
 
         Ok(ir::expr::Expr {
-            span: Span::new(lhs.span.start, rhs.span.finish, lhs.span.file),
+            span,
             ty: change_mutability_dup(elements_ty[index as usize].clone(), lhs.ty.mutability),
             kind: ir::expr::ExprKind::TupleIndexing(ir::expr::TupleIndexing {
                 tuple: Rc::new(lhs),
                 index,
                 element_ty: elements_ty[index as usize].clone(),
+                span,
             }),
         })
     }
@@ -1738,6 +1773,8 @@ impl SemanticAnalyzer {
         udt: &ir_type::UserDefinedType,
         field_name: Ident,
     ) -> anyhow::Result<ir::expr::Expr> {
+        let span = Span::new(lhs.span.start, rhs.span.finish, lhs.span.file);
+
         let struct_info = self
             .lookup_qualified_symbol(udt.qualified_symbol())
             .map(|value| match &value.borrow().kind {
@@ -1764,13 +1801,14 @@ impl SemanticAnalyzer {
             })?;
 
         Ok(ir::expr::Expr {
-            span: Span::new(lhs.span.start, rhs.span.finish, lhs.span.file),
+            span,
             ty: change_mutability_dup(field_ty, lhs.ty.mutability),
             kind: ir::expr::ExprKind::FieldAccess(ir::expr::FieldAccess {
                 struct_info,
                 operand: Box::new(lhs),
                 field_name: field_name.symbol(),
                 field_offset,
+                span,
             }),
         })
     }
@@ -1825,7 +1863,8 @@ impl SemanticAnalyzer {
 
         let call_node = ir::expr::FnCall {
             callee: callee.clone(),
-            args: ir::expr::Args(args),
+            args: ir::expr::Args(args, span),
+            span,
         };
 
         // For simplicity, we treat the method call as a function call.
@@ -1872,6 +1911,11 @@ impl SemanticAnalyzer {
             kind: ir::expr::ExprKind::Cast(ir::expr::Cast {
                 operand: Box::new(operand),
                 target_ty: target_ir_ty.clone(),
+                span: Span::new(
+                    node.lhs.span.start,
+                    node.rhs.span.finish,
+                    node.lhs.span.file,
+                ),
             }),
             ty: target_ir_ty,
             span: Span::new(
@@ -1900,6 +1944,7 @@ impl SemanticAnalyzer {
                 lhs: lhs.clone(),
                 rhs: rhs.clone(),
                 kind,
+                span,
             }),
             ty,
             span,
@@ -1940,6 +1985,7 @@ impl SemanticAnalyzer {
                     kind: ir::expr::ExprKind::Variable(ir::expr::Variable {
                         name: node.symbol(),
                         ty: ty.clone(),
+                        span: node.span(),
                     }),
                     ty: ty.clone(),
                     span: node.span(),

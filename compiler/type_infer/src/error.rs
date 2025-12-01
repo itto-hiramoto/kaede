@@ -29,14 +29,8 @@ pub enum TypeInferError {
     #[error("{}:{}:{} undefined variable: {}", span.file, span.start.line, span.start.column, name)]
     UndefinedVariable { name: Symbol, span: Span },
 
-    #[error("undefined variable: {}", name)]
-    UndefinedVariableNoSpan { name: Symbol },
-
     #[error("{}:{}:{} field {} not found in struct", span.file, span.start.line, span.start.column, field_name)]
     FieldNotFound { field_name: Symbol, span: Span },
-
-    #[error("field {} not found in struct", field_name)]
-    FieldNotFoundNoSpan { field_name: Symbol },
 
     #[error("{}:{}:{} expected tuple type for tuple indexing at index {}, got: {:?} (unwrapped: {:?})", span.file, span.start.line, span.start.column, index, ty, unwrapped_ty)]
     NotATuple {
@@ -46,35 +40,14 @@ pub enum TypeInferError {
         span: Span,
     },
 
-    #[error(
-        "expected tuple type for tuple indexing at index {}, got: {:?} (unwrapped: {:?})",
-        index,
-        ty,
-        unwrapped_ty
-    )]
-    NotATupleNoSpan {
-        index: u32,
-        ty: String,
-        unwrapped_ty: String,
-    },
-
     #[error("{}:{}:{} tuple index {} out of bounds", span.file, span.start.line, span.start.column, index)]
     TupleIndexOutOfBounds { index: u64, span: Span },
-
-    #[error("tuple index {} out of bounds", index)]
-    TupleIndexOutOfBoundsNoSpan { index: u64 },
 
     #[error("{}:{}:{} str only has indices 0 and 1", span.file, span.start.line, span.start.column)]
     StrIndexOutOfBounds { span: Span },
 
-    #[error("str only has indices 0 and 1")]
-    StrIndexOutOfBoundsNoSpan,
-
     #[error("{}:{}:{} cannot index into non-array/pointer type", span.file, span.start.line, span.start.column)]
     NotIndexable { span: Span },
-
-    #[error("cannot index into non-array/pointer type")]
-    NotIndexableNoSpan,
 
     #[error("{}:{}:{} function {:?} expects {} arguments, got {}", span.file, span.start.line, span.start.column, fn_name, expected, actual)]
     ArgumentCountMismatch {
@@ -84,18 +57,6 @@ pub enum TypeInferError {
         span: Span,
     },
 
-    #[error(
-        "function {:?} expects {} arguments, got {}",
-        fn_name,
-        expected,
-        actual
-    )]
-    ArgumentCountMismatchNoSpan {
-        fn_name: QualifiedSymbol,
-        expected: usize,
-        actual: usize,
-    },
-
     #[error("{}:{}:{} tuple unpacking: expected {} elements, got {}", span.file, span.start.line, span.start.column, expected, actual)]
     TupleUnpackCountMismatch {
         expected: usize,
@@ -103,23 +64,14 @@ pub enum TypeInferError {
         span: Span,
     },
 
-    #[error("tuple unpacking: expected {} elements, got {}", expected, actual)]
-    TupleUnpackCountMismatchNoSpan { expected: usize, actual: usize },
-
     #[error("{}:{}:{} expected tuple type for tuple unpacking", span.file, span.start.line, span.start.column)]
     ExpectedTupleForUnpack { span: Span },
-
-    #[error("expected tuple type for tuple unpacking")]
-    ExpectedTupleForUnpackNoSpan,
 
     #[error("{}:{}:{} cannot infer type for expression. Please add a type annotation.", span.file, span.start.line, span.start.column)]
     CannotInferType { span: Span },
 
     #[error("{}:{}:{} cannot infer type for variable. Please add a type annotation.", span.file, span.start.line, span.start.column)]
     CannotInferVariableType { span: Span },
-
-    #[error("cannot infer type for variable. Please add a type annotation.")]
-    CannotInferVariableTypeNoSpan,
 
     #[error("{}:{}:{} integer literal cannot have type {:?}", span.file, span.start.line, span.start.column, ty)]
     InvalidIntegerLiteralType { ty: String, span: Span },
