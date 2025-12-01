@@ -889,17 +889,18 @@ impl TypeInferrer {
 
         // If this is an integer literal with an unconstrained type, default to i32
         if matches!(expr.kind, ExprKind::Int(_))
-            && let TyKind::Var(id) = expr.ty.kind.as_ref() {
-                let default_ty = Rc::new(Ty {
-                    kind: TyKind::Fundamental(kaede_ir::ty::FundamentalType {
-                        kind: FundamentalTypeKind::I32,
-                    })
-                    .into(),
-                    mutability: kaede_ir::ty::Mutability::Not,
-                });
-                self.context.bind_var(*id, default_ty.clone());
-                expr.ty = default_ty;
-            }
+            && let TyKind::Var(id) = expr.ty.kind.as_ref()
+        {
+            let default_ty = Rc::new(Ty {
+                kind: TyKind::Fundamental(kaede_ir::ty::FundamentalType {
+                    kind: FundamentalTypeKind::I32,
+                })
+                .into(),
+                mutability: kaede_ir::ty::Mutability::Not,
+            });
+            self.context.bind_var(*id, default_ty.clone());
+            expr.ty = default_ty;
+        }
 
         // Recursively apply to child expressions
         match &mut expr.kind {
@@ -946,12 +947,13 @@ impl TypeInferrer {
                 // Propagate element type into the array if it is still a type variable.
                 if let TyKind::Reference(rty) = expr.ty.kind.as_ref()
                     && let TyKind::Array((elem_ty, _)) = rty.get_base_type().kind.as_ref()
-                        && let Some(first) = arr_lit.elements.first() {
-                            let first_ty = self.context.apply(&first.ty);
-                            if let TyKind::Var(id) = elem_ty.kind.as_ref() {
-                                self.context.bind_var(*id, first_ty);
-                            }
-                        }
+                    && let Some(first) = arr_lit.elements.first()
+                {
+                    let first_ty = self.context.apply(&first.ty);
+                    if let TyKind::Var(id) = elem_ty.kind.as_ref() {
+                        self.context.bind_var(*id, first_ty);
+                    }
+                }
             }
             TupleLiteral(tuple_lit) => {
                 for elem in &mut tuple_lit.elements {
