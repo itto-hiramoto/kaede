@@ -71,7 +71,7 @@ impl Int {
         // Unsuffixed literals have no concrete type yet
         // Type will be determined by type inference
         // Return i32 as a placeholder
-                make_fundamental_type(FundamentalTypeKind::I32, Mutability::Not, self.span)
+        make_fundamental_type(FundamentalTypeKind::I32, Mutability::Not, self.span)
     }
 }
 

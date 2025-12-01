@@ -211,6 +211,12 @@ pub struct GenericArgumentTable {
     pub map: HashMap<Symbol, Rc<ir_type::Ty>>,
 }
 
+impl Default for GenericArgumentTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GenericArgumentTable {
     pub fn new() -> Self {
         Self {

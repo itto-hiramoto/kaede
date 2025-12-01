@@ -565,7 +565,7 @@ impl SemanticAnalyzer {
     pub fn infer_function_body_inline(
         &mut self,
         body: &mut kaede_ir::stmt::Block,
-        _decl: &ir::top::FnDecl,
+        decl: &ir::top::FnDecl,
     ) -> anyhow::Result<()> {
         use kaede_type_infer::TypeInferrer;
 
@@ -579,7 +579,12 @@ impl SemanticAnalyzer {
         let symbol_table = SymbolTable::merge_for_inference(module.get_symbol_tables());
 
         // Create a type inferrer with the merged symbol table
-        let mut inferrer = TypeInferrer::new(symbol_table);
+        let expected_return_ty = decl
+            .return_ty
+            .clone()
+            .unwrap_or_else(|| Rc::new(ir_type::Ty::new_unit()));
+
+        let mut inferrer = TypeInferrer::new(symbol_table, expected_return_ty);
 
         // Infer types for all statements in the block
         for stmt in &body.body {

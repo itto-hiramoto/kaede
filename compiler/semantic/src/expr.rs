@@ -158,6 +158,16 @@ impl SemanticAnalyzer {
 
             let field_info = field_info.unwrap();
 
+            if matches!(value.kind, ir::expr::ExprKind::Int(_))
+                && !matches!(field_info.ty.kind.as_ref(), ir_type::TyKind::Fundamental(_))
+            {
+                return Err(SemanticError::MismatchedTypes {
+                    types: (field_info.ty.kind.to_string(), value.ty.kind.to_string()),
+                    span: value.span,
+                }
+                .into());
+            }
+
             if !ir::ty::is_same_type(&field_info.ty, &value.ty) {
                 return Err(SemanticError::MismatchedTypes {
                     types: (field_info.ty.kind.to_string(), value.ty.kind.to_string()),
@@ -715,6 +725,12 @@ impl SemanticAnalyzer {
                 self.analyze_match_on_fundamental(node, value.clone(), fty)?
             }
 
+            ir_type::TyKind::Var(_) => {
+                let fty = ir_type::FundamentalType {
+                    kind: ir_type::FundamentalTypeKind::I32,
+                };
+                self.analyze_match_on_fundamental(node, value.clone(), &fty)?
+            }
             _ => {
                 return Err(SemanticError::MatchCannotBeUsedWithValueOfType {
                     ty: value.ty.kind.to_string(),
@@ -755,7 +771,7 @@ impl SemanticAnalyzer {
 
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::Break,
-            ty: Rc::new(ir_type::Ty::new_unit()),
+            ty: Rc::new(ir_type::Ty::new_never()),
             span: node.span,
         })
     }
@@ -787,13 +803,11 @@ impl SemanticAnalyzer {
 
         // Determine the if expression's type
         // If there's an else branch, the type is the then branch's type (already unified)
-        // If there's no else branch, the type should be unit (or a fresh type variable for match)
+        // If there's no else branch, the type evaluates to unit
         let if_ty = if else_.is_some() {
             then.ty.clone()
         } else {
-            // For if without else (match desugaring), use a fresh type variable
-            // This will be unified during type inference
-            self.infer_context.fresh()
+            Rc::new(ir_type::Ty::new_unit())
         };
 
         Ok(ir::expr::Expr {
@@ -873,7 +887,22 @@ impl SemanticAnalyzer {
                         .collect::<anyhow::Result<Vec<_>>>()?
                 } else {
                     // Infer generic arguments from the function call arguments
-                    args.iter().map(|arg| arg.ty.clone()).collect()
+                    args.iter()
+                        .map(|arg| -> anyhow::Result<Rc<ir_type::Ty>> {
+                            Ok(match arg.ty.kind.as_ref() {
+                                ir_type::TyKind::Var(_) => match arg.kind {
+                                    ir::expr::ExprKind::Int(_) => {
+                                        Rc::new(ir_type::make_fundamental_type(
+                                            ir_type::FundamentalTypeKind::I32,
+                                            ir_type::Mutability::Not,
+                                        ))
+                                    }
+                                    _ => arg.ty.clone(),
+                                },
+                                _ => arg.ty.clone(),
+                            })
+                        })
+                        .collect::<anyhow::Result<Vec<_>>>()?
                 };
 
                 self.generate_generic_fn(info, &generic_args)?
@@ -987,7 +1016,7 @@ impl SemanticAnalyzer {
                 })
             }
 
-            SymbolTableValueKind::Generic(info) => self.analyze_generic_fn_call(&info, node),
+            SymbolTableValueKind::Generic(info) => self.analyze_generic_fn_call(info, node),
 
             _ => unreachable!(),
         }
@@ -1379,16 +1408,14 @@ impl SemanticAnalyzer {
             None => None,
         };
 
-        if value.is_some() {
-            if variant_info.ty.is_none() {
-                // No type is specified for the variant, but a value is provided.
-                return Err(SemanticError::CannotAssignValueToVariant {
-                    variant_name: variant_name.symbol(),
-                    parent_name: udt.name(),
-                    span: left_span,
-                }
-                .into());
+        if value.is_some() && variant_info.ty.is_none() {
+            // No type is specified for the variant, but a value is provided.
+            return Err(SemanticError::CannotAssignValueToVariant {
+                variant_name: variant_name.symbol(),
+                parent_name: udt.name(),
+                span: left_span,
             }
+            .into());
         }
 
         let span = if let Some(value) = &value {
@@ -1525,6 +1552,11 @@ impl SemanticAnalyzer {
 
             if let ir_type::TyKind::Fundamental(fty) = left_ty.kind.as_ref() {
                 self.analyze_fundamental_type_method_call(left, fty, call_node)
+            } else if matches!(left_ty.kind.as_ref(), ir_type::TyKind::Var(_)) {
+                let fty = ir_type::FundamentalType {
+                    kind: ir_type::FundamentalTypeKind::I32,
+                };
+                self.analyze_fundamental_type_method_call(left, &fty, call_node)
             } else {
                 Err(SemanticError::HasNoFields {
                     span: node.lhs.span,
@@ -1649,6 +1681,14 @@ impl SemanticAnalyzer {
             }
 
             std::cmp::Ordering::Equal => {}
+        }
+
+        for (param, arg) in fn_decl.params.iter().zip(args.iter()) {
+            if param.ty.mutability.is_mut() && arg.ty.mutability.is_not() {
+                return Err(
+                    SemanticError::CannotAssignImmutableToMutable { span: arg.span }.into(),
+                );
+            }
         }
 
         Ok(())
@@ -1846,6 +1886,15 @@ impl SemanticAnalyzer {
                     return Err(no_method_err().into());
                 }
             };
+
+        if let Some(self_param) = callee.params.first() {
+            if self_param.name.as_str() == "self"
+                && self_param.ty.mutability.is_mut()
+                && this.ty.mutability.is_not()
+            {
+                return Err(SemanticError::CannotCallMutableMethodOnImmutableValue { span }.into());
+            }
+        }
 
         // Inject `this` to the front of the arguments
         let args = std::iter::once(this)

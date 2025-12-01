@@ -49,6 +49,10 @@ pub fn wrap_in_ref(ty: Rc<Ty>, mutability: Mutability) -> Ty {
 
 /// No mutability comparisons
 pub fn is_same_type(t1: &Ty, t2: &Ty) -> bool {
+    if matches!(t1.kind.as_ref(), TyKind::Var(_)) || matches!(t2.kind.as_ref(), TyKind::Var(_)) {
+        return true;
+    }
+
     if t1.kind == t2.kind {
         return true;
     }

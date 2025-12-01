@@ -87,11 +87,31 @@ impl InferContext {
         }
     }
 
+    pub fn bind_var(&mut self, id: VarId, ty: Rc<Ty>) {
+        self.subst.insert(id, ty);
+    }
+
     pub fn unify(&mut self, a: &Rc<Ty>, b: &Rc<Ty>) -> Result<(), TypeInferError> {
         let a = self.apply(a);
         let b = self.apply(b);
 
-        if a == b {
+        if let (TyKind::Var(a_id), TyKind::Var(b_id)) = (a.kind.as_ref(), b.kind.as_ref()) {
+            if a_id == b_id {
+                return Ok(());
+            }
+            let (from, to) = if a_id > b_id {
+                (a_id, b_id)
+            } else {
+                (b_id, a_id)
+            };
+            self.subst.insert(*from, self.new_var(*to));
+            return Ok(());
+        }
+
+        if !matches!(a.kind.as_ref(), TyKind::Var(_))
+            && !matches!(b.kind.as_ref(), TyKind::Var(_))
+            && a == b
+        {
             return Ok(());
         }
 
@@ -122,10 +142,10 @@ impl InferContext {
 
                 // No implicit type conversions - types must match exactly
                 // Use explicit casts (as keyword) for type conversions
-                return Err(TypeInferError::CannotUnify {
+                Err(TypeInferError::CannotUnify {
                     a: f1.kind.to_string(),
                     b: f2.kind.to_string(),
-                });
+                })
             }
 
             (TyKind::Pointer(pty1), TyKind::Pointer(pty2)) => {

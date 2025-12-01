@@ -67,7 +67,7 @@ impl SemanticAnalyzer {
 
             ast_type::TyKind::Unit => Ok(ir_type::Ty::new_unit().into()),
             ast_type::TyKind::Never => Ok(ir_type::Ty::new_never().into()),
-            ast_type::TyKind::Var => Ok(self.infer_context.fresh().into()),
+            ast_type::TyKind::Var => Ok(self.infer_context.fresh()),
         }
     }
 

@@ -5,14 +5,14 @@ use kaede_symbol::Symbol;
 
 use crate::{expr::Expr, ty::Ty};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Assign {
     pub assignee: Expr,
     pub value: Expr,
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Let {
     pub name: Symbol,
     pub init: Option<Expr>,
@@ -20,7 +20,7 @@ pub struct Let {
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TupleUnpack {
     /// None if ignore field
     pub names: Vec<Option<Symbol>>,
@@ -28,7 +28,7 @@ pub struct TupleUnpack {
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Stmt {
     Expr(Rc<Expr>),
     Let(Let),
@@ -39,7 +39,7 @@ pub enum Stmt {
 
 /// Statement list
 /// May be handled as expression
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Block {
     pub body: Vec<Stmt>,
     pub last_expr: Option<Box<Expr>>,

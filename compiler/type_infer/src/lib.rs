@@ -25,14 +25,16 @@ pub struct TypeInferrer {
     context: InferContext,
     symbol_table: SymbolTable,
     env: Env,
+    function_return_ty: Rc<Ty>,
 }
 
 impl TypeInferrer {
-    pub fn new(symbol_table: SymbolTable) -> Self {
+    pub fn new(symbol_table: SymbolTable, function_return_ty: Rc<Ty>) -> Self {
         Self {
             context: InferContext::default(),
             symbol_table,
             env: Env::new(),
+            function_return_ty,
         }
     }
 
@@ -345,13 +347,10 @@ impl TypeInferrer {
         // Fallback to symbol table
         if let Some(symbol_value) = self.symbol_table.lookup(&var.name) {
             let borrowed = symbol_value.borrow();
-            match &borrowed.kind {
-                SymbolTableValueKind::Variable(var_info) => {
-                    // Unify var.ty with var_info.ty
-                    self.context.unify(&var.ty, &var_info.ty)?;
-                    return Ok(self.context.apply(&var.ty));
-                }
-                _ => {}
+            if let SymbolTableValueKind::Variable(var_info) = &borrowed.kind {
+                // Unify var.ty with var_info.ty
+                self.context.unify(&var.ty, &var_info.ty)?;
+                return Ok(self.context.apply(&var.ty));
             }
         }
 
@@ -365,6 +364,14 @@ impl TypeInferrer {
     fn infer_binary(&mut self, bin: &Binary) -> Result<Rc<Ty>, TypeInferError> {
         let lhs_ty = self.infer_expr(&bin.lhs)?;
         let rhs_ty = self.infer_expr(&bin.rhs)?;
+
+        if matches!(lhs_ty.kind.as_ref(), TyKind::Never) {
+            return Ok(rhs_ty);
+        }
+
+        if matches!(rhs_ty.kind.as_ref(), TyKind::Never) {
+            return Ok(lhs_ty);
+        }
 
         match bin.kind {
             // Arithmetic operations
@@ -480,10 +487,10 @@ impl TypeInferrer {
                 if idx < elem_tys.len() {
                     Ok(elem_tys[idx].clone())
                 } else {
-                    return Err(TypeInferError::TupleIndexOutOfBounds {
+                    Err(TypeInferError::TupleIndexOutOfBounds {
                         index: tuple_idx.index as u64,
                         span,
-                    });
+                    })
                 }
             }
             TyKind::Fundamental(fty) if matches!(fty.kind, FundamentalTypeKind::Str) => {
@@ -656,6 +663,14 @@ impl TypeInferrer {
                 kaede_ir::expr::Else::Block(block_expr) => self.infer_expr(block_expr)?,
             };
 
+            if matches!(then_ty.kind.as_ref(), TyKind::Never) {
+                return Ok(self.context.apply(&else_ty));
+            }
+
+            if matches!(else_ty.kind.as_ref(), TyKind::Never) {
+                return Ok(self.context.apply(&then_ty));
+            }
+
             // Both branches should have the same type
             self.context.unify(&then_ty, &else_ty)?;
             Ok(self.context.apply(&then_ty))
@@ -701,6 +716,14 @@ impl TypeInferrer {
                 }
             };
 
+            if matches!(then_ty.kind.as_ref(), TyKind::Never) {
+                return Ok(self.context.apply(expected_ty));
+            }
+
+            if matches!(else_ty.kind.as_ref(), TyKind::Never) {
+                return Ok(self.context.apply(expected_ty));
+            }
+
             // Both branches should match expected type
             self.context.unify(&then_ty, &else_ty)?;
             Ok(self.context.apply(expected_ty))
@@ -720,15 +743,16 @@ impl TypeInferrer {
 
     fn infer_block(&mut self, block: &Block) -> Result<Rc<Ty>, TypeInferError> {
         // Infer all statements
+        let mut last_stmt_ty: Option<Rc<Ty>> = None;
         for stmt in &block.body {
-            self.infer_stmt(stmt)?;
+            last_stmt_ty = Some(self.infer_stmt(stmt)?);
         }
 
         // Infer last expression if present
         if let Some(last_expr) = &block.last_expr {
             self.infer_expr(last_expr)
         } else {
-            Ok(Rc::new(Ty::new_unit()))
+            Ok(last_stmt_ty.unwrap_or_else(|| Rc::new(Ty::new_unit())))
         }
     }
 
@@ -738,13 +762,19 @@ impl TypeInferrer {
         expected_ty: &Rc<Ty>,
     ) -> Result<Rc<Ty>, TypeInferError> {
         // Infer all statements (they don't have expected types)
+        let mut last_stmt_ty: Option<Rc<Ty>> = None;
         for stmt in &block.body {
-            self.infer_stmt(stmt)?;
+            last_stmt_ty = Some(self.infer_stmt(stmt)?);
         }
 
         // Check last expression against expected type if present
         if let Some(last_expr) = &block.last_expr {
             self.check_expr(last_expr, expected_ty)
+        } else if let Some(ty) = last_stmt_ty {
+            if !matches!(ty.kind.as_ref(), TyKind::Never) {
+                self.context.unify(&ty, expected_ty)?;
+            }
+            Ok(ty)
         } else {
             let unit_ty = Rc::new(Ty::new_unit());
             self.context.unify(&unit_ty, expected_ty)?;
@@ -754,7 +784,12 @@ impl TypeInferrer {
 
     fn infer_return(&mut self, ret: &Option<Box<Expr>>) -> Result<Rc<Ty>, TypeInferError> {
         if let Some(expr) = ret {
-            let _ty = self.infer_expr(expr)?;
+            let ty = self.infer_expr(expr)?;
+            self.context.unify(&ty, &self.function_return_ty)?;
+        } else {
+            // `return;` should only be used in functions that return unit
+            self.context
+                .unify(&self.function_return_ty, &Rc::new(Ty::new_unit()))?;
         }
         Ok(Rc::new(Ty::new_never()))
     }
@@ -813,11 +848,9 @@ impl TypeInferrer {
             }
             TyKind::Var(_) => {
                 // Type variable - create fresh type variables for each element
-                for name_opt in &tuple_unpack.names {
-                    if let Some(name) = name_opt {
-                        let elem_ty = self.context.fresh();
-                        self.env.insert(*name, elem_ty);
-                    }
+                for name in tuple_unpack.names.iter().flatten() {
+                    let elem_ty = self.context.fresh();
+                    self.env.insert(*name, elem_ty);
                 }
             }
             _ => {
@@ -844,7 +877,7 @@ impl TypeInferrer {
     // ====== Apply inferred types to IR ======
 
     /// Apply the inferred types to an expression, replacing all type variables
-    pub fn apply_expr(&self, expr: &mut Expr) -> Result<(), TypeInferError> {
+    pub fn apply_expr(&mut self, expr: &mut Expr) -> Result<(), TypeInferError> {
         use ExprKind::*;
 
         // Apply to this expression's type
@@ -854,13 +887,17 @@ impl TypeInferrer {
         if matches!(expr.ty.kind.as_ref(), TyKind::Var(_)) {
             // Integer literals without constraining context default to i32 (like Rust)
             if matches!(&expr.kind, ExprKind::Int(_)) {
-                expr.ty = Rc::new(Ty {
+                let default_ty = Rc::new(Ty {
                     kind: TyKind::Fundamental(kaede_ir::ty::FundamentalType {
                         kind: FundamentalTypeKind::I32,
                     })
                     .into(),
                     mutability: kaede_ir::ty::Mutability::Not,
                 });
+                if let TyKind::Var(id) = expr.ty.kind.as_ref() {
+                    self.context.bind_var(*id, default_ty.clone());
+                }
+                expr.ty = default_ty;
             } else {
                 return Err(TypeInferError::CannotInferType { span: expr.span });
             }
@@ -886,6 +923,10 @@ impl TypeInferrer {
                                 });
                             }
                         },
+                        TyKind::Never => {
+                            // Unreachable contexts default integer literals to i32
+                            IntKind::I32(value as i32)
+                        }
                         _ => {
                             return Err(TypeInferError::InvalidIntegerLiteralType {
                                 ty: expr.ty.kind.to_string(),
@@ -922,21 +963,14 @@ impl TypeInferrer {
 
                 // Error on unresolved type variables
                 if matches!(var.ty.kind.as_ref(), TyKind::Var(_)) {
-                    return Err(TypeInferError::CannotInferVariableType {
-                        span: expr.span,
-                    });
+                    return Err(TypeInferError::CannotInferVariableType { span: expr.span });
                 }
             }
 
             // Binary operations
             Binary(bin) => {
-                // Try to get mutable access to Rc contents
-                if let Some(lhs) = std::rc::Rc::get_mut(&mut bin.lhs) {
-                    self.apply_expr(lhs)?;
-                }
-                if let Some(rhs) = std::rc::Rc::get_mut(&mut bin.rhs) {
-                    self.apply_expr(rhs)?;
-                }
+                self.apply_expr(std::rc::Rc::make_mut(&mut bin.lhs))?;
+                self.apply_expr(std::rc::Rc::make_mut(&mut bin.rhs))?;
             }
 
             // Unary operations
@@ -953,15 +987,11 @@ impl TypeInferrer {
                 self.apply_expr(&mut field.operand)?;
             }
             TupleIndexing(tuple_idx) => {
-                if let Some(tuple) = std::rc::Rc::get_mut(&mut tuple_idx.tuple) {
-                    self.apply_expr(tuple)?;
-                }
+                self.apply_expr(std::rc::Rc::make_mut(&mut tuple_idx.tuple))?;
                 tuple_idx.element_ty = self.context.apply(&tuple_idx.element_ty);
             }
             Indexing(idx) => {
-                if let Some(operand) = std::rc::Rc::get_mut(&mut idx.operand) {
-                    self.apply_expr(operand)?;
-                }
+                self.apply_expr(std::rc::Rc::make_mut(&mut idx.operand))?;
                 self.apply_expr(&mut idx.index)?;
             }
 
@@ -992,9 +1022,7 @@ impl TypeInferrer {
                     self.apply_else(else_branch)?;
                 }
                 if let Some(enum_unpack) = &mut if_expr.enum_unpack {
-                    if let Some(enum_value) = std::rc::Rc::get_mut(&mut enum_unpack.enum_value) {
-                        self.apply_expr(enum_value)?;
-                    }
+                    self.apply_expr(std::rc::Rc::make_mut(&mut enum_unpack.enum_value))?;
                     enum_unpack.variant_ty = self.context.apply(&enum_unpack.variant_ty);
                 }
             }
@@ -1015,12 +1043,11 @@ impl TypeInferrer {
     }
 
     /// Apply the inferred types to a statement
-    pub fn apply_stmt(&self, stmt: &mut Stmt) -> Result<(), TypeInferError> {
+    pub fn apply_stmt(&mut self, stmt: &mut Stmt) -> Result<(), TypeInferError> {
         match stmt {
             Stmt::Expr(expr_rc) => {
-                if let Some(expr) = std::rc::Rc::get_mut(expr_rc) {
-                    self.apply_expr(expr)?;
-                }
+                let expr = std::rc::Rc::make_mut(expr_rc);
+                self.apply_expr(expr)?;
             }
             Stmt::Let(let_stmt) => {
                 if let Some(init_expr) = &mut let_stmt.init {
@@ -1033,6 +1060,12 @@ impl TypeInferrer {
                     return Err(TypeInferError::CannotInferVariableType {
                         span: let_stmt.span,
                     });
+                }
+
+                if let Some(symbol) = self.symbol_table.lookup(&let_stmt.name)
+                    && let SymbolTableValueKind::Variable(var_info) = &mut symbol.borrow_mut().kind
+                {
+                    var_info.ty = let_stmt.ty.clone();
                 }
             }
             Stmt::TupleUnpack(tuple_unpack) => {
@@ -1048,7 +1081,7 @@ impl TypeInferrer {
 
     /// Apply the inferred types to an else branch
     fn apply_else(
-        &self,
+        &mut self,
         else_branch: &mut Box<kaede_ir::expr::Else>,
     ) -> Result<(), TypeInferError> {
         match else_branch.as_mut() {
@@ -1073,7 +1106,7 @@ impl TypeInferrer {
     }
 
     /// Apply the inferred types to a block
-    pub fn apply_block(&self, block: &mut Block) -> Result<(), TypeInferError> {
+    pub fn apply_block(&mut self, block: &mut Block) -> Result<(), TypeInferError> {
         for stmt in &mut block.body {
             self.apply_stmt(stmt)?;
         }
