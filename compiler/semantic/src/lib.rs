@@ -587,7 +587,7 @@ impl SemanticAnalyzer {
         }
 
         // Apply inferred types back to the IR
-        inferrer.apply_block(body);
+        inferrer.apply_block(body)?;
 
         Ok(())
     }

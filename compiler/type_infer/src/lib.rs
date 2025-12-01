@@ -7,6 +7,7 @@ use kaede_symbol_table::{SymbolTable, SymbolTableValueKind};
 
 pub use crate::context::InferContext;
 use crate::env::Env;
+pub use crate::error::TypeInferError;
 
 use kaede_ir::{
     expr::{
@@ -18,6 +19,7 @@ use kaede_ir::{
 };
 mod context;
 mod env;
+mod error;
 
 pub struct TypeInferrer {
     context: InferContext,
@@ -49,10 +51,14 @@ impl TypeInferrer {
         }
     }
 
-    pub fn infer_expr(&mut self, expr: &Expr) -> anyhow::Result<Rc<Ty>> {
+    pub fn infer_expr(&mut self, expr: &Expr) -> Result<Rc<Ty>, TypeInferError> {
         use ExprKind::*;
 
-        match &expr.kind {
+        // Get the type assigned during semantic analysis
+        let expr_ty = expr.ty.clone();
+
+        // Infer the actual type based on the expression kind
+        let inferred_ty = match &expr.kind {
             // Literals
             Int(int_lit) => self.infer_int(int_lit),
             StringLiteral(_) => Ok(Rc::new(Ty::new_str(Mutability::Not))),
@@ -98,17 +104,27 @@ impl TypeInferrer {
             Block(block) => self.infer_block(block),
             Return(ret) => self.infer_return(ret),
             Break => Ok(Rc::new(Ty::new_never())),
-        }
+        }?;
+
+        // Unify the expression's type (from semantic analysis) with the inferred type
+        self.context.unify(&expr_ty, &inferred_ty)?;
+
+        // Return the unified type
+        Ok(self.context.apply(&expr_ty))
     }
 
     /// Bidirectional type checking: check an expression against an expected type
-    pub fn check_expr(&mut self, expr: &Expr, expected_ty: &Rc<Ty>) -> anyhow::Result<Rc<Ty>> {
+    pub fn check_expr(
+        &mut self,
+        expr: &Expr,
+        expected_ty: &Rc<Ty>,
+    ) -> Result<Rc<Ty>, TypeInferError> {
         use ExprKind::*;
 
         match &expr.kind {
             // Structured literals benefit from checking
-            ArrayLiteral(arr_lit) => self.check_array_literal(arr_lit, expected_ty),
-            TupleLiteral(tuple_lit) => self.check_tuple_literal(tuple_lit, expected_ty),
+            ArrayLiteral(arr_lit) => self.check_array_literal(arr_lit, expected_ty, expr.span),
+            TupleLiteral(tuple_lit) => self.check_tuple_literal(tuple_lit, expected_ty, expr.span),
 
             // Control flow can use expected type
             If(if_expr) => self.check_if(if_expr, expected_ty),
@@ -123,7 +139,7 @@ impl TypeInferrer {
         }
     }
 
-    pub fn infer_stmt(&mut self, stmt: &Stmt) -> anyhow::Result<Rc<Ty>> {
+    pub fn infer_stmt(&mut self, stmt: &Stmt) -> Result<Rc<Ty>, TypeInferError> {
         match stmt {
             Stmt::Expr(expr_rc) => self.infer_expr(expr_rc),
             Stmt::Let(let_stmt) => self.infer_let(let_stmt),
@@ -133,7 +149,7 @@ impl TypeInferrer {
     }
 
     // Literal inference methods
-    fn infer_int(&mut self, int_lit: &Int) -> anyhow::Result<Rc<Ty>> {
+    fn infer_int(&mut self, int_lit: &Int) -> Result<Rc<Ty>, TypeInferError> {
         let ty = match int_lit.kind {
             IntKind::I8(_) => make_fundamental_type(FundamentalTypeKind::I8, Mutability::Not),
             IntKind::U8(_) => make_fundamental_type(FundamentalTypeKind::U8, Mutability::Not),
@@ -154,7 +170,7 @@ impl TypeInferrer {
     fn infer_array_literal(
         &mut self,
         arr_lit: &kaede_ir::expr::ArrayLiteral,
-    ) -> anyhow::Result<Rc<Ty>> {
+    ) -> Result<Rc<Ty>, TypeInferError> {
         if arr_lit.elements.is_empty() {
             // Empty array - need more context, create a fresh type variable
             let elem_ty = self.context.fresh();
@@ -184,7 +200,8 @@ impl TypeInferrer {
         &mut self,
         arr_lit: &kaede_ir::expr::ArrayLiteral,
         expected_ty: &Rc<Ty>,
-    ) -> anyhow::Result<Rc<Ty>> {
+        span: kaede_span::Span,
+    ) -> Result<Rc<Ty>, TypeInferError> {
         let expected_ty = self.context.apply(expected_ty);
         let unwrapped = Self::unwrap_reference(&expected_ty);
 
@@ -193,11 +210,11 @@ impl TypeInferrer {
                 let actual_size = arr_lit.elements.len() as u32;
 
                 if *expected_size != actual_size && *expected_size != 0 {
-                    anyhow::bail!(
-                        "Array literal size mismatch: expected {}, got {}",
-                        expected_size,
-                        actual_size
-                    );
+                    return Err(TypeInferError::ArraySizeMismatch {
+                        expected: *expected_size as usize,
+                        actual: actual_size as usize,
+                        span,
+                    });
                 }
 
                 // Check each element against the expected element type
@@ -216,19 +233,22 @@ impl TypeInferrer {
                 self.context.unify(&inferred, &expected_ty)?;
                 Ok(self.context.apply(&expected_ty))
             }
-            _ => anyhow::bail!("Expected array type, got {:?}", expected_ty),
+            _ => Err(TypeInferError::ExpectedArrayType {
+                actual: expected_ty.kind.to_string(),
+                span,
+            }),
         }
     }
 
     fn infer_tuple_literal(
         &mut self,
         tuple_lit: &kaede_ir::expr::TupleLiteral,
-    ) -> anyhow::Result<Rc<Ty>> {
+    ) -> Result<Rc<Ty>, TypeInferError> {
         let elem_tys = tuple_lit
             .elements
             .iter()
             .map(|e| self.infer_expr(e))
-            .collect::<anyhow::Result<Vec<_>>>()?;
+            .collect::<Result<Vec<_>, TypeInferError>>()?;
 
         Ok(Rc::new(Ty {
             kind: TyKind::Tuple(elem_tys).into(),
@@ -240,18 +260,19 @@ impl TypeInferrer {
         &mut self,
         tuple_lit: &kaede_ir::expr::TupleLiteral,
         expected_ty: &Rc<Ty>,
-    ) -> anyhow::Result<Rc<Ty>> {
+        span: kaede_span::Span,
+    ) -> Result<Rc<Ty>, TypeInferError> {
         let expected_ty = self.context.apply(expected_ty);
         let unwrapped = Self::unwrap_reference(&expected_ty);
 
         match unwrapped.kind.as_ref() {
             TyKind::Tuple(expected_elem_tys) => {
                 if expected_elem_tys.len() != tuple_lit.elements.len() {
-                    anyhow::bail!(
-                        "Tuple literal arity mismatch: expected {}, got {}",
-                        expected_elem_tys.len(),
-                        tuple_lit.elements.len()
-                    );
+                    return Err(TypeInferError::TupleArityMismatch {
+                        expected: expected_elem_tys.len(),
+                        actual: tuple_lit.elements.len(),
+                        span,
+                    });
                 }
 
                 // Check each element against the corresponding expected type
@@ -274,14 +295,17 @@ impl TypeInferrer {
                 self.context.unify(&inferred, &expected_ty)?;
                 Ok(self.context.apply(&expected_ty))
             }
-            _ => anyhow::bail!("Expected tuple type, got {:?}", expected_ty),
+            _ => Err(TypeInferError::ExpectedTupleType {
+                actual: expected_ty.kind.to_string(),
+                span,
+            }),
         }
     }
 
     fn infer_struct_literal(
         &mut self,
         struct_lit: &kaede_ir::expr::StructLiteral,
-    ) -> anyhow::Result<Rc<Ty>> {
+    ) -> Result<Rc<Ty>, TypeInferError> {
         // Infer types for all field values
         for (field_name, field_expr) in &struct_lit.values {
             let field_ty = self.infer_expr(field_expr)?;
@@ -307,10 +331,15 @@ impl TypeInferrer {
         }))
     }
 
-    fn infer_variable(&mut self, var: &kaede_ir::expr::Variable) -> anyhow::Result<Rc<Ty>> {
+    fn infer_variable(&mut self, var: &kaede_ir::expr::Variable) -> Result<Rc<Ty>, TypeInferError> {
+        // The variable has a type from semantic analysis (var.ty)
+        // We need to unify it with the type from the environment/symbol table
+
         // Look up in local environment first
-        if let Some(ty) = self.env.lookup(&var.name) {
-            return Ok(self.context.apply(&ty));
+        if let Some(env_ty) = self.env.lookup(&var.name) {
+            // Unify var.ty with env_ty
+            self.context.unify(&var.ty, &env_ty)?;
+            return Ok(self.context.apply(&var.ty));
         }
 
         // Fallback to symbol table
@@ -318,17 +347,19 @@ impl TypeInferrer {
             let borrowed = symbol_value.borrow();
             match &borrowed.kind {
                 SymbolTableValueKind::Variable(var_info) => {
-                    return Ok(var_info.ty.clone());
+                    // Unify var.ty with var_info.ty
+                    self.context.unify(&var.ty, &var_info.ty)?;
+                    return Ok(self.context.apply(&var.ty));
                 }
                 _ => {}
             }
         }
 
-        anyhow::bail!("Undefined variable: {}", var.name)
+        Err(TypeInferError::UndefinedVariableNoSpan { name: var.name })
     }
 
     // Binary operations
-    fn infer_binary(&mut self, bin: &Binary) -> anyhow::Result<Rc<Ty>> {
+    fn infer_binary(&mut self, bin: &Binary) -> Result<Rc<Ty>, TypeInferError> {
         let lhs_ty = self.infer_expr(&bin.lhs)?;
         let rhs_ty = self.infer_expr(&bin.rhs)?;
 
@@ -370,7 +401,7 @@ impl TypeInferrer {
         }
     }
 
-    fn infer_logical_not(&mut self, not: &LogicalNot) -> anyhow::Result<Rc<Ty>> {
+    fn infer_logical_not(&mut self, not: &LogicalNot) -> Result<Rc<Ty>, TypeInferError> {
         let operand_ty = self.infer_expr(&not.operand)?;
         let bool_ty = Rc::new(make_fundamental_type(
             FundamentalTypeKind::Bool,
@@ -380,15 +411,32 @@ impl TypeInferrer {
         Ok(bool_ty)
     }
 
-    fn infer_cast(&mut self, cast: &Cast) -> anyhow::Result<Rc<Ty>> {
-        // Just infer the operand type to ensure it's valid
-        let _operand_ty = self.infer_expr(&cast.operand)?;
+    fn infer_cast(&mut self, cast: &Cast) -> Result<Rc<Ty>, TypeInferError> {
+        // Infer the operand type
+        let operand_ty = self.infer_expr(&cast.operand)?;
+
+        // For integer types, unify operand with target type
+        // This allows: let c = 3; let d = c as i8  (c gets inferred as i8)
+        let target_ty = &cast.target_ty;
+
+        // Check if target is an integer type
+        let target_is_int = matches!(
+            target_ty.kind.as_ref(),
+            TyKind::Fundamental(fty) if fty.kind.is_int()
+        );
+
+        // If operand is a type variable and target is an integer, unify them
+        if matches!(operand_ty.kind.as_ref(), TyKind::Var(_)) && target_is_int {
+            // Unify operand with target type to propagate type information
+            self.context.unify(&operand_ty, target_ty)?;
+        }
+
         // Return the target type
-        Ok(cast.target_ty.clone())
+        Ok(target_ty.clone())
     }
 
     // Field and index access
-    fn infer_field_access(&mut self, field: &FieldAccess) -> anyhow::Result<Rc<Ty>> {
+    fn infer_field_access(&mut self, field: &FieldAccess) -> Result<Rc<Ty>, TypeInferError> {
         let struct_ty = self.infer_expr(&field.operand)?;
         let _unwrapped = Self::unwrap_reference(&struct_ty);
 
@@ -401,21 +449,23 @@ impl TypeInferrer {
         {
             Ok(field_def.ty.clone())
         } else {
-            anyhow::bail!("Field {} not found in struct", field.field_name)
+            Err(TypeInferError::FieldNotFoundNoSpan {
+                field_name: field.field_name,
+            })
         }
     }
 
-    fn infer_tuple_indexing(&mut self, tuple_idx: &TupleIndexing) -> anyhow::Result<Rc<Ty>> {
+    fn infer_tuple_indexing(
+        &mut self,
+        tuple_idx: &TupleIndexing,
+    ) -> Result<Rc<Ty>, TypeInferError> {
         let tuple_ty = self.infer_expr(&tuple_idx.tuple)?;
         let unwrapped = Self::unwrap_reference(&tuple_ty);
 
-        let bail_expected_tuple = || {
-            anyhow::bail!(
-                "Expected tuple type for tuple indexing at index {}, got: {:?} (unwrapped: {:?})",
-                tuple_idx.index,
-                tuple_ty.kind,
-                unwrapped.kind
-            )
+        let bail_expected_tuple = || TypeInferError::NotATupleNoSpan {
+            index: tuple_idx.index,
+            ty: tuple_ty.kind.to_string(),
+            unwrapped_ty: unwrapped.kind.to_string(),
         };
 
         match unwrapped.kind.as_ref() {
@@ -424,27 +474,36 @@ impl TypeInferrer {
                 if idx < elem_tys.len() {
                     Ok(elem_tys[idx].clone())
                 } else {
-                    anyhow::bail!("Tuple index {} out of bounds", idx)
+                    return Err(TypeInferError::TupleIndexOutOfBoundsNoSpan {
+                        index: tuple_idx.index as u64,
+                    });
                 }
             }
             TyKind::Fundamental(fty) if matches!(fty.kind, FundamentalTypeKind::Str) => {
                 // str is a tuple-like type: (ptr: *i8, len: u64)
-                match tuple_idx.index {
+                let element_ty = match tuple_idx.index {
                     0 => {
                         // str.0 is *i8
-                        Ok(Rc::new(Ty::wrap_in_pointer(Rc::new(
-                            make_fundamental_type(FundamentalTypeKind::I8, Mutability::Not),
+                        Rc::new(Ty::wrap_in_pointer(Rc::new(make_fundamental_type(
+                            FundamentalTypeKind::I8,
+                            Mutability::Not,
                         ))))
                     }
                     1 => {
                         // str.1 is u64
-                        Ok(Rc::new(make_fundamental_type(
+                        Rc::new(make_fundamental_type(
                             FundamentalTypeKind::U64,
                             Mutability::Not,
-                        )))
+                        ))
                     }
-                    _ => anyhow::bail!("str only has indices 0 and 1"),
-                }
+                    _ => {
+                        return Err(TypeInferError::StrIndexOutOfBoundsNoSpan);
+                    }
+                };
+
+                // Unify with the element type from semantic analysis
+                self.context.unify(&tuple_idx.element_ty, &element_ty)?;
+                Ok(element_ty)
             }
             TyKind::UserDefined(_) => {
                 // Enums are internally represented as tuples
@@ -467,11 +526,11 @@ impl TypeInferrer {
                 // Use the provided element type
                 Ok(tuple_idx.element_ty.clone())
             }
-            _ => bail_expected_tuple(),
+            _ => Err(bail_expected_tuple()),
         }
     }
 
-    fn infer_indexing(&mut self, idx: &Indexing) -> anyhow::Result<Rc<Ty>> {
+    fn infer_indexing(&mut self, idx: &Indexing) -> Result<Rc<Ty>, TypeInferError> {
         let operand_ty = self.infer_expr(&idx.operand)?;
         let _index_ty = self.infer_expr(&idx.index)?;
 
@@ -496,11 +555,11 @@ impl TypeInferrer {
                 let elem_ty = self.context.fresh();
                 Ok(elem_ty)
             }
-            _ => anyhow::bail!("Cannot index into non-array/pointer type"),
+            _ => Err(TypeInferError::NotIndexableNoSpan),
         }
     }
 
-    fn infer_enum_variant(&mut self, enum_var: &EnumVariant) -> anyhow::Result<Rc<Ty>> {
+    fn infer_enum_variant(&mut self, enum_var: &EnumVariant) -> Result<Rc<Ty>, TypeInferError> {
         if let Some(value_expr) = &enum_var.value {
             let _value_ty = self.infer_expr(value_expr)?;
         }
@@ -515,17 +574,16 @@ impl TypeInferrer {
     }
 
     // Function calls
-    fn infer_fn_call(&mut self, fn_call: &FnCall) -> anyhow::Result<Rc<Ty>> {
+    fn infer_fn_call(&mut self, fn_call: &FnCall) -> Result<Rc<Ty>, TypeInferError> {
         let decl = &fn_call.callee;
 
         // Check argument count
         if fn_call.args.0.len() != decl.params.len() && !decl.is_c_variadic {
-            anyhow::bail!(
-                "Function {:?} expects {} arguments, got {}",
-                decl.name,
-                decl.params.len(),
-                fn_call.args.0.len()
-            );
+            return Err(TypeInferError::ArgumentCountMismatchNoSpan {
+                fn_name: decl.name.clone(),
+                expected: decl.params.len(),
+                actual: fn_call.args.0.len(),
+            });
         }
 
         // Use bidirectional checking: check each argument against parameter type
@@ -547,7 +605,10 @@ impl TypeInferrer {
             .unwrap_or_else(|| Rc::new(Ty::new_unit())))
     }
 
-    fn infer_builtin_fn_call(&mut self, builtin_call: &BuiltinFnCall) -> anyhow::Result<Rc<Ty>> {
+    fn infer_builtin_fn_call(
+        &mut self,
+        builtin_call: &BuiltinFnCall,
+    ) -> Result<Rc<Ty>, TypeInferError> {
         // Infer argument types
         for arg in &builtin_call.args.0 {
             let _arg_ty = self.infer_expr(arg)?;
@@ -560,7 +621,7 @@ impl TypeInferrer {
     }
 
     // Control flow
-    fn infer_if(&mut self, if_expr: &If) -> anyhow::Result<Rc<Ty>> {
+    fn infer_if(&mut self, if_expr: &If) -> Result<Rc<Ty>, TypeInferError> {
         // Condition must be bool
         let cond_ty = self.infer_expr(&if_expr.cond)?;
         let bool_ty = Rc::new(make_fundamental_type(
@@ -603,7 +664,7 @@ impl TypeInferrer {
         }
     }
 
-    fn check_if(&mut self, if_expr: &If, expected_ty: &Rc<Ty>) -> anyhow::Result<Rc<Ty>> {
+    fn check_if(&mut self, if_expr: &If, expected_ty: &Rc<Ty>) -> Result<Rc<Ty>, TypeInferError> {
         // Condition must be bool
         let cond_ty = self.infer_expr(&if_expr.cond)?;
         let bool_ty = Rc::new(make_fundamental_type(
@@ -643,13 +704,13 @@ impl TypeInferrer {
         }
     }
 
-    fn infer_loop(&mut self, loop_expr: &Loop) -> anyhow::Result<Rc<Ty>> {
+    fn infer_loop(&mut self, loop_expr: &Loop) -> Result<Rc<Ty>, TypeInferError> {
         self.infer_block(&loop_expr.body)?;
         // Loop always returns never type (unless broken out of)
         Ok(Rc::new(Ty::new_never()))
     }
 
-    fn infer_block(&mut self, block: &Block) -> anyhow::Result<Rc<Ty>> {
+    fn infer_block(&mut self, block: &Block) -> Result<Rc<Ty>, TypeInferError> {
         // Infer all statements
         for stmt in &block.body {
             self.infer_stmt(stmt)?;
@@ -663,7 +724,11 @@ impl TypeInferrer {
         }
     }
 
-    fn check_block(&mut self, block: &Block, expected_ty: &Rc<Ty>) -> anyhow::Result<Rc<Ty>> {
+    fn check_block(
+        &mut self,
+        block: &Block,
+        expected_ty: &Rc<Ty>,
+    ) -> Result<Rc<Ty>, TypeInferError> {
         // Infer all statements (they don't have expected types)
         for stmt in &block.body {
             self.infer_stmt(stmt)?;
@@ -679,7 +744,7 @@ impl TypeInferrer {
         }
     }
 
-    fn infer_return(&mut self, ret: &Option<Box<Expr>>) -> anyhow::Result<Rc<Ty>> {
+    fn infer_return(&mut self, ret: &Option<Box<Expr>>) -> Result<Rc<Ty>, TypeInferError> {
         if let Some(expr) = ret {
             let _ty = self.infer_expr(expr)?;
         }
@@ -687,7 +752,7 @@ impl TypeInferrer {
     }
 
     // Statement inference methods
-    fn infer_let(&mut self, let_stmt: &Let) -> anyhow::Result<Rc<Ty>> {
+    fn infer_let(&mut self, let_stmt: &Let) -> Result<Rc<Ty>, TypeInferError> {
         if let Some(init_expr) = &let_stmt.init {
             // Check if the type is a type variable (needs inference) or concrete (can use checking)
             let init_ty = match let_stmt.ty.kind.as_ref() {
@@ -703,29 +768,31 @@ impl TypeInferrer {
                 }
             };
 
+            // Unify let_stmt.ty with init_ty to ensure they're the same
+            self.context.unify(&let_stmt.ty, &init_ty)?;
+
             // Register variable in environment with the final type
-            let final_ty = self.context.apply(&init_ty);
-            self.env.insert(let_stmt.name, final_ty);
+            let final_ty = self.context.apply(&let_stmt.ty);
+            self.env.insert(let_stmt.name, final_ty.clone());
+            Ok(final_ty)
         } else {
             // No initializer - just register the declared type
             self.env.insert(let_stmt.name, let_stmt.ty.clone());
+            Ok(let_stmt.ty.clone())
         }
-
-        Ok(Rc::new(Ty::new_unit()))
     }
 
-    fn infer_tuple_unpack(&mut self, tuple_unpack: &TupleUnpack) -> anyhow::Result<Rc<Ty>> {
+    fn infer_tuple_unpack(&mut self, tuple_unpack: &TupleUnpack) -> Result<Rc<Ty>, TypeInferError> {
         let init_ty = self.infer_expr(&tuple_unpack.init)?;
         let unwrapped = Self::unwrap_reference(&init_ty);
 
         match unwrapped.kind.as_ref() {
             TyKind::Tuple(elem_tys) => {
                 if elem_tys.len() != tuple_unpack.names.len() {
-                    anyhow::bail!(
-                        "Tuple unpacking: expected {} elements, got {}",
-                        tuple_unpack.names.len(),
-                        elem_tys.len()
-                    );
+                    return Err(TypeInferError::TupleUnpackCountMismatchNoSpan {
+                        expected: tuple_unpack.names.len(),
+                        actual: elem_tys.len(),
+                    });
                 }
 
                 // Register each variable with its corresponding type
@@ -744,13 +811,15 @@ impl TypeInferrer {
                     }
                 }
             }
-            _ => anyhow::bail!("Expected tuple type for tuple unpacking"),
+            _ => {
+                return Err(TypeInferError::ExpectedTupleForUnpackNoSpan);
+            }
         }
 
         Ok(Rc::new(Ty::new_unit()))
     }
 
-    fn infer_assign(&mut self, assign: &Assign) -> anyhow::Result<Rc<Ty>> {
+    fn infer_assign(&mut self, assign: &Assign) -> Result<Rc<Ty>, TypeInferError> {
         let lhs_ty = self.infer_expr(&assign.assignee)?;
         let rhs_ty = self.infer_expr(&assign.value)?;
 
@@ -764,176 +833,238 @@ impl TypeInferrer {
     // ====== Apply inferred types to IR ======
 
     /// Apply the inferred types to an expression, replacing all type variables
-    pub fn apply_expr(&self, expr: &mut Expr) {
+    pub fn apply_expr(&self, expr: &mut Expr) -> Result<(), TypeInferError> {
         use ExprKind::*;
 
         // Apply to this expression's type
         expr.ty = self.context.apply(&expr.ty);
 
+        // Handle unresolved type variables
+        if matches!(expr.ty.kind.as_ref(), TyKind::Var(_)) {
+            // Integer literals without constraining context default to i32 (like Rust)
+            if matches!(&expr.kind, ExprKind::Int(_)) {
+                expr.ty = Rc::new(Ty {
+                    kind: TyKind::Fundamental(kaede_ir::ty::FundamentalType {
+                        kind: FundamentalTypeKind::I32,
+                    })
+                    .into(),
+                    mutability: kaede_ir::ty::Mutability::Not,
+                });
+            } else {
+                return Err(TypeInferError::CannotInferType { span: expr.span });
+            }
+        }
+
         // Recursively apply to child expressions
         match &mut expr.kind {
-            // Literals have no child expressions
-            Int(_) | StringLiteral(_) | CharLiteral(_) | BooleanLiteral(_) | Break => {}
+            // Integer literals need type conversion based on inferred type
+            Int(int) => {
+                if let IntKind::Infer(value) = int.kind {
+                    int.kind = match expr.ty.kind.as_ref() {
+                        TyKind::Fundamental(fty) => match fty.kind {
+                            FundamentalTypeKind::I8 => IntKind::I8(value as i8),
+                            FundamentalTypeKind::U8 => IntKind::U8(value as u8),
+                            FundamentalTypeKind::I32 => IntKind::I32(value as i32),
+                            FundamentalTypeKind::U32 => IntKind::U32(value as u32),
+                            FundamentalTypeKind::I64 => IntKind::I64(value),
+                            FundamentalTypeKind::U64 => IntKind::U64(value as u64),
+                            _ => {
+                                return Err(TypeInferError::InvalidIntegerLiteralType {
+                                    ty: fty.kind.to_string(),
+                                    span: expr.span,
+                                });
+                            }
+                        },
+                        _ => {
+                            return Err(TypeInferError::InvalidIntegerLiteralType {
+                                ty: expr.ty.kind.to_string(),
+                                span: expr.span,
+                            });
+                        }
+                    };
+                }
+            }
+
+            // Other literals have no child expressions
+            StringLiteral(_) | CharLiteral(_) | BooleanLiteral(_) | Break => {}
 
             // Structured literals with child expressions
             ArrayLiteral(arr_lit) => {
                 for elem in &mut arr_lit.elements {
-                    self.apply_expr(elem);
+                    self.apply_expr(elem)?;
                 }
             }
             TupleLiteral(tuple_lit) => {
                 for elem in &mut tuple_lit.elements {
-                    self.apply_expr(elem);
+                    self.apply_expr(elem)?;
                 }
             }
             StructLiteral(struct_lit) => {
                 for (_field_name, field_expr) in &mut struct_lit.values {
-                    self.apply_expr(field_expr);
+                    self.apply_expr(field_expr)?;
                 }
             }
 
             // Variable has type field that needs updating
             Variable(var) => {
                 var.ty = self.context.apply(&var.ty);
+
+                // Error on unresolved type variables
+                if matches!(var.ty.kind.as_ref(), TyKind::Var(_)) {
+                    return Err(TypeInferError::CannotInferVariableTypeNoSpan);
+                }
             }
 
             // Binary operations
             Binary(bin) => {
                 // Try to get mutable access to Rc contents
                 if let Some(lhs) = std::rc::Rc::get_mut(&mut bin.lhs) {
-                    self.apply_expr(lhs);
+                    self.apply_expr(lhs)?;
                 }
                 if let Some(rhs) = std::rc::Rc::get_mut(&mut bin.rhs) {
-                    self.apply_expr(rhs);
+                    self.apply_expr(rhs)?;
                 }
             }
 
             // Unary operations
             LogicalNot(not) => {
-                self.apply_expr(&mut not.operand);
+                self.apply_expr(&mut not.operand)?;
             }
             Cast(cast) => {
-                self.apply_expr(&mut cast.operand);
+                self.apply_expr(&mut cast.operand)?;
                 cast.target_ty = self.context.apply(&cast.target_ty);
             }
 
             // Field and index access
             FieldAccess(field) => {
-                self.apply_expr(&mut field.operand);
+                self.apply_expr(&mut field.operand)?;
             }
             TupleIndexing(tuple_idx) => {
                 if let Some(tuple) = std::rc::Rc::get_mut(&mut tuple_idx.tuple) {
-                    self.apply_expr(tuple);
+                    self.apply_expr(tuple)?;
                 }
                 tuple_idx.element_ty = self.context.apply(&tuple_idx.element_ty);
             }
             Indexing(idx) => {
                 if let Some(operand) = std::rc::Rc::get_mut(&mut idx.operand) {
-                    self.apply_expr(operand);
+                    self.apply_expr(operand)?;
                 }
-                self.apply_expr(&mut idx.index);
+                self.apply_expr(&mut idx.index)?;
             }
 
             // Enum
             EnumVariant(enum_var) => {
                 if let Some(value_expr) = &mut enum_var.value {
-                    self.apply_expr(value_expr);
+                    self.apply_expr(value_expr)?;
                 }
             }
 
             // Function calls
             FnCall(fn_call) => {
                 for arg in &mut fn_call.args.0 {
-                    self.apply_expr(arg);
+                    self.apply_expr(arg)?;
                 }
             }
             BuiltinFnCall(builtin_call) => {
                 for arg in &mut builtin_call.args.0 {
-                    self.apply_expr(arg);
+                    self.apply_expr(arg)?;
                 }
             }
 
             // Control flow
             If(if_expr) => {
-                self.apply_expr(&mut if_expr.cond);
-                self.apply_expr(&mut if_expr.then);
+                self.apply_expr(&mut if_expr.cond)?;
+                self.apply_expr(&mut if_expr.then)?;
                 if let Some(else_branch) = &mut if_expr.else_ {
-                    self.apply_else(else_branch);
+                    self.apply_else(else_branch)?;
                 }
                 if let Some(enum_unpack) = &mut if_expr.enum_unpack {
                     if let Some(enum_value) = std::rc::Rc::get_mut(&mut enum_unpack.enum_value) {
-                        self.apply_expr(enum_value);
+                        self.apply_expr(enum_value)?;
                     }
                     enum_unpack.variant_ty = self.context.apply(&enum_unpack.variant_ty);
                 }
             }
             Loop(loop_expr) => {
-                self.apply_block(&mut loop_expr.body);
+                self.apply_block(&mut loop_expr.body)?;
             }
             Block(block) => {
-                self.apply_block(block);
+                self.apply_block(block)?;
             }
             Return(ret) => {
                 if let Some(expr) = ret {
-                    self.apply_expr(expr);
+                    self.apply_expr(expr)?;
                 }
             }
         }
+
+        Ok(())
     }
 
     /// Apply the inferred types to a statement
-    pub fn apply_stmt(&self, stmt: &mut Stmt) {
+    pub fn apply_stmt(&self, stmt: &mut Stmt) -> Result<(), TypeInferError> {
         match stmt {
             Stmt::Expr(expr_rc) => {
                 if let Some(expr) = std::rc::Rc::get_mut(expr_rc) {
-                    self.apply_expr(expr);
+                    self.apply_expr(expr)?;
                 }
             }
             Stmt::Let(let_stmt) => {
                 if let Some(init_expr) = &mut let_stmt.init {
-                    self.apply_expr(init_expr);
+                    self.apply_expr(init_expr)?;
                 }
                 let_stmt.ty = self.context.apply(&let_stmt.ty);
+
+                // Error on unresolved type variables
+                if matches!(let_stmt.ty.kind.as_ref(), TyKind::Var(_)) {
+                    return Err(TypeInferError::CannotInferVariableTypeNoSpan);
+                }
             }
             Stmt::TupleUnpack(tuple_unpack) => {
-                self.apply_expr(&mut tuple_unpack.init);
+                self.apply_expr(&mut tuple_unpack.init)?;
             }
             Stmt::Assign(assign) => {
-                self.apply_expr(&mut assign.assignee);
-                self.apply_expr(&mut assign.value);
+                self.apply_expr(&mut assign.assignee)?;
+                self.apply_expr(&mut assign.value)?;
             }
         }
+        Ok(())
     }
 
     /// Apply the inferred types to an else branch
-    fn apply_else(&self, else_branch: &mut Box<kaede_ir::expr::Else>) {
+    fn apply_else(
+        &self,
+        else_branch: &mut Box<kaede_ir::expr::Else>,
+    ) -> Result<(), TypeInferError> {
         match else_branch.as_mut() {
             kaede_ir::expr::Else::If(nested_if) => {
-                self.apply_expr(&mut nested_if.cond);
-                self.apply_expr(&mut nested_if.then);
+                self.apply_expr(&mut nested_if.cond)?;
+                self.apply_expr(&mut nested_if.then)?;
                 if let Some(nested_else) = &mut nested_if.else_ {
-                    self.apply_else(nested_else);
+                    self.apply_else(nested_else)?;
                 }
                 if let Some(enum_unpack) = &mut nested_if.enum_unpack {
                     if let Some(enum_value) = std::rc::Rc::get_mut(&mut enum_unpack.enum_value) {
-                        self.apply_expr(enum_value);
+                        self.apply_expr(enum_value)?;
                     }
                     enum_unpack.variant_ty = self.context.apply(&enum_unpack.variant_ty);
                 }
             }
             kaede_ir::expr::Else::Block(block_expr) => {
-                self.apply_expr(block_expr);
+                self.apply_expr(block_expr)?;
             }
         }
+        Ok(())
     }
 
     /// Apply the inferred types to a block
-    pub fn apply_block(&self, block: &mut Block) {
+    pub fn apply_block(&self, block: &mut Block) -> Result<(), TypeInferError> {
         for stmt in &mut block.body {
-            self.apply_stmt(stmt);
+            self.apply_stmt(stmt)?;
         }
         if let Some(last_expr) = &mut block.last_expr {
-            self.apply_expr(last_expr);
+            self.apply_expr(last_expr)?;
         }
+        Ok(())
     }
 }

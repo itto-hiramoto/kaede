@@ -212,6 +212,26 @@ impl std::fmt::Display for FundamentalTypeKind {
     }
 }
 
+impl FundamentalTypeKind {
+    /// Returns true if this type is an integer type
+    pub fn is_int(&self) -> bool {
+        match self {
+            // Integer types
+            FundamentalTypeKind::I8
+            | FundamentalTypeKind::U8
+            | FundamentalTypeKind::I32
+            | FundamentalTypeKind::U32
+            | FundamentalTypeKind::I64
+            | FundamentalTypeKind::U64 => true,
+
+            // Non-integer types
+            FundamentalTypeKind::Bool | FundamentalTypeKind::Str | FundamentalTypeKind::Char => {
+                false
+            }
+        }
+    }
+}
+
 pub fn make_fundamental_type(kind: FundamentalTypeKind, mutability: Mutability) -> Ty {
     Ty {
         kind: TyKind::Fundamental(FundamentalType { kind }).into(),

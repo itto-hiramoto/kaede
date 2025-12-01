@@ -2,6 +2,8 @@ use std::{collections::HashMap, rc::Rc};
 
 use kaede_ir::ty::{Mutability, PointerType, ReferenceType, Ty, TyKind, VarId};
 
+use crate::error::TypeInferError;
+
 #[derive(Default)]
 pub struct InferContext {
     next_var: VarId,
@@ -85,7 +87,7 @@ impl InferContext {
         }
     }
 
-    pub fn unify(&mut self, a: &Rc<Ty>, b: &Rc<Ty>) -> anyhow::Result<()> {
+    pub fn unify(&mut self, a: &Rc<Ty>, b: &Rc<Ty>) -> Result<(), TypeInferError> {
         let a = self.apply(a);
         let b = self.apply(b);
 
@@ -93,16 +95,22 @@ impl InferContext {
             return Ok(());
         }
 
-        // Never type unifies with anything (bottom type)
-        if matches!(a.kind.as_ref(), TyKind::Never) || matches!(b.kind.as_ref(), TyKind::Never) {
+        // Handle type variables first (before Never check)
+        // This ensures that unifying TyVar with Never binds TyVar to Never
+        if let Some((id, other)) = Self::pick_var_case(&a, &b) {
+            if self.occurs(id, other) {
+                return Err(TypeInferError::OccursCheckFailed {
+                    var_id: id,
+                    ty: other.kind.to_string(),
+                });
+            }
+            self.subst.insert(id, other.clone());
             return Ok(());
         }
 
-        if let Some((id, other)) = Self::pick_var_case(&a, &b) {
-            if self.occurs(id, other) {
-                anyhow::bail!("occurs check failed: α{} occurs in {:?}", id, other);
-            }
-            self.subst.insert(id, other.clone());
+        // Never type unifies with anything (bottom type)
+        // This comes after type variable check so that TyVar gets bound to Never
+        if matches!(a.kind.as_ref(), TyKind::Never) || matches!(b.kind.as_ref(), TyKind::Never) {
             return Ok(());
         }
 
@@ -114,7 +122,10 @@ impl InferContext {
 
                 // No implicit type conversions - types must match exactly
                 // Use explicit casts (as keyword) for type conversions
-                anyhow::bail!("cannot unify {:?} with {:?}", f1, f2)
+                return Err(TypeInferError::CannotUnify {
+                    a: f1.kind.to_string(),
+                    b: f2.kind.to_string(),
+                });
             }
 
             (TyKind::Pointer(pty1), TyKind::Pointer(pty2)) => {
@@ -126,7 +137,18 @@ impl InferContext {
             (TyKind::Array(aty1), TyKind::Array(aty2)) => self.unify(&aty1.0, &aty2.0),
             (TyKind::Tuple(tys1), TyKind::Tuple(tys2)) => {
                 if tys1.len() != tys2.len() {
-                    anyhow::bail!("arity mismatch in tuple types: {:?} and {:?}", tys1, tys2);
+                    return Err(TypeInferError::TupleArityMismatchInUnify {
+                        a: tys1
+                            .iter()
+                            .map(|t| t.kind.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        b: tys2
+                            .iter()
+                            .map(|t| t.kind.to_string())
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    });
                 }
                 for (t1, t2) in tys1.iter().zip(tys2.iter()) {
                     self.unify(t1, t2)?;
@@ -138,7 +160,10 @@ impl InferContext {
             (_, TyKind::Reference(rty)) => self.unify(&a, &rty.refee_ty),
             (TyKind::Reference(rty), _) => self.unify(&rty.refee_ty, &b),
 
-            (x, y) => anyhow::bail!("cannot unify {:?} with {:?}", x, y),
+            (x, y) => Err(TypeInferError::CannotUnify {
+                a: x.to_string(),
+                b: y.to_string(),
+            }),
         }
     }
 }

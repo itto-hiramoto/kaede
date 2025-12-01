@@ -751,22 +751,6 @@ impl SemanticAnalyzer {
     fn analyze_if(&mut self, node: &ast::expr::If) -> anyhow::Result<ir::expr::Expr> {
         let cond = Box::new(self.analyze_expr(&node.cond)?);
 
-        // Type checking for condition.
-        // The condition must be a boolean type.
-        if !ir_type::is_same_type(
-            &cond.ty,
-            &ir_type::make_fundamental_type(
-                ir_type::FundamentalTypeKind::Bool,
-                ir_type::Mutability::Not,
-            ),
-        ) {
-            return Err(SemanticError::MismatchedTypes {
-                types: (cond.ty.kind.to_string(), "bool".to_string()),
-                span: node.cond.span,
-            }
-            .into());
-        }
-
         let then = Box::new(self.analyze_block_expr(&node.then)?);
 
         // TODO: Enahnce error handlings
@@ -789,24 +773,19 @@ impl SemanticAnalyzer {
             None => None,
         };
 
-        // Type checking for then and else branches.
-        if let Some(else_) = &else_ {
-            let else_ty = match else_.as_ref() {
-                ir::expr::Else::If(if_) => if_.then.ty.clone(),
-                ir::expr::Else::Block(block) => block.ty.clone(),
-            };
-
-            if !ir_type::is_same_type(&then.ty, &else_ty) {
-                return Err(SemanticError::MismatchedTypes {
-                    types: (then.ty.kind.to_string(), else_ty.kind.to_string()),
-                    span: node.span,
-                }
-                .into());
-            }
-        }
+        // Determine the if expression's type
+        // If there's an else branch, the type is the then branch's type (already unified)
+        // If there's no else branch, the type should be unit (or a fresh type variable for match)
+        let if_ty = if else_.is_some() {
+            then.ty.clone()
+        } else {
+            // For if without else (match desugaring), use a fresh type variable
+            // This will be unified during type inference
+            self.infer_context.fresh()
+        };
 
         Ok(ir::expr::Expr {
-            ty: then.ty.clone(),
+            ty: if_ty,
             kind: ir::expr::ExprKind::If(ir::expr::If {
                 cond,
                 then,
@@ -1075,22 +1054,6 @@ impl SemanticAnalyzer {
         node: &ast::expr::LogicalNot,
     ) -> anyhow::Result<ir::expr::Expr> {
         let operand = self.analyze_expr(&node.operand)?;
-
-        let span = Span::new(node.span.start, node.span.finish, node.span.file);
-
-        let bool_ty = ir_type::make_fundamental_type(
-            ir_type::FundamentalTypeKind::Bool,
-            ir_type::Mutability::Not,
-        );
-
-        // Type checking
-        if !ir_type::is_same_type(&operand.ty, &bool_ty) {
-            return Err(SemanticError::MismatchedTypes {
-                types: (operand.ty.kind.to_string(), bool_ty.kind.to_string()),
-                span,
-            }
-            .into());
-        }
 
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::LogicalNot(ir::expr::LogicalNot {
@@ -1572,22 +1535,20 @@ impl SemanticAnalyzer {
 
         let index_ty = right.ty.clone();
 
-        if !ir_type::is_same_type(
-            &index_ty,
-            &ir_type::make_fundamental_type(
-                ir_type::FundamentalTypeKind::I32,
-                ir_type::Mutability::Not,
-            ),
-        ) {
+        // Skip type checking if index is a type variable
+        // Type inference pass will handle it
+        let expected_index_ty = ir_type::make_fundamental_type(
+            ir_type::FundamentalTypeKind::I32,
+            ir_type::Mutability::Not,
+        );
+
+        if !matches!(index_ty.kind.as_ref(), ir_type::TyKind::Var(_))
+            && !ir_type::is_same_type(&index_ty, &expected_index_ty)
+        {
             return Err(SemanticError::MismatchedTypes {
                 types: (
                     index_ty.kind.to_string(),
-                    ir_type::make_fundamental_type(
-                        ir_type::FundamentalTypeKind::I32,
-                        ir_type::Mutability::Not,
-                    )
-                    .kind
-                    .to_string(),
+                    expected_index_ty.kind.to_string(),
                 ),
                 span,
             }
@@ -1683,6 +1644,28 @@ impl SemanticAnalyzer {
 
             ir_type::TyKind::Tuple(elements_ty) => {
                 self.analyze_tuple_indexing(lhs, rhs, elements_ty)
+            }
+
+            // str is internally represented as (*i8, u64) tuple
+            ir_type::TyKind::Fundamental(fty) if fty.kind == ir_type::FundamentalTypeKind::Str => {
+                // str type: (*i8, u64)
+                let elements_ty = vec![
+                    Rc::new(ir_type::Ty {
+                        kind: ir_type::TyKind::Pointer(ir_type::PointerType {
+                            pointee_ty: Rc::new(ir_type::make_fundamental_type(
+                                ir_type::FundamentalTypeKind::I8,
+                                ir_type::Mutability::Not,
+                            )),
+                        })
+                        .into(),
+                        mutability: ir_type::Mutability::Not,
+                    }),
+                    Rc::new(ir_type::make_fundamental_type(
+                        ir_type::FundamentalTypeKind::U64,
+                        ir_type::Mutability::Not,
+                    )),
+                ];
+                self.analyze_tuple_indexing(lhs, rhs, &elements_ty)
             }
 
             _ => Err(SemanticError::HasNoFields { span }.into()),
