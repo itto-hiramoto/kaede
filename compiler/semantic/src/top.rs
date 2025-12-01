@@ -6,11 +6,11 @@ use std::{
 
 use crate::{
     context::{AnalyzeCommand, ModuleContext},
-    symbol_table::{
-        GenericEnumInfo, GenericFuncInfo, GenericImplInfo, GenericInfo, GenericKind,
-        GenericStructInfo, SymbolTable, SymbolTableValue, SymbolTableValueKind, VariableInfo,
-    },
     SemanticAnalyzer, SemanticError,
+};
+use kaede_symbol_table::{
+    GenericEnumInfo, GenericFuncInfo, GenericImplInfo, GenericInfo, GenericKind, GenericStructInfo,
+    SymbolTable, SymbolTableValue, SymbolTableValueKind, VariableInfo,
 };
 
 use kaede_ast::{self as ast};
@@ -476,7 +476,7 @@ impl SemanticAnalyzer {
                     )
                     .into(),
                 ),
-                self,
+                self.current_module_path().clone(),
             );
 
             self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)?;
@@ -531,7 +531,7 @@ impl SemanticAnalyzer {
                     SymbolTableValueKind::Variable(VariableInfo {
                         ty: param.ty.clone(),
                     }),
-                    self,
+                    self.current_module_path().clone(),
                 );
 
                 symbol_table.insert(
@@ -543,9 +543,14 @@ impl SemanticAnalyzer {
             self.push_scope(symbol_table);
         }
 
+        let mut fn_body = self.analyze_block(&node.body)?;
+
+        // Run type inference on the function body while the scope is still active
+        self.infer_function_body_inline(&mut fn_body, &fn_decl)?;
+
         let fn_ = Rc::new(ir::top::Fn {
             decl: fn_decl,
-            body: Some(self.analyze_block(&node.body)?),
+            body: Some(fn_body),
         });
 
         // Pop the function symbol table.
@@ -591,7 +596,7 @@ impl SemanticAnalyzer {
 
         let symbol_table_value = SymbolTableValue::new(
             SymbolTableValueKind::Function(Rc::new(fn_decl.clone())),
-            self,
+            self.current_module_path().clone(),
         );
 
         self.insert_symbol_to_root_scope(name, symbol_table_value, node.vis, node.span)?;
@@ -617,7 +622,7 @@ impl SemanticAnalyzer {
                     )
                     .into(),
                 ),
-                self,
+                self.current_module_path().clone(),
             );
 
             self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)?;
@@ -631,7 +636,7 @@ impl SemanticAnalyzer {
         // This placeholder allows recursive struct definitions
         let symbol_table_value = SymbolTableValue::new(
             SymbolTableValueKind::Placeholder(qualified_name.clone()),
-            self,
+            self.current_module_path().clone(),
         );
         self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)?;
 
@@ -652,8 +657,10 @@ impl SemanticAnalyzer {
             fields,
         });
 
-        let symbol_table_value =
-            SymbolTableValue::new(SymbolTableValueKind::Struct(ir.clone()), self);
+        let symbol_table_value = SymbolTableValue::new(
+            SymbolTableValueKind::Struct(ir.clone()),
+            self.current_module_path().clone(),
+        );
 
         self.insert_symbol_to_root_scope(name, symbol_table_value, node.vis, span)?;
 
@@ -677,7 +684,7 @@ impl SemanticAnalyzer {
                     )
                     .into(),
                 ),
-                self,
+                self.current_module_path().clone(),
             );
 
             self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)?;
@@ -691,7 +698,7 @@ impl SemanticAnalyzer {
         // This placeholder allows recursive enum definitions
         let symbol_table_value = SymbolTableValue::new(
             SymbolTableValueKind::Placeholder(qualified_name.clone()),
-            self,
+            self.current_module_path().clone(),
         );
         self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)?;
 
@@ -715,8 +722,10 @@ impl SemanticAnalyzer {
             variants,
         });
 
-        let symbol_table_value =
-            SymbolTableValue::new(SymbolTableValueKind::Enum(ir.clone()), self);
+        let symbol_table_value = SymbolTableValue::new(
+            SymbolTableValueKind::Enum(ir.clone()),
+            self.current_module_path().clone(),
+        );
 
         self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)?;
 

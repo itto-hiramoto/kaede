@@ -5,10 +5,9 @@ use kaede_ir::{self as ir, module_path::ModulePath, ty::Ty};
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::Symbol;
 
-use crate::{
-    symbol_table::{GenericArgumentTable, SymbolTable, SymbolTableValue},
-    SemanticAnalyzer,
-};
+use kaede_symbol_table::{GenericArgumentTable, SymbolTable, SymbolTableValue};
+
+use crate::SemanticAnalyzer;
 
 #[derive(Debug, Clone, Copy)]
 pub enum AnalyzeCommand {

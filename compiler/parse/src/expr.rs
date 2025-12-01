@@ -175,7 +175,7 @@ impl Parser {
             // Subtracting a number from 0 inverts the sign
             let zero = Expr {
                 kind: ExprKind::Int(Int {
-                    kind: IntKind::I32(0),
+                    kind: IntKind::Unsuffixed(0),
                     span,
                 }),
                 span,
@@ -702,10 +702,11 @@ impl Parser {
 
         match token.kind {
             TokenKind::Int(int_s) => {
-                // Try to convert to i32
+                // Integer literals are always non-negative
+                // Parse as u64 (unsuffixed integer literal)
                 match int_s.parse() {
                     Ok(n) => Ok(Int {
-                        kind: IntKind::I32(n),
+                        kind: IntKind::Unsuffixed(n),
                         span: token.span,
                     }),
 

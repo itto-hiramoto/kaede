@@ -36,20 +36,6 @@ pub fn change_mutability(ty: &mut Ty, mutability: Mutability) {
     }
 }
 
-pub fn create_inferred_tuple(element_len: usize, span: Span) -> TyKind {
-    TyKind::Tuple({
-        let mut v = Vec::with_capacity(element_len);
-        (0..element_len).for_each(|_| {
-            v.push(Rc::new(Ty {
-                kind: Rc::new(TyKind::Inferred),
-                mutability: Mutability::Not,
-                span,
-            }))
-        });
-        v
-    })
-}
-
 pub fn wrap_in_ref(ty: Rc<Ty>, mutability: Mutability) -> Ty {
     Ty {
         span: ty.span,
@@ -80,14 +66,6 @@ pub struct Ty {
 }
 
 impl Ty {
-    pub fn new_inferred(mutability: Mutability, span: Span) -> Self {
-        Self {
-            kind: TyKind::Inferred.into(),
-            mutability,
-            span,
-        }
-    }
-
     pub fn new_unit(span: Span) -> Self {
         Self {
             kind: TyKind::Unit.into(),
@@ -111,6 +89,14 @@ impl Ty {
             })
             .into(),
             mutability,
+            span,
+        }
+    }
+
+    pub fn new_var(span: Span) -> Self {
+        Self {
+            kind: TyKind::Var.into(),
+            mutability: Mutability::Not,
             span,
         }
     }
@@ -229,7 +215,8 @@ pub enum TyKind {
     /// Same as Rust's never type
     Never,
 
-    Inferred,
+    /// Inferred type
+    Var,
 
     /// External type, e.g. `std.io.println`
     /// If the type appearing in the expression is an external type,
@@ -267,7 +254,7 @@ impl std::fmt::Display for TyKind {
 
             Self::Never => write!(f, "!"),
 
-            Self::Inferred => write!(f, "_"),
+            Self::Var => write!(f, "_"),
 
             Self::External(ty, access_chain) => write!(
                 f,
@@ -297,7 +284,7 @@ impl TyKind {
             Self::Tuple(_) => panic!("Cannot get sign information of tuple type!"),
             Self::Unit => panic!("Cannot get sign information of unit type!"),
             Self::Never => panic!("Cannot get sign information of never type!"),
-            Self::Inferred => panic!("Cannot get sign information of inferred type!"),
+            Self::Var => panic!("Cannot get sign information of inferred type!"),
         }
     }
 
@@ -314,12 +301,12 @@ impl TyKind {
             | Self::Pointer(_)
             | Self::Unit
             | Self::Never
-            | Self::Inferred => false,
+            | Self::Var => false,
         }
     }
 
     pub fn is_inferred(&self) -> bool {
-        matches!(self, Self::Inferred)
+        matches!(self, Self::Var)
     }
 }
 

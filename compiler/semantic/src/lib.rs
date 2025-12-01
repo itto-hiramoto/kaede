@@ -16,7 +16,7 @@ use kaede_ir::{
 use kaede_parse::Parser;
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::{Ident, Symbol};
-use symbol_table::SymbolTableValue;
+use kaede_symbol_table::{SymbolTable, SymbolTableValue, SymbolTableValueKind};
 
 mod context;
 mod error;
@@ -29,12 +29,10 @@ mod ty;
 pub use error::SemanticError;
 use kaede_ast::{self as ast, top::Visibility};
 use kaede_ir as ir;
+use kaede_type_infer::InferContext;
 pub use top::TopLevelAnalysisResult;
 
-use crate::{
-    context::{AnalyzeCommand, ModuleContext},
-    symbol_table::{SymbolTable, SymbolTableValueKind},
-};
+use crate::context::{AnalyzeCommand, ModuleContext};
 
 pub struct SemanticAnalyzer {
     modules: HashMap<ModulePath, ModuleContext>,
@@ -44,6 +42,7 @@ pub struct SemanticAnalyzer {
     imported_module_paths: HashSet<PathBuf>,
     root_dir: PathBuf,
     autoloads_imported: bool,
+    infer_context: InferContext,
 }
 
 impl SemanticAnalyzer {
@@ -68,6 +67,7 @@ impl SemanticAnalyzer {
             imported_module_paths: HashSet::new(),
             root_dir,
             autoloads_imported: false,
+            infer_context: InferContext::default(),
         }
     }
 
@@ -87,6 +87,7 @@ impl SemanticAnalyzer {
             imported_module_paths: HashSet::new(),
             root_dir: PathBuf::from("."),
             autoloads_imported: false,
+            infer_context: InferContext::default(),
         }
     }
 
@@ -419,6 +420,7 @@ impl SemanticAnalyzer {
             kind: ir::expr::ExprKind::Variable(ir::expr::Variable {
                 name: "argc".to_owned().into(),
                 ty: argc_ty.clone(),
+                span: Span::dummy(),
             }),
             ty: argc_ty,
             span: Span::dummy(),
@@ -428,6 +430,7 @@ impl SemanticAnalyzer {
             kind: ir::expr::ExprKind::Variable(ir::expr::Variable {
                 name: "argv".to_owned().into(),
                 ty: argv_ty.clone(),
+                span: Span::dummy(),
             }),
             ty: argv_ty,
             span: Span::dummy(),
@@ -446,7 +449,8 @@ impl SemanticAnalyzer {
         let fn_call = ir::expr::Expr {
             kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
                 callee: prepare_command_line_arguments_decl.clone(),
-                args: ir::expr::Args(vec![argc_expr, argv_expr]),
+                args: ir::expr::Args(vec![argc_expr, argv_expr], Span::dummy()),
+                span: Span::dummy(),
             }),
             ty: prepare_command_line_arguments_decl
                 .return_ty
@@ -521,7 +525,8 @@ impl SemanticAnalyzer {
 
         let kdmain_call_node = ir::expr::FnCall {
             callee: kdmain_decl.clone(),
-            args: ir::expr::Args(args),
+            args: ir::expr::Args(args, Span::dummy()),
+            span: Span::dummy(),
         };
 
         let return_statement = ir::expr::ExprKind::Return(Some(Box::new(ir::expr::Expr {
@@ -546,10 +551,53 @@ impl SemanticAnalyzer {
                     .into(),
                     span: Span::dummy(),
                 })),
+                span: Span::dummy(),
             }),
         }));
 
         top_level_irs.push(main_fn);
+
+        Ok(())
+    }
+
+    /// Run type inference on a function body while scopes are still active
+    /// This should be called during semantic analysis, not after
+    pub fn infer_function_body_inline(
+        &mut self,
+        body: &mut kaede_ir::stmt::Block,
+        decl: &ir::top::FnDecl,
+    ) -> anyhow::Result<()> {
+        use kaede_type_infer::TypeInferrer;
+
+        // Get all symbol tables currently in scope
+        let module_path = self.current_module_path().clone();
+        let module = self.modules.get(&module_path).unwrap();
+
+        // Merge all symbol tables from the stack (includes root scope + all local scopes)
+        // This allows type inference to see all symbols: globals, function params, and locals
+        // TODO: Support shadowing
+        let symbol_table = SymbolTable::merge_for_inference(module.get_symbol_tables());
+
+        // Create a type inferrer with the merged symbol table
+        let expected_return_ty = decl
+            .return_ty
+            .clone()
+            .unwrap_or_else(|| Rc::new(ir_type::Ty::new_unit()));
+
+        let mut inferrer = TypeInferrer::new(symbol_table, expected_return_ty);
+
+        // Infer types for all statements in the block
+        for stmt in &body.body {
+            inferrer.infer_stmt(stmt)?;
+        }
+
+        // Infer the last expression if present
+        if let Some(last_expr) = &body.last_expr {
+            inferrer.infer_expr(last_expr)?;
+        }
+
+        // Apply inferred types back to the IR
+        inferrer.apply_block(body)?;
 
         Ok(())
     }

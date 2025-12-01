@@ -49,6 +49,10 @@ pub fn wrap_in_ref(ty: Rc<Ty>, mutability: Mutability) -> Ty {
 
 /// No mutability comparisons
 pub fn is_same_type(t1: &Ty, t2: &Ty) -> bool {
+    if matches!(t1.kind.as_ref(), TyKind::Var(_)) || matches!(t2.kind.as_ref(), TyKind::Var(_)) {
+        return true;
+    }
+
     if t1.kind == t2.kind {
         return true;
     }
@@ -212,12 +216,34 @@ impl std::fmt::Display for FundamentalTypeKind {
     }
 }
 
+impl FundamentalTypeKind {
+    /// Returns true if this type is an integer type
+    pub fn is_int(&self) -> bool {
+        match self {
+            // Integer types
+            FundamentalTypeKind::I8
+            | FundamentalTypeKind::U8
+            | FundamentalTypeKind::I32
+            | FundamentalTypeKind::U32
+            | FundamentalTypeKind::I64
+            | FundamentalTypeKind::U64 => true,
+
+            // Non-integer types
+            FundamentalTypeKind::Bool | FundamentalTypeKind::Str | FundamentalTypeKind::Char => {
+                false
+            }
+        }
+    }
+}
+
 pub fn make_fundamental_type(kind: FundamentalTypeKind, mutability: Mutability) -> Ty {
     Ty {
         kind: TyKind::Fundamental(FundamentalType { kind }).into(),
         mutability,
     }
 }
+
+pub type VarId = usize;
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TyKind {
@@ -232,6 +258,9 @@ pub enum TyKind {
     Array((Rc<Ty> /* Element type */, u32 /* Size */)),
 
     Tuple(Vec<Rc<Ty>> /* Element types */),
+
+    // Inferred type
+    Var(VarId),
 
     Unit,
 
@@ -262,6 +291,8 @@ impl std::fmt::Display for TyKind {
                     .join(", ")
             ),
 
+            Self::Var(_) => write!(f, "_"),
+
             Self::Unit => write!(f, "()"),
 
             Self::Never => write!(f, "!"),
@@ -281,6 +312,8 @@ impl TyKind {
             Self::Tuple(_) => panic!("Cannot get sign information of tuple type!"),
             Self::Unit => panic!("Cannot get sign information of unit type!"),
             Self::Never => panic!("Cannot get sign information of never type!"),
+
+            Self::Var(_) => unreachable!(),
         }
     }
 
@@ -291,6 +324,8 @@ impl TyKind {
             Self::Reference(ty) => ty.refee_ty.kind.is_int_or_bool(),
 
             Self::Array(_) | Self::Tuple(_) | Self::Pointer(_) | Self::Unit | Self::Never => false,
+
+            Self::Var(_) => unreachable!(),
         }
     }
 
@@ -305,6 +340,8 @@ impl TyKind {
             | Self::Pointer(_)
             | Self::Unit
             | Self::Never => false,
+
+            Self::Var(_) => unreachable!(),
         }
     }
 }

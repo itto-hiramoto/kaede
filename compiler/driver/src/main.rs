@@ -385,12 +385,9 @@ pub fn is_even(n: i32) -> bool {
 include!(concat!(env!("OUT_DIR"), "/kaede_bindings.rs"));"#;
     fs::write(&lib_rs_path, lib_rs_content)?;
 
-    println!(
-        "✅ Successfully created Kaede Rust bridge project: {}",
-        project_name
-    );
+    println!("✅ Successfully created Kaede Rust bridge project: {project_name}");
     println!("📁 Project structure:");
-    println!("  {}/", project_name);
+    println!("  {project_name}/");
     println!("  ├── src/");
     println!("  │   └── main.kd");
     println!("  └── rust/");
@@ -400,12 +397,9 @@ include!(concat!(env!("OUT_DIR"), "/kaede_bindings.rs"));"#;
     println!("          └── lib.rs");
     println!();
     println!("🚀 To get started:");
-    println!(
-        "  1. Add your Rust functions to {}/rust/src/lib.rs",
-        project_name
-    );
-    println!("  2. Create your Kaede files in {}/src/", project_name);
-    println!("  3. Build with: cd {} && kaede build", project_name);
+    println!("  1. Add your Rust functions to {project_name}/rust/src/lib.rs");
+    println!("  2. Create your Kaede files in {project_name}/src/");
+    println!("  3. Build with: cd {project_name} && kaede build");
 
     Ok(())
 }
