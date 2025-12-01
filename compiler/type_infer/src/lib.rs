@@ -727,6 +727,10 @@ impl TypeInferrer {
             // Both branches should match expected type
             self.context.unify(&then_ty, &else_ty)?;
             Ok(self.context.apply(expected_ty))
+        } else if if_expr.is_match {
+            // Exhaustive match arms are lowered to if-chains without a trailing else.
+            // The branches were already checked against `expected_ty`, so reuse it.
+            Ok(self.context.apply(expected_ty))
         } else {
             // No else branch - if expression evaluates to unit
             let unit_ty = Rc::new(Ty::new_unit());
@@ -883,10 +887,9 @@ impl TypeInferrer {
         // Apply to this expression's type
         expr.ty = self.context.apply(&expr.ty);
 
-        // Handle unresolved type variables
-        if matches!(expr.ty.kind.as_ref(), TyKind::Var(_)) {
-            // Integer literals without constraining context default to i32 (like Rust)
-            if matches!(&expr.kind, ExprKind::Int(_)) {
+        // If this is an integer literal with an unconstrained type, default to i32
+        if matches!(expr.kind, ExprKind::Int(_))
+            && let TyKind::Var(id) = expr.ty.kind.as_ref() {
                 let default_ty = Rc::new(Ty {
                     kind: TyKind::Fundamental(kaede_ir::ty::FundamentalType {
                         kind: FundamentalTypeKind::I32,
@@ -894,14 +897,9 @@ impl TypeInferrer {
                     .into(),
                     mutability: kaede_ir::ty::Mutability::Not,
                 });
-                if let TyKind::Var(id) = expr.ty.kind.as_ref() {
-                    self.context.bind_var(*id, default_ty.clone());
-                }
+                self.context.bind_var(*id, default_ty.clone());
                 expr.ty = default_ty;
-            } else {
-                return Err(TypeInferError::CannotInferType { span: expr.span });
             }
-        }
 
         // Recursively apply to child expressions
         match &mut expr.kind {
@@ -945,6 +943,15 @@ impl TypeInferrer {
                 for elem in &mut arr_lit.elements {
                     self.apply_expr(elem)?;
                 }
+                // Propagate element type into the array if it is still a type variable.
+                if let TyKind::Reference(rty) = expr.ty.kind.as_ref()
+                    && let TyKind::Array((elem_ty, _)) = rty.get_base_type().kind.as_ref()
+                        && let Some(first) = arr_lit.elements.first() {
+                            let first_ty = self.context.apply(&first.ty);
+                            if let TyKind::Var(id) = elem_ty.kind.as_ref() {
+                                self.context.bind_var(*id, first_ty);
+                            }
+                        }
             }
             TupleLiteral(tuple_lit) => {
                 for elem in &mut tuple_lit.elements {
@@ -993,6 +1000,23 @@ impl TypeInferrer {
             Indexing(idx) => {
                 self.apply_expr(std::rc::Rc::make_mut(&mut idx.operand))?;
                 self.apply_expr(&mut idx.index)?;
+                if matches!(expr.ty.kind.as_ref(), TyKind::Var(_)) {
+                    let applied_operand_ty = self.context.apply(&idx.operand.ty);
+                    let element_ty_opt = match applied_operand_ty.kind.as_ref() {
+                        TyKind::Reference(rty) => match rty.get_base_type().kind.as_ref() {
+                            TyKind::Array((elem_ty, _)) => Some(elem_ty.clone()),
+                            TyKind::Pointer(ptr_ty) => Some(ptr_ty.pointee_ty.clone()),
+                            _ => None,
+                        },
+                        TyKind::Array((elem_ty, _)) => Some(elem_ty.clone()),
+                        TyKind::Pointer(ptr_ty) => Some(ptr_ty.pointee_ty.clone()),
+                        _ => None,
+                    };
+
+                    if let Some(elem_ty) = element_ty_opt {
+                        expr.ty = elem_ty;
+                    }
+                }
             }
 
             // Enum
@@ -1037,6 +1061,13 @@ impl TypeInferrer {
                     self.apply_expr(expr)?;
                 }
             }
+        }
+
+        // Re-apply after processing children to pick up new substitutions
+        expr.ty = self.context.apply(&expr.ty);
+
+        if matches!(expr.ty.kind.as_ref(), TyKind::Var(_)) {
+            return Err(TypeInferError::CannotInferType { span: expr.span });
         }
 
         Ok(())

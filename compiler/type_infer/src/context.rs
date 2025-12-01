@@ -79,6 +79,9 @@ impl InferContext {
         }
     }
 
+    /// Pick which side of a unification is the type variable.
+    /// The pure `Var`/`Var` case is handled earlier, so this keeps the mixed
+    /// `Var` vs. concrete type logic in one place without duplicating matches.
     fn pick_var_case<'t>(a: &'t Rc<Ty>, b: &'t Rc<Ty>) -> Option<(VarId, &'t Rc<Ty>)> {
         match (a.kind.as_ref(), b.kind.as_ref()) {
             (TyKind::Var(id), _) => Some((*id, b)),
@@ -88,7 +91,12 @@ impl InferContext {
     }
 
     pub fn bind_var(&mut self, id: VarId, ty: Rc<Ty>) {
-        self.subst.insert(id, ty);
+        // Find the ultimate representative for this var (follow Var->Var chains)
+        let mut root = id;
+        while let Some(TyKind::Var(next)) = self.subst.get(&root).map(|t| t.kind.as_ref()) {
+            root = *next;
+        }
+        self.subst.insert(root, ty);
     }
 
     pub fn unify(&mut self, a: &Rc<Ty>, b: &Rc<Ty>) -> Result<(), TypeInferError> {
@@ -99,12 +107,8 @@ impl InferContext {
             if a_id == b_id {
                 return Ok(());
             }
-            let (from, to) = if a_id > b_id {
-                (a_id, b_id)
-            } else {
-                (b_id, a_id)
-            };
-            self.subst.insert(*from, self.new_var(*to));
+            let (from, to) = if a_id > b_id { (a_id, &b) } else { (b_id, &a) };
+            self.subst.insert(*from, to.clone());
             return Ok(());
         }
 
