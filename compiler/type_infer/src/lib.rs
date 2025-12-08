@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use kaede_span::Span;
 use kaede_symbol::Symbol;
-use kaede_symbol_table::{ScopedSymbolTableView, SymbolTableValueKind};
+use kaede_symbol_table::{ScopedSymbolTable, SymbolTableValueKind};
 
 pub use crate::context::InferContext;
 use crate::env::Env;
@@ -24,13 +24,13 @@ mod error;
 
 pub struct TypeInferrer {
     context: InferContext,
-    symbol_table_view: ScopedSymbolTableView,
+    symbol_table_view: ScopedSymbolTable,
     env: Env,
     function_return_ty: Rc<Ty>,
 }
 
 impl TypeInferrer {
-    pub fn new(symbol_table_view: ScopedSymbolTableView, function_return_ty: Rc<Ty>) -> Self {
+    pub fn new(symbol_table_view: ScopedSymbolTable, function_return_ty: Rc<Ty>) -> Self {
         Self {
             context: InferContext::default(),
             symbol_table_view,
