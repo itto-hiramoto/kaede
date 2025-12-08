@@ -2862,3 +2862,21 @@ fn shadowing_in_match_arms() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn bidirectional_type_inference() -> anyhow::Result<()> {
+    let program = r#"
+        fn f(n: u64): i32 {
+            return n as i32
+        }
+
+        fn main(): i32 {
+            let n = 123
+            return f(n) // n is inferred as u64
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 123);
+
+    Ok(())
+}

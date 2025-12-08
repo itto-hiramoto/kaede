@@ -197,11 +197,11 @@ impl SymbolTable {
 
 /// Scoped view of multiple symbol tables that respects shadowing.
 /// Lookup walks the tables from the most recent (last) to the oldest (first).
-pub struct ScopedSymbolTableView {
+pub struct ScopedSymbolTable {
     tables: Vec<SymbolTable>,
 }
 
-impl ScopedSymbolTableView {
+impl ScopedSymbolTable {
     /// Clone symbol tables for inference while preserving scope order.
     pub fn merge_for_inference(tables: &[SymbolTable]) -> Self {
         Self {
