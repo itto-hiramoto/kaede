@@ -2845,3 +2845,20 @@ fn not_wrapped_option() {
         SemanticError::MismatchedTypes { .. }
     ));
 }
+
+#[test]
+fn shadowing_in_match_arms() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let n = Option<i32>::Some(123)
+            return match n {
+                Option::Some(n) => n,
+                Option::None => 1,
+            }
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 123);
+
+    Ok(())
+}

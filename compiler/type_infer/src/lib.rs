@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use kaede_span::Span;
 use kaede_symbol::Symbol;
-use kaede_symbol_table::{SymbolTable, SymbolTableValueKind};
+use kaede_symbol_table::{ScopedSymbolTableView, SymbolTableValueKind};
 
 pub use crate::context::InferContext;
 use crate::env::Env;
@@ -24,19 +24,29 @@ mod error;
 
 pub struct TypeInferrer {
     context: InferContext,
-    symbol_table: SymbolTable,
+    symbol_table_view: ScopedSymbolTableView,
     env: Env,
     function_return_ty: Rc<Ty>,
 }
 
 impl TypeInferrer {
-    pub fn new(symbol_table: SymbolTable, function_return_ty: Rc<Ty>) -> Self {
+    pub fn new(symbol_table_view: ScopedSymbolTableView, function_return_ty: Rc<Ty>) -> Self {
         Self {
             context: InferContext::default(),
-            symbol_table,
+            symbol_table_view,
             env: Env::new(),
             function_return_ty,
         }
+    }
+
+    fn with_new_scope<R>(
+        &mut self,
+        f: impl FnOnce(&mut Self) -> Result<R, TypeInferError>,
+    ) -> Result<R, TypeInferError> {
+        self.env.push_scope();
+        let result = f(self);
+        self.env.pop_scope();
+        result
     }
 
     /// Register a variable in the environment (used for function parameters)
@@ -347,7 +357,7 @@ impl TypeInferrer {
         }
 
         // Fallback to symbol table
-        if let Some(symbol_value) = self.symbol_table.lookup(&var.name) {
+        if let Some(symbol_value) = self.symbol_table_view.lookup(&var.name) {
             let borrowed = symbol_value.borrow();
             if let SymbolTableValueKind::Variable(var_info) = &borrowed.kind {
                 // Unify var.ty with var_info.ty
@@ -651,20 +661,24 @@ impl TypeInferrer {
         // Infer enum unpack if present
         if let Some(enum_unpack) = &if_expr.enum_unpack {
             let _enum_ty = self.infer_expr(&enum_unpack.enum_value)?;
-            // Register the unpacked variable
-            self.env
-                .insert(enum_unpack.name, enum_unpack.variant_ty.clone());
         }
 
         // Infer then branch
-        let then_ty = self.infer_expr(&if_expr.then)?;
+        let then_ty = self.with_new_scope(|this| {
+            if let Some(enum_unpack) = &if_expr.enum_unpack {
+                // Register the unpacked variable only within the then-branch scope
+                this.env
+                    .insert(enum_unpack.name, enum_unpack.variant_ty.clone());
+            }
+            this.infer_expr(&if_expr.then)
+        })?;
 
         // Infer else branch if present
         if let Some(else_branch) = &if_expr.else_ {
-            let else_ty = match else_branch.as_ref() {
-                kaede_ir::expr::Else::If(if_expr) => self.infer_if(if_expr)?,
-                kaede_ir::expr::Else::Block(block_expr) => self.infer_expr(block_expr)?,
-            };
+            let else_ty = self.with_new_scope(|this| match else_branch.as_ref() {
+                kaede_ir::expr::Else::If(if_expr) => this.infer_if(if_expr),
+                kaede_ir::expr::Else::Block(block_expr) => this.infer_expr(block_expr),
+            })?;
 
             if matches!(then_ty.kind.as_ref(), TyKind::Never) {
                 return Ok(self.context.apply(&else_ty));
@@ -702,22 +716,23 @@ impl TypeInferrer {
         // Infer enum unpack if present
         if let Some(enum_unpack) = &if_expr.enum_unpack {
             let _enum_ty = self.infer_expr(&enum_unpack.enum_value)?;
-            // Register the unpacked variable
-            self.env
-                .insert(enum_unpack.name, enum_unpack.variant_ty.clone());
         }
 
         // Check then branch against expected type
-        let then_ty = self.check_expr(&if_expr.then, expected_ty)?;
+        let then_ty = self.with_new_scope(|this| {
+            if let Some(enum_unpack) = &if_expr.enum_unpack {
+                this.env
+                    .insert(enum_unpack.name, enum_unpack.variant_ty.clone());
+            }
+            this.check_expr(&if_expr.then, expected_ty)
+        })?;
 
         // Check else branch if present
         if let Some(else_branch) = &if_expr.else_ {
-            let else_ty = match else_branch.as_ref() {
-                kaede_ir::expr::Else::If(if_expr) => self.check_if(if_expr, expected_ty)?,
-                kaede_ir::expr::Else::Block(block_expr) => {
-                    self.check_expr(block_expr, expected_ty)?
-                }
-            };
+            let else_ty = self.with_new_scope(|this| match else_branch.as_ref() {
+                kaede_ir::expr::Else::If(if_expr) => this.check_if(if_expr, expected_ty),
+                kaede_ir::expr::Else::Block(block_expr) => this.check_expr(block_expr, expected_ty),
+            })?;
 
             if matches!(then_ty.kind.as_ref(), TyKind::Never) {
                 return Ok(self.context.apply(expected_ty));
@@ -749,18 +764,20 @@ impl TypeInferrer {
     }
 
     fn infer_block(&mut self, block: &Block) -> Result<Rc<Ty>, TypeInferError> {
-        // Infer all statements
-        let mut last_stmt_ty: Option<Rc<Ty>> = None;
-        for stmt in &block.body {
-            last_stmt_ty = Some(self.infer_stmt(stmt)?);
-        }
+        self.with_new_scope(|this| {
+            // Infer all statements
+            let mut last_stmt_ty: Option<Rc<Ty>> = None;
+            for stmt in &block.body {
+                last_stmt_ty = Some(this.infer_stmt(stmt)?);
+            }
 
-        // Infer last expression if present
-        if let Some(last_expr) = &block.last_expr {
-            self.infer_expr(last_expr)
-        } else {
-            Ok(last_stmt_ty.unwrap_or_else(|| Rc::new(Ty::new_unit())))
-        }
+            // Infer last expression if present
+            if let Some(last_expr) = &block.last_expr {
+                this.infer_expr(last_expr)
+            } else {
+                Ok(last_stmt_ty.unwrap_or_else(|| Rc::new(Ty::new_unit())))
+            }
+        })
     }
 
     fn check_block(
@@ -768,25 +785,27 @@ impl TypeInferrer {
         block: &Block,
         expected_ty: &Rc<Ty>,
     ) -> Result<Rc<Ty>, TypeInferError> {
-        // Infer all statements (they don't have expected types)
-        let mut last_stmt_ty: Option<Rc<Ty>> = None;
-        for stmt in &block.body {
-            last_stmt_ty = Some(self.infer_stmt(stmt)?);
-        }
-
-        // Check last expression against expected type if present
-        if let Some(last_expr) = &block.last_expr {
-            self.check_expr(last_expr, expected_ty)
-        } else if let Some(ty) = last_stmt_ty {
-            if !matches!(ty.kind.as_ref(), TyKind::Never) {
-                self.context.unify(&ty, expected_ty, block.span)?;
+        self.with_new_scope(|this| {
+            // Infer all statements (they don't have expected types)
+            let mut last_stmt_ty: Option<Rc<Ty>> = None;
+            for stmt in &block.body {
+                last_stmt_ty = Some(this.infer_stmt(stmt)?);
             }
-            Ok(ty)
-        } else {
-            let unit_ty = Rc::new(Ty::new_unit());
-            self.context.unify(&unit_ty, expected_ty, block.span)?;
-            Ok(unit_ty)
-        }
+
+            // Check last expression against expected type if present
+            if let Some(last_expr) = &block.last_expr {
+                this.check_expr(last_expr, expected_ty)
+            } else if let Some(ty) = last_stmt_ty {
+                if !matches!(ty.kind.as_ref(), TyKind::Never) {
+                    this.context.unify(&ty, expected_ty, block.span)?;
+                }
+                Ok(ty)
+            } else {
+                let unit_ty = Rc::new(Ty::new_unit());
+                this.context.unify(&unit_ty, expected_ty, block.span)?;
+                Ok(unit_ty)
+            }
+        })
     }
 
     fn infer_return(
@@ -1104,7 +1123,7 @@ impl TypeInferrer {
                     });
                 }
 
-                if let Some(symbol) = self.symbol_table.lookup(&let_stmt.name)
+                if let Some(symbol) = self.symbol_table_view.lookup(&let_stmt.name)
                     && let SymbolTableValueKind::Variable(var_info) = &mut symbol.borrow_mut().kind
                 {
                     var_info.ty = let_stmt.ty.clone();
