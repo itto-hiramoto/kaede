@@ -1,6 +1,7 @@
 use std::{collections::HashMap, rc::Rc};
 
 use kaede_ir::ty::{Mutability, PointerType, ReferenceType, Ty, TyKind, VarId};
+use kaede_span::Span;
 
 use crate::error::TypeInferError;
 
@@ -99,7 +100,7 @@ impl InferContext {
         self.subst.insert(root, ty);
     }
 
-    pub fn unify(&mut self, a: &Rc<Ty>, b: &Rc<Ty>) -> Result<(), TypeInferError> {
+    pub fn unify(&mut self, a: &Rc<Ty>, b: &Rc<Ty>, span: Span) -> Result<(), TypeInferError> {
         let a = self.apply(a);
         let b = self.apply(b);
 
@@ -149,16 +150,17 @@ impl InferContext {
                 Err(TypeInferError::CannotUnify {
                     a: f1.kind.to_string(),
                     b: f2.kind.to_string(),
+                    span,
                 })
             }
 
             (TyKind::Pointer(pty1), TyKind::Pointer(pty2)) => {
-                self.unify(&pty1.pointee_ty, &pty2.pointee_ty)
+                self.unify(&pty1.pointee_ty, &pty2.pointee_ty, span)
             }
             (TyKind::Reference(rty1), TyKind::Reference(rty2)) => {
-                self.unify(&rty1.refee_ty, &rty2.refee_ty)
+                self.unify(&rty1.refee_ty, &rty2.refee_ty, span)
             }
-            (TyKind::Array(aty1), TyKind::Array(aty2)) => self.unify(&aty1.0, &aty2.0),
+            (TyKind::Array(aty1), TyKind::Array(aty2)) => self.unify(&aty1.0, &aty2.0, span),
             (TyKind::Tuple(tys1), TyKind::Tuple(tys2)) => {
                 if tys1.len() != tys2.len() {
                     return Err(TypeInferError::TupleArityMismatchInUnify {
@@ -175,18 +177,19 @@ impl InferContext {
                     });
                 }
                 for (t1, t2) in tys1.iter().zip(tys2.iter()) {
-                    self.unify(t1, t2)?;
+                    self.unify(t1, t2, span)?;
                 }
                 Ok(())
             }
 
             // Handle unifying non-reference with reference by unwrapping
-            (_, TyKind::Reference(rty)) => self.unify(&a, &rty.refee_ty),
-            (TyKind::Reference(rty), _) => self.unify(&rty.refee_ty, &b),
+            (_, TyKind::Reference(rty)) => self.unify(&a, &rty.refee_ty, span),
+            (TyKind::Reference(rty), _) => self.unify(&rty.refee_ty, &b, span),
 
             (x, y) => Err(TypeInferError::CannotUnify {
                 a: x.to_string(),
                 b: y.to_string(),
+                span,
             }),
         }
     }
