@@ -577,7 +577,8 @@ impl SemanticAnalyzer {
 
         // Merge all symbol tables from the stack (includes root scope + all local scopes)
         // This allows type inference to see all symbols: globals, function params, and locals
-        let symbol_table_view = ScopedSymbolTableView::merge_for_inference(module.get_symbol_tables());
+        let symbol_table_view =
+            ScopedSymbolTableView::merge_for_inference(module.get_symbol_tables());
 
         // Create a type inferrer with the merged symbol table
         let expected_return_ty = decl
