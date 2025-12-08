@@ -2,6 +2,7 @@
 
 use std::rc::Rc;
 
+use kaede_span::Span;
 use kaede_symbol::Symbol;
 use kaede_symbol_table::{SymbolTable, SymbolTableValueKind};
 
@@ -104,12 +105,12 @@ impl TypeInferrer {
             If(if_expr) => self.infer_if(if_expr),
             Loop(loop_expr) => self.infer_loop(loop_expr),
             Block(block) => self.infer_block(block),
-            Return(ret) => self.infer_return(ret),
+            Return(ret) => self.infer_return(ret, expr.span),
             Break => Ok(Rc::new(Ty::new_never())),
         }?;
 
         // Unify the expression's type (from semantic analysis) with the inferred type
-        self.context.unify(&expr_ty, &inferred_ty)?;
+        self.context.unify(&expr_ty, &inferred_ty, expr.span)?;
 
         // Return the unified type
         Ok(self.context.apply(&expr_ty))
@@ -135,7 +136,7 @@ impl TypeInferrer {
             // For other expressions, fall back to inference + unification
             _ => {
                 let inferred_ty = self.infer_expr(expr)?;
-                self.context.unify(&inferred_ty, expected_ty)?;
+                self.context.unify(&inferred_ty, expected_ty, expr.span)?;
                 Ok(self.context.apply(expected_ty))
             }
         }
@@ -188,7 +189,7 @@ impl TypeInferrer {
         // Check all elements have the same type
         for elem in &arr_lit.elements[1..] {
             let elem_ty = self.infer_expr(elem)?;
-            self.context.unify(&first_ty, &elem_ty)?;
+            self.context.unify(&first_ty, &elem_ty, arr_lit.span)?;
         }
 
         let size = arr_lit.elements.len() as u32;
@@ -202,7 +203,7 @@ impl TypeInferrer {
         &mut self,
         arr_lit: &kaede_ir::expr::ArrayLiteral,
         expected_ty: &Rc<Ty>,
-        span: kaede_span::Span,
+        span: Span,
     ) -> Result<Rc<Ty>, TypeInferError> {
         let expected_ty = self.context.apply(expected_ty);
         let unwrapped = Self::unwrap_reference(&expected_ty);
@@ -232,7 +233,7 @@ impl TypeInferrer {
             TyKind::Var(_) => {
                 // Type variable - fall back to inference and unify
                 let inferred = self.infer_array_literal(arr_lit)?;
-                self.context.unify(&inferred, &expected_ty)?;
+                self.context.unify(&inferred, &expected_ty, span)?;
                 Ok(self.context.apply(&expected_ty))
             }
             _ => Err(TypeInferError::ExpectedArrayType {
@@ -262,7 +263,7 @@ impl TypeInferrer {
         &mut self,
         tuple_lit: &kaede_ir::expr::TupleLiteral,
         expected_ty: &Rc<Ty>,
-        span: kaede_span::Span,
+        span: Span,
     ) -> Result<Rc<Ty>, TypeInferError> {
         let expected_ty = self.context.apply(expected_ty);
         let unwrapped = Self::unwrap_reference(&expected_ty);
@@ -294,7 +295,7 @@ impl TypeInferrer {
             TyKind::Var(_) => {
                 // Type variable - fall back to inference and unify
                 let inferred = self.infer_tuple_literal(tuple_lit)?;
-                self.context.unify(&inferred, &expected_ty)?;
+                self.context.unify(&inferred, &expected_ty, span)?;
                 Ok(self.context.apply(&expected_ty))
             }
             _ => Err(TypeInferError::ExpectedTupleType {
@@ -320,7 +321,8 @@ impl TypeInferrer {
                 .find(|f| f.name == *field_name)
             {
                 // Unify with the declared field type
-                self.context.unify(&field_ty, &field_def.ty)?;
+                self.context
+                    .unify(&field_ty, &field_def.ty, field_expr.span)?;
             }
         }
 
@@ -340,7 +342,7 @@ impl TypeInferrer {
         // Look up in local environment first
         if let Some(env_ty) = self.env.lookup(&var.name) {
             // Unify var.ty with env_ty
-            self.context.unify(&var.ty, &env_ty)?;
+            self.context.unify(&var.ty, &env_ty, var.span)?;
             return Ok(self.context.apply(&var.ty));
         }
 
@@ -349,7 +351,7 @@ impl TypeInferrer {
             let borrowed = symbol_value.borrow();
             if let SymbolTableValueKind::Variable(var_info) = &borrowed.kind {
                 // Unify var.ty with var_info.ty
-                self.context.unify(&var.ty, &var_info.ty)?;
+                self.context.unify(&var.ty, &var_info.ty, var.span)?;
                 return Ok(self.context.apply(&var.ty));
             }
         }
@@ -380,7 +382,7 @@ impl TypeInferrer {
             | BinaryKind::Mul
             | BinaryKind::Div
             | BinaryKind::Rem => {
-                self.context.unify(&lhs_ty, &rhs_ty)?;
+                self.context.unify(&lhs_ty, &rhs_ty, bin.span)?;
                 Ok(self.context.apply(&lhs_ty))
             }
 
@@ -391,7 +393,7 @@ impl TypeInferrer {
             | BinaryKind::Le
             | BinaryKind::Gt
             | BinaryKind::Ge => {
-                self.context.unify(&lhs_ty, &rhs_ty)?;
+                self.context.unify(&lhs_ty, &rhs_ty, bin.span)?;
                 Ok(Rc::new(make_fundamental_type(
                     FundamentalTypeKind::Bool,
                     Mutability::Not,
@@ -404,8 +406,8 @@ impl TypeInferrer {
                     FundamentalTypeKind::Bool,
                     Mutability::Not,
                 ));
-                self.context.unify(&lhs_ty, &bool_ty)?;
-                self.context.unify(&rhs_ty, &bool_ty)?;
+                self.context.unify(&lhs_ty, &bool_ty, bin.span)?;
+                self.context.unify(&rhs_ty, &bool_ty, bin.span)?;
                 Ok(bool_ty)
             }
         }
@@ -417,7 +419,7 @@ impl TypeInferrer {
             FundamentalTypeKind::Bool,
             Mutability::Not,
         ));
-        self.context.unify(&operand_ty, &bool_ty)?;
+        self.context.unify(&operand_ty, &bool_ty, not.span)?;
         Ok(bool_ty)
     }
 
@@ -438,7 +440,7 @@ impl TypeInferrer {
         // If operand is a type variable and target is an integer, unify them
         if matches!(operand_ty.kind.as_ref(), TyKind::Var(_)) && target_is_int {
             // Unify operand with target type to propagate type information
-            self.context.unify(&operand_ty, target_ty)?;
+            self.context.unify(&operand_ty, target_ty, cast.span)?;
         }
 
         // Return the target type
@@ -516,7 +518,8 @@ impl TypeInferrer {
                 };
 
                 // Unify with the element type from semantic analysis
-                self.context.unify(&tuple_idx.element_ty, &element_ty)?;
+                self.context
+                    .unify(&tuple_idx.element_ty, &element_ty, tuple_idx.span)?;
                 Ok(element_ty)
             }
             TyKind::UserDefined(_) => {
@@ -643,7 +646,7 @@ impl TypeInferrer {
             FundamentalTypeKind::Bool,
             Mutability::Not,
         ));
-        self.context.unify(&cond_ty, &bool_ty)?;
+        self.context.unify(&cond_ty, &bool_ty, if_expr.cond.span)?;
 
         // Infer enum unpack if present
         if let Some(enum_unpack) = &if_expr.enum_unpack {
@@ -672,7 +675,7 @@ impl TypeInferrer {
             }
 
             // Both branches should have the same type
-            self.context.unify(&then_ty, &else_ty)?;
+            self.context.unify(&then_ty, &else_ty, if_expr.span)?;
             Ok(self.context.apply(&then_ty))
         } else {
             // No else branch
@@ -694,7 +697,7 @@ impl TypeInferrer {
             FundamentalTypeKind::Bool,
             Mutability::Not,
         ));
-        self.context.unify(&cond_ty, &bool_ty)?;
+        self.context.unify(&cond_ty, &bool_ty, if_expr.cond.span)?;
 
         // Infer enum unpack if present
         if let Some(enum_unpack) = &if_expr.enum_unpack {
@@ -725,7 +728,7 @@ impl TypeInferrer {
             }
 
             // Both branches should match expected type
-            self.context.unify(&then_ty, &else_ty)?;
+            self.context.unify(&then_ty, &else_ty, if_expr.span)?;
             Ok(self.context.apply(expected_ty))
         } else if if_expr.is_match {
             // Exhaustive match arms are lowered to if-chains without a trailing else.
@@ -734,7 +737,7 @@ impl TypeInferrer {
         } else {
             // No else branch - if expression evaluates to unit
             let unit_ty = Rc::new(Ty::new_unit());
-            self.context.unify(&unit_ty, expected_ty)?;
+            self.context.unify(&unit_ty, expected_ty, if_expr.span)?;
             Ok(unit_ty)
         }
     }
@@ -776,24 +779,29 @@ impl TypeInferrer {
             self.check_expr(last_expr, expected_ty)
         } else if let Some(ty) = last_stmt_ty {
             if !matches!(ty.kind.as_ref(), TyKind::Never) {
-                self.context.unify(&ty, expected_ty)?;
+                self.context.unify(&ty, expected_ty, block.span)?;
             }
             Ok(ty)
         } else {
             let unit_ty = Rc::new(Ty::new_unit());
-            self.context.unify(&unit_ty, expected_ty)?;
+            self.context.unify(&unit_ty, expected_ty, block.span)?;
             Ok(unit_ty)
         }
     }
 
-    fn infer_return(&mut self, ret: &Option<Box<Expr>>) -> Result<Rc<Ty>, TypeInferError> {
+    fn infer_return(
+        &mut self,
+        ret: &Option<Box<Expr>>,
+        span: Span,
+    ) -> Result<Rc<Ty>, TypeInferError> {
         if let Some(expr) = ret {
             let ty = self.infer_expr(expr)?;
-            self.context.unify(&ty, &self.function_return_ty)?;
+            self.context
+                .unify(&ty, &self.function_return_ty, expr.span)?;
         } else {
             // `return;` should only be used in functions that return unit
             self.context
-                .unify(&self.function_return_ty, &Rc::new(Ty::new_unit()))?;
+                .unify(&self.function_return_ty, &Rc::new(Ty::new_unit()), span)?;
         }
         Ok(Rc::new(Ty::new_never()))
     }
@@ -806,7 +814,8 @@ impl TypeInferrer {
                 TyKind::Var(_) => {
                     // Type variable - use inference mode
                     let inferred = self.infer_expr(init_expr)?;
-                    self.context.unify(&inferred, &let_stmt.ty)?;
+                    self.context
+                        .unify(&inferred, &let_stmt.ty, init_expr.span)?;
                     self.context.apply(&let_stmt.ty)
                 }
                 _ => {
@@ -816,7 +825,7 @@ impl TypeInferrer {
             };
 
             // Unify let_stmt.ty with init_ty to ensure they're the same
-            self.context.unify(&let_stmt.ty, &init_ty)?;
+            self.context.unify(&let_stmt.ty, &init_ty, let_stmt.span)?;
 
             // Register variable in environment with the final type
             let final_ty = self.context.apply(&let_stmt.ty);
@@ -872,7 +881,7 @@ impl TypeInferrer {
         let rhs_ty = self.infer_expr(&assign.value)?;
 
         // Unify left and right types
-        self.context.unify(&lhs_ty, &rhs_ty)?;
+        self.context.unify(&lhs_ty, &rhs_ty, assign.span)?;
 
         // Assignment expressions return unit
         Ok(Rc::new(Ty::new_unit()))

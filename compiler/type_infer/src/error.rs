@@ -79,8 +79,15 @@ pub enum TypeInferError {
     #[error("occurs check failed: α{} occurs in {:?}", var_id, ty)]
     OccursCheckFailed { var_id: usize, ty: String },
 
-    #[error("cannot unify {:?} with {:?}", a, b)]
-    CannotUnify { a: String, b: String },
+    #[error(
+        "{}:{}:{} cannot unify {:?} with {:?}",
+        span.file,
+        span.start.line,
+        span.start.column,
+        a,
+        b
+    )]
+    CannotUnify { a: String, b: String, span: Span },
 
     #[error("arity mismatch in tuple types: {:?} and {:?}", a, b)]
     TupleArityMismatchInUnify { a: String, b: String },
