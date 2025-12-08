@@ -144,18 +144,6 @@ impl SymbolTable {
         }
     }
 
-    /// Merge multiple symbol tables into one for type inference
-    /// Tables are merged in order, with later tables taking precedence
-    pub fn merge_for_inference(tables: &[SymbolTable]) -> Self {
-        let mut merged = Self::new();
-        for table in tables {
-            for (symbol, value) in &table.table {
-                merged.table.insert(*symbol, value.clone());
-            }
-        }
-        merged
-    }
-
     pub fn clear(&mut self) {
         self.table.clear();
     }
@@ -204,6 +192,31 @@ impl SymbolTable {
 
     pub fn iter(&self) -> impl Iterator<Item = (&Symbol, &Rc<RefCell<SymbolTableValue>>)> {
         self.table.iter()
+    }
+}
+
+/// Scoped view of multiple symbol tables that respects shadowing.
+/// Lookup walks the tables from the most recent (last) to the oldest (first).
+pub struct ScopedSymbolTableView {
+    tables: Vec<SymbolTable>,
+}
+
+impl ScopedSymbolTableView {
+    /// Clone symbol tables for inference while preserving scope order.
+    pub fn merge_for_inference(tables: &[SymbolTable]) -> Self {
+        Self {
+            tables: tables
+                .iter()
+                .map(SymbolTable::clone_for_inference)
+                .collect(),
+        }
+    }
+
+    pub fn lookup(&self, symbol: &Symbol) -> Option<Rc<RefCell<SymbolTableValue>>> {
+        self.tables
+            .iter()
+            .rev()
+            .find_map(|table| table.lookup(symbol))
     }
 }
 

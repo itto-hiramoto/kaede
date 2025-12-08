@@ -16,7 +16,9 @@ use kaede_ir::{
 use kaede_parse::Parser;
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::{Ident, Symbol};
-use kaede_symbol_table::{SymbolTable, SymbolTableValue, SymbolTableValueKind};
+use kaede_symbol_table::{
+    ScopedSymbolTableView, SymbolTable, SymbolTableValue, SymbolTableValueKind,
+};
 
 mod context;
 mod error;
@@ -575,8 +577,7 @@ impl SemanticAnalyzer {
 
         // Merge all symbol tables from the stack (includes root scope + all local scopes)
         // This allows type inference to see all symbols: globals, function params, and locals
-        // TODO: Support shadowing
-        let symbol_table = SymbolTable::merge_for_inference(module.get_symbol_tables());
+        let symbol_table_view = ScopedSymbolTableView::merge_for_inference(module.get_symbol_tables());
 
         // Create a type inferrer with the merged symbol table
         let expected_return_ty = decl
@@ -584,7 +585,7 @@ impl SemanticAnalyzer {
             .clone()
             .unwrap_or_else(|| Rc::new(ir_type::Ty::new_unit()));
 
-        let mut inferrer = TypeInferrer::new(symbol_table, expected_return_ty);
+        let mut inferrer = TypeInferrer::new(symbol_table_view, expected_return_ty);
 
         // Infer types for all statements in the block
         for stmt in &body.body {
