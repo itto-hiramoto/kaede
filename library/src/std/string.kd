@@ -16,7 +16,7 @@ impl String {
     pub fn from(s: str): mut String {
         let mut chars = List<char>::new()
 
-        let mut i = 0 as u64
+        let mut i = 0
         loop {
             if i == s.len() {
                 break
@@ -24,7 +24,7 @@ impl String {
 
             chars.push(s[i])
 
-            i = i + 1 as u64
+            i += 1
         }
 
         return String { chars: chars }
