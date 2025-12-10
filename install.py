@@ -86,8 +86,19 @@ def create_shell_script_for_setting_env():
         print("Please add the following to your shell init file:")
         print('. "%s"' % env_script_path)
     else:
-        with open(os.path.expanduser(shell_init_file), "a+") as f:
-            f.write('. "%s"' % env_script_path + "\n")
+        shell_init_file_path = os.path.expanduser(shell_init_file)
+        line_to_add = '. "%s"\n' % env_script_path
+
+        # Check if the line already exists
+        if os.path.exists(shell_init_file_path):
+            with open(shell_init_file_path, "r") as f:
+                if line_to_add in f.read():
+                    # Line already exists, skip
+                    return
+
+        # Append the line if it doesn't exist
+        with open(shell_init_file_path, "a+") as f:
+            f.write(line_to_add)
         print("Please enter the following command:")
         print("source %s" % shell_init_file)
 
