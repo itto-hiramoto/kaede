@@ -2,7 +2,7 @@ use crate::{SemanticAnalyzer, SemanticError};
 use kaede_symbol_table::{SymbolTableValue, SymbolTableValueKind, VariableInfo};
 
 use kaede_ast as ast;
-use kaede_ir as ir;
+use kaede_ir::{self as ir, stmt::AssignOp};
 
 enum LetResult {
     NormalLet(ir::stmt::Let),
@@ -44,9 +44,19 @@ impl SemanticAnalyzer {
             .into());
         }
 
+        let op = match node.op {
+            ast::stmt::AssignOp::Eq => AssignOp::Replace,
+            ast::stmt::AssignOp::AddAssign => AssignOp::Add,
+            ast::stmt::AssignOp::SubAssign => AssignOp::Sub,
+            ast::stmt::AssignOp::MulAssign => AssignOp::Mul,
+            ast::stmt::AssignOp::DivAssign => AssignOp::Div,
+            ast::stmt::AssignOp::RemAssign => AssignOp::Rem,
+        };
+
         Ok(ir::stmt::Assign {
             assignee: left,
             value: right,
+            op,
             span: node.span,
         })
     }

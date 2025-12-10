@@ -2880,3 +2880,73 @@ fn bidirectional_type_inference() -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn add_assign() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let mut n: i32 = 10
+            n += 20
+            return n
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 30);
+    Ok(())
+}
+
+#[test]
+fn sub_assign() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let mut n: i32 = 100
+            n -= 45
+            return n
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 55);
+    Ok(())
+}
+
+#[test]
+fn mul_assign() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let mut n: i32 = 29
+            n *= 3
+            return n
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 87);
+    Ok(())
+}
+
+#[test]
+fn div_assign() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let mut n: i32 = 116
+            n /= 4
+            return n
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 29);
+    Ok(())
+}
+
+#[test]
+fn rem_assign() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let mut n: i32 = 117
+            n %= 4
+            return n
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 1);
+    Ok(())
+}

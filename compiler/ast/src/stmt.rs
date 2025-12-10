@@ -10,7 +10,18 @@ use crate::expr::Expr;
 pub struct Assign {
     pub lhs: Expr,
     pub rhs: Expr,
+    pub op: AssignOp,
     pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum AssignOp {
+    Eq,
+    AddAssign,
+    SubAssign,
+    MulAssign,
+    DivAssign,
+    RemAssign,
 }
 
 #[derive(Debug)]

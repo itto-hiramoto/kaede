@@ -22,7 +22,7 @@ impl Parser {
     }
 
     fn increment_current_idx(mut self) {
-        self.current_idx = self.current_idx + 1
+        self.current_idx += 1
     }
 
     fn consume(mut self, token: Token): bool {

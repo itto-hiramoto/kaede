@@ -5,10 +5,21 @@ use kaede_symbol::Symbol;
 
 use crate::{expr::Expr, ty::Ty};
 
+#[derive(Debug, Clone, Copy)]
+pub enum AssignOp {
+    Replace,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+}
+
 #[derive(Debug, Clone)]
 pub struct Assign {
     pub assignee: Expr,
     pub value: Expr,
+    pub op: AssignOp,
     pub span: Span,
 }
 

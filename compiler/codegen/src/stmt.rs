@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValue, BasicValueEnum};
-use kaede_ir::stmt::{Assign, Block, Let, Stmt, TupleUnpack};
+use kaede_ir::stmt::{Assign, AssignOp, Block, Let, Stmt, TupleUnpack};
 use kaede_ir::ty::{Ty, TyKind};
 use kaede_symbol::Symbol;
 
@@ -53,8 +53,60 @@ impl<'ctx> CodeGenerator<'ctx> {
         };
 
         let value = self.build_expr(&node.value)?.unwrap();
+        let new_value = match node.op {
+            AssignOp::Replace => value,
+            AssignOp::Add => {
+                let pointee_ty = value.get_type();
+                let current = self
+                    .builder
+                    .build_load(pointee_ty, ptr_to_left, "current")?;
+                let lhs = current.into_int_value();
+                let rhs = value.into_int_value();
+                self.builder.build_int_add(lhs, rhs, "add_assign")?.into()
+            }
+            AssignOp::Sub => {
+                let pointee_ty = value.get_type();
+                let current = self
+                    .builder
+                    .build_load(pointee_ty, ptr_to_left, "current")?;
+                let lhs = current.into_int_value();
+                let rhs = value.into_int_value();
+                self.builder.build_int_sub(lhs, rhs, "sub_assign")?.into()
+            }
+            AssignOp::Mul => {
+                let pointee_ty = value.get_type();
+                let current = self
+                    .builder
+                    .build_load(pointee_ty, ptr_to_left, "current")?;
+                let lhs = current.into_int_value();
+                let rhs = value.into_int_value();
+                self.builder.build_int_mul(lhs, rhs, "mul_assign")?.into()
+            }
+            AssignOp::Div => {
+                let pointee_ty = value.get_type();
+                let current = self
+                    .builder
+                    .build_load(pointee_ty, ptr_to_left, "current")?;
+                let lhs = current.into_int_value();
+                let rhs = value.into_int_value();
+                self.builder
+                    .build_int_signed_div(lhs, rhs, "div_assign")?
+                    .into()
+            }
+            AssignOp::Rem => {
+                let pointee_ty = value.get_type();
+                let current = self
+                    .builder
+                    .build_load(pointee_ty, ptr_to_left, "current")?;
+                let lhs = current.into_int_value();
+                let rhs = value.into_int_value();
+                self.builder
+                    .build_int_signed_rem(lhs, rhs, "rem_assign")?
+                    .into()
+            }
+        };
 
-        self.builder.build_store(ptr_to_left, value)?;
+        self.builder.build_store(ptr_to_left, new_value)?;
 
         Ok(())
     }
