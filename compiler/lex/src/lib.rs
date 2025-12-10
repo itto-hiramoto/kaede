@@ -118,6 +118,10 @@ impl Cursor<'_> {
                     self.eat_block_comment();
                     self.advance_token()
                 }
+                '=' => {
+                    self.bump().unwrap();
+                    self.create_token(TokenKind::SlashEq)
+                }
                 _ => {
                     // '/'
                     self.create_token(TokenKind::Slash)
@@ -215,6 +219,10 @@ impl Cursor<'_> {
                     // ->
                     self.bump().unwrap();
                     self.create_token(TokenKind::Arrow)
+                } else if self.first() == '=' {
+                    // -=
+                    self.bump().unwrap();
+                    self.create_token(TokenKind::MinusEq)
                 } else {
                     // -
                     self.create_token(TokenKind::Minus)
@@ -232,9 +240,30 @@ impl Cursor<'_> {
                     self.create_token(TokenKind::LogicalNot)
                 }
             }
-            '+' => self.create_token(TokenKind::Plus),
-            '*' => self.create_token(TokenKind::Asterisk),
-            '%' => self.create_token(TokenKind::Percent),
+            '+' => {
+                if self.first() == '=' {
+                    self.bump().unwrap();
+                    self.create_token(TokenKind::PlusEq)
+                } else {
+                    self.create_token(TokenKind::Plus)
+                }
+            }
+            '*' => {
+                if self.first() == '=' {
+                    self.bump().unwrap();
+                    self.create_token(TokenKind::AsteriskEq)
+                } else {
+                    self.create_token(TokenKind::Asterisk)
+                }
+            }
+            '%' => {
+                if self.first() == '=' {
+                    self.bump().unwrap();
+                    self.create_token(TokenKind::PercentEq)
+                } else {
+                    self.create_token(TokenKind::Percent)
+                }
+            }
             '&' => {
                 if self.first() == '&' {
                     // &&
