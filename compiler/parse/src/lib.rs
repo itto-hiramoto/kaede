@@ -62,12 +62,32 @@ impl Parser {
     ) -> ParseResult<CompileUnit> {
         let mut compile_unit = CompileUnit {
             top_levels: VecDeque::new(),
+            top_level_stmts: VecDeque::new(),
         };
 
         while end_predicate(self) {
-            let top = self.top_level()?;
+            let token_kind = self.first().kind.clone();
+            let is_top_level = matches!(
+                token_kind,
+                TokenKind::Import
+                    | TokenKind::Fn
+                    | TokenKind::Struct
+                    | TokenKind::Impl
+                    | TokenKind::Enum
+                    | TokenKind::Extern
+                    | TokenKind::Use
+                    | TokenKind::Bridge
+                    | TokenKind::Pub
+            );
 
-            compile_unit.top_levels.push_back(top);
+            if is_top_level {
+                let top = self.top_level()?;
+                compile_unit.top_levels.push_back(top);
+            } else {
+                let stmt = self.stmt()?;
+                self.consume_semi()?;
+                compile_unit.top_level_stmts.push_back(stmt);
+            }
         }
 
         Ok(compile_unit)

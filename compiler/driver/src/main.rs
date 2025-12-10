@@ -10,6 +10,7 @@ use std::{
 use anyhow::{anyhow, Context as _};
 use colored::Colorize;
 use inkwell::{context::Context, module::Module, OptimizationLevel};
+use kaede_ast::top::TopLevelKind;
 use kaede_codegen::{error::CodegenError, CodeGenerator, CodegenCtx};
 use kaede_common::{kaede_gc_lib_path, kaede_lib_path};
 use kaede_parse::Parser;
@@ -169,14 +170,56 @@ fn compile<'ctx>(
     no_autoload: bool,
     no_prelude: bool,
 ) -> anyhow::Result<Module<'ctx>> {
+    // Parse all units first so we can determine the entry unit based on top-level statements.
+    let mut parsed_units = Vec::new();
+    for unit_info in unit_infos {
+        let file = unit_info.file_path.clone().into();
+        let ast = Parser::new(&unit_info.program, file).run()?;
+        parsed_units.push((unit_info, ast));
+    }
+
+    // Determine entry unit: the one that contains top-level statements, if any.
+    let mut top_stmt_units = Vec::new();
+    let mut main_fn_units = Vec::new();
+    for (idx, (_, ast)) in parsed_units.iter().enumerate() {
+        if !ast.top_level_stmts.is_empty() {
+            top_stmt_units.push(idx);
+        }
+        if ast.top_levels.iter().any(|t| {
+            matches!(
+                t.kind,
+                TopLevelKind::Fn(ref f) if f.decl.name.symbol().as_str() == "main"
+            )
+        }) {
+            main_fn_units.push(idx);
+        }
+    }
+
+    if top_stmt_units.len() > 1 {
+        anyhow::bail!(
+            "Multiple files contain top-level statements; exactly one entry file is allowed"
+        );
+    }
+
+    let entry_idx = top_stmt_units.first().copied().unwrap_or(0);
+
+    if let Some(&stmt_idx) = top_stmt_units.first() {
+        for &main_idx in &main_fn_units {
+            if main_idx != stmt_idx {
+                anyhow::bail!(
+                    "Top-level statements found in {:?} but `main` is defined in a different file; choose one entry point",
+                    parsed_units[stmt_idx].0.file_path
+                );
+            }
+        }
+    }
+
     let mut compiled_modules = Vec::new();
 
-    for unit_info in unit_infos {
+    for (idx, (unit_info, ast)) in parsed_units.into_iter().enumerate() {
         let file = unit_info.file_path.into();
 
-        let ast = Parser::new(&unit_info.program, file).run()?;
-
-        let ir = SemanticAnalyzer::new(file, root_dir.to_path_buf()).analyze(
+        let ir = SemanticAnalyzer::new(file, root_dir.to_path_buf(), idx == entry_idx).analyze(
             ast,
             no_autoload,
             no_prelude,

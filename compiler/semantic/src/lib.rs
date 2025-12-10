@@ -1,6 +1,6 @@
 use std::{
     cell::RefCell,
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     path::{Component, PathBuf},
     rc::Rc,
 };
@@ -43,10 +43,11 @@ pub struct SemanticAnalyzer {
     root_dir: PathBuf,
     autoloads_imported: bool,
     infer_context: InferContext,
+    is_entry_unit: bool,
 }
 
 impl SemanticAnalyzer {
-    pub fn new(file_path: FilePath, root_dir: PathBuf) -> Self {
+    pub fn new(file_path: FilePath, root_dir: PathBuf, is_entry_unit: bool) -> Self {
         if !root_dir.is_dir() {
             panic!("Root directory is not a directory");
         }
@@ -68,6 +69,7 @@ impl SemanticAnalyzer {
             root_dir,
             autoloads_imported: false,
             infer_context: InferContext::default(),
+            is_entry_unit,
         }
     }
 
@@ -88,6 +90,7 @@ impl SemanticAnalyzer {
             root_dir: PathBuf::from("."),
             autoloads_imported: false,
             infer_context: InferContext::default(),
+            is_entry_unit: true,
         }
     }
 
@@ -601,6 +604,113 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
+    fn synthesize_main_from_top_level_stmts(
+        &mut self,
+        stmts: VecDeque<ast::stmt::Stmt>,
+    ) -> anyhow::Result<Option<ir::top::TopLevel>> {
+        if stmts.is_empty() {
+            return Ok(None);
+        }
+
+        if !self.is_entry_unit {
+            let span = stmts.front().unwrap().span;
+            return Err(SemanticError::TopLevelStatementsNotAllowed { span }.into());
+        }
+
+        if self.lookup_symbol("main".to_owned().into()).is_some() {
+            let span = stmts.front().unwrap().span;
+            return Err(SemanticError::TopLevelStatementsConflictWithMain { span }.into());
+        }
+
+        let block_span = {
+            let first = stmts.front().unwrap().span;
+            let last = stmts.back().unwrap().span;
+            Span {
+                file: first.file.clone(),
+                start: first.start,
+                finish: last.finish,
+            }
+        };
+
+        let mut stmts: Vec<_> = stmts.into();
+
+        let has_return = stmts.iter().any(|stmt| {
+            matches!(
+                &stmt.kind,
+                ast::stmt::StmtKind::Expr(expr)
+                    if matches!(expr.kind, ast::expr::ExprKind::Return(_))
+            )
+        });
+
+        let return_span = block_span;
+        if !has_return {
+            let zero = ast::expr::Expr {
+                kind: ast::expr::ExprKind::Int(ast::expr::Int {
+                    kind: ast::expr::IntKind::Unsuffixed(0),
+                    span: return_span,
+                }),
+                span: return_span,
+            };
+            let return_stmt = ast::stmt::Stmt {
+                kind: ast::stmt::StmtKind::Expr(Rc::new(ast::expr::Expr {
+                    kind: ast::expr::ExprKind::Return(ast::expr::Return {
+                        val: Some(Box::new(zero)),
+                        span: return_span,
+                    }),
+                    span: return_span,
+                })),
+                span: return_span,
+            };
+            stmts.push(return_stmt);
+        }
+
+        let block = ast::stmt::Block {
+            body: stmts,
+            span: block_span,
+        };
+
+        let kdmain_decl = ir::top::FnDecl {
+            lang_linkage: ir::top::LangLinkage::Default,
+            link_once: false,
+            name: QualifiedSymbol::new(ModulePath::new(vec![]), "kdmain".to_owned().into()),
+            params: vec![],
+            is_c_variadic: false,
+            return_ty: Some(Rc::new(ir_type::make_fundamental_type(
+                ir_type::FundamentalTypeKind::I32,
+                ir_type::Mutability::Not,
+            ))),
+        };
+
+        let symbol_table_value = SymbolTableValue::new(
+            SymbolTableValueKind::Function(Rc::new(kdmain_decl.clone())),
+            self.current_module_path().clone(),
+        );
+
+        self.insert_symbol_to_root_scope(
+            "main".to_owned().into(),
+            symbol_table_value,
+            Visibility::Private,
+            block.span,
+        )?;
+
+        self.context
+            .set_current_function(Rc::new(kdmain_decl.clone()));
+        self.push_scope(SymbolTable::new());
+
+        let mut fn_body = self.analyze_block(&block)?;
+        self.infer_function_body_inline(&mut fn_body, &kdmain_decl)?;
+
+        self.pop_scope();
+        self.context.pop_current_function();
+
+        let fn_ir = ir::top::TopLevel::Fn(Rc::new(ir::top::Fn {
+            decl: kdmain_decl,
+            body: Some(fn_body),
+        }));
+
+        Ok(Some(fn_ir))
+    }
+
     pub fn analyze(
         &mut self,
         compile_unit: ast::CompileUnit,
@@ -608,6 +718,11 @@ impl SemanticAnalyzer {
         no_prelude: bool,
     ) -> anyhow::Result<ir::CompileUnit> {
         let mut top_level_irs = vec![];
+
+        let ast::CompileUnit {
+            top_levels,
+            top_level_stmts,
+        } = compile_unit;
 
         // Create root module
         let mut root_module = ModuleContext::new(FilePath::dummy());
@@ -624,13 +739,12 @@ impl SemanticAnalyzer {
             self.analyze_prelude(&mut top_level_irs)?;
         }
 
-        let (types, others): (Vec<_>, Vec<_>) =
-            compile_unit.top_levels.into_iter().partition(|top| {
-                matches!(
-                    top.kind,
-                    ast::top::TopLevelKind::Struct(_) | ast::top::TopLevelKind::Enum(_)
-                )
-            });
+        let (types, others): (Vec<_>, Vec<_>) = top_levels.into_iter().partition(|top| {
+            matches!(
+                top.kind,
+                ast::top::TopLevelKind::Struct(_) | ast::top::TopLevelKind::Enum(_)
+            )
+        });
 
         let (imports, others): (Vec<_>, Vec<_>) = others
             .into_iter()
@@ -712,6 +826,12 @@ impl SemanticAnalyzer {
             }
             Ok::<(), anyhow::Error>(())
         })?;
+
+        if let Some(synthesized_main) =
+            self.synthesize_main_from_top_level_stmts(top_level_stmts)?
+        {
+            top_level_irs.push(synthesized_main);
+        }
 
         // Add main function
         if self.lookup_symbol("main".to_owned().into()).is_some() {
