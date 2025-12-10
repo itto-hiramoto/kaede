@@ -12,7 +12,7 @@ pub fn __prepare_command_line_arguments(argc: i32, argv: **char): List<str> {
             break
         }
         args.push(__str(argv[i], strlen(argv[i])))
-        i = i + 1
+        i += 1
     }
     return args
 }
