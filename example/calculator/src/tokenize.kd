@@ -63,7 +63,7 @@ impl Tokenizer {
         loop {
             match s.at(i) {
                 Option::Some(ch) => {
-                    i = i + 1
+                    i += 1
                     n = n * 10 + (ch - '0') as i32
                 },
 
@@ -87,36 +87,36 @@ impl Tokenizer {
 
             match ch {
                 '+' => {
-                    i = i + 1
+                    i += 1
                     tokens.push(Token::Add)
                 },
 
                 '-' => {
-                    i = i + 1
+                    i += 1
                     tokens.push(Token::Sub)
                 },
 
                 '*' => {
-                    i = i + 1
+                    i += 1
                     tokens.push(Token::Mul)
                 },
 
                 '/' => {
-                    i = i + 1
+                    i += 1
                     tokens.push(Token::Div)
                 },
 
                 ' ' => {
-                    i = i + 1
+                    i += 1
                 },
 
                 '(' => {
-                    i = i + 1
+                    i += 1
                     tokens.push(Token::LParen)
                 },
 
                 ')' => {
-                    i = i + 1
+                    i += 1
                     tokens.push(Token::RParen)
                 },
 
@@ -132,7 +132,7 @@ impl Tokenizer {
 
                         if '0' <= ch && ch <= '9' {
                             n.push(ch)
-                            i = i + 1
+                            i += 1
                         } else {
                             break
                         }
