@@ -61,7 +61,7 @@ impl Tokenizer {
         let mut n = 0
 
         loop {
-            match s.at(i as u32) {
+            match s.at(i) {
                 Option::Some(ch) => {
                     i = i + 1
                     n = n * 10 + (ch - '0') as i32
@@ -80,7 +80,7 @@ impl Tokenizer {
         let mut i = 0
 
         loop {
-            let ch = match program.at(i as u32) {
+            let ch = match program.at(i) {
                 Option::Some(c) => c,
                 Option::None => break,
             }
@@ -125,7 +125,7 @@ impl Tokenizer {
                     let mut n = String::new()
 
                     loop {
-                        let ch = match program.at(i as u32) {
+                        let ch = match program.at(i) {
                             Option::Some(ch) => ch,
                             Option::None => break,
                         }

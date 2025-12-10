@@ -12,17 +12,17 @@ pub struct Parser {
 impl Parser {
     pub fn new(): mut Parser {
         return Parser {
-            current_idx: 0 as u32,
+            current_idx: 0,
             tokens: List<Token>::new(),
         }
     }
 
     fn clear(mut self) {
-        self.current_idx = 0 as u32
+        self.current_idx = 0
     }
 
     fn increment_current_idx(mut self) {
-        self.current_idx = self.current_idx + 1 as u32
+        self.current_idx = self.current_idx + 1
     }
 
     fn consume(mut self, token: Token): bool {

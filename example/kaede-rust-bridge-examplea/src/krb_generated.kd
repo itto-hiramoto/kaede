@@ -1,0 +1,3 @@
+pub bridge "Rust" fn greetings()
+pub bridge "Rust" fn add(a : i32 , b : i32): i32
+pub bridge "Rust" fn is_even(a : i32): bool
