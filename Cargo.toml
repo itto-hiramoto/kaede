@@ -11,6 +11,7 @@ members = [
   "compiler/common",
   "compiler/ir",
   "compiler/semantic",
-  "compiler/type_infer", "compiler/symbol_table",
+  "compiler/type_infer",
+  "compiler/symbol_table",
 ]
 resolver = "2"
