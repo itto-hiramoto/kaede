@@ -8,11 +8,11 @@ use parse.Parser
 use eval.Evaluator
 
 fn main(args: List<str>): i32 {
-    let expr = String::from(match args.at(1 as u32) {
+    let expr = String::from(match args.at(1) {
         Option::Some(expr) => expr,
 
         Option::None => {
-            std.io.puts("Please provide an expression as an command line argument!")
+            std.io.puts("Please provide an expression as an command line argument!\n")
             return 1
         }
     })
