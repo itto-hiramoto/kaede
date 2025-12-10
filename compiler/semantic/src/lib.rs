@@ -626,7 +626,7 @@ impl SemanticAnalyzer {
             let first = stmts.front().unwrap().span;
             let last = stmts.back().unwrap().span;
             Span {
-                file: first.file.clone(),
+                file: first.file,
                 start: first.start,
                 finish: last.finish,
             }
