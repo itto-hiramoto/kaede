@@ -42,7 +42,7 @@ impl Parser {
     }
 
     /// Semicolons are **not** consumed
-    fn stmt(&mut self) -> ParseResult<Stmt> {
+    pub(super) fn stmt(&mut self) -> ParseResult<Stmt> {
         if self.check(&TokenKind::Let) {
             let l = self.let_()?;
             Ok(Stmt {

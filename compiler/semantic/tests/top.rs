@@ -3,6 +3,10 @@ mod common;
 use common::semantic_analyze;
 
 use crate::common::semantic_analyze_expect_error;
+use kaede_parse::Parser;
+use kaede_span::file::FilePath;
+use std::fs;
+use tempfile::tempdir;
 
 #[test]
 fn empty_function() -> anyhow::Result<()> {
@@ -198,5 +202,49 @@ fn extern_() -> anyhow::Result<()> {
         }
     "#,
     )?;
+    Ok(())
+}
+
+#[test]
+fn top_level_statements_generate_main() -> anyhow::Result<()> {
+    semantic_analyze(
+        "
+        let x: i32 = 1
+        let y: i32 = x + 1
+        ",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn top_level_statements_and_main_conflict() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error(
+        "
+        fn main(): i32 { return 1 }
+        let x: i32 = 2
+        ",
+    )?;
+
+    assert!(err
+        .to_string()
+        .contains("top-level statements cannot be used"));
+
+    Ok(())
+}
+
+#[test]
+fn top_level_statements_disallowed_in_non_entry_module() -> anyhow::Result<()> {
+    let dir = tempdir()?;
+    let file_path = dir.path().join("module.kd");
+    fs::write(&file_path, "let x: i32 = 1")?;
+    let file = FilePath::from(file_path.clone());
+    let ast = Parser::new("let x: i32 = 1", file.clone()).run()?;
+    let mut analyzer = kaede_semantic::SemanticAnalyzer::new(file, dir.path().to_path_buf(), false);
+
+    let err = analyzer.analyze(ast, false, false).unwrap_err();
+    assert!(err
+        .to_string()
+        .contains("top-level statements are only allowed in the entry module"));
+
     Ok(())
 }

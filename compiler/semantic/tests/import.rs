@@ -39,6 +39,7 @@ impl ImportTestProject {
         let mut analyzer = kaede_semantic::SemanticAnalyzer::new(
             kaede_span::file::FilePath::from(main_file),
             self.temp_dir.path().to_path_buf(),
+            true,
         );
 
         analyzer.analyze(ast, false, false)
