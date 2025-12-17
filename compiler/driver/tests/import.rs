@@ -220,6 +220,89 @@ fn imported_typed_member() -> anyhow::Result<()> {
 }
 
 #[test]
+fn top_level_statements_in_entry_only() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+
+    let module = tempdir.child("m.kd");
+    module.write_str(
+        r#"pub fn value(): i32 {
+            return 42
+        }"#,
+    )?;
+
+    // Entry file comes first; top-level statements should be allowed here
+    let main = tempdir.child("main.kd");
+    main.write_str(
+        r#"import m
+        let x: i32 = m.value()
+        let y: i32 = x + 1
+        "#,
+    )?;
+
+    // Synthetic main returns 0
+    test(0, &[main.path(), module.path()], &tempdir)
+}
+
+#[test]
+fn top_level_statements_disallowed_in_non_entry() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+
+    // Non-entry module with top-level statements should fail
+    let module = tempdir.child("m.kd");
+    module.write_str("let _: i32 = 1")?;
+
+    let main = tempdir.child("main.kd");
+    main.write_str(
+        r#"import m
+        fn main(): i32 { return 0 }
+        "#,
+    )?;
+
+    let exe = assert_fs::NamedTempFile::new("a.out")?;
+
+    let _compile = Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .arg(main.path())
+        .arg(module.path())
+        .arg("-o")
+        .arg(exe.path())
+        .arg("--root-dir")
+        .arg(tempdir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Top-level statements found in"));
+
+    Ok(())
+}
+
+#[test]
+fn multiple_files_with_top_level_statements_fail() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+
+    let file1 = tempdir.child("a.kd");
+    file1.write_str("let _: i32 = 1")?;
+
+    let file2 = tempdir.child("b.kd");
+    file2.write_str("let _: i32 = 2")?;
+
+    let exe = assert_fs::NamedTempFile::new("a.out")?;
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .arg(file1.path())
+        .arg(file2.path())
+        .arg("-o")
+        .arg(exe.path())
+        .arg("--root-dir")
+        .arg(tempdir.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Multiple files contain top-level statements; exactly one entry file is allowed",
+        ));
+
+    Ok(())
+}
+
+#[test]
 fn import_enum() -> anyhow::Result<()> {
     let tempdir = assert_fs::TempDir::new()?;
 

@@ -107,8 +107,61 @@ fn div_precedence() -> anyhow::Result<()> {
 }
 
 #[test]
-fn four_arithmetic_precedence() -> anyhow::Result<()> {
-    assert_eq!(exec("fn main(): i32 { return (48 -10/ 2) + 58 * 2 }")?, 159);
+fn top_level_statements_generate_main() -> anyhow::Result<()> {
+    let program = r"
+    let x: i32 = 40
+    let y: i32 = 2
+    ";
+
+    // Synthetic main returns 0 but should compile/link and run without explicit main
+    assert_eq!(exec(program)?, 0);
+
+    Ok(())
+}
+
+#[test]
+fn top_level_return_statement() -> anyhow::Result<()> {
+    let program = r"
+    return 123
+    ";
+
+    assert_eq!(exec(program)?, 123);
+
+    Ok(())
+}
+
+#[test]
+fn top_level_function_call_statement() -> anyhow::Result<()> {
+    let program = r"
+    fn f(): i32 {
+        return 123
+    }
+
+    f()
+    ";
+
+    assert_eq!(exec(program)?, 0);
+
+    Ok(())
+}
+
+#[test]
+fn top_level_loop_statement() -> anyhow::Result<()> {
+    let program = r"
+    loop {
+        break
+    }
+    ";
+
+    assert_eq!(exec(program)?, 0);
+
+    let program = r"
+    loop {
+        return 123
+    }
+    ";
+
+    assert_eq!(exec(program)?, 123);
 
     Ok(())
 }

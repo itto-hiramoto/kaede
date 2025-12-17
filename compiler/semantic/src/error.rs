@@ -102,6 +102,12 @@ pub enum SemanticError {
         span: Span,
     },
 
+    #[error("{}:{}:{} top-level statements are only allowed in the entry module", span.file, span.start.line, span.start.column)]
+    TopLevelStatementsNotAllowed { span: Span },
+
+    #[error("{}:{}:{} top-level statements cannot be used together with a `main` function", span.file, span.start.line, span.start.column)]
+    TopLevelStatementsConflictWithMain { span: Span },
+
     #[error("{}:{}:{} no variant named `{}` in `{}`", span.file, span.start.line, span.start.column, variant_name, parent_name)]
     NoVariant {
         variant_name: Symbol,
