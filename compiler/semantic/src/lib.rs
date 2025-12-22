@@ -34,6 +34,12 @@ pub use top::TopLevelAnalysisResult;
 
 use crate::context::{AnalyzeCommand, ModuleContext};
 
+#[derive(Debug, Clone)]
+struct ClosureCapture {
+    base_depth: usize,
+    captured: HashSet<Symbol>,
+}
+
 pub struct SemanticAnalyzer {
     modules: HashMap<ModulePath, ModuleContext>,
     context: AnalysisContext,
@@ -43,6 +49,7 @@ pub struct SemanticAnalyzer {
     root_dir: PathBuf,
     autoloads_imported: bool,
     infer_context: InferContext,
+    closure_capture_stack: Vec<ClosureCapture>,
 }
 
 impl SemanticAnalyzer {
@@ -68,6 +75,7 @@ impl SemanticAnalyzer {
             root_dir,
             autoloads_imported: false,
             infer_context: InferContext::default(),
+            closure_capture_stack: Vec::new(),
         }
     }
 
@@ -88,6 +96,7 @@ impl SemanticAnalyzer {
             root_dir: PathBuf::from("."),
             autoloads_imported: false,
             infer_context: InferContext::default(),
+            closure_capture_stack: Vec::new(),
         }
     }
 
@@ -283,6 +292,44 @@ impl SemanticAnalyzer {
     pub fn pop_scope(&mut self) {
         let module_path = self.current_module_path().clone();
         self.modules.get_mut(&module_path).unwrap().pop_scope();
+    }
+
+    fn symbol_table_depth(&self) -> usize {
+        let module_path = self.current_module_path();
+        self.modules
+            .get(module_path)
+            .expect("Module context must exist")
+            .symbol_table_depth()
+    }
+
+    fn lookup_symbol_with_depth(
+        &self,
+        symbol: Symbol,
+    ) -> Option<(Rc<RefCell<SymbolTableValue>>, usize)> {
+        let module_path = self.current_module_path();
+        self.modules
+            .get(module_path)
+            .expect("Module context must exist")
+            .lookup_symbol_with_depth(&symbol)
+    }
+
+    fn push_closure_capture(&mut self, base_depth: usize) {
+        self.closure_capture_stack.push(ClosureCapture {
+            base_depth,
+            captured: HashSet::new(),
+        });
+    }
+
+    fn pop_closure_capture(&mut self) -> Option<ClosureCapture> {
+        self.closure_capture_stack.pop()
+    }
+
+    fn register_capture(&mut self, symbol: Symbol, depth: usize) {
+        if let Some(state) = self.closure_capture_stack.last_mut() {
+            if depth < state.base_depth {
+                state.captured.insert(symbol);
+            }
+        }
     }
 
     fn inject_generated_generics_to_compile_unit(

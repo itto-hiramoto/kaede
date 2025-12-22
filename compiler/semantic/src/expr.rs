@@ -1,5 +1,10 @@
-use std::{collections::BTreeSet, rc::Rc, vec};
+use std::{
+    collections::{BTreeSet, HashSet},
+    rc::Rc,
+    vec,
+};
 
+use super::ClosureCapture;
 use crate::{context::AnalyzeCommand, error::SemanticError, SemanticAnalyzer};
 
 use kaede_ast as ast;
@@ -50,9 +55,7 @@ impl SemanticAnalyzer {
             ExprKind::Match(node) => self.analyze_match(node),
             ExprKind::StructLiteral(node) => self.analyze_struct_literal(node),
             ExprKind::TupleLiteral(node) => self.analyze_tuple_literal(node),
-            ExprKind::Closure(node) => {
-                anyhow::bail!("closures are not yet supported in semantic analysis: {:?}", node.span)
-            }
+            ExprKind::Closure(node) => self.analyze_closure(node),
 
             ExprKind::Ty(_) => todo!(),
             ExprKind::GenericIdent(_) => todo!(),
@@ -1176,6 +1179,74 @@ impl SemanticAnalyzer {
         })
     }
 
+    fn analyze_closure(&mut self, node: &ast::expr::Closure) -> anyhow::Result<ir::expr::Expr> {
+        let base_depth = self.symbol_table_depth();
+        self.push_closure_capture(base_depth);
+        self.push_scope(SymbolTable::new());
+
+        let mut params = Vec::new();
+        let mut param_tys = Vec::new();
+
+        for param in node.params.iter() {
+            let ty = self.infer_context.fresh();
+            self.insert_symbol_to_current_scope(
+                param.symbol(),
+                SymbolTableValue::new(
+                    SymbolTableValueKind::Variable(VariableInfo { ty: ty.clone() }),
+                    self.current_module_path().clone(),
+                ),
+                param.span(),
+            )?;
+            params.push(param.symbol());
+            param_tys.push(ty);
+        }
+
+        let body = self.analyze_expr(&node.body)?;
+
+        self.pop_scope();
+        let captures = self.pop_closure_capture().unwrap_or(ClosureCapture {
+            base_depth,
+            captured: HashSet::new(),
+        });
+
+        let param_symbols: HashSet<Symbol> = params.iter().copied().collect();
+
+        let mut capture_exprs = Vec::new();
+        let mut capture_tys = Vec::new();
+        for symbol in captures.captured {
+            // If the symbol is a parameter, it is not captured
+            if param_symbols.contains(&symbol) {
+                continue;
+            }
+
+            let ident = Ident::new(symbol, node.span);
+            let captured_expr = self.analyze_ident(&ident)?;
+            capture_tys.push(captured_expr.ty.clone());
+            capture_exprs.push(captured_expr);
+        }
+
+        let closure_ty = Rc::new(ir_type::Ty {
+            kind: ir_type::TyKind::Closure(ir_type::ClosureType {
+                param_tys,
+                ret_ty: body.ty.clone(),
+                captures: capture_tys,
+            })
+            .into(),
+            mutability: ir_type::Mutability::Not,
+        });
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::Closure(ir::expr::Closure {
+                params,
+                body: Box::new(body),
+                captures: capture_exprs,
+                span: node.span,
+            }),
+            ty: closure_ty,
+            span: node.span,
+        })
+    }
+
     fn analyze_block_expr(&mut self, node: &ast::stmt::Block) -> anyhow::Result<ir::expr::Expr> {
         if node.body.is_empty() {
             return Ok(ir::expr::Expr {
@@ -2030,18 +2101,21 @@ impl SemanticAnalyzer {
         })
     }
 
-    fn analyze_ident(&self, node: &Ident) -> anyhow::Result<ir::expr::Expr> {
-        self.lookup_symbol(node.symbol())
-            .map(|value| match &value.borrow().kind {
-                SymbolTableValueKind::Variable(VariableInfo { ty }) => Ok(ir::expr::Expr {
-                    kind: ir::expr::ExprKind::Variable(ir::expr::Variable {
-                        name: node.symbol(),
+    fn analyze_ident(&mut self, node: &Ident) -> anyhow::Result<ir::expr::Expr> {
+        self.lookup_symbol_with_depth(node.symbol())
+            .map(|(value, depth)| match &value.borrow().kind {
+                SymbolTableValueKind::Variable(VariableInfo { ty }) => {
+                    self.register_capture(node.symbol(), depth);
+                    Ok(ir::expr::Expr {
+                        kind: ir::expr::ExprKind::Variable(ir::expr::Variable {
+                            name: node.symbol(),
+                            ty: ty.clone(),
+                            span: node.span(),
+                        }),
                         ty: ty.clone(),
                         span: node.span(),
-                    }),
-                    ty: ty.clone(),
-                    span: node.span(),
-                }),
+                    })
+                }
                 _ => Err(SemanticError::ExpectedVariable {
                     name: node.symbol(),
                     span: node.span(),

@@ -1,6 +1,10 @@
 mod common;
 
+use std::collections::HashSet;
+
 use common::{semantic_analyze, semantic_analyze_expect_error};
+use kaede_ir::{expr::ExprKind as IrExprKind, stmt::Stmt, top::TopLevel, ty::TyKind as IrTyKind};
+use kaede_symbol::Symbol;
 
 #[test]
 fn int() -> anyhow::Result<()> {
@@ -328,5 +332,67 @@ fn match_catch_all_undefined_function_enum_error() -> anyhow::Result<()> {
             }
         }",
     )?;
+    Ok(())
+}
+
+fn find_function_body(ir: kaede_ir::CompileUnit, name: &str) -> kaede_ir::stmt::Block {
+    for top in ir.top_levels {
+        if let TopLevel::Fn(f) = top {
+            if f.decl.name.symbol().as_str() == name {
+                return f.body.clone().expect("expected function body");
+            }
+        }
+    }
+    panic!("no function found");
+}
+
+#[test]
+fn closure_captures_outer_variables() -> anyhow::Result<()> {
+    let ir = semantic_analyze(
+        "
+        fn f(): i32 {
+            let a: i32 = 10
+            let b: i32 = 2
+            let c = | | a + b
+            return 0
+        }
+    ",
+    )?;
+
+    let body = find_function_body(ir, "f");
+
+    let closure_expr = match &body.body[2] {
+        Stmt::Let(let_stmt) => let_stmt.init.as_ref().unwrap(),
+        _ => panic!("expected let binding for closure"),
+    };
+
+    let (captures, param_len, capture_tys_len) = match &closure_expr.kind {
+        IrExprKind::Closure(closure) => {
+            let captured: HashSet<Symbol> = closure
+                .captures
+                .iter()
+                .map(|c| match &c.kind {
+                    IrExprKind::Variable(v) => v.name,
+                    _ => panic!("unexpected capture kind"),
+                })
+                .collect();
+
+            let captured_tys_len = match closure_expr.ty.kind.as_ref() {
+                IrTyKind::Closure(ty) => ty.captures.len(),
+                _ => panic!("expected closure type"),
+            };
+
+            (captured, closure.params.len(), captured_tys_len)
+        }
+        kind => panic!("expected closure expr, got {kind:?}"),
+    };
+
+    assert_eq!(
+        captures,
+        HashSet::from([Symbol::from("a".to_string()), Symbol::from("b".to_string())])
+    );
+    assert_eq!(param_len, 0);
+    assert_eq!(capture_tys_len, 2);
+
     Ok(())
 }

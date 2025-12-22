@@ -117,7 +117,20 @@ impl TypeInferrer {
             Block(block) => self.infer_block(block),
             Return(ret) => self.infer_return(ret, expr.span),
             Break => Ok(Rc::new(Ty::new_never())),
-            Closure(_) => Ok(expr_ty.clone()),
+            Closure(closure) => {
+                for cap in &closure.captures {
+                    self.infer_expr(cap)?;
+                }
+
+                let body_ty = self.infer_expr(&closure.body)?;
+
+                if let TyKind::Closure(closure_ty) = expr_ty.kind.as_ref() {
+                    self.context
+                        .unify(&body_ty, &closure_ty.ret_ty, closure.span)?;
+                }
+
+                Ok(expr_ty.clone())
+            }
         }?;
 
         // Unify the expression's type (from semantic analysis) with the inferred type
