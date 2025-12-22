@@ -7,7 +7,7 @@ use inkwell::{
     context::Context,
     module::Module,
     targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine},
-    types::{AnyType, BasicType, BasicTypeEnum},
+    types::{AnyType, BasicType, BasicTypeEnum, FunctionType, StructType},
     values::{BasicValueEnum, FunctionValue, InstructionValue, PointerValue},
     AddressSpace, OptimizationLevel,
 };
@@ -115,6 +115,8 @@ pub struct CodeGenerator<'ctx> {
     builder: Builder<'ctx>,
 
     loop_break_bb_stk: Vec<BasicBlock<'ctx>>,
+
+    closure_counter: usize,
 }
 
 impl<'ctx> CodeGenerator<'ctx> {
@@ -130,6 +132,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             module,
             builder: cgcx.context.create_builder(),
             loop_break_bb_stk: vec![],
+            closure_counter: 0,
         })
     }
 
@@ -251,6 +254,51 @@ impl<'ctx> CodeGenerator<'ctx> {
             .is_none()
     }
 
+    fn fresh_closure_name(&mut self) -> Symbol {
+        let name = format!("closure_{}", self.closure_counter);
+        self.closure_counter += 1;
+        Symbol::from(name)
+    }
+
+    fn closure_llvm_types(
+        &mut self,
+        closure_ty: &kaede_ir::ty::ClosureType,
+    ) -> (StructType<'ctx>, FunctionType<'ctx>, StructType<'ctx>) {
+        let ptr_ty = self.context().ptr_type(AddressSpace::default());
+
+        let captures_tuple_ty = self.context().struct_type(
+            &closure_ty
+                .captures
+                .iter()
+                .map(|ty| self.conv_to_llvm_type(ty))
+                .collect::<Vec<_>>(),
+            true,
+        );
+
+        let captures_ptr_ty = ptr_ty;
+
+        let mut param_types = Vec::with_capacity(closure_ty.param_tys.len() + 1);
+        param_types.push(captures_ptr_ty.into());
+        for param in &closure_ty.param_tys {
+            param_types.push(self.conv_to_llvm_type(param).into());
+        }
+
+        let fn_type = match closure_ty.ret_ty.kind.as_ref() {
+            TyKind::Unit => self.context().void_type().fn_type(&param_types, false),
+            _ => self
+                .conv_to_llvm_type(&closure_ty.ret_ty)
+                .fn_type(&param_types, false),
+        };
+
+        let fn_ptr_ty = ptr_ty;
+
+        let closure_struct_ty = self
+            .context()
+            .struct_type(&[fn_ptr_ty.into(), captures_ptr_ty.into()], true);
+
+        (closure_struct_ty, fn_type, captures_tuple_ty)
+    }
+
     fn conv_to_llvm_type(&mut self, ty: &Ty) -> BasicTypeEnum<'ctx> {
         let context = self.context();
 
@@ -293,7 +341,10 @@ impl<'ctx> CodeGenerator<'ctx> {
 
             TyKind::Unit => panic!("Cannot get LLVM type of unit type!"),
             TyKind::Never => panic!("Cannot get LLVM type of never type!"),
-            TyKind::Closure(_) => todo!(),
+            TyKind::Closure(_) => self
+                .context()
+                .ptr_type(AddressSpace::default())
+                .as_basic_type_enum(),
         }
     }
 

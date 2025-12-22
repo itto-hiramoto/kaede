@@ -1024,6 +1024,73 @@ impl SemanticAnalyzer {
 
             SymbolTableValueKind::Generic(info) => self.analyze_generic_fn_call(info, node),
 
+            SymbolTableValueKind::Variable(VariableInfo { ty })
+                if matches!(ty.kind.as_ref(), ir_type::TyKind::Closure(_)) =>
+            {
+                let closure_ty = match ty.kind.as_ref() {
+                    ir_type::TyKind::Closure(closure_ty) => closure_ty,
+                    _ => unreachable!(),
+                };
+
+                let args = node
+                    .args
+                    .0
+                    .iter()
+                    .map(|arg| self.analyze_expr(arg))
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+
+                if closure_ty.param_tys.len() != args.len() {
+                    return Err(if args.len() < closure_ty.param_tys.len() {
+                        SemanticError::TooFewArguments {
+                            name: node.callee.symbol(),
+                            span: node.span,
+                        }
+                    } else {
+                        SemanticError::TooManyArguments {
+                            name: node.callee.symbol(),
+                            span: node.span,
+                        }
+                    }
+                    .into());
+                }
+
+                let params = closure_ty
+                    .param_tys
+                    .iter()
+                    .enumerate()
+                    .map(|(i, ty)| ir::top::Param {
+                        name: Symbol::from(format!("arg{i}")),
+                        ty: ty.clone(),
+                    })
+                    .collect::<Vec<_>>();
+
+                let callee_decl: Rc<ir::top::FnDecl> = ir::top::FnDecl {
+                    lang_linkage: ir::top::LangLinkage::Default,
+                    link_once: false,
+                    name: QualifiedSymbol::new(
+                        self.current_module_path().clone(),
+                        node.callee.symbol(),
+                    ),
+                    params,
+                    is_c_variadic: false,
+                    return_ty: Some(closure_ty.ret_ty.clone()),
+                }
+                .into();
+
+                Ok(ir::expr::Expr {
+                    kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
+                        callee: callee_decl.clone(),
+                        args: ir::expr::Args(args, node.span),
+                        span: node.span,
+                    }),
+                    ty: callee_decl
+                        .return_ty
+                        .clone()
+                        .unwrap_or_else(|| Rc::new(ir_type::Ty::new_unit())),
+                    span: node.span,
+                })
+            }
+
             _ => unreachable!(),
         }
     }
@@ -2102,7 +2169,20 @@ impl SemanticAnalyzer {
     }
 
     fn analyze_ident(&mut self, node: &Ident) -> anyhow::Result<ir::expr::Expr> {
-        self.lookup_symbol_with_depth(node.symbol())
+        let primary = self.lookup_symbol_with_depth(node.symbol());
+
+        let fallback = if primary.is_none() && self.current_module_path() != self.module_path() {
+            let mut new_ctx = self.context.clone();
+            new_ctx.set_current_module_path(self.module_path().clone());
+            self.with_context(new_ctx, |analyzer| {
+                analyzer.lookup_symbol_with_depth(node.symbol())
+            })
+        } else {
+            None
+        };
+
+        primary
+            .or(fallback)
             .map(|(value, depth)| match &value.borrow().kind {
                 SymbolTableValueKind::Variable(VariableInfo { ty }) => {
                     self.register_capture(node.symbol(), depth);

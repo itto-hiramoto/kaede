@@ -305,7 +305,8 @@ impl Parser {
             return self.break_();
         }
 
-        if self.check(&TokenKind::Pipe) {
+        // Support closures starting with `|` or `||` with no spaces.
+        if self.check(&TokenKind::LogicalOr) || self.check(&TokenKind::Pipe) {
             return self.closure();
         }
 
@@ -429,6 +430,23 @@ impl Parser {
     }
 
     fn closure(&mut self) -> ParseResult<Expr> {
+        // Accept both `| |` and `||` (no space) closures.
+        if self.check(&TokenKind::LogicalOr) {
+            let start = self.consume(&TokenKind::LogicalOr)?.start;
+            let body = self.expr()?;
+            let span = self.new_span(start, body.span.finish);
+
+            return Ok(Expr {
+                span,
+                kind: ExprKind::Closure(Closure {
+                    params: Vec::new(),
+                    body: Box::new(body),
+                    captures: Vec::new(),
+                    span,
+                }),
+            });
+        }
+
         let start = self.consume(&TokenKind::Pipe)?.start;
 
         let mut params = Vec::new();

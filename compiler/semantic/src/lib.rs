@@ -671,6 +671,10 @@ impl SemanticAnalyzer {
             self.analyze_prelude(&mut top_level_irs)?;
         }
 
+        // Ensure we are working in the current compile unit's module context
+        self.context
+            .set_current_module_path(self.module_path().clone());
+
         let (types, others): (Vec<_>, Vec<_>) =
             compile_unit.top_levels.into_iter().partition(|top| {
                 matches!(
@@ -712,6 +716,10 @@ impl SemanticAnalyzer {
                 unreachable!()
             }
         }
+
+        // Ensure analysis continues in the current compile unit's module after imports/uses
+        self.context
+            .set_current_module_path(self.module_path().clone());
 
         // Declare all types
         // (This is necessary to avoid errors when declaring functions and methods)

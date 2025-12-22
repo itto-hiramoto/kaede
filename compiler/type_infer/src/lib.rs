@@ -122,7 +122,16 @@ impl TypeInferrer {
                     self.infer_expr(cap)?;
                 }
 
-                let body_ty = self.infer_expr(&closure.body)?;
+                let body_ty = self.with_new_scope(|this| {
+                    if let TyKind::Closure(closure_ty) = expr_ty.kind.as_ref() {
+                        for (param, param_ty) in
+                            closure.params.iter().zip(closure_ty.param_tys.iter())
+                        {
+                            this.register_variable(*param, param_ty.clone());
+                        }
+                    }
+                    this.infer_expr(&closure.body)
+                })?;
 
                 if let TyKind::Closure(closure_ty) = expr_ty.kind.as_ref() {
                     self.context
@@ -1075,6 +1084,15 @@ impl TypeInferrer {
                 for arg in &mut fn_call.args.0 {
                     self.apply_expr(arg)?;
                 }
+
+                let mut applied_callee = (*fn_call.callee).clone();
+                for param in applied_callee.params.iter_mut() {
+                    param.ty = self.context.apply(&param.ty);
+                }
+                if let Some(ret) = applied_callee.return_ty.clone() {
+                    applied_callee.return_ty = Some(self.context.apply(&ret));
+                }
+                fn_call.callee = applied_callee.into();
             }
             Closure(closure) => {
                 for capture in &mut closure.captures {

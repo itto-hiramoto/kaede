@@ -2950,3 +2950,105 @@ fn rem_assign() -> anyhow::Result<()> {
     assert_eq!(exec(program)?, 1);
     Ok(())
 }
+
+#[test]
+fn closure_without_params_captures_values() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let a = 48
+            let b = 10
+
+            let add = || a + b
+
+            return add()
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn closure_with_param_and_captured_copy() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let mut base = 50
+            let add = |n| base + n
+            base = 0
+
+            return add(8)
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn closure_with_multiple_params() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let add = |a, b| a + b
+            return add(48, 10)
+        }
+    "#;
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn closure_with_captured_udt() -> anyhow::Result<()> {
+    let program = r#"
+        struct A {
+            n: i32,
+        }
+
+        fn main(): i32 {
+            let mut a = A { n: 48 }
+            let f = |b| a.n + b
+            a.n = 10
+            return f(10)
+        }
+    "#;
+    assert_eq!(exec(program)?, 20);
+    Ok(())
+}
+
+#[test]
+fn closure_with_captured_udt_method() -> anyhow::Result<()> {
+    let program = r#"
+        struct A {
+            n: i32,
+        }
+
+        impl A {
+            fn add(self, b: i32): i32 {
+                return self.n + b
+            }
+        }
+
+        fn main(): i32 {
+            let a = A { n: 123 }
+            let f = |b| a.add(b)
+            return f(10)
+        }
+    "#;
+    assert_eq!(exec(program)?, 133);
+    Ok(())
+}
+
+#[test]
+fn closure_with_block_body() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let a = 48
+            let b = 10
+            let add = || {
+                a + b
+            }
+            return add()
+        }
+    "#;
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
