@@ -86,6 +86,8 @@ pub enum TokenKind {
     LogicalAnd,
     /// "||"
     LogicalOr,
+    /// "|"
+    Pipe,
 
     // Reserved words
     /// "fn"
@@ -188,6 +190,7 @@ impl std::fmt::Display for TokenKind {
                 Ne => "'!='",
                 LogicalAnd => "'&&'",
                 LogicalOr => "'||'",
+                Pipe => "'|'",
 
                 Fn => "'fn'",
                 Return => "'return'",

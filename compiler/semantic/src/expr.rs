@@ -50,6 +50,9 @@ impl SemanticAnalyzer {
             ExprKind::Match(node) => self.analyze_match(node),
             ExprKind::StructLiteral(node) => self.analyze_struct_literal(node),
             ExprKind::TupleLiteral(node) => self.analyze_tuple_literal(node),
+            ExprKind::Closure(node) => {
+                anyhow::bail!("closures are not yet supported in semantic analysis: {:?}", node.span)
+            }
 
             ExprKind::Ty(_) => todo!(),
             ExprKind::GenericIdent(_) => todo!(),

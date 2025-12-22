@@ -202,6 +202,8 @@ pub enum TyKind {
 
     Generic(GenericType),
 
+    Closure(ClosureType),
+
     Reference(ReferenceType),
 
     Pointer(PointerType),
@@ -233,6 +235,18 @@ impl std::fmt::Display for TyKind {
             Self::UserDefined(udt) => write!(f, "{}", udt.name.symbol().as_str()),
 
             Self::Generic(gty) => write!(f, "{}", gty.name.as_str()),
+
+            Self::Closure(closure) => write!(
+                f,
+                "|{}| -> {}",
+                closure
+                    .param_tys
+                    .iter()
+                    .map(|t| t.kind.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                closure.ret_ty.kind
+            ),
 
             Self::Reference(refee) => write!(f, "&{}", refee.refee_ty.kind),
 
@@ -278,6 +292,7 @@ impl TyKind {
             Self::Generic(_) => todo!(),
             Self::Reference(ty) => ty.refee_ty.kind.is_signed(),
             Self::External(t, _) => t.kind.is_signed(),
+            Self::Closure(_) => todo!(),
 
             Self::Pointer(_) => panic!("Cannot get sign information of pointer type!"),
             Self::Array(_) => panic!("Cannot get sign information of array type!"),
@@ -295,6 +310,7 @@ impl TyKind {
             Self::Generic(_) => todo!(),
             Self::Reference(ty) => ty.refee_ty.kind.is_int_or_bool(),
             Self::External(t, _) => t.kind.is_int_or_bool(),
+            Self::Closure(_) => false,
 
             Self::Array(_)
             | Self::Tuple(_)
@@ -389,6 +405,30 @@ pub struct GenericArgs {
     pub types: Vec<Rc<Ty>>,
     pub span: Span,
 }
+
+#[derive(Debug, Clone)]
+pub struct ClosureType {
+    pub param_tys: Vec<Rc<Ty>>,
+    pub ret_ty: Rc<Ty>,
+    pub captures: Vec<Rc<Ty>>,
+}
+
+impl PartialEq for ClosureType {
+    fn eq(&self, other: &Self) -> bool {
+        self.param_tys
+            .iter()
+            .zip(other.param_tys.iter())
+            .all(|(l, r)| is_same_type(l, r))
+            && is_same_type(&self.ret_ty, &other.ret_ty)
+            && self
+                .captures
+                .iter()
+                .zip(other.captures.iter())
+                .all(|(l, r)| is_same_type(l, r))
+    }
+}
+
+impl Eq for ClosureType {}
 
 #[derive(Debug, Clone)]
 pub struct UserDefinedType {

@@ -251,6 +251,8 @@ pub enum TyKind {
 
     UserDefined(UserDefinedType),
 
+    Closure(ClosureType),
+
     Reference(ReferenceType),
 
     Pointer(PointerType),
@@ -274,6 +276,18 @@ impl std::fmt::Display for TyKind {
             Self::Fundamental(fty) => write!(f, "{}", fty.kind),
 
             Self::UserDefined(udt) => write!(f, "{udt}"),
+
+            Self::Closure(closure) => write!(
+                f,
+                "|{}| -> {}",
+                closure
+                    .param_tys
+                    .iter()
+                    .map(|t| t.kind.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                closure.ret_ty.kind
+            ),
 
             Self::Reference(refee) => write!(f, "&{}", refee.refee_ty.kind),
 
@@ -305,6 +319,7 @@ impl TyKind {
         match &self {
             Self::Fundamental(fty) => fty.is_signed(),
             Self::UserDefined(_) => todo!(),
+            Self::Closure(_) => todo!(),
             Self::Reference(ty) => ty.refee_ty.kind.is_signed(),
 
             Self::Pointer(_) => panic!("Cannot get sign information of pointer type!"),
@@ -321,6 +336,7 @@ impl TyKind {
         match &self {
             Self::Fundamental(fty) => fty.is_int_or_char_or_bool(),
             Self::UserDefined(_) => todo!(),
+            Self::Closure(_) => false,
             Self::Reference(ty) => ty.refee_ty.kind.is_int_or_bool(),
 
             Self::Array(_) | Self::Tuple(_) | Self::Pointer(_) | Self::Unit | Self::Never => false,
@@ -335,6 +351,7 @@ impl TyKind {
             Self::Reference(ty) => ty.refee_ty.kind.can_be_arithmetic_operand(),
 
             Self::UserDefined(_)
+            | Self::Closure(_)
             | Self::Array(_)
             | Self::Tuple(_)
             | Self::Pointer(_)
@@ -350,6 +367,30 @@ impl TyKind {
 pub struct FundamentalType {
     pub kind: FundamentalTypeKind,
 }
+
+#[derive(Debug, Clone)]
+pub struct ClosureType {
+    pub param_tys: Vec<Rc<Ty>>,
+    pub ret_ty: Rc<Ty>,
+    pub captures: Vec<Rc<Ty>>,
+}
+
+impl PartialEq for ClosureType {
+    fn eq(&self, other: &Self) -> bool {
+        self.param_tys
+            .iter()
+            .zip(other.param_tys.iter())
+            .all(|(l, r)| is_same_type(l, r))
+            && is_same_type(&self.ret_ty, &other.ret_ty)
+            && self
+                .captures
+                .iter()
+                .zip(other.captures.iter())
+                .all(|(l, r)| is_same_type(l, r))
+    }
+}
+
+impl Eq for ClosureType {}
 
 impl FundamentalType {
     pub fn create_llvm_str_type(context: &Context) -> BasicTypeEnum<'_> {

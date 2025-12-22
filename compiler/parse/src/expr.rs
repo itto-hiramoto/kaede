@@ -1,8 +1,8 @@
 use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::expr::{
-    Args, ArrayLiteral, Binary, BinaryKind, Break, CharLiteral, Else, Expr, ExprKind, FnCall, If,
-    Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, Return, StringLiteral,
+    Args, ArrayLiteral, Binary, BinaryKind, Break, CharLiteral, Closure, Else, Expr, ExprKind,
+    FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, Return, StringLiteral,
     StructLiteral, TupleLiteral,
 };
 use kaede_ast_type::{Ty, TyKind};
@@ -305,6 +305,10 @@ impl Parser {
             return self.break_();
         }
 
+        if self.check(&TokenKind::Pipe) {
+            return self.closure();
+        }
+
         if self.check(&TokenKind::Loop) {
             return self.loop_();
         }
@@ -422,6 +426,38 @@ impl Parser {
             span: self.first().span,
         }
         .into())
+    }
+
+    fn closure(&mut self) -> ParseResult<Expr> {
+        let start = self.consume(&TokenKind::Pipe)?.start;
+
+        let mut params = Vec::new();
+
+        if !self.check(&TokenKind::Pipe) {
+            loop {
+                params.push(self.ident()?);
+
+                if !self.consume_b(&TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+
+        let _ = self.consume(&TokenKind::Pipe)?;
+
+        let body = self.expr()?;
+
+        let span = self.new_span(start, body.span.finish);
+
+        Ok(Expr {
+            span,
+            kind: ExprKind::Closure(Closure {
+                params,
+                body: Box::new(body),
+                captures: Vec::new(),
+                span,
+            }),
+        })
     }
 
     fn match_(&mut self) -> ParseResult<Expr> {

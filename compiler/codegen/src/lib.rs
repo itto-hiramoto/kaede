@@ -293,6 +293,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
             TyKind::Unit => panic!("Cannot get LLVM type of unit type!"),
             TyKind::Never => panic!("Cannot get LLVM type of never type!"),
+            TyKind::Closure(_) => todo!(),
         }
     }
 

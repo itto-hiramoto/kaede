@@ -117,6 +117,7 @@ impl TypeInferrer {
             Block(block) => self.infer_block(block),
             Return(ret) => self.infer_return(ret, expr.span),
             Break => Ok(Rc::new(Ty::new_never())),
+            Closure(_) => Ok(expr_ty.clone()),
         }?;
 
         // Unify the expression's type (from semantic analysis) with the inferred type
@@ -1061,6 +1062,12 @@ impl TypeInferrer {
                 for arg in &mut fn_call.args.0 {
                     self.apply_expr(arg)?;
                 }
+            }
+            Closure(closure) => {
+                for capture in &mut closure.captures {
+                    self.apply_expr(capture)?;
+                }
+                self.apply_expr(&mut closure.body)?;
             }
             BuiltinFnCall(builtin_call) => {
                 for arg in &mut builtin_call.args.0 {

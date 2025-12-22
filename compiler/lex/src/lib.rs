@@ -281,7 +281,7 @@ impl Cursor<'_> {
                     self.create_token(TokenKind::LogicalOr)
                 } else {
                     // |
-                    todo!()
+                    self.create_token(TokenKind::Pipe)
                 }
             }
             '<' => {

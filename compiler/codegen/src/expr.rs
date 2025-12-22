@@ -74,6 +74,10 @@ impl<'ctx> CodeGenerator<'ctx> {
             ExprKind::EnumVariant(node) => self.build_enum_variant(node)?,
 
             ExprKind::BuiltinFnCall(node) => self.build_builtin_fn_call(node)?,
+
+            ExprKind::Closure(_) => {
+                anyhow::bail!("closures are not supported in code generation yet")
+            }
         })
     }
 

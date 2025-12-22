@@ -162,6 +162,14 @@ pub struct TupleLiteral {
 }
 
 #[derive(Debug, Clone)]
+pub struct Closure {
+    pub params: Vec<Symbol>,
+    pub body: Box<Expr>,
+    pub captures: Vec<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub struct Indexing {
     pub operand: Rc<Expr>,
     pub index: Box<Expr>,
@@ -237,6 +245,7 @@ pub enum ExprKind {
     Indexing(Indexing),
     LogicalNot(LogicalNot),
     FnCall(FnCall),
+    Closure(Closure),
     Return(Option<Box<Expr>>),
     If(If),
     Loop(Loop),

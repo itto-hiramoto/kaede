@@ -144,6 +144,14 @@ pub struct TupleLiteral {
     pub span: Span,
 }
 
+#[derive(Debug)]
+pub struct Closure {
+    pub params: Vec<Ident>,
+    pub body: Box<Expr>,
+    pub captures: Vec<Ident>,
+    pub span: Span,
+}
+
 /// Sometimes called `Array subscripting`
 #[derive(Debug)]
 pub struct Indexing {
@@ -247,6 +255,7 @@ pub enum ExprKind {
     ArrayLiteral(ArrayLiteral),
     Indexing(Indexing),
     TupleLiteral(TupleLiteral),
+    Closure(Closure),
     Return(Return),
     If(If),
     Loop(Loop),
