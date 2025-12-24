@@ -110,6 +110,7 @@ impl TypeInferrer {
             // Function calls
             FnCall(fn_call) => self.infer_fn_call(fn_call),
             BuiltinFnCall(builtin_call) => self.infer_builtin_fn_call(builtin_call),
+            FnPointer(_) => Ok(expr_ty.clone()),
 
             // Control flow
             If(if_expr) => self.infer_if(if_expr),
@@ -1049,7 +1050,7 @@ impl TypeInferrer {
             }
 
             // Other literals have no child expressions
-            StringLiteral(_) | CharLiteral(_) | BooleanLiteral(_) | Break => {}
+            StringLiteral(_) | CharLiteral(_) | BooleanLiteral(_) | Break | FnPointer(_) => {}
 
             // Structured literals with child expressions
             ArrayLiteral(arr_lit) => {

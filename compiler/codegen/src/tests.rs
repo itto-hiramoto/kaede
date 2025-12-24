@@ -3160,3 +3160,58 @@ fn closure_as_return_value_immediate_call() -> anyhow::Result<()> {
     assert_eq!(exec(program)?, 21);
     Ok(())
 }
+
+#[test]
+fn function_value_assigned_and_called() -> anyhow::Result<()> {
+    let program = r#"
+        fn add(x: i32, y: i32): i32 {
+            return x + y
+        }
+
+        fn main(): i32 {
+            let f = add
+            return f(2, 3)
+        }
+    "#;
+    assert_eq!(exec(program)?, 5);
+    Ok(())
+}
+
+#[test]
+fn function_value_passed_as_argument() -> anyhow::Result<()> {
+    let program = r#"
+        fn apply(f: fn(i32, i32) -> i32, x: i32, y: i32): i32 {
+            return f(x, y)
+        }
+
+        fn mul(x: i32, y: i32): i32 {
+            return x * y
+        }
+
+        fn main(): i32 {
+            return apply(mul, 6, 7)
+        }
+    "#;
+    assert_eq!(exec(program)?, 42);
+    Ok(())
+}
+
+#[test]
+fn function_and_closure_share_fn_type() -> anyhow::Result<()> {
+    let program = r#"
+        fn apply_twice(f: fn(i32) -> i32, x: i32): i32 {
+            return f(f(x))
+        }
+
+        fn inc(n: i32): i32 {
+            return n + 1
+        }
+
+        fn main(): i32 {
+            let closure: fn(i32) -> i32 = |n| n + 2
+            return apply_twice(inc, 10) + apply_twice(closure, 0)
+        }
+    "#;
+    assert_eq!(exec(program)?, 16);
+    Ok(())
+}

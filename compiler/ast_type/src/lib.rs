@@ -236,17 +236,15 @@ impl std::fmt::Display for TyKind {
 
             Self::Generic(gty) => write!(f, "{}", gty.name.as_str()),
 
-            Self::Closure(closure) => write!(
-                f,
-                "|{}| -> {}",
-                closure
+            Self::Closure(closure) => {
+                let params = closure
                     .param_tys
                     .iter()
                     .map(|t| t.kind.to_string())
                     .collect::<Vec<_>>()
-                    .join(", "),
-                closure.ret_ty.kind
-            ),
+                    .join(", ");
+                write!(f, "fn({params}) -> {}", closure.ret_ty.kind)
+            }
 
             Self::Reference(refee) => write!(f, "&{}", refee.refee_ty.kind),
 
