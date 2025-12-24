@@ -601,7 +601,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 .left()),
             Some((mangled_name, None)) => self.build_closure_call(node, mangled_name, &args),
             None => {
-                return Err(CodegenError::UnknownCallee {
+                Err(CodegenError::UnknownCallee {
                     name: node.callee.name.symbol(),
                 }
                 .into())
