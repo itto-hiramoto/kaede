@@ -953,6 +953,21 @@ impl SemanticAnalyzer {
             })
     }
 
+    fn closure_ty_from_fn_decl(&self, decl: &ir::top::FnDecl) -> Rc<ir_type::Ty> {
+        Rc::new(ir_type::Ty {
+            kind: ir_type::TyKind::Closure(ir_type::ClosureType {
+                param_tys: decl.params.iter().map(|p| p.ty.clone()).collect(),
+                ret_ty: decl
+                    .return_ty
+                    .clone()
+                    .unwrap_or_else(|| Rc::new(ir_type::Ty::new_unit())),
+                captures: Vec::new(),
+            })
+            .into(),
+            mutability: ir_type::Mutability::Not,
+        })
+    }
+
     fn create_fn_decl_from_closure_ty(
         &self,
         name: Symbol,
@@ -2285,6 +2300,17 @@ impl SemanticAnalyzer {
                             span: node.span(),
                         }),
                         ty: ty.clone(),
+                        span: node.span(),
+                    })
+                }
+                SymbolTableValueKind::Function(decl) => {
+                    let ty = self.closure_ty_from_fn_decl(decl);
+                    Ok(ir::expr::Expr {
+                        kind: ir::expr::ExprKind::FnPointer(ir::expr::FnPointer {
+                            decl: decl.clone(),
+                            span: node.span(),
+                        }),
+                        ty,
                         span: node.span(),
                     })
                 }

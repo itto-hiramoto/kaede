@@ -228,6 +228,12 @@ pub struct BuiltinFnCall {
 }
 
 #[derive(Debug, Clone)]
+pub struct FnPointer {
+    pub decl: Rc<FnDecl>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub enum ExprKind {
     Int(Int),
     StringLiteral(StringLiteral),
@@ -245,6 +251,7 @@ pub enum ExprKind {
     Indexing(Indexing),
     LogicalNot(LogicalNot),
     FnCall(FnCall),
+    FnPointer(FnPointer),
     Closure(Closure),
     Return(Option<Box<Expr>>),
     If(If),

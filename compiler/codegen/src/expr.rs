@@ -17,8 +17,9 @@ use kaede_common::rust_function_prefix;
 use kaede_ir::{
     expr::{
         ArrayLiteral, Binary, BinaryKind, BuiltinFnCall, BuiltinFnCallKind, Cast, CharLiteral,
-        Closure, Else, EnumUnpack, EnumVariant, Expr, ExprKind, FieldAccess, FnCall, If, Indexing,
-        Int, LogicalNot, Loop, StringLiteral, StructLiteral, TupleIndexing, TupleLiteral, Variable,
+        Closure, Else, EnumUnpack, EnumVariant, Expr, ExprKind, FieldAccess, FnCall, FnPointer, If,
+        Indexing, Int, LogicalNot, Loop, StringLiteral, StructLiteral, TupleIndexing, TupleLiteral,
+        Variable,
     },
     stmt::Block,
     ty::{
@@ -59,6 +60,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             ExprKind::BooleanLiteral(node) => self.build_boolean_literal(*node),
 
             ExprKind::FnCall(node) => self.build_fn_call(node)?,
+
+            ExprKind::FnPointer(fn_ptr) => self.build_fn_pointer(fn_ptr, &node.ty)?,
 
             ExprKind::ArrayLiteral(node) => self.build_array_literal(node)?,
 
@@ -605,6 +608,79 @@ impl<'ctx> CodeGenerator<'ctx> {
             }
             .into()),
         }
+    }
+
+    fn build_fn_pointer(&mut self, node: &FnPointer, ty: &Rc<Ty>) -> anyhow::Result<Value<'ctx>> {
+        let closure_ty = match ty.kind.as_ref() {
+            TyKind::Closure(closure_ty) => closure_ty,
+            _ => return Err(CodegenError::ExpectedClosureType.into()),
+        };
+
+        let fn_value = self
+            .callee_symbols(&node.decl)
+            .iter()
+            .find_map(|name| match self.tcx.lookup_symbol(*name) {
+                Some(value) => match &*value.borrow() {
+                    SymbolTableValue::Function(fn_value) => Some(*fn_value),
+                    _ => None,
+                },
+                None => None,
+            })
+            .ok_or(CodegenError::UnknownCallee {
+                name: node.decl.name.symbol(),
+            })?;
+
+        assert!(closure_ty.captures.is_empty());
+        let (closure_struct_ty, closure_fn_ty, _) = self.closure_llvm_types(closure_ty);
+
+        let saved_block = self.builder.get_insert_block().unwrap();
+        let wrapper_name = format!("fnptr_trampoline_{}", self.closure_counter);
+        self.closure_counter += 1;
+        let wrapper = self.module.add_function(
+            wrapper_name.as_str(),
+            closure_fn_ty,
+            Some(Linkage::Internal),
+        );
+        let entry = self.context().append_basic_block(wrapper, "entry");
+        self.builder.position_at_end(entry);
+
+        let forwarded_args = wrapper
+            .get_params()
+            .iter()
+            // Skip captures pointer (unused for plain functions)
+            .skip(1)
+            .map(|arg| (*arg).into())
+            .collect::<Vec<_>>();
+
+        let call = self
+            .builder
+            .build_call(fn_value, forwarded_args.as_slice(), "")?;
+        if matches!(closure_ty.ret_ty.kind.as_ref(), TyKind::Unit) {
+            self.builder.build_return(None)?;
+        } else {
+            let ret = call.try_as_basic_value().left().unwrap();
+            self.builder.build_return(Some(&ret))?;
+        }
+
+        self.builder.position_at_end(saved_block);
+
+        let fn_ptr = wrapper
+            .as_global_value()
+            .as_pointer_value()
+            .as_basic_value_enum();
+
+        let captures_ptr = self
+            .context()
+            .ptr_type(inkwell::AddressSpace::default())
+            .const_null()
+            .as_basic_value_enum();
+
+        let value = self.create_gc_struct(
+            closure_struct_ty.as_basic_type_enum(),
+            &[fn_ptr, captures_ptr],
+        )?;
+
+        Ok(Some(value.into()))
     }
 
     fn callee_symbols(&self, callee: &kaede_ir::top::FnDecl) -> Vec<Symbol> {
