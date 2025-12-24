@@ -68,7 +68,9 @@ impl SemanticAnalyzer {
             ast_type::TyKind::Unit => Ok(ir_type::Ty::new_unit().into()),
             ast_type::TyKind::Never => Ok(ir_type::Ty::new_never().into()),
             ast_type::TyKind::Var => Ok(self.infer_context.fresh()),
-            ast_type::TyKind::Closure(_) => todo!(),
+            ast_type::TyKind::Closure(closure) => {
+                self.analyze_closure_type(closure, ty.mutability.into())
+            }
         }
     }
 
@@ -492,5 +494,29 @@ impl SemanticAnalyzer {
             kind: ir_type::TyKind::Tuple(etys.into_iter().collect()).into(),
             mutability,
         })
+    }
+
+    fn analyze_closure_type(
+        &mut self,
+        closure: &ast_type::ClosureType,
+        mutability: ir_type::Mutability,
+    ) -> anyhow::Result<Rc<ir_type::Ty>> {
+        let param_tys = closure
+            .param_tys
+            .iter()
+            .map(|ty| self.analyze_type(ty))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        let ret_ty = self.analyze_type(&closure.ret_ty)?;
+
+        Ok(Rc::new(ir_type::Ty {
+            kind: ir_type::TyKind::Closure(ir_type::ClosureType {
+                param_tys,
+                ret_ty,
+                captures: Vec::new(),
+            })
+            .into(),
+            mutability,
+        }))
     }
 }

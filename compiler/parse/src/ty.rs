@@ -1,8 +1,8 @@
 use std::rc::Rc;
 
 use kaede_ast_type::{
-    change_mutability, make_fundamental_type, FundamentalTypeKind, GenericArgs, GenericType,
-    Mutability, PointerType, ReferenceType, Ty, TyKind, UserDefinedType,
+    change_mutability, make_fundamental_type, ClosureType, FundamentalTypeKind, GenericArgs,
+    GenericType, Mutability, PointerType, ReferenceType, Ty, TyKind, UserDefinedType,
 };
 use kaede_lex::token::TokenKind;
 use kaede_symbol::Ident;
@@ -125,6 +125,18 @@ impl Parser {
         if self.check(&TokenKind::OpenParen) {
             // Tuple type
             return self.tuple_ty();
+        }
+
+        if self.check(&TokenKind::Fn) {
+            // Closure type
+            self.checkpoint();
+            self.consume_b(&TokenKind::Fn);
+            let is_closure_ty = self.check(&TokenKind::OpenParen);
+            self.backtrack();
+
+            if is_closure_ty {
+                return self.closure_ty();
+            }
         }
 
         let type_ident = match self.ident() {
@@ -279,5 +291,53 @@ impl Parser {
 
             self.consume(&TokenKind::Comma)?;
         }
+    }
+
+    fn closure_ty(&mut self) -> ParseResult<Ty> {
+        // fn(i32) -> i32
+        // ^
+        let start = self.consume(&TokenKind::Fn)?.start;
+
+        // fn(i32) -> i32
+        //   ^
+        self.consume(&TokenKind::OpenParen)?;
+
+        // fn(i32) -> i32
+        //   ^~~
+        let mut param_tys = Vec::new();
+
+        if !self.check(&TokenKind::CloseParen) {
+            loop {
+                param_tys.push(self.ty()?.into());
+
+                if self.consume_b(&TokenKind::CloseParen) {
+                    break;
+                }
+
+                self.consume(&TokenKind::Comma)?;
+            }
+        } else {
+            self.consume(&TokenKind::CloseParen)?;
+        }
+
+        // fn(i32) -> i32
+        //          ^^
+        self.consume(&TokenKind::Arrow)?;
+
+        // fn(i32) -> i32
+        //             ^~~
+        let ret_ty = self.ty()?;
+        let finish = ret_ty.span.finish;
+
+        Ok(Ty {
+            span: self.new_span(start, finish),
+            kind: TyKind::Closure(ClosureType {
+                param_tys,
+                ret_ty: ret_ty.into(),
+                captures: Vec::new(),
+            })
+            .into(),
+            mutability: Mutability::Not,
+        })
     }
 }

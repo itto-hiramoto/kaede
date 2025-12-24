@@ -3052,3 +3052,63 @@ fn closure_with_block_body() -> anyhow::Result<()> {
     assert_eq!(exec(program)?, 58);
     Ok(())
 }
+
+#[test]
+fn closure_type_as_function_param() -> anyhow::Result<()> {
+    let program = r#"
+        fn apply(f: fn(i32) -> i32, x: i32): i32 {
+            return f(x)
+        }
+
+        fn main(): i32 {
+            return apply(|n| n + 10, 48)
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn closure_type_as_variable() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let f: fn(i32) -> i32 = |x| x + 1
+            return f(57)
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn closure_type_as_function_return_type() -> anyhow::Result<()> {
+    let program = r#"
+        fn f(): fn(i32) -> i32 {
+            return |x| x + 1
+        }
+
+        fn main(): i32 {
+            let g = f()
+            return g(48)
+        }
+    "#;
+    assert_eq!(exec(program)?, 49);
+    Ok(())
+}
+
+#[test]
+fn closure_type_with_generic_param() -> anyhow::Result<()> {
+    let program = r#"
+        fn apply<T>(f: fn(T) -> T, x: T): T {
+            return f(x)
+        }
+
+        fn main(): i32 {
+            return apply<i32>(|n| n + 10, 48)
+        }
+    "#;
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}

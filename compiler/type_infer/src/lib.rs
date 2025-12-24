@@ -157,6 +157,12 @@ impl TypeInferrer {
     ) -> Result<Rc<Ty>, TypeInferError> {
         use ExprKind::*;
 
+        if let Closure(closure) = &expr.kind {
+            if let Some(ty) = self.check_closure(expr, closure, expected_ty)? {
+                return Ok(ty);
+            }
+        }
+
         match &expr.kind {
             // Structured literals benefit from checking
             ArrayLiteral(arr_lit) => self.check_array_literal(arr_lit, expected_ty, expr.span),
@@ -173,6 +179,61 @@ impl TypeInferrer {
                 Ok(self.context.apply(expected_ty))
             }
         }
+    }
+
+    /// Specialized checking for closures to flow expected param/return types into the body
+    fn check_closure(
+        &mut self,
+        expr: &Expr,
+        closure: &kaede_ir::expr::Closure,
+        expected_ty: &Rc<Ty>,
+    ) -> Result<Option<Rc<Ty>>, TypeInferError> {
+        let expected_ty = self.context.apply(expected_ty);
+        let unwrapped = Self::unwrap_reference(&expected_ty);
+
+        let TyKind::Closure(expected_closure) = unwrapped.kind.as_ref() else {
+            // Expected type is not a closure, so we can't check it
+            return Ok(None);
+        };
+
+        // Resolve captures before checking body so their types participate in inference
+        for cap in &closure.captures {
+            self.infer_expr(cap)?;
+        }
+
+        let closure_ty = match expr.ty.kind.as_ref() {
+            TyKind::Closure(ty) => ty,
+            _ => unreachable!(),
+        };
+
+        self.with_new_scope(|this| {
+            // Bind parameter types to the expected closure signature
+            for ((param_name, param_ty), expected_param_ty) in closure
+                .params
+                .iter()
+                .zip(closure_ty.param_tys.iter())
+                .zip(expected_closure.param_tys.iter())
+            {
+                // Make sure the parameter type matches the expected signature (fills in type vars)
+                this.context
+                    .unify(param_ty, expected_param_ty, closure.span)?;
+                this.register_variable(*param_name, expected_param_ty.clone());
+            }
+
+            // Check body against expected return type
+            let body_ty = this.check_expr(&closure.body, &expected_closure.ret_ty)?;
+            // Body result must match the expected return type
+            this.context
+                .unify(&body_ty, &expected_closure.ret_ty, closure.span)?;
+
+            Ok(())
+        })?;
+
+        // Unify the closure expression type with the expected type
+        self.context.unify(&expr.ty, &expected_ty, expr.span)?;
+
+        // Return the fully applied expected type so callers see concrete types
+        Ok(Some(self.context.apply(&expected_ty)))
     }
 
     pub fn infer_stmt(&mut self, stmt: &Stmt) -> Result<Rc<Ty>, TypeInferError> {
@@ -837,9 +898,9 @@ impl TypeInferrer {
         span: Span,
     ) -> Result<Rc<Ty>, TypeInferError> {
         if let Some(expr) = ret {
-            let ty = self.infer_expr(expr)?;
-            self.context
-                .unify(&ty, &self.function_return_ty, expr.span)?;
+            let expected_return_ty = self.function_return_ty.clone();
+            let ty = self.check_expr(expr, &expected_return_ty)?;
+            self.context.unify(&ty, &expected_return_ty, expr.span)?;
         } else {
             // `return;` should only be used in functions that return unit
             self.context

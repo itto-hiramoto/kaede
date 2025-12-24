@@ -25,6 +25,7 @@ impl InferContext {
         })
     }
 
+    /// Recursively substitute type variables using current bindings, rebuilding composite types.
     pub fn apply(&self, t: &Rc<Ty>) -> Rc<Ty> {
         match t.kind.as_ref() {
             TyKind::Var(id) => {
@@ -80,6 +81,7 @@ impl InferContext {
         }
     }
 
+    /// Occurs check to prevent constructing infinite types (e.g., α = [α]).
     fn occurs(&self, var_id: usize, t: &Rc<Ty>) -> bool {
         match self.apply(t).kind.as_ref() {
             TyKind::Var(id) => *id == var_id,
@@ -116,6 +118,7 @@ impl InferContext {
         self.subst.insert(root, ty);
     }
 
+    /// Unify two types, binding type variables as needed and producing errors on mismatches.
     pub fn unify(&mut self, a: &Rc<Ty>, b: &Rc<Ty>, span: Span) -> Result<(), TypeInferError> {
         let a = self.apply(a);
         let b = self.apply(b);
@@ -199,9 +202,7 @@ impl InferContext {
             }
 
             (TyKind::Closure(c1), TyKind::Closure(c2)) => {
-                if c1.param_tys.len() != c2.param_tys.len()
-                    || c1.captures.len() != c2.captures.len()
-                {
+                if c1.param_tys.len() != c2.param_tys.len() {
                     return Err(TypeInferError::CannotUnify {
                         a: a.kind.to_string(),
                         b: b.kind.to_string(),
@@ -214,10 +215,6 @@ impl InferContext {
                 }
 
                 self.unify(&c1.ret_ty, &c2.ret_ty, span)?;
-
-                for (cap1, cap2) in c1.captures.iter().zip(c2.captures.iter()) {
-                    self.unify(cap1, cap2, span)?;
-                }
 
                 Ok(())
             }
