@@ -196,9 +196,10 @@ impl SemanticAnalyzer {
                     ast::expr::ExprKind::Ident(i) => {
                         let (variant_name, param) = match &b.rhs.kind {
                             ast::expr::ExprKind::Ident(ident) => (ident, None),
-                            ast::expr::ExprKind::FnCall(fncall) => {
-                                (&fncall.callee, Some(&fncall.args))
-                            }
+                            ast::expr::ExprKind::FnCall(fncall) => match &fncall.callee.kind {
+                                ast::expr::ExprKind::Ident(ident) => (ident, Some(&fncall.args)),
+                                _ => unreachable!(),
+                            },
                             _ => unreachable!(),
                         };
 
@@ -932,11 +933,80 @@ impl SemanticAnalyzer {
         })
     }
 
+    fn callee_ident(node: &ast::expr::FnCall) -> Option<Ident> {
+        if let ast::expr::ExprKind::Ident(ident) = node.callee.kind {
+            Some(ident)
+        } else {
+            None
+        }
+    }
+
+    fn callee_symbol(&self, node: &ast::expr::FnCall) -> anyhow::Result<Symbol> {
+        Self::callee_ident(node)
+            .map(|ident| ident.symbol())
+            .ok_or_else(|| {
+                SemanticError::NotCallable {
+                    ty: "expression".to_string(),
+                    span: node.span,
+                }
+                .into()
+            })
+    }
+
+    fn create_fn_decl_from_closure_ty(
+        &self,
+        name: Symbol,
+        closure_ty: &ir_type::ClosureType,
+    ) -> Rc<ir::top::FnDecl> {
+        let params = closure_ty
+            .param_tys
+            .iter()
+            .enumerate()
+            .map(|(i, ty)| ir::top::Param {
+                name: Symbol::from(format!("arg{i}")),
+                ty: ty.clone(),
+            })
+            .collect::<Vec<_>>();
+
+        ir::top::FnDecl {
+            lang_linkage: kaede_common::LangLinkage::Default,
+            link_once: false,
+            name: QualifiedSymbol::new(self.current_module_path().clone(), name),
+            params,
+            is_c_variadic: false,
+            return_ty: Some(closure_ty.ret_ty.clone()),
+        }
+        .into()
+    }
+
+    fn create_fn_decl_from_callable_ty(
+        &self,
+        name: Symbol,
+        ty: &ir_type::Ty,
+    ) -> Option<Rc<ir::top::FnDecl>> {
+        match ty.kind.as_ref() {
+            ir_type::TyKind::Closure(closure_ty) => {
+                Some(self.create_fn_decl_from_closure_ty(name, closure_ty))
+            }
+
+            ir_type::TyKind::Reference(rty) => {
+                self.create_fn_decl_from_callable_ty(name, &rty.get_base_type())
+            }
+
+            ir_type::TyKind::Pointer(pty) => {
+                self.create_fn_decl_from_callable_ty(name, &pty.get_base_type())
+            }
+
+            _ => None,
+        }
+    }
+
     fn analyze_builtin_fn_call(
         &mut self,
         node: &ast::expr::FnCall,
+        callee: Ident,
     ) -> anyhow::Result<ir::expr::Expr> {
-        match node.callee.symbol().as_str() {
+        match callee.symbol().as_str() {
             "__unreachable" => Ok(ir::expr::Expr {
                 kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
                     kind: ir::expr::BuiltinFnCallKind::Unreachable,
@@ -970,27 +1040,91 @@ impl SemanticAnalyzer {
             }
 
             _ => Err(SemanticError::Undeclared {
-                name: node.callee.symbol(),
+                name: callee.symbol(),
                 span: node.span,
             }
             .into()),
         }
     }
 
-    fn analyze_fn_call(&mut self, node: &ast::expr::FnCall) -> anyhow::Result<ir::expr::Expr> {
+    fn analyze_callable_value(
+        &mut self,
+        node: &ast::expr::FnCall,
+        callee_name: Symbol,
+        callee_ty: Rc<ir_type::Ty>,
+        callee_value: Option<ir::expr::Expr>,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let callee_decl = self
+            .create_fn_decl_from_callable_ty(callee_name, &callee_ty)
+            .ok_or_else(|| SemanticError::NotCallable {
+                ty: callee_ty.kind.to_string(),
+                span: node.span,
+            })?;
+
+        let args = node
+            .args
+            .0
+            .iter()
+            .map(|arg| self.analyze_expr(arg))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        if !callee_decl.is_c_variadic {
+            self.verify_fn_call_arguments(&callee_decl, &args, node.span)?;
+        }
+
+        let call_expr = ir::expr::Expr {
+            kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
+                callee: callee_decl.clone(),
+                args: ir::expr::Args(args, node.span),
+                span: node.span,
+            }),
+            ty: callee_decl
+                .return_ty
+                .clone()
+                .unwrap_or_else(|| Rc::new(ir_type::Ty::new_unit())),
+            span: node.span,
+        };
+
+        if let Some(callee_value) = callee_value {
+            let call_ty = call_expr.ty.clone();
+            let let_stmt = ir::stmt::Let {
+                name: callee_decl.name.symbol(),
+                init: Some(callee_value),
+                ty: callee_ty,
+                span: node.span,
+            };
+
+            return Ok(ir::expr::Expr {
+                kind: ir::expr::ExprKind::Block(ir::stmt::Block {
+                    body: vec![ir::stmt::Stmt::Let(let_stmt)],
+                    last_expr: Some(Box::new(call_expr)),
+                    span: node.span,
+                }),
+                ty: call_ty,
+                span: node.span,
+            });
+        }
+
+        Ok(call_expr)
+    }
+
+    fn analyze_fn_call_with_ident(
+        &mut self,
+        node: &ast::expr::FnCall,
+        callee: Ident,
+    ) -> anyhow::Result<ir::expr::Expr> {
         // Builtin functions
-        if node.callee.symbol().as_str().starts_with("__") {
-            return self.analyze_builtin_fn_call(node);
+        if callee.symbol().as_str().starts_with("__") {
+            return self.analyze_builtin_fn_call(node, callee);
         }
 
         let symbol_value =
-            self.lookup_symbol(node.callee.symbol())
+            self.lookup_symbol(callee.symbol())
                 .ok_or_else(|| SemanticError::Undeclared {
-                    name: node.callee.symbol(),
+                    name: callee.symbol(),
                     span: node.span,
                 })?;
 
-        // Create a separate binding for the borrowed value
         let borrowed = symbol_value.borrow();
         match &borrowed.kind {
             SymbolTableValueKind::Function(fn_decl) => {
@@ -1024,75 +1158,26 @@ impl SemanticAnalyzer {
 
             SymbolTableValueKind::Generic(info) => self.analyze_generic_fn_call(info, node),
 
-            SymbolTableValueKind::Variable(VariableInfo { ty })
-                if matches!(ty.kind.as_ref(), ir_type::TyKind::Closure(_)) =>
-            {
-                let closure_ty = match ty.kind.as_ref() {
-                    ir_type::TyKind::Closure(closure_ty) => closure_ty,
-                    _ => unreachable!(),
-                };
-
-                let args = node
-                    .args
-                    .0
-                    .iter()
-                    .map(|arg| self.analyze_expr(arg))
-                    .collect::<anyhow::Result<Vec<_>>>()?;
-
-                if closure_ty.param_tys.len() != args.len() {
-                    return Err(if args.len() < closure_ty.param_tys.len() {
-                        SemanticError::TooFewArguments {
-                            name: node.callee.symbol(),
-                            span: node.span,
-                        }
-                    } else {
-                        SemanticError::TooManyArguments {
-                            name: node.callee.symbol(),
-                            span: node.span,
-                        }
-                    }
-                    .into());
-                }
-
-                let params = closure_ty
-                    .param_tys
-                    .iter()
-                    .enumerate()
-                    .map(|(i, ty)| ir::top::Param {
-                        name: Symbol::from(format!("arg{i}")),
-                        ty: ty.clone(),
-                    })
-                    .collect::<Vec<_>>();
-
-                let callee_decl: Rc<ir::top::FnDecl> = ir::top::FnDecl {
-                    lang_linkage: ir::top::LangLinkage::Default,
-                    link_once: false,
-                    name: QualifiedSymbol::new(
-                        self.current_module_path().clone(),
-                        node.callee.symbol(),
-                    ),
-                    params,
-                    is_c_variadic: false,
-                    return_ty: Some(closure_ty.ret_ty.clone()),
-                }
-                .into();
-
-                Ok(ir::expr::Expr {
-                    kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
-                        callee: callee_decl.clone(),
-                        args: ir::expr::Args(args, node.span),
-                        span: node.span,
-                    }),
-                    ty: callee_decl
-                        .return_ty
-                        .clone()
-                        .unwrap_or_else(|| Rc::new(ir_type::Ty::new_unit())),
-                    span: node.span,
-                })
+            SymbolTableValueKind::Variable(VariableInfo { ty }) => {
+                self.analyze_callable_value(node, callee.symbol(), ty.clone(), None)
             }
 
             _ => unreachable!(),
         }
+    }
+
+    fn analyze_fn_call(&mut self, node: &ast::expr::FnCall) -> anyhow::Result<ir::expr::Expr> {
+        if let Some(callee) = Self::callee_ident(node) {
+            return self.analyze_fn_call_with_ident(node, callee);
+        }
+
+        let callee_expr = self.analyze_expr(&node.callee)?;
+        let callee_name = self.fresh_temp_symbol("__callee");
+
+        // Currently, generic arguments are only supported for named callees.
+        debug_assert!(node.generic_args.is_none());
+
+        self.analyze_callable_value(node, callee_name, callee_expr.ty.clone(), Some(callee_expr))
     }
 
     fn analyze_array_or_ptr_indexing(
@@ -1465,10 +1550,10 @@ impl SemanticAnalyzer {
             if right.args.0.len() != 1 {
                 // Static methods
                 self.analyze_static_method_call(udt, right)
-            } else {
+            } else if let Some(callee) = Self::callee_ident(right) {
                 let value = right.args.0.front().unwrap();
 
-                match self.analyze_enum_variant(udt, right.callee, Some(value), *left) {
+                match self.analyze_enum_variant(udt, callee, Some(value), *left) {
                     Ok(val) => Ok(val),
                     Err(err) => {
                         err.downcast().and_then(|e| match e {
@@ -1489,6 +1574,8 @@ impl SemanticAnalyzer {
                         })
                     }
                 }
+            } else {
+                self.analyze_static_method_call(udt, right)
             }
         } else if let ast::expr::ExprKind::Ident(right) = &node.rhs.kind {
             // Create enum variant without value.
@@ -1588,7 +1675,8 @@ impl SemanticAnalyzer {
         udt: &ir_type::UserDefinedType,
         call_node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
-        let method_name = self.create_method_key(udt.name(), call_node.callee.symbol(), true);
+        let method_symbol = self.callee_symbol(call_node)?;
+        let method_name = self.create_method_key(udt.name(), method_symbol, true);
 
         let qualified_method_name =
             QualifiedSymbol::new(udt.qualified_symbol().module_path().clone(), method_name);
@@ -1597,7 +1685,7 @@ impl SemanticAnalyzer {
         let method_decl =
             self.lookup_qualified_symbol(qualified_method_name)
                 .ok_or(SemanticError::NoMethod {
-                    method_name: call_node.callee.symbol(),
+                    method_name: method_symbol,
                     parent_name: udt.name(),
                     span: call_node.span,
                 })?;
@@ -1715,9 +1803,10 @@ impl SemanticAnalyzer {
         if let ast::expr::ExprKind::FnCall(call_node) = &ast_right.kind {
             // Method call
             let span = Span::new(left.span.start, ast_right.span.finish, left.span.file);
+            let callee_symbol = self.callee_symbol(call_node)?;
 
             self.create_method_call_ir(
-                call_node.callee.symbol(),
+                callee_symbol,
                 ModulePath::new(vec![]),
                 "str".to_owned().into(),
                 call_node,
@@ -1937,8 +2026,9 @@ impl SemanticAnalyzer {
         call_node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
         let span = Span::new(lhs.span.start, call_node.span.finish, lhs.span.file);
+        let callee_symbol = self.callee_symbol(call_node)?;
         self.create_method_call_ir(
-            call_node.callee.symbol(),
+            callee_symbol,
             udt.module_path().clone(),
             udt.name(),
             call_node,
@@ -2003,13 +2093,14 @@ impl SemanticAnalyzer {
         this: ir::expr::Expr,
         span: Span,
     ) -> anyhow::Result<ir::expr::Expr> {
+        let original_method_name = method_name;
         let no_method_err = || SemanticError::NoMethod {
-            method_name: call_node.callee.symbol(),
+            method_name: original_method_name,
             parent_name,
             span: call_node.span,
         };
 
-        let method_name = self.create_method_key(parent_name, method_name, false);
+        let method_name = self.create_method_key(parent_name, original_method_name, false);
 
         let callee =
             match self.lookup_qualified_symbol(QualifiedSymbol::new(module_path, method_name)) {
@@ -2076,9 +2167,10 @@ impl SemanticAnalyzer {
         call_node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
         let span = Span::new(left.span.start, call_node.span.finish, left.span.file);
+        let callee_symbol = self.callee_symbol(call_node)?;
 
         self.create_method_call_ir(
-            call_node.callee.symbol(),
+            callee_symbol,
             ModulePath::new(vec![]),
             fty.kind.to_string().into(),
             call_node,

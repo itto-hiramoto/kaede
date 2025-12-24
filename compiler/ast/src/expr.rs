@@ -33,7 +33,7 @@ pub struct Args(pub VecDeque<Expr>, pub Span);
 
 #[derive(Debug)]
 pub struct FnCall {
-    pub callee: Ident,
+    pub callee: Box<Expr>,
     pub generic_args: Option<GenericArgs>,
     pub args: Args,
     pub span: Span,

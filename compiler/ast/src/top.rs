@@ -1,6 +1,7 @@
 use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast_type::{Mutability, Ty};
+use kaede_common::LangLinkage;
 use kaede_span::Span;
 use kaede_symbol::Ident;
 
@@ -101,6 +102,7 @@ pub struct Params {
 
 #[derive(Debug, Clone)]
 pub struct FnDecl {
+    pub lang_linkage: LangLinkage,
     pub vis: Visibility,
     pub self_: Option<Mutability>,
     pub name: Ident,

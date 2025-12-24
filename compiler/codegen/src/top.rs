@@ -7,8 +7,9 @@ use inkwell::{
 };
 
 use kaede_common::rust_function_prefix;
+use kaede_common::LangLinkage;
 use kaede_ir::{
-    top::{Enum, EnumVariant, Fn, FnDecl, Impl, LangLinkage, Param, Struct, StructField, TopLevel},
+    top::{Enum, EnumVariant, Fn, FnDecl, Impl, Param, Struct, StructField, TopLevel},
     ty::Ty,
 };
 use kaede_symbol::Symbol;

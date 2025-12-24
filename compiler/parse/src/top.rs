@@ -5,6 +5,7 @@ use kaede_ast::top::{
     Path, PathSegment, Struct, StructField, TopLevel, TopLevelKind, Use, VariadicKind, Visibility,
 };
 use kaede_ast_type::Mutability;
+use kaede_common::LangLinkage;
 use kaede_lex::token::{Token, TokenKind};
 use kaede_span::Location;
 
@@ -83,7 +84,12 @@ impl Parser {
             }
         };
 
-        let fn_decl = self.fn_decl(vis)?;
+        let mut fn_decl = self.fn_decl(vis)?;
+
+        fn_decl.lang_linkage = match lang.syb.as_str() {
+            "Rust" => LangLinkage::Rust,
+            _ => unreachable!(),
+        };
 
         Ok(Bridge {
             span: self.new_span(start, fn_decl.span.finish),
@@ -292,6 +298,7 @@ impl Parser {
         }
 
         Ok(FnDecl {
+            lang_linkage: LangLinkage::Default,
             vis,
             link_once: false,
             self_: if has_self { Some(mutability) } else { None },

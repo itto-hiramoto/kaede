@@ -12,10 +12,11 @@ use inkwell::{
     AddressSpace, OptimizationLevel,
 };
 
+use kaede_common::LangLinkage;
 use kaede_ir::{
     module_path::ModulePath,
     qualified_symbol::QualifiedSymbol,
-    top::{FnDecl, LangLinkage, Param, TopLevel},
+    top::{FnDecl, Param, TopLevel},
     ty::{
         make_fundamental_type, FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind,
         UserDefinedTypeKind,

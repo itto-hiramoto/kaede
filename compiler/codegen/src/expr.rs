@@ -1,6 +1,7 @@
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
+    error::CodegenError,
     tcx::{SymbolTable, SymbolTableValue},
     CodeGenerator,
 };
@@ -25,6 +26,7 @@ use kaede_ir::{
         TyKind,
     },
 };
+use kaede_symbol::Symbol;
 
 pub type Value<'ctx> = Option<BasicValueEnum<'ctx>>;
 
@@ -100,7 +102,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         let closure_ty = match ty.kind.as_ref() {
             TyKind::Closure(closure_ty) => closure_ty,
-            _ => anyhow::bail!("expected closure type"),
+            _ => return Err(CodegenError::ExpectedClosureType.into()),
         };
 
         let (closure_struct_ty, closure_fn_ty, captures_tuple_ty) =
@@ -194,7 +196,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         for (idx, capture) in captures.iter().enumerate() {
             let name = match &capture.kind {
                 ExprKind::Variable(var) => var.name,
-                _ => anyhow::bail!("unsupported capture expression"),
+                _ => return Err(CodegenError::UnsupportedCaptureExpression.into()),
             };
 
             let capture_llvm_ty = self.conv_to_llvm_type(&closure_ty.captures[idx]);
@@ -267,9 +269,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
             U64(n) => Ok(Some(self.context().i64_type().const_int(n, false).into())),
 
-            Infer(_) => {
-                anyhow::bail!("IntKind::Infer should have been resolved by type inference phase")
-            }
+            Infer(_) => Err(CodegenError::UnresolvedInferInt.into()),
         }
     }
 
@@ -583,59 +583,69 @@ impl<'ctx> CodeGenerator<'ctx> {
             args
         };
 
-        let mangled_name = node.callee.name.mangle();
-
-        let fn_value = {
-            let names = [
-                mangled_name,
-                format!("{}{}", rust_function_prefix(), node.callee.name.symbol()).into(), // For Rust functions
-                node.callee.name.symbol(), // For C functions
-            ];
-
-            let mut i = 0;
-
-            loop {
-                if i >= names.len() {
-                    break None;
+        let callee_result = self.callee_symbols(&node.callee).iter().find_map(|name| {
+            self.tcx.lookup_symbol(*name).map(|symbol| {
+                let value = symbol.borrow();
+                match &*value {
+                    SymbolTableValue::Function(fn_value) => (*name, Some(*fn_value)),
+                    _ => (*name, None),
                 }
+            })
+        });
 
-                let name = names[i];
-
-                match self.tcx.lookup_symbol(name) {
-                    Some(fn_) => match &*fn_.borrow() {
-                        SymbolTableValue::Function(fn_) => break Some(*fn_),
-                        _ => i += 1,
-                    },
-
-                    _ => i += 1,
-                }
-            }
-        };
-
-        if let Some(fn_value) = fn_value {
-            return Ok(self
+        match callee_result {
+            Some((_, Some(fn_value))) => Ok(self
                 .builder
                 .build_call(fn_value, args.as_slice(), "")?
                 .try_as_basic_value()
-                .left());
+                .left()),
+            Some((mangled_name, None)) => self.build_closure_call(node, mangled_name, &args),
+            None => {
+                return Err(CodegenError::UnknownCallee {
+                    name: node.callee.name.symbol(),
+                }
+                .into())
+            }
+        }
+    }
+
+    fn callee_symbols(&self, callee: &kaede_ir::top::FnDecl) -> Vec<Symbol> {
+        use kaede_common::LangLinkage;
+
+        let mut names = match callee.lang_linkage {
+            LangLinkage::Default => vec![callee.name.mangle()],
+            LangLinkage::Rust => {
+                vec![format!("{}{}", rust_function_prefix(), callee.name.symbol()).into()]
+            }
+            LangLinkage::C => vec![callee.name.symbol()],
+        };
+
+        let base_name = callee.name.symbol();
+        if !names.contains(&base_name) {
+            names.push(base_name);
         }
 
-        self.build_closure_call(node, &args)
+        names
     }
 
     fn build_closure_call(
         &mut self,
         node: &FnCall,
+        mangled_name: Symbol,
         args: &[inkwell::values::BasicMetadataValueEnum<'ctx>],
     ) -> anyhow::Result<Value<'ctx>> {
-        let callee_symbol = node.callee.name.symbol();
-        let callee_ptr = match self.tcx.lookup_symbol(callee_symbol) {
+        let callee_ptr = match self.tcx.lookup_symbol(mangled_name) {
             Some(value) => match &*value.borrow() {
                 SymbolTableValue::Variable(var) => *var,
-                _ => anyhow::bail!("callee is not a closure value"),
+                _ => return Err(CodegenError::CalleeNotClosureValue { name: mangled_name }.into()),
             },
 
-            None => anyhow::bail!("unknown callee: {}", callee_symbol),
+            None => {
+                return Err(CodegenError::UnknownCallee {
+                    name: node.callee.name.symbol(),
+                }
+                .into())
+            }
         };
 
         let ptr_ty = self.context().ptr_type(inkwell::AddressSpace::default());

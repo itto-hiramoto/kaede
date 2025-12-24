@@ -1,3 +1,4 @@
+use kaede_symbol::Symbol;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -14,4 +15,19 @@ pub enum CodegenError {
 
     #[error("failed to create target machine")]
     FailedToCreateTargetMachine,
+
+    #[error("expected closure type")]
+    ExpectedClosureType,
+
+    #[error("unsupported capture expression")]
+    UnsupportedCaptureExpression,
+
+    #[error("integer inference should have been resolved before codegen")]
+    UnresolvedInferInt,
+
+    #[error("unknown callee: {}", name)]
+    UnknownCallee { name: Symbol },
+
+    #[error("callee is not a closure value: {}", name)]
+    CalleeNotClosureValue { name: Symbol },
 }

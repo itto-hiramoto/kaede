@@ -306,7 +306,7 @@ impl SemanticAnalyzer {
         let mut fn_decl = self.analyze_fn_decl(node.fn_decl)?;
 
         fn_decl.lang_linkage = match node.lang.syb.as_str() {
-            "Rust" => ir::top::LangLinkage::Rust,
+            "Rust" => kaede_common::LangLinkage::Rust,
             _ => unreachable!(),
         };
 
@@ -326,7 +326,7 @@ impl SemanticAnalyzer {
 
         if let Some(lang_linkage) = node.lang_linkage {
             fn_decl.lang_linkage = match lang_linkage.syb.as_str() {
-                "C" => ir::top::LangLinkage::C,
+                "C" => kaede_common::LangLinkage::C,
                 _ => unreachable!(),
             };
         }
@@ -583,7 +583,7 @@ impl SemanticAnalyzer {
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         let fn_decl = ir::top::FnDecl {
-            lang_linkage: ir::top::LangLinkage::Default,
+            lang_linkage: node.lang_linkage,
             link_once: node.link_once,
             name: qualified_name,
             is_c_variadic: matches!(node.params.variadic, ast::top::VariadicKind::C),

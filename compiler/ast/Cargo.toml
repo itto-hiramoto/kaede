@@ -11,3 +11,4 @@ inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", feat
 kaede_ast_type = { path = "../ast_type" }
 kaede_span = { path = "../span" }
 kaede_symbol = { path = "../symbol" }
+kaede_common = { path = "../common" }

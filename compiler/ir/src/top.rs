@@ -1,5 +1,6 @@
 use std::rc::Rc;
 
+use kaede_common::LangLinkage;
 use kaede_symbol::Symbol;
 
 use crate::{qualified_symbol::QualifiedSymbol, stmt::Block, ty::Ty};
@@ -21,13 +22,6 @@ pub struct Struct {
 pub struct Param {
     pub name: Symbol,
     pub ty: Rc<Ty>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LangLinkage {
-    Default,
-    C,
-    Rust,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

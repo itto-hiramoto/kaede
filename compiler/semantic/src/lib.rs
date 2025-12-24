@@ -50,6 +50,7 @@ pub struct SemanticAnalyzer {
     autoloads_imported: bool,
     infer_context: InferContext,
     closure_capture_stack: Vec<ClosureCapture>,
+    temp_symbol_counter: usize,
 }
 
 impl SemanticAnalyzer {
@@ -76,6 +77,7 @@ impl SemanticAnalyzer {
             autoloads_imported: false,
             infer_context: InferContext::default(),
             closure_capture_stack: Vec::new(),
+            temp_symbol_counter: 0,
         }
     }
 
@@ -97,6 +99,7 @@ impl SemanticAnalyzer {
             autoloads_imported: false,
             infer_context: InferContext::default(),
             closure_capture_stack: Vec::new(),
+            temp_symbol_counter: 0,
         }
     }
 
@@ -127,6 +130,12 @@ impl SemanticAnalyzer {
             }
             eprintln!("---------------------");
         }
+    }
+
+    fn fresh_temp_symbol(&mut self, prefix: &str) -> Symbol {
+        let name = format!("{prefix}{}", self.temp_symbol_counter);
+        self.temp_symbol_counter += 1;
+        Symbol::from(name)
     }
 
     fn create_module_path_from_file_path(
@@ -539,7 +548,7 @@ impl SemanticAnalyzer {
         ];
 
         let main_fn_decl = ir::top::FnDecl {
-            lang_linkage: ir::top::LangLinkage::Default,
+            lang_linkage: kaede_common::LangLinkage::Default,
             link_once: false,
             name: QualifiedSymbol::new(ModulePath::new(vec![]), "main".to_owned().into()),
             params,

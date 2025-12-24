@@ -3112,3 +3112,51 @@ fn closure_type_with_generic_param() -> anyhow::Result<()> {
     assert_eq!(exec(program)?, 58);
     Ok(())
 }
+
+#[test]
+fn closure_immediate_call() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            return (|n| n + 1)(10)
+        }
+    "#;
+    assert_eq!(exec(program)?, 11);
+    Ok(())
+}
+
+#[test]
+fn closure_immediate_call_with_multiple_params() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            return (|x, y| x + y)(15, 25)
+        }
+    "#;
+    assert_eq!(exec(program)?, 40);
+    Ok(())
+}
+
+#[test]
+fn closure_immediate_call_nested() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            return (|x| (|y| x + y)(20))(30)
+        }
+    "#;
+    assert_eq!(exec(program)?, 50);
+    Ok(())
+}
+
+#[test]
+fn closure_as_return_value_immediate_call() -> anyhow::Result<()> {
+    let program = r#"
+        fn f(): fn(i32) -> i32 {
+            return |x| x + 1
+        }
+
+        fn main(): i32 {
+            return f()(20)
+        }
+    "#;
+    assert_eq!(exec(program)?, 21);
+    Ok(())
+}
