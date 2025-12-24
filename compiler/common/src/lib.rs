@@ -37,3 +37,10 @@ pub fn rust_function_prefix() -> &'static str {
 pub fn kaede_rust_bridge_codegen_path() -> PathBuf {
     kaede_dir().join("kaede-rust-bridge-codegen")
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LangLinkage {
+    Default,
+    C,
+    Rust,
+}

@@ -219,6 +219,27 @@ impl ModuleContext {
         self.symbol_table_stack.last_mut().unwrap()
     }
 
+    pub fn symbol_table_depth(&self) -> usize {
+        self.symbol_table_stack.len()
+    }
+
+    pub fn lookup_symbol_with_depth(
+        &self,
+        symbol: &Symbol,
+    ) -> Option<(Rc<RefCell<SymbolTableValue>>, usize)> {
+        for (idx, table) in self.symbol_table_stack.iter().enumerate().rev() {
+            if let Some(value) = table.lookup(symbol) {
+                return Some((value, idx));
+            }
+        }
+
+        if let Some(value) = self.private_symbol_table.lookup(symbol) {
+            return Some((value, 0));
+        }
+
+        None
+    }
+
     pub fn lookup_symbol(&self, symbol: &Symbol) -> Option<Rc<RefCell<SymbolTableValue>>> {
         // Search from the top of the stack (most recent scope)
         for table in self.symbol_table_stack.iter().rev() {

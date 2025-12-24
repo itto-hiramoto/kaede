@@ -34,6 +34,12 @@ pub use top::TopLevelAnalysisResult;
 
 use crate::context::{AnalyzeCommand, ModuleContext};
 
+#[derive(Debug, Clone)]
+struct ClosureCapture {
+    base_depth: usize,
+    captured: HashSet<Symbol>,
+}
+
 pub struct SemanticAnalyzer {
     modules: HashMap<ModulePath, ModuleContext>,
     context: AnalysisContext,
@@ -43,6 +49,8 @@ pub struct SemanticAnalyzer {
     root_dir: PathBuf,
     autoloads_imported: bool,
     infer_context: InferContext,
+    closure_capture_stack: Vec<ClosureCapture>,
+    temp_symbol_counter: usize,
 }
 
 impl SemanticAnalyzer {
@@ -68,6 +76,8 @@ impl SemanticAnalyzer {
             root_dir,
             autoloads_imported: false,
             infer_context: InferContext::default(),
+            closure_capture_stack: Vec::new(),
+            temp_symbol_counter: 0,
         }
     }
 
@@ -88,6 +98,8 @@ impl SemanticAnalyzer {
             root_dir: PathBuf::from("."),
             autoloads_imported: false,
             infer_context: InferContext::default(),
+            closure_capture_stack: Vec::new(),
+            temp_symbol_counter: 0,
         }
     }
 
@@ -118,6 +130,12 @@ impl SemanticAnalyzer {
             }
             eprintln!("---------------------");
         }
+    }
+
+    fn fresh_temp_symbol(&mut self, prefix: &str) -> Symbol {
+        let name = format!("{prefix}{}", self.temp_symbol_counter);
+        self.temp_symbol_counter += 1;
+        Symbol::from(name)
     }
 
     fn create_module_path_from_file_path(
@@ -283,6 +301,44 @@ impl SemanticAnalyzer {
     pub fn pop_scope(&mut self) {
         let module_path = self.current_module_path().clone();
         self.modules.get_mut(&module_path).unwrap().pop_scope();
+    }
+
+    fn symbol_table_depth(&self) -> usize {
+        let module_path = self.current_module_path();
+        self.modules
+            .get(module_path)
+            .expect("Module context must exist")
+            .symbol_table_depth()
+    }
+
+    fn lookup_symbol_with_depth(
+        &self,
+        symbol: Symbol,
+    ) -> Option<(Rc<RefCell<SymbolTableValue>>, usize)> {
+        let module_path = self.current_module_path();
+        self.modules
+            .get(module_path)
+            .expect("Module context must exist")
+            .lookup_symbol_with_depth(&symbol)
+    }
+
+    fn push_closure_capture(&mut self, base_depth: usize) {
+        self.closure_capture_stack.push(ClosureCapture {
+            base_depth,
+            captured: HashSet::new(),
+        });
+    }
+
+    fn pop_closure_capture(&mut self) -> Option<ClosureCapture> {
+        self.closure_capture_stack.pop()
+    }
+
+    fn register_capture(&mut self, symbol: Symbol, depth: usize) {
+        if let Some(state) = self.closure_capture_stack.last_mut() {
+            if depth < state.base_depth {
+                state.captured.insert(symbol);
+            }
+        }
     }
 
     fn inject_generated_generics_to_compile_unit(
@@ -492,7 +548,7 @@ impl SemanticAnalyzer {
         ];
 
         let main_fn_decl = ir::top::FnDecl {
-            lang_linkage: ir::top::LangLinkage::Default,
+            lang_linkage: kaede_common::LangLinkage::Default,
             link_once: false,
             name: QualifiedSymbol::new(ModulePath::new(vec![]), "main".to_owned().into()),
             params,
@@ -624,6 +680,10 @@ impl SemanticAnalyzer {
             self.analyze_prelude(&mut top_level_irs)?;
         }
 
+        // Ensure we are working in the current compile unit's module context
+        self.context
+            .set_current_module_path(self.module_path().clone());
+
         let (types, others): (Vec<_>, Vec<_>) =
             compile_unit.top_levels.into_iter().partition(|top| {
                 matches!(
@@ -665,6 +725,10 @@ impl SemanticAnalyzer {
                 unreachable!()
             }
         }
+
+        // Ensure analysis continues in the current compile unit's module after imports/uses
+        self.context
+            .set_current_module_path(self.module_path().clone());
 
         // Declare all types
         // (This is necessary to avoid errors when declaring functions and methods)

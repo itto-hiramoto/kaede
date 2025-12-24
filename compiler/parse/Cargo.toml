@@ -15,3 +15,4 @@ kaede_span = { path = "../span" }
 kaede_ast_type = { path = "../ast_type" }
 kaede_symbol = { path = "../symbol" }
 kaede_type_infer = { path = "../type_infer" }
+kaede_common = { path = "../common" }

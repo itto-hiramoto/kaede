@@ -1,11 +1,11 @@
 use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::expr::{
-    Args, ArrayLiteral, Binary, BinaryKind, Break, CharLiteral, Else, Expr, ExprKind, FnCall, If,
-    Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, Return, StringLiteral,
+    Args, ArrayLiteral, Binary, BinaryKind, Break, CharLiteral, Closure, Else, Expr, ExprKind,
+    FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, Return, StringLiteral,
     StructLiteral, TupleLiteral,
 };
-use kaede_ast_type::{Ty, TyKind};
+use kaede_ast_type::{GenericArgs, Ty, TyKind};
 use kaede_lex::token::TokenKind;
 use kaede_span::Location;
 use kaede_symbol::{Ident, Symbol};
@@ -229,11 +229,11 @@ impl Parser {
 
     // Field access or module item access or tuple indexing
     fn access(&mut self) -> ParseResult<Expr> {
-        let mut node = self.indexing()?;
+        let mut node = self.postfix()?;
 
         loop {
             if self.consume_b(&TokenKind::Dot) {
-                let right = self.indexing()?;
+                let right = self.postfix()?;
                 node = Expr {
                     span: self.new_span(node.span.start, right.span.finish),
                     kind: ExprKind::Binary(Binary::new(
@@ -271,6 +271,20 @@ impl Parser {
         }
     }
 
+    fn postfix(&mut self) -> ParseResult<Expr> {
+        let mut node = self.indexing()?;
+
+        loop {
+            if self.check(&TokenKind::OpenParen) {
+                node = self.fn_call_from_expr(node)?;
+            } else {
+                break;
+            }
+        }
+
+        Ok(node)
+    }
+
     /// Scope resolution
     fn scope_resolution(&mut self) -> ParseResult<Expr> {
         let mut node = self.primary()?;
@@ -303,6 +317,11 @@ impl Parser {
 
         if self.check(&TokenKind::Break) {
             return self.break_();
+        }
+
+        // Support closures starting with `|` or `||` with no spaces.
+        if self.check(&TokenKind::LogicalOr) || self.check(&TokenKind::Pipe) {
+            return self.closure();
         }
 
         if self.check(&TokenKind::Loop) {
@@ -422,6 +441,55 @@ impl Parser {
             span: self.first().span,
         }
         .into())
+    }
+
+    fn closure(&mut self) -> ParseResult<Expr> {
+        // Accept both `| |` and `||` (no space) closures.
+        if self.check(&TokenKind::LogicalOr) {
+            let start = self.consume(&TokenKind::LogicalOr)?.start;
+            let body = self.expr()?;
+            let span = self.new_span(start, body.span.finish);
+
+            return Ok(Expr {
+                span,
+                kind: ExprKind::Closure(Closure {
+                    params: Vec::new(),
+                    body: Box::new(body),
+                    captures: Vec::new(),
+                    span,
+                }),
+            });
+        }
+
+        let start = self.consume(&TokenKind::Pipe)?.start;
+
+        let mut params = Vec::new();
+
+        if !self.check(&TokenKind::Pipe) {
+            loop {
+                params.push(self.ident()?);
+
+                if !self.consume_b(&TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+
+        let _ = self.consume(&TokenKind::Pipe)?;
+
+        let body = self.expr()?;
+
+        let span = self.new_span(start, body.span.finish);
+
+        Ok(Expr {
+            span,
+            kind: ExprKind::Closure(Closure {
+                params,
+                body: Box::new(body),
+                captures: Vec::new(),
+                span,
+            }),
+        })
     }
 
     fn match_(&mut self) -> ParseResult<Expr> {
@@ -659,19 +727,12 @@ impl Parser {
             _ => unreachable!(),
         };
 
-        let args = self.fn_call_args()?;
+        let callee_expr = Expr {
+            span: callees.0.span(),
+            kind: ExprKind::Ident(callees.0),
+        };
 
-        let span = self.new_span(callees.0.span().start, args.1.finish);
-
-        Ok(Expr {
-            kind: ExprKind::FnCall(FnCall {
-                callee: callees.0,
-                generic_args: callees.1,
-                args,
-                span,
-            }),
-            span,
-        })
+        self.fn_call_from_expr_with_generics(callee_expr, callees.1)
     }
 
     /// Works with zero arguments
@@ -695,6 +756,29 @@ impl Parser {
 
         let finish = self.consume(&TokenKind::CloseParen)?.finish;
         Ok(Args(args, self.new_span(start, finish)))
+    }
+
+    fn fn_call_from_expr(&mut self, callee: Expr) -> ParseResult<Expr> {
+        self.fn_call_from_expr_with_generics(callee, None)
+    }
+
+    fn fn_call_from_expr_with_generics(
+        &mut self,
+        callee: Expr,
+        generic_args: Option<GenericArgs>,
+    ) -> ParseResult<Expr> {
+        let args = self.fn_call_args()?;
+        let span = self.new_span(callee.span.start, args.1.finish);
+
+        Ok(Expr {
+            kind: ExprKind::FnCall(FnCall {
+                callee: Box::new(callee),
+                generic_args,
+                args,
+                span,
+            }),
+            span,
+        })
     }
 
     pub fn int(&mut self) -> ParseResult<Int> {

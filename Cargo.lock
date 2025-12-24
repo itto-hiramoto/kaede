@@ -375,6 +375,7 @@ version = "0.1.0"
 dependencies = [
  "inkwell",
  "kaede_ast_type",
+ "kaede_common",
  "kaede_span",
  "kaede_symbol",
 ]
@@ -432,6 +433,7 @@ version = "0.1.0"
 dependencies = [
  "inkwell",
  "kaede_ast_type",
+ "kaede_common",
  "kaede_span",
  "kaede_symbol",
 ]
@@ -451,6 +453,7 @@ dependencies = [
  "anyhow",
  "kaede_ast",
  "kaede_ast_type",
+ "kaede_common",
  "kaede_lex",
  "kaede_span",
  "kaede_symbol",

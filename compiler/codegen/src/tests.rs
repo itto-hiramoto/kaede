@@ -2950,3 +2950,213 @@ fn rem_assign() -> anyhow::Result<()> {
     assert_eq!(exec(program)?, 1);
     Ok(())
 }
+
+#[test]
+fn closure_without_params_captures_values() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let a = 48
+            let b = 10
+
+            let add = || a + b
+
+            return add()
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn closure_with_param_and_captured_copy() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let mut base = 50
+            let add = |n| base + n
+            base = 0
+
+            return add(8)
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn closure_with_multiple_params() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let add = |a, b| a + b
+            return add(48, 10)
+        }
+    "#;
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn closure_with_captured_udt() -> anyhow::Result<()> {
+    let program = r#"
+        struct A {
+            n: i32,
+        }
+
+        fn main(): i32 {
+            let mut a = A { n: 48 }
+            let f = |b| a.n + b
+            a.n = 10
+            return f(10)
+        }
+    "#;
+    assert_eq!(exec(program)?, 20);
+    Ok(())
+}
+
+#[test]
+fn closure_with_captured_udt_method() -> anyhow::Result<()> {
+    let program = r#"
+        struct A {
+            n: i32,
+        }
+
+        impl A {
+            fn add(self, b: i32): i32 {
+                return self.n + b
+            }
+        }
+
+        fn main(): i32 {
+            let a = A { n: 123 }
+            let f = |b| a.add(b)
+            return f(10)
+        }
+    "#;
+    assert_eq!(exec(program)?, 133);
+    Ok(())
+}
+
+#[test]
+fn closure_with_block_body() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let a = 48
+            let b = 10
+            let add = || {
+                a + b
+            }
+            return add()
+        }
+    "#;
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn closure_type_as_function_param() -> anyhow::Result<()> {
+    let program = r#"
+        fn apply(f: fn(i32) -> i32, x: i32): i32 {
+            return f(x)
+        }
+
+        fn main(): i32 {
+            return apply(|n| n + 10, 48)
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn closure_type_as_variable() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let f: fn(i32) -> i32 = |x| x + 1
+            return f(57)
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn closure_type_as_function_return_type() -> anyhow::Result<()> {
+    let program = r#"
+        fn f(): fn(i32) -> i32 {
+            return |x| x + 1
+        }
+
+        fn main(): i32 {
+            let g = f()
+            return g(48)
+        }
+    "#;
+    assert_eq!(exec(program)?, 49);
+    Ok(())
+}
+
+#[test]
+fn closure_type_with_generic_param() -> anyhow::Result<()> {
+    let program = r#"
+        fn apply<T>(f: fn(T) -> T, x: T): T {
+            return f(x)
+        }
+
+        fn main(): i32 {
+            return apply<i32>(|n| n + 10, 48)
+        }
+    "#;
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn closure_immediate_call() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            return (|n| n + 1)(10)
+        }
+    "#;
+    assert_eq!(exec(program)?, 11);
+    Ok(())
+}
+
+#[test]
+fn closure_immediate_call_with_multiple_params() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            return (|x, y| x + y)(15, 25)
+        }
+    "#;
+    assert_eq!(exec(program)?, 40);
+    Ok(())
+}
+
+#[test]
+fn closure_immediate_call_nested() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            return (|x| (|y| x + y)(20))(30)
+        }
+    "#;
+    assert_eq!(exec(program)?, 50);
+    Ok(())
+}
+
+#[test]
+fn closure_as_return_value_immediate_call() -> anyhow::Result<()> {
+    let program = r#"
+        fn f(): fn(i32) -> i32 {
+            return |x| x + 1
+        }
+
+        fn main(): i32 {
+            return f()(20)
+        }
+    "#;
+    assert_eq!(exec(program)?, 21);
+    Ok(())
+}

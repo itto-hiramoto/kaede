@@ -1,12 +1,14 @@
-use std::rc::Rc;
+use std::{cell::RefCell, rc::Rc};
 
 use crate::{
+    error::CodegenError,
     tcx::{SymbolTable, SymbolTableValue},
     CodeGenerator,
 };
 
 use inkwell::{
-    types::BasicType,
+    module::Linkage,
+    types::{BasicType, StructType},
     values::{BasicValue, BasicValueEnum, IntValue, PointerValue},
     IntPredicate,
 };
@@ -15,8 +17,8 @@ use kaede_common::rust_function_prefix;
 use kaede_ir::{
     expr::{
         ArrayLiteral, Binary, BinaryKind, BuiltinFnCall, BuiltinFnCallKind, Cast, CharLiteral,
-        Else, EnumUnpack, EnumVariant, Expr, ExprKind, FieldAccess, FnCall, If, Indexing, Int,
-        LogicalNot, Loop, StringLiteral, StructLiteral, TupleIndexing, TupleLiteral, Variable,
+        Closure, Else, EnumUnpack, EnumVariant, Expr, ExprKind, FieldAccess, FnCall, If, Indexing,
+        Int, LogicalNot, Loop, StringLiteral, StructLiteral, TupleIndexing, TupleLiteral, Variable,
     },
     stmt::Block,
     ty::{
@@ -24,6 +26,7 @@ use kaede_ir::{
         TyKind,
     },
 };
+use kaede_symbol::Symbol;
 
 pub type Value<'ctx> = Option<BasicValueEnum<'ctx>>;
 
@@ -74,6 +77,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             ExprKind::EnumVariant(node) => self.build_enum_variant(node)?,
 
             ExprKind::BuiltinFnCall(node) => self.build_builtin_fn_call(node)?,
+
+            ExprKind::Closure(closure) => self.build_closure(closure, &node.ty)?,
         })
     }
 
@@ -90,6 +95,152 @@ impl<'ctx> CodeGenerator<'ctx> {
                 self.build_string_literal_internal(p, len.into_int_value())
             }
         }
+    }
+
+    fn build_closure(&mut self, node: &Closure, ty: &Rc<Ty>) -> anyhow::Result<Value<'ctx>> {
+        // TODO: Move this to semantic analysis phase
+
+        let closure_ty = match ty.kind.as_ref() {
+            TyKind::Closure(closure_ty) => closure_ty,
+            _ => return Err(CodegenError::ExpectedClosureType.into()),
+        };
+
+        let (closure_struct_ty, closure_fn_ty, captures_tuple_ty) =
+            self.closure_llvm_types(closure_ty);
+
+        let saved_block = self.builder.get_insert_block().unwrap();
+
+        let closure_name = self.fresh_closure_name();
+        let closure_fn = self.module.add_function(
+            closure_name.as_str(),
+            closure_fn_ty,
+            Some(Linkage::Internal),
+        );
+
+        let entry_bb = self.context().append_basic_block(closure_fn, "entry");
+        self.builder.position_at_end(entry_bb);
+
+        let mut symbol_table = SymbolTable::new();
+
+        let captures_param = closure_fn.get_nth_param(0).unwrap().into_pointer_value();
+        self.load_closure_captures(
+            &mut symbol_table,
+            captures_param,
+            captures_tuple_ty,
+            closure_ty,
+            &node.captures,
+        )?;
+
+        for (idx, param) in node.params.iter().enumerate() {
+            let llvm_param_ty = self.conv_to_llvm_type(&closure_ty.param_tys[idx]);
+
+            let alloca = self.builder.build_alloca(llvm_param_ty, param.as_str())?;
+
+            self.builder
+                .build_store(alloca, closure_fn.get_nth_param(idx as u32 + 1).unwrap())?;
+
+            symbol_table.insert(
+                *param,
+                Rc::new(RefCell::new(SymbolTableValue::Variable(alloca))),
+            );
+        }
+
+        self.tcx.push_symbol_table(symbol_table);
+
+        let body_val = self.build_expr(&node.body)?;
+
+        if self.no_terminator() {
+            match closure_ty.ret_ty.kind.as_ref() {
+                TyKind::Unit => {
+                    self.builder.build_return(None)?;
+                }
+                _ => {
+                    if let Some(ret) = body_val {
+                        self.builder.build_return(Some(&ret))?;
+                    }
+                }
+            }
+        }
+
+        self.tcx.pop_symbol_table();
+
+        self.builder.position_at_end(saved_block);
+
+        let captures_tuple_ptr =
+            self.build_closure_captures_tuple(&captures_tuple_ty, &node.captures)?;
+
+        let closure_value = self.create_gc_struct(
+            closure_struct_ty.as_basic_type_enum(),
+            &[
+                closure_fn
+                    .as_global_value()
+                    .as_pointer_value()
+                    .as_basic_value_enum(),
+                captures_tuple_ptr.into(),
+            ],
+        )?;
+
+        Ok(Some(closure_value.into()))
+    }
+
+    fn load_closure_captures(
+        &mut self,
+        symbol_table: &mut SymbolTable<'ctx>,
+        captures_ptr: PointerValue<'ctx>,
+        captures_tuple_ty: StructType<'ctx>,
+        closure_ty: &kaede_ir::ty::ClosureType,
+        captures: &[Expr],
+    ) -> anyhow::Result<()> {
+        assert_eq!(closure_ty.captures.len(), captures.len());
+
+        for (idx, capture) in captures.iter().enumerate() {
+            let name = match &capture.kind {
+                ExprKind::Variable(var) => var.name,
+                _ => return Err(CodegenError::UnsupportedCaptureExpression.into()),
+            };
+
+            let capture_llvm_ty = self.conv_to_llvm_type(&closure_ty.captures[idx]);
+
+            let gep = unsafe {
+                self.builder.build_in_bounds_gep(
+                    captures_tuple_ty,
+                    captures_ptr,
+                    &[
+                        self.context().i32_type().const_zero(),
+                        self.context().i32_type().const_int(idx as u64, false),
+                    ],
+                    "",
+                )?
+            };
+
+            let loaded = self.builder.build_load(capture_llvm_ty, gep, "")?;
+            let alloca = self.create_entry_block_alloca(name.as_str(), capture_llvm_ty)?;
+            self.builder.build_store(alloca, loaded)?;
+
+            symbol_table.insert(
+                name,
+                Rc::new(RefCell::new(SymbolTableValue::Variable(alloca))),
+            );
+        }
+
+        Ok(())
+    }
+
+    fn build_closure_captures_tuple(
+        &mut self,
+        captures_tuple_ty: &StructType<'ctx>,
+        captures: &[Expr],
+    ) -> anyhow::Result<PointerValue<'ctx>> {
+        let mut capture_values = Vec::with_capacity(captures.len());
+
+        for capture in captures {
+            let value = self
+                .build_expr(capture)?
+                .ok_or_else(|| anyhow::anyhow!("capture expression did not produce a value"))?;
+            capture_values.push(value);
+        }
+
+        self.create_gc_struct(captures_tuple_ty.as_basic_type_enum(), &capture_values)
     }
 
     fn build_int(&self, int: &Int) -> anyhow::Result<Value<'ctx>> {
@@ -118,9 +269,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
             U64(n) => Ok(Some(self.context().i64_type().const_int(n, false).into())),
 
-            Infer(_) => {
-                anyhow::bail!("IntKind::Infer should have been resolved by type inference phase")
-            }
+            Infer(_) => Err(CodegenError::UnresolvedInferInt.into()),
         }
     }
 
@@ -434,40 +583,136 @@ impl<'ctx> CodeGenerator<'ctx> {
             args
         };
 
-        let mangled_name = node.callee.name.mangle();
-
-        let fn_value = {
-            let names = [
-                mangled_name,
-                format!("{}{}", rust_function_prefix(), node.callee.name.symbol()).into(), // For Rust functions
-                node.callee.name.symbol(), // For C functions
-            ];
-
-            let mut i = 0;
-
-            let fn_value = loop {
-                if i >= names.len() {
-                    break None;
+        let callee_result = self.callee_symbols(&node.callee).iter().find_map(|name| {
+            self.tcx.lookup_symbol(*name).map(|symbol| {
+                let value = symbol.borrow();
+                match &*value {
+                    SymbolTableValue::Function(fn_value) => (*name, Some(*fn_value)),
+                    _ => (*name, None),
                 }
+            })
+        });
 
-                let name = names[i];
+        match callee_result {
+            Some((_, Some(fn_value))) => Ok(self
+                .builder
+                .build_call(fn_value, args.as_slice(), "")?
+                .try_as_basic_value()
+                .left()),
+            Some((mangled_name, None)) => self.build_closure_call(node, mangled_name, &args),
+            None => Err(CodegenError::UnknownCallee {
+                name: node.callee.name.symbol(),
+            }
+            .into()),
+        }
+    }
 
-                match self.tcx.lookup_symbol(name) {
-                    Some(fn_) => match &*fn_.borrow() {
-                        SymbolTableValue::Function(fn_) => break Some(*fn_),
-                        _ => i += 1,
-                    },
+    fn callee_symbols(&self, callee: &kaede_ir::top::FnDecl) -> Vec<Symbol> {
+        use kaede_common::LangLinkage;
 
-                    _ => i += 1,
-                }
-            };
-
-            fn_value.unwrap()
+        let mut names = match callee.lang_linkage {
+            LangLinkage::Default => vec![callee.name.mangle()],
+            LangLinkage::Rust => {
+                vec![format!("{}{}", rust_function_prefix(), callee.name.symbol()).into()]
+            }
+            LangLinkage::C => vec![callee.name.symbol()],
         };
+
+        let base_name = callee.name.symbol();
+        if !names.contains(&base_name) {
+            names.push(base_name);
+        }
+
+        names
+    }
+
+    fn build_closure_call(
+        &mut self,
+        node: &FnCall,
+        mangled_name: Symbol,
+        args: &[inkwell::values::BasicMetadataValueEnum<'ctx>],
+    ) -> anyhow::Result<Value<'ctx>> {
+        let callee_ptr = match self.tcx.lookup_symbol(mangled_name) {
+            Some(value) => match &*value.borrow() {
+                SymbolTableValue::Variable(var) => *var,
+                _ => return Err(CodegenError::CalleeNotClosureValue { name: mangled_name }.into()),
+            },
+
+            None => {
+                return Err(CodegenError::UnknownCallee {
+                    name: node.callee.name.symbol(),
+                }
+                .into())
+            }
+        };
+
+        let ptr_ty = self.context().ptr_type(inkwell::AddressSpace::default());
+        let closure_struct_ty = self
+            .context()
+            .struct_type(&[ptr_ty.into(), ptr_ty.into()], true);
+
+        let closure_ptr = self
+            .builder
+            .build_load(ptr_ty, callee_ptr, "")?
+            .into_pointer_value();
+
+        let fn_gep = unsafe {
+            self.builder.build_in_bounds_gep(
+                closure_struct_ty,
+                closure_ptr,
+                &[
+                    self.context().i32_type().const_zero(),
+                    self.context().i32_type().const_zero(),
+                ],
+                "",
+            )?
+        };
+
+        let captures_gep = unsafe {
+            self.builder.build_in_bounds_gep(
+                closure_struct_ty,
+                closure_ptr,
+                &[
+                    self.context().i32_type().const_zero(),
+                    self.context().i32_type().const_int(1, false),
+                ],
+                "",
+            )?
+        };
+
+        let fn_ptr = self.builder.build_load(ptr_ty, fn_gep, "")?;
+        let captures_ptr = self.builder.build_load(ptr_ty, captures_gep, "")?;
+
+        let mut call_param_types = Vec::with_capacity(node.callee.params.len() + 1);
+        call_param_types.push(ptr_ty.into());
+        for param in &node.callee.params {
+            call_param_types.push(self.conv_to_llvm_type(&param.ty).into());
+        }
+
+        let closure_fn_ty = match &node.callee.return_ty {
+            Some(ret) => self
+                .conv_to_llvm_type(ret)
+                .fn_type(call_param_types.as_slice(), false),
+            None => self
+                .context()
+                .void_type()
+                .fn_type(call_param_types.as_slice(), false),
+        };
+
+        #[allow(deprecated)]
+        let fn_ptr_cast = self.builder.build_pointer_cast(
+            fn_ptr.into_pointer_value(),
+            closure_fn_ty.ptr_type(inkwell::AddressSpace::default()),
+            "",
+        )?;
+
+        let mut call_args = Vec::with_capacity(args.len() + 1);
+        call_args.push(captures_ptr.into());
+        call_args.extend_from_slice(args);
 
         Ok(self
             .builder
-            .build_call(fn_value, args.as_slice(), "")?
+            .build_indirect_call(closure_fn_ty, fn_ptr_cast, call_args.as_slice(), "")?
             .try_as_basic_value()
             .left())
     }

@@ -25,6 +25,7 @@ impl InferContext {
         })
     }
 
+    /// Recursively substitute type variables using current bindings, rebuilding composite types.
     pub fn apply(&self, t: &Rc<Ty>) -> Rc<Ty> {
         match t.kind.as_ref() {
             TyKind::Var(id) => {
@@ -65,10 +66,22 @@ impl InferContext {
             }
             .into(),
 
+            TyKind::Closure(closure_ty) => Ty {
+                kind: TyKind::Closure(kaede_ir::ty::ClosureType {
+                    param_tys: closure_ty.param_tys.iter().map(|t| self.apply(t)).collect(),
+                    ret_ty: self.apply(&closure_ty.ret_ty),
+                    captures: closure_ty.captures.iter().map(|t| self.apply(t)).collect(),
+                })
+                .into(),
+                mutability: Mutability::Not,
+            }
+            .into(),
+
             _ => t.clone(),
         }
     }
 
+    /// Occurs check to prevent constructing infinite types (e.g., α = [α]).
     fn occurs(&self, var_id: usize, t: &Rc<Ty>) -> bool {
         match self.apply(t).kind.as_ref() {
             TyKind::Var(id) => *id == var_id,
@@ -76,6 +89,11 @@ impl InferContext {
             TyKind::Reference(rty) => self.occurs(var_id, &rty.refee_ty),
             TyKind::Array(aty) => self.occurs(var_id, &aty.0),
             TyKind::Tuple(tys) => tys.iter().any(|t| self.occurs(var_id, t)),
+            TyKind::Closure(closure_ty) => {
+                closure_ty.param_tys.iter().any(|t| self.occurs(var_id, t))
+                    || self.occurs(var_id, &closure_ty.ret_ty)
+                    || closure_ty.captures.iter().any(|t| self.occurs(var_id, t))
+            }
             _ => false,
         }
     }
@@ -100,6 +118,7 @@ impl InferContext {
         self.subst.insert(root, ty);
     }
 
+    /// Unify two types, binding type variables as needed and producing errors on mismatches.
     pub fn unify(&mut self, a: &Rc<Ty>, b: &Rc<Ty>, span: Span) -> Result<(), TypeInferError> {
         let a = self.apply(a);
         let b = self.apply(b);
@@ -179,6 +198,24 @@ impl InferContext {
                 for (t1, t2) in tys1.iter().zip(tys2.iter()) {
                     self.unify(t1, t2, span)?;
                 }
+                Ok(())
+            }
+
+            (TyKind::Closure(c1), TyKind::Closure(c2)) => {
+                if c1.param_tys.len() != c2.param_tys.len() {
+                    return Err(TypeInferError::CannotUnify {
+                        a: a.kind.to_string(),
+                        b: b.kind.to_string(),
+                        span,
+                    });
+                }
+
+                for (p1, p2) in c1.param_tys.iter().zip(c2.param_tys.iter()) {
+                    self.unify(p1, p2, span)?;
+                }
+
+                self.unify(&c1.ret_ty, &c2.ret_ty, span)?;
+
                 Ok(())
             }
 
