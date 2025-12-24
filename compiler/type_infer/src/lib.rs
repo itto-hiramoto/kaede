@@ -158,9 +158,10 @@ impl TypeInferrer {
         use ExprKind::*;
 
         if let Closure(closure) = &expr.kind
-            && let Some(ty) = self.check_closure(expr, closure, expected_ty)? {
-                return Ok(ty);
-            }
+            && let Some(ty) = self.check_closure(expr, closure, expected_ty)?
+        {
+            return Ok(ty);
+        }
 
         match &expr.kind {
             // Structured literals benefit from checking

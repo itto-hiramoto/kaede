@@ -600,12 +600,10 @@ impl<'ctx> CodeGenerator<'ctx> {
                 .try_as_basic_value()
                 .left()),
             Some((mangled_name, None)) => self.build_closure_call(node, mangled_name, &args),
-            None => {
-                Err(CodegenError::UnknownCallee {
-                    name: node.callee.name.symbol(),
-                }
-                .into())
+            None => Err(CodegenError::UnknownCallee {
+                name: node.callee.name.symbol(),
             }
+            .into()),
         }
     }
 
