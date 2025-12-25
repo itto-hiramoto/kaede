@@ -163,6 +163,8 @@ impl Parser {
         Ok(match ident.as_str() {
             "i8" => make_fundamental_type(I8, Mutability::Not, span),
             "u8" => make_fundamental_type(U8, Mutability::Not, span),
+            "i16" => make_fundamental_type(I16, Mutability::Not, span),
+            "u16" => make_fundamental_type(U16, Mutability::Not, span),
             "i32" => make_fundamental_type(I32, Mutability::Not, span),
             "u32" => make_fundamental_type(U32, Mutability::Not, span),
             "i64" => make_fundamental_type(I64, Mutability::Not, span),

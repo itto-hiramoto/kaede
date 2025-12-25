@@ -251,6 +251,8 @@ impl TypeInferrer {
         let ty = match int_lit.kind {
             IntKind::I8(_) => make_fundamental_type(FundamentalTypeKind::I8, Mutability::Not),
             IntKind::U8(_) => make_fundamental_type(FundamentalTypeKind::U8, Mutability::Not),
+            IntKind::I16(_) => make_fundamental_type(FundamentalTypeKind::I16, Mutability::Not),
+            IntKind::U16(_) => make_fundamental_type(FundamentalTypeKind::U16, Mutability::Not),
             IntKind::I32(_) => make_fundamental_type(FundamentalTypeKind::I32, Mutability::Not),
             IntKind::U32(_) => make_fundamental_type(FundamentalTypeKind::U32, Mutability::Not),
             IntKind::I64(_) => make_fundamental_type(FundamentalTypeKind::I64, Mutability::Not),
@@ -1024,6 +1026,8 @@ impl TypeInferrer {
                         TyKind::Fundamental(fty) => match fty.kind {
                             FundamentalTypeKind::I8 => IntKind::I8(value as i8),
                             FundamentalTypeKind::U8 => IntKind::U8(value as u8),
+                            FundamentalTypeKind::I16 => IntKind::I16(value as i16),
+                            FundamentalTypeKind::U16 => IntKind::U16(value as u16),
                             FundamentalTypeKind::I32 => IntKind::I32(value as i32),
                             FundamentalTypeKind::U32 => IntKind::U32(value as u32),
                             FundamentalTypeKind::I64 => IntKind::I64(value),

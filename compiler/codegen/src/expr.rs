@@ -258,6 +258,14 @@ impl<'ctx> CodeGenerator<'ctx> {
                 self.context().i8_type().const_int(n as u64, false).into(),
             )),
 
+            I16(n) => Ok(Some(
+                self.context().i16_type().const_int(n as u64, true).into(),
+            )),
+
+            U16(n) => Ok(Some(
+                self.context().i16_type().const_int(n as u64, false).into(),
+            )),
+
             I32(n) => Ok(Some(
                 self.context().i32_type().const_int(n as u64, true).into(),
             )),
