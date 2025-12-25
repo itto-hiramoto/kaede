@@ -1,0 +1,90 @@
+import std.io
+import std.runtime.core.sys
+
+pub extern "C" fn abort()
+
+use std.runtime.core.sys.*
+
+pub struct Fd {
+    raw: i32,
+}
+
+impl Fd {
+    pub fn new(fd: i32): Fd {
+        return Fd { raw: fd }
+    }
+}
+
+pub fn socket_tcp4(): Fd {
+    let fd = __sys_socket_tcp4()
+    if fd < 0 {
+        abort()
+    }
+    return Fd::new(fd)
+}
+
+pub fn set_reuseaddr(fd: Fd) {
+    let r = __sys_set_reuseaddr(fd.raw)
+    if r < 0 {
+        abort()
+    }
+}
+
+pub fn bind_ipv4(fd: Fd, ip: str, port: u16) {
+    let r = __sys_bind_ipv4(fd.raw, ip.as_ptr(), port)
+    if r < 0 {
+        abort()
+    }
+}
+
+pub fn listen(fd: Fd, backlog: i32) {
+    let r = __sys_listen(fd.raw, backlog)
+    if r < 0 {
+        abort()
+    }
+}
+
+pub fn accept(fd: Fd): Fd {
+    let c = __sys_accept(fd.raw)
+    if c < 0 {
+        abort()
+    }
+    return Fd::new(c)
+}
+
+// ===== I/O =====
+
+// pub fn read(fd: Fd, buf: &mut [u8]): usize {
+//     let n = sys.__sys_read(
+//         fd.raw,
+//         buf.as_mut_ptr() as *i8,
+//         buf.len() as u64
+//     )
+
+//     if n < 0 {
+//         abort()
+//     }
+
+//     return n as usize
+// }
+
+// pub fn write(fd: Fd, buf: &[u8]): usize {
+//     let n = sys.__sys_write(
+//         fd.raw,
+//         buf.as_ptr() as *i8,
+//         buf.len() as u64
+//     )
+
+//     if n < 0 {
+//         abort()
+//     }
+
+//     return n as usize
+// }
+
+pub fn close(fd: Fd) {
+    let r = __sys_close(fd.raw)
+    if r < 0 {
+        abort()
+    }
+}

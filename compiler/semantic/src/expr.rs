@@ -1129,8 +1129,8 @@ impl SemanticAnalyzer {
         callee: Ident,
     ) -> anyhow::Result<ir::expr::Expr> {
         // Builtin functions
-        if callee.symbol().as_str().starts_with("__") {
-            return self.analyze_builtin_fn_call(node, callee);
+        if let Ok(expr) = self.analyze_builtin_fn_call(node, callee) {
+            return Ok(expr);
         }
 
         let symbol_value =
