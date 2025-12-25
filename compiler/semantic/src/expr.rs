@@ -1737,30 +1737,47 @@ impl SemanticAnalyzer {
     fn analyze_access(&mut self, node: &ast::expr::Binary) -> anyhow::Result<ir::expr::Expr> {
         assert!(matches!(node.kind, ast::expr::BinaryKind::Access));
 
-        // Try to collect module path from the left side
-        {
+        let try_module_access = |analyzer: &mut Self| -> anyhow::Result<Option<ir::expr::Expr>> {
             let mut modules = Vec::new();
             node.lhs.collect_access_chain(&mut modules);
 
-            if !modules.is_empty() {
-                if let Ok((_, module_path)) = self.create_module_path_from_access_chain(
-                    modules
-                        .iter()
-                        .map(|i| i.symbol())
-                        .collect::<Vec<_>>()
-                        .as_slice(),
-                    node.lhs.span,
-                ) {
-                    // If the module path is valid, analyze the right side in the module
-                    if !modules.is_empty() && self.modules.contains_key(&module_path) {
-                        return self
-                            .with_module(module_path, |analyzer| analyzer.analyze_expr(&node.rhs));
-                    }
+            if modules.is_empty() {
+                return Ok(None);
+            }
+
+            if let Ok((_, module_path)) = analyzer.create_module_path_from_access_chain(
+                modules
+                    .iter()
+                    .map(|i| i.symbol())
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+                node.lhs.span,
+            ) {
+                if analyzer.modules.contains_key(&module_path) {
+                    let expr = analyzer
+                        .with_module(module_path, |analyzer| analyzer.analyze_expr(&node.rhs))?;
+                    return Ok(Some(expr));
                 }
             }
-        }
 
-        let left = self.analyze_expr(&node.lhs)?;
+            Ok(None)
+        };
+
+        let left = match self.analyze_expr(&node.lhs) {
+            Ok(left) => left,
+            Err(err) => match err.downcast::<SemanticError>() {
+                Ok(semantic_error) => match semantic_error {
+                    SemanticError::Undeclared { .. } => {
+                        if let Some(expr) = try_module_access(self)? {
+                            return Ok(expr);
+                        }
+                        return Err(semantic_error.into());
+                    }
+                    other => Err(other.into()),
+                },
+                Err(err) => Err(err),
+            }?,
+        };
 
         let left_ty = left.ty.clone();
 
