@@ -159,6 +159,8 @@ impl Mutability {
 pub enum FundamentalTypeKind {
     I8,
     U8,
+    I16,
+    U16,
     I32,
     U32,
     I64,
@@ -175,6 +177,8 @@ impl std::fmt::Display for FundamentalTypeKind {
         match self {
             I8 => write!(f, "i8"),
             U8 => write!(f, "u8"),
+            I16 => write!(f, "i16"),
+            U16 => write!(f, "u16"),
             I32 => write!(f, "i32"),
             U32 => write!(f, "u32"),
             I64 => write!(f, "i64"),
@@ -336,6 +340,8 @@ impl FundamentalType {
         match self.kind {
             I8 => context.i8_type().as_basic_type_enum(),
             U8 => context.i8_type().as_basic_type_enum(),
+            I16 => context.i16_type().as_basic_type_enum(),
+            U16 => context.i16_type().as_basic_type_enum(),
             I32 => context.i32_type().as_basic_type_enum(),
             U32 => context.i32_type().as_basic_type_enum(),
             I64 => context.i64_type().as_basic_type_enum(),
@@ -357,8 +363,8 @@ impl FundamentalType {
         use FundamentalTypeKind::*;
 
         match self.kind {
-            I8 | I32 | I64 => true,
-            U8 | U32 | U64 => false,
+            I8 | I16 | I32 | I64 => true,
+            U8 | U16 | U32 | U64 => false,
             Char => true,
             Bool => false,
             Str => false,
@@ -369,7 +375,7 @@ impl FundamentalType {
         use FundamentalTypeKind::*;
 
         match self.kind {
-            I8 | U8 | I32 | U32 | I64 | U64 | Bool | Char => true,
+            I8 | U8 | I16 | U16 | I32 | U32 | I64 | U64 | Bool | Char => true,
             Str => false,
         }
     }

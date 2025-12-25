@@ -1335,7 +1335,7 @@ impl SemanticAnalyzer {
         let ast::expr::IntKind::Unsuffixed(n) = node.kind;
 
         // All integer literals use type inference
-        // Type can be inferred to any integer type (i8, u8, i32, u32, i64, u64)
+        // Type can be inferred to any integer type (i8, u8, i16, u16, i32, u32, i64, u64)
         Ok(ir::expr::Expr {
             ty: self.infer_context.fresh(),
             kind: ir::expr::ExprKind::Int(ir::expr::Int {

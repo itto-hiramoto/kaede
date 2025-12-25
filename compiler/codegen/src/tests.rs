@@ -2331,6 +2331,35 @@ fn cast_integer() -> anyhow::Result<()> {
 }
 
 #[test]
+fn all_integer_types_arithmetic_and_casts() -> anyhow::Result<()> {
+    let program = r#"fn main(): i32 {
+        let i8v: i8 = 1
+        let u8v: u8 = 2
+        let i16v: i16 = 3
+        let u16v: u16 = 4
+        let i32v: i32 = 5
+        let u32v: u32 = 6
+        let i64v: i64 = 7
+        let u64v: u64 = 30
+
+        let total = (i8v as i64) +
+            (u8v as i64) +
+            (i16v as i64) +
+            (u16v as i64) +
+            (i32v as i64) +
+            (u32v as i64) +
+            i64v +
+            (u64v as i64)
+
+        return total as i32
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
 fn cast_str_to_pointer() -> anyhow::Result<()> {
     let program = r#"fn main(): i32 {
         let s = "hello, world" as *str as *i8
