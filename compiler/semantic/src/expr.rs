@@ -1556,12 +1556,10 @@ impl SemanticAnalyzer {
         node: &ast::expr::ByteStringLiteral,
     ) -> anyhow::Result<ir::expr::Expr> {
         let slice_ty = ir_type::Ty {
-            kind: ir_type::TyKind::Slice(
-                Rc::new(ir_type::make_fundamental_type(
-                    ir_type::FundamentalTypeKind::U8,
-                    ir_type::Mutability::Not,
-                )),
-            )
+            kind: ir_type::TyKind::Slice(Rc::new(ir_type::make_fundamental_type(
+                ir_type::FundamentalTypeKind::U8,
+                ir_type::Mutability::Not,
+            )))
             .into(),
             mutability: ir_type::Mutability::Not,
         };
