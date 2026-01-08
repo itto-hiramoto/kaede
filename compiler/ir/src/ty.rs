@@ -263,6 +263,8 @@ pub enum TyKind {
 
     Pointer(PointerType),
 
+    Slice(Rc<Ty> /* Element type */),
+
     Array((Rc<Ty> /* Element type */, u32 /* Size */)),
 
     Tuple(Vec<Rc<Ty>> /* Element types */),
@@ -297,6 +299,8 @@ impl std::fmt::Display for TyKind {
 
             Self::Pointer(pty) => write!(f, "*{}", pty.pointee_ty.kind),
 
+            Self::Slice(elem_ty) => write!(f, "[{}]", elem_ty.kind),
+
             Self::Array((elem_ty, size)) => write!(f, "[{}; {}]", elem_ty.kind, size),
 
             Self::Tuple(elem_tys) => write!(
@@ -327,6 +331,7 @@ impl TyKind {
             Self::Reference(ty) => ty.refee_ty.kind.is_signed(),
 
             Self::Pointer(_) => panic!("Cannot get sign information of pointer type!"),
+            Self::Slice(_) => panic!("Cannot get sign information of slice type!"),
             Self::Array(_) => panic!("Cannot get sign information of array type!"),
             Self::Tuple(_) => panic!("Cannot get sign information of tuple type!"),
             Self::Unit => panic!("Cannot get sign information of unit type!"),
@@ -343,7 +348,12 @@ impl TyKind {
             Self::Closure(_) => false,
             Self::Reference(ty) => ty.refee_ty.kind.is_int_or_bool(),
 
-            Self::Array(_) | Self::Tuple(_) | Self::Pointer(_) | Self::Unit | Self::Never => false,
+            Self::Array(_)
+            | Self::Slice(_)
+            | Self::Tuple(_)
+            | Self::Pointer(_)
+            | Self::Unit
+            | Self::Never => false,
 
             Self::Var(_) => unreachable!(),
         }
@@ -357,6 +367,7 @@ impl TyKind {
             Self::UserDefined(_)
             | Self::Closure(_)
             | Self::Array(_)
+            | Self::Slice(_)
             | Self::Tuple(_)
             | Self::Pointer(_)
             | Self::Unit

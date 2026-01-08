@@ -54,6 +54,12 @@ impl InferContext {
             }
             .into(),
 
+            TyKind::Slice(elem_ty) => Ty {
+                kind: TyKind::Slice(self.apply(elem_ty)).into(),
+                mutability: Mutability::Not,
+            }
+            .into(),
+
             TyKind::Array(aty) => Ty {
                 kind: TyKind::Array((self.apply(&aty.0), aty.1)).into(),
                 mutability: Mutability::Not,
@@ -87,6 +93,7 @@ impl InferContext {
             TyKind::Var(id) => *id == var_id,
             TyKind::Pointer(pty) => self.occurs(var_id, &pty.pointee_ty),
             TyKind::Reference(rty) => self.occurs(var_id, &rty.refee_ty),
+            TyKind::Slice(elem_ty) => self.occurs(var_id, elem_ty),
             TyKind::Array(aty) => self.occurs(var_id, &aty.0),
             TyKind::Tuple(tys) => tys.iter().any(|t| self.occurs(var_id, t)),
             TyKind::Closure(closure_ty) => {
@@ -180,6 +187,10 @@ impl InferContext {
                 self.unify(&rty1.refee_ty, &rty2.refee_ty, span)
             }
             (TyKind::Array(aty1), TyKind::Array(aty2)) => self.unify(&aty1.0, &aty2.0, span),
+            (TyKind::Array((elem_ty, _)), TyKind::Slice(slice_elem))
+            | (TyKind::Slice(slice_elem), TyKind::Array((elem_ty, _))) => {
+                self.unify(elem_ty, slice_elem, span)
+            }
             (TyKind::Tuple(tys1), TyKind::Tuple(tys2)) => {
                 if tys1.len() != tys2.len() {
                     return Err(TypeInferError::TupleArityMismatchInUnify {

@@ -1452,6 +1452,52 @@ fn return_array() -> anyhow::Result<()> {
 }
 
 #[test]
+fn array_to_slice_param_codegen() -> anyhow::Result<()> {
+    let program = r#"fn sum(s: [i32]): i32 {
+        let mut sum = 0
+        let mut i = 0
+
+        loop {
+            if i == s.len() {
+                break
+            }
+            sum += s[i]
+            i += 1
+        }
+
+        return sum
+    }
+
+    fn main(): i32 {
+        let ar1: [i32; 2] = [1, 2]
+        let ar2 = [10, 20, 30]
+
+        return sum(ar1) + sum(ar2)
+    }"#;
+
+    assert_eq!(exec(program)?, 63);
+
+    Ok(())
+}
+
+#[test]
+fn array_to_slice_return_codegen() -> anyhow::Result<()> {
+    let program = r#"fn make(): [i32] {
+        return [48, 10]
+    }
+
+    fn main(): i32 {
+        let s = make()
+
+        return s[0] + s[1]
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
 fn if_in_loop() -> anyhow::Result<()> {
     let program = r#"struct Person {
         age: i32,

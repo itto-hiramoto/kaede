@@ -1223,6 +1223,8 @@ impl SemanticAnalyzer {
             ir_type::TyKind::Reference(rty) => {
                 if let ir_type::TyKind::Array((elem_ty, _)) = rty.get_base_type().kind.as_ref() {
                     elem_ty.clone()
+                } else if let ir_type::TyKind::Slice(elem_ty) = rty.get_base_type().kind.as_ref() {
+                    elem_ty.clone()
                 } else if let ir_type::TyKind::Fundamental(fty) = rty.get_base_type().kind.as_ref()
                 {
                     if fty.kind == ir_type::FundamentalTypeKind::Str {
@@ -1790,7 +1792,9 @@ impl SemanticAnalyzer {
             // Struct access or tuple indexing
             if matches!(
                 rty.get_base_type().kind.as_ref(),
-                ir_type::TyKind::UserDefined(_) | ir_type::TyKind::Tuple(_)
+                ir_type::TyKind::UserDefined(_)
+                    | ir_type::TyKind::Tuple(_)
+                    | ir_type::TyKind::Slice(_)
             ) {
                 self.analyze_struct_access_or_tuple_indexing(left, &node.rhs)
             } else {
@@ -1979,6 +1983,40 @@ impl SemanticAnalyzer {
             ir_type::TyKind::Tuple(elements_ty) => {
                 self.analyze_tuple_indexing(lhs, rhs, elements_ty)
             }
+
+            ir_type::TyKind::Slice(elem_ty) => match &rhs.kind {
+                ast::expr::ExprKind::FnCall(call_node) => {
+                    let span = Span::new(lhs.span.start, call_node.span.finish, lhs.span.file);
+                    let callee_symbol = self.callee_symbol(call_node)?;
+
+                    self.create_method_call_ir(
+                        callee_symbol,
+                        self.module_path().clone(),
+                        Symbol::from("slice".to_owned()),
+                        call_node,
+                        lhs,
+                        span,
+                    )
+                }
+
+                _ => {
+                    let elements_ty = vec![
+                        Rc::new(ir_type::Ty {
+                            kind: ir_type::TyKind::Pointer(ir_type::PointerType {
+                                pointee_ty: elem_ty.clone(),
+                            })
+                            .into(),
+                            mutability: ir_type::Mutability::Not,
+                        }),
+                        Rc::new(ir_type::make_fundamental_type(
+                            ir_type::FundamentalTypeKind::U64,
+                            ir_type::Mutability::Not,
+                        )),
+                    ];
+
+                    self.analyze_tuple_indexing(lhs, rhs, &elements_ty)
+                }
+            },
 
             // str is internally represented as (*i8, u64) tuple
             ir_type::TyKind::Fundamental(fty) if fty.kind == ir_type::FundamentalTypeKind::Str => {
