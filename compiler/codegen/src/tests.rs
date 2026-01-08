@@ -1498,6 +1498,39 @@ fn array_to_slice_return_codegen() -> anyhow::Result<()> {
 }
 
 #[test]
+fn slice_len_method_codegen() -> anyhow::Result<()> {
+    let program = r#"fn len_of(s: [i32]): u64 {
+        return s.len()
+    }
+
+    fn main(): i32 {
+        let ar = [5, 6, 7]
+        return len_of(ar) as i32
+    }"#;
+
+    assert_eq!(exec(program)?, 3);
+
+    Ok(())
+}
+
+#[test]
+fn slice_as_ptr_method_codegen() -> anyhow::Result<()> {
+    let program = r#"fn first_plus_len(s: [i32]): i32 {
+        let ptr = s.as_ptr()
+        return ptr[0] + s.len() as i32
+    }
+
+    fn main(): i32 {
+        let ar = [10, 20]
+        return first_plus_len(ar)
+    }"#;
+
+    assert_eq!(exec(program)?, 12);
+
+    Ok(())
+}
+
+#[test]
 fn if_in_loop() -> anyhow::Result<()> {
     let program = r#"struct Person {
         age: i32,
