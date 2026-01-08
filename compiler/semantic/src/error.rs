@@ -79,6 +79,12 @@ pub enum SemanticError {
     #[error("{}:{}:{} index `{}` is out of range", span.file, span.start.line, span.start.column, index)]
     IndexOutOfRange { index: u64, span: Span },
 
+    #[error("{}:{}:{} array repeat count must be a constant integer", span.file, span.start.line, span.start.column)]
+    ArrayRepeatCountNotConst { span: Span },
+
+    #[error("{}:{}:{} array repeat count `{}` is too large", span.file, span.start.line, span.start.column, value)]
+    ArrayRepeatCountTooLarge { span: Span, value: u64 },
+
     #[error("{}:{}:{} number of tuple fields does not match: `{}` vs `{}`", span.file, span.start.line, span.start.column, lens.0, lens.1)]
     NumberOfTupleFieldsDoesNotMatch { lens: (usize, usize), span: Span },
 

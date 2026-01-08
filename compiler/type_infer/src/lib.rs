@@ -86,6 +86,7 @@ impl TypeInferrer {
 
             // Structured literals
             ArrayLiteral(arr_lit) => self.infer_array_literal(arr_lit),
+            ArrayRepeat(arr_repeat) => self.infer_array_repeat(arr_repeat),
             TupleLiteral(tuple_lit) => self.infer_tuple_literal(tuple_lit),
             StructLiteral(struct_lit) => self.infer_struct_literal(struct_lit),
 
@@ -167,6 +168,7 @@ impl TypeInferrer {
         match &expr.kind {
             // Structured literals benefit from checking
             ArrayLiteral(arr_lit) => self.check_array_literal(arr_lit, expected_ty, expr.span),
+            ArrayRepeat(arr_rep) => self.check_array_repeat(arr_rep, expected_ty, expr.span),
             TupleLiteral(tuple_lit) => self.check_tuple_literal(tuple_lit, expected_ty, expr.span),
 
             // Control flow can use expected type
@@ -296,6 +298,18 @@ impl TypeInferrer {
         }))
     }
 
+    fn infer_array_repeat(
+        &mut self,
+        arr_rep: &kaede_ir::expr::ArrayRepeat,
+    ) -> Result<Rc<Ty>, TypeInferError> {
+        let elem_ty = self.infer_expr(&arr_rep.value)?;
+
+        Ok(Rc::new(Ty {
+            kind: TyKind::Array((elem_ty, arr_rep.count)).into(),
+            mutability: Mutability::Not,
+        }))
+    }
+
     fn check_array_literal(
         &mut self,
         arr_lit: &kaede_ir::expr::ArrayLiteral,
@@ -340,6 +354,52 @@ impl TypeInferrer {
             TyKind::Var(_) => {
                 // Type variable - fall back to inference and unify
                 let inferred = self.infer_array_literal(arr_lit)?;
+                self.context.unify(&inferred, &expected_ty, span)?;
+                Ok(self.context.apply(&expected_ty))
+            }
+            _ => Err(TypeInferError::ExpectedArrayType {
+                actual: expected_ty.kind.to_string(),
+                span,
+            }),
+        }
+    }
+
+    fn check_array_repeat(
+        &mut self,
+        arr_rep: &kaede_ir::expr::ArrayRepeat,
+        expected_ty: &Rc<Ty>,
+        span: Span,
+    ) -> Result<Rc<Ty>, TypeInferError> {
+        let expected_ty = self.context.apply(expected_ty);
+        let unwrapped = Self::unwrap_reference(&expected_ty);
+
+        match unwrapped.kind.as_ref() {
+            TyKind::Array((elem_ty, expected_size)) => {
+                if *expected_size != 0 && *expected_size != arr_rep.count {
+                    return Err(TypeInferError::ArraySizeMismatch {
+                        expected: *expected_size as usize,
+                        actual: arr_rep.count as usize,
+                        span,
+                    });
+                }
+
+                self.check_expr(&arr_rep.value, elem_ty)?;
+
+                Ok(Rc::new(Ty {
+                    kind: TyKind::Array((elem_ty.clone(), arr_rep.count)).into(),
+                    mutability: expected_ty.mutability,
+                }))
+            }
+            TyKind::Slice(elem_ty) => {
+                self.check_expr(&arr_rep.value, elem_ty)?;
+
+                Ok(Rc::new(Ty {
+                    kind: TyKind::Slice(elem_ty.clone()).into(),
+                    mutability: expected_ty.mutability,
+                }))
+            }
+            TyKind::Var(_) => {
+                let inferred = self.infer_array_repeat(arr_rep)?;
                 self.context.unify(&inferred, &expected_ty, span)?;
                 Ok(self.context.apply(&expected_ty))
             }
@@ -1100,6 +1160,19 @@ impl TypeInferrer {
                     if let TyKind::Var(id) = elem_ty.kind.as_ref() {
                         self.context.bind_var(*id, first_ty);
                     }
+                }
+            }
+            ArrayRepeat(arr_rep) => {
+                self.apply_expr(&mut arr_rep.value)?;
+
+                if let TyKind::Reference(rty) = expr.ty.kind.as_ref()
+                    && let TyKind::Array((elem_ty, _)) = rty.get_base_type().kind.as_ref()
+                {
+                    let value_ty = self.context.apply(&arr_rep.value.ty);
+                    if let TyKind::Var(id) = elem_ty.kind.as_ref() {
+                        self.context.bind_var(*id, value_ty.clone());
+                    }
+                    arr_rep.value.ty = value_ty;
                 }
             }
             TupleLiteral(tuple_lit) => {
