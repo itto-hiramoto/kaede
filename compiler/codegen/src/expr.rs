@@ -16,10 +16,10 @@ use inkwell::{
 use kaede_common::rust_function_prefix;
 use kaede_ir::{
     expr::{
-        ArrayLiteral, Binary, BinaryKind, BuiltinFnCall, BuiltinFnCallKind, Cast, CharLiteral,
-        Closure, Else, EnumUnpack, EnumVariant, Expr, ExprKind, FieldAccess, FnCall, FnPointer, If,
-        Indexing, Int, LogicalNot, Loop, StringLiteral, StructLiteral, TupleIndexing, TupleLiteral,
-        Variable,
+        ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BuiltinFnCall, BuiltinFnCallKind, Cast,
+        CharLiteral, Closure, Else, EnumUnpack, EnumVariant, Expr, ExprKind, FieldAccess, FnCall,
+        FnPointer, If, Indexing, Int, LogicalNot, Loop, StringLiteral, StructLiteral,
+        TupleIndexing, TupleLiteral, Variable,
     },
     stmt::Block,
     ty::{
@@ -147,6 +147,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             ExprKind::FnPointer(fn_ptr) => self.build_fn_pointer(fn_ptr, &node.ty)?,
 
             ExprKind::ArrayLiteral(node) => self.build_array_literal(node)?,
+            ExprKind::ArrayRepeat(node) => self.build_array_repeat(node)?,
 
             ExprKind::TupleLiteral(node) => self.build_tuple_literal(node)?,
 
@@ -936,6 +937,37 @@ impl<'ctx> CodeGenerator<'ctx> {
             };
 
             self.builder.build_store(gep, *elem)?;
+        }
+
+        Ok(Some(mallocd.into()))
+    }
+
+    fn build_array_repeat(&mut self, node: &ArrayRepeat) -> anyhow::Result<Value<'ctx>> {
+        let value = self.build_expr(&node.value)?.unwrap();
+
+        let array_ty = Rc::new(Ty {
+            kind: TyKind::Array((node.value.ty.clone(), node.count)).into(),
+            mutability: Mutability::Not,
+        });
+
+        let array_llvm_ty = self.conv_to_llvm_type(&array_ty);
+
+        let mallocd = self.gc_malloc(array_llvm_ty)?;
+
+        for idx in 0..node.count {
+            let gep = unsafe {
+                self.builder.build_in_bounds_gep(
+                    array_llvm_ty,
+                    mallocd,
+                    &[
+                        self.context().i32_type().const_zero(),
+                        self.context().i32_type().const_int(idx as u64, false),
+                    ],
+                    "",
+                )?
+            };
+
+            self.builder.build_store(gep, value)?;
         }
 
         Ok(Some(mallocd.into()))

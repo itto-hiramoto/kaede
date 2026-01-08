@@ -687,6 +687,43 @@ fn array_literal() -> anyhow::Result<()> {
 }
 
 #[test]
+fn array_repeat() -> anyhow::Result<()> {
+    let program = r"fn main(): i32 {
+        let a = [42; 3]
+        return a[0] + a[1] + a[2]
+    }";
+
+    assert_eq!(exec(program)?, 126);
+
+    Ok(())
+}
+
+#[test]
+fn array_repeat_value_evaluated_once() -> anyhow::Result<()> {
+    let program = r"fn main(): i32 {
+        let mut x = 0
+        let arr = [{ x = x + 1; x }; 4]
+        return x * 10 + arr[3]
+    }";
+
+    assert_eq!(exec(program)?, 11);
+
+    Ok(())
+}
+
+#[test]
+fn array_repeat_with_type_annotation() -> anyhow::Result<()> {
+    let program = r"fn main(): i32 {
+        let arr: [i32; 2] = [0; 2]
+        return arr[0] + arr[1]
+    }";
+
+    assert_eq!(exec(program)?, 0);
+
+    Ok(())
+}
+
+#[test]
 fn array_indexing() -> anyhow::Result<()> {
     let program = r"fn main(): i32 {
         let a = [48, 10]

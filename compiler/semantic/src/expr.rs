@@ -37,6 +37,7 @@ impl SemanticAnalyzer {
 
         match &expr.kind {
             ExprKind::ArrayLiteral(node) => self.analyze_array_literal(node, span),
+            ExprKind::ArrayRepeat(node) => self.analyze_array_repeat(node, span),
             ExprKind::Int(node) => self.analyze_int(node),
             ExprKind::True => self.analyze_boolean_literal(true, span),
             ExprKind::False => self.analyze_boolean_literal(false, span),
@@ -1329,6 +1330,53 @@ impl SemanticAnalyzer {
             ty,
             span,
         })
+    }
+
+    fn analyze_array_repeat(
+        &mut self,
+        node: &ast::expr::ArrayRepeat,
+        span: Span,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let value = self.analyze_expr(&node.value)?;
+        let count = self.evaluate_array_repeat_count(&node.count)?;
+
+        let elem_ty = self.infer_context.fresh();
+
+        let ty = Rc::new(ir_type::wrap_in_ref(
+            Rc::new(ir_type::Ty {
+                kind: ir_type::TyKind::Array((elem_ty, count)).into(),
+                mutability: ir_type::Mutability::Not,
+            }),
+            ir_type::Mutability::Mut,
+        ));
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::ArrayRepeat(ir::expr::ArrayRepeat {
+                value: Box::new(value),
+                count,
+                span,
+            }),
+            ty,
+            span,
+        })
+    }
+
+    fn evaluate_array_repeat_count(&self, count: &ast::expr::Expr) -> anyhow::Result<u32> {
+        match &count.kind {
+            ast::expr::ExprKind::Int(int) => {
+                let value = int.as_u64();
+
+                let value =
+                    u32::try_from(value).map_err(|_| SemanticError::ArrayRepeatCountTooLarge {
+                        span: count.span,
+                        value,
+                    })?;
+
+                Ok(value)
+            }
+
+            _ => Err(SemanticError::ArrayRepeatCountNotConst { span: count.span }.into()),
+        }
     }
 
     fn analyze_int(&mut self, node: &ast::expr::Int) -> anyhow::Result<ir::expr::Expr> {
