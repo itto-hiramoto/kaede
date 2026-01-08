@@ -1560,8 +1560,7 @@ impl SemanticAnalyzer {
                 Rc::new(ir_type::make_fundamental_type(
                     ir_type::FundamentalTypeKind::U8,
                     ir_type::Mutability::Not,
-                ))
-                .into(),
+                )),
             )
             .into(),
             mutability: ir_type::Mutability::Not,
