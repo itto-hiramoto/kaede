@@ -32,6 +32,89 @@ use kaede_symbol::Symbol;
 pub type Value<'ctx> = Option<BasicValueEnum<'ctx>>;
 
 impl<'ctx> CodeGenerator<'ctx> {
+    fn array_type_info(ty: &Rc<Ty>) -> Option<(Rc<Ty>, u32)> {
+        match ty.kind.as_ref() {
+            TyKind::Reference(rty) => match rty.get_base_type().kind.as_ref() {
+                TyKind::Array((elem, len)) => Some((elem.clone(), *len)),
+                _ => None,
+            },
+            TyKind::Array((elem, len)) => Some((elem.clone(), *len)),
+            _ => None,
+        }
+    }
+
+    fn slice_element_ty(ty: &Rc<Ty>) -> Option<Rc<Ty>> {
+        match ty.kind.as_ref() {
+            TyKind::Reference(rty) => match rty.get_base_type().kind.as_ref() {
+                TyKind::Slice(elem) => Some(elem.clone()),
+                _ => None,
+            },
+            TyKind::Slice(elem) => Some(elem.clone()),
+            _ => None,
+        }
+    }
+
+    fn build_array_to_slice_conversion(
+        &mut self,
+        array_ptr: PointerValue<'ctx>,
+        array_len: u32,
+        elem_ty: &Rc<Ty>,
+    ) -> anyhow::Result<BasicValueEnum<'ctx>> {
+        let elem_llvm_ty = self.conv_to_llvm_type(elem_ty);
+        let array_llvm_ty = elem_llvm_ty.array_type(array_len);
+
+        let data_ptr = unsafe {
+            self.builder.build_in_bounds_gep(
+                array_llvm_ty,
+                array_ptr,
+                &[
+                    self.context().i32_type().const_zero(),
+                    self.context().i32_type().const_zero(),
+                ],
+                "",
+            )?
+        };
+
+        let slice_ty = Rc::new(Ty {
+            kind: TyKind::Slice(elem_ty.clone()).into(),
+            mutability: Mutability::Not,
+        });
+
+        let slice_llvm_ty = self.conv_to_llvm_type(&slice_ty);
+        let len_value = self.context().i64_type().const_int(array_len as u64, false);
+
+        let slice_ptr = self.create_gc_struct(
+            slice_llvm_ty,
+            &[
+                data_ptr.as_basic_value_enum(),
+                len_value.as_basic_value_enum(),
+            ],
+        )?;
+
+        Ok(slice_ptr.as_basic_value_enum())
+    }
+
+    pub(crate) fn coerce_value_to_type(
+        &mut self,
+        value: BasicValueEnum<'ctx>,
+        value_ty: &Rc<Ty>,
+        expected_ty: &Rc<Ty>,
+    ) -> anyhow::Result<BasicValueEnum<'ctx>> {
+        if let (Some((_, array_len)), Some(slice_elem)) = (
+            Self::array_type_info(value_ty),
+            Self::slice_element_ty(expected_ty),
+        ) {
+            let slice_val = self.build_array_to_slice_conversion(
+                value.into_pointer_value(),
+                array_len,
+                &slice_elem,
+            )?;
+            return Ok(slice_val);
+        }
+
+        Ok(value)
+    }
+
     /// Generate expression code
     pub fn build_expr(&mut self, node: &Expr) -> anyhow::Result<Value<'ctx>> {
         Ok(match &node.kind {
@@ -123,6 +206,9 @@ impl<'ctx> CodeGenerator<'ctx> {
         let entry_bb = self.context().append_basic_block(closure_fn, "entry");
         self.builder.position_at_end(entry_bb);
 
+        self.fn_return_ty_stack
+            .push(Some(closure_ty.ret_ty.clone()));
+
         let mut symbol_table = SymbolTable::new();
 
         let captures_param = closure_fn.get_nth_param(0).unwrap().into_pointer_value();
@@ -166,6 +252,8 @@ impl<'ctx> CodeGenerator<'ctx> {
         }
 
         self.tcx.pop_symbol_table();
+
+        self.fn_return_ty_stack.pop();
 
         self.builder.position_at_end(saved_block);
 
@@ -322,8 +410,14 @@ impl<'ctx> CodeGenerator<'ctx> {
     fn build_return(&mut self, value: &Option<Box<Expr>>) -> anyhow::Result<Value<'ctx>> {
         match &value {
             Some(val) => {
-                let value = self.build_expr(val)?;
-                self.builder.build_return(Some(&value.unwrap()))?
+                let mut value = self.build_expr(val)?.unwrap();
+
+                if let Some(expected_ty) = self.fn_return_ty_stack.last().and_then(|ty| ty.clone())
+                {
+                    value = self.coerce_value_to_type(value, &val.ty, &expected_ty)?;
+                }
+
+                self.builder.build_return(Some(&value))?
             }
 
             None => self.builder.build_return(None)?,
@@ -489,18 +583,20 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         let mut values = Vec::new();
 
-        for value in node.values.iter() {
+        for (field_name, field_expr) in node.values.iter() {
             let field_info = &node
                 .struct_info
                 .fields
                 .iter()
-                .find(|f| f.name == value.0)
+                .find(|f| f.name == *field_name)
                 .unwrap();
 
-            let value = self.build_expr(&value.1)?;
+            let value = self.build_expr(field_expr)?;
+            let mut basic = value.unwrap();
+            basic = self.coerce_value_to_type(basic, &field_expr.ty, &field_info.ty)?;
 
             // To sort by offset, store offset
-            values.push((field_info.offset, value.unwrap()));
+            values.push((field_info.offset, basic));
         }
 
         // Sort in ascending order based on offset
@@ -587,8 +683,14 @@ impl<'ctx> CodeGenerator<'ctx> {
         let args = {
             let mut args = Vec::new();
 
-            for arg in node.args.0.iter() {
-                args.push(self.build_expr(arg)?.unwrap().into());
+            for (idx, arg) in node.args.0.iter().enumerate() {
+                let mut value = self.build_expr(arg)?.unwrap();
+
+                if let Some(param) = node.callee.params.get(idx) {
+                    value = self.coerce_value_to_type(value, &arg.ty, &param.ty)?;
+                }
+
+                args.push(value.into());
             }
 
             args
@@ -926,54 +1028,52 @@ impl<'ctx> CodeGenerator<'ctx> {
         // A raw array cannot be passed, but a pointer(reference) to an array
         let ref_value = self.build_expr(&node.operand)?.unwrap();
 
-        let refee_ty = {
-            match node.operand.ty.kind.as_ref() {
-                TyKind::Reference(rty) => {
-                    if matches!(rty.get_base_type().kind.as_ref(), TyKind::Array(_)) {
-                        rty.get_base_type().clone()
-                    } else if matches!(
-                        rty.get_base_type().kind.as_ref(),
-                        TyKind::Fundamental(FundamentalType {
-                            kind: FundamentalTypeKind::Str,
-                            ..
-                        })
-                    ) {
-                        return self.build_string_indexing(node);
-                    } else {
-                        todo!("Error");
-                    }
-                }
+        let refee_ty = match node.operand.ty.kind.as_ref() {
+            TyKind::Reference(rty) => rty.get_base_type(),
+            TyKind::Pointer(pty) => return self.build_pointer_indexing(node, ref_value, pty),
+            _ => unreachable!(),
+        };
 
-                TyKind::Pointer(pty) => return self.build_pointer_indexing(node, ref_value, pty),
+        match refee_ty.kind.as_ref() {
+            TyKind::Array(_) => {
+                let array_llvm_ty = self.conv_to_llvm_type(&refee_ty).into_array_type();
 
-                _ => unreachable!(),
+                let ptr_to_array = ref_value.into_pointer_value();
+
+                let index = self.build_expr(&node.index)?.unwrap();
+
+                // Calculate the address of the index-th element
+                let gep = unsafe {
+                    self.builder.build_in_bounds_gep(
+                        array_llvm_ty,
+                        ptr_to_array,
+                        &[
+                            self.context().i32_type().const_zero(),
+                            index.into_int_value(),
+                        ],
+                        "",
+                    )?
+                };
+
+                return Ok(Some(self.builder.build_load(
+                    array_llvm_ty.get_element_type(),
+                    gep,
+                    "",
+                )?));
             }
-        };
+            TyKind::Slice(_) => {
+                return self.build_slice_indexing(node, ref_value, refee_ty);
+            }
+            TyKind::Fundamental(FundamentalType {
+                kind: FundamentalTypeKind::Str,
+                ..
+            }) => {
+                return self.build_string_indexing(node);
+            }
+            _ => {}
+        }
 
-        let array_llvm_ty = self.conv_to_llvm_type(&refee_ty).into_array_type();
-
-        let ptr_to_array = ref_value.into_pointer_value();
-
-        let index = self.build_expr(&node.index)?.unwrap();
-
-        // Calculate the address of the index-th element
-        let gep = unsafe {
-            self.builder.build_in_bounds_gep(
-                array_llvm_ty,
-                ptr_to_array,
-                &[
-                    self.context().i32_type().const_zero(),
-                    index.into_int_value(),
-                ],
-                "",
-            )?
-        };
-
-        Ok(Some(self.builder.build_load(
-            array_llvm_ty.get_element_type(),
-            gep,
-            "",
-        )?))
+        todo!("Error")
     }
 
     fn build_pointer_indexing(
@@ -996,6 +1096,55 @@ impl<'ctx> CodeGenerator<'ctx> {
         };
 
         Ok(Some(self.builder.build_load(pointee_llvm_ty, gep, "")?))
+    }
+
+    fn build_slice_indexing(
+        &mut self,
+        node: &Indexing,
+        slice_value: BasicValueEnum<'ctx>,
+        slice_ty: Rc<Ty>,
+    ) -> anyhow::Result<Value<'ctx>> {
+        let slice_llvm_ty = self.conv_to_llvm_type(&slice_ty).into_struct_type();
+
+        let data_gep = unsafe {
+            self.builder.build_in_bounds_gep(
+                slice_llvm_ty,
+                slice_value.into_pointer_value(),
+                &[
+                    self.context().i32_type().const_zero(),
+                    self.context().i32_type().const_zero(),
+                ],
+                "",
+            )?
+        };
+
+        let data_ptr = self.builder.build_load(
+            slice_llvm_ty.get_field_type_at_index(0).unwrap(),
+            data_gep,
+            "",
+        )?;
+
+        let index = self.build_expr(&node.index)?.unwrap();
+        let elem_ty = match slice_ty.kind.as_ref() {
+            TyKind::Slice(elem_ty) => elem_ty.clone(),
+            _ => unreachable!(),
+        };
+        let elem_llvm_ty = self.conv_to_llvm_type(&elem_ty);
+
+        let elem_gep = unsafe {
+            self.builder.build_in_bounds_gep(
+                elem_llvm_ty,
+                data_ptr.into_pointer_value(),
+                &[index.into_int_value()],
+                "",
+            )?
+        };
+
+        Ok(Some(
+            self.builder
+                .build_load(elem_llvm_ty, elem_gep, "")?
+                .as_basic_value_enum(),
+        ))
     }
 
     fn build_string_indexing(&mut self, node: &Indexing) -> anyhow::Result<Value<'ctx>> {

@@ -73,6 +73,52 @@ fn array_indexing() -> anyhow::Result<()> {
 }
 
 #[test]
+fn slice_type_annotation() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn len(s: [i32]) {
+            let _ = s[0]
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn array_to_slice_param() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn take(s: [i32]) { let _ = s[1]; }
+        fn main() {
+            take([1, 2, 3])
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn array_to_slice_return() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn make(): [i32] { [10, 20, 30] }
+        fn use_slice() {
+            let s = make()
+            let _ = s[2]
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn array_to_slice_var() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn take(s: [i32]): i32 { return s[1] }
+
+        fn f(): i32 {
+            let a: [i32; 3] = [1, 2, 3]
+            return take(a)
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn function_call() -> anyhow::Result<()> {
     semantic_analyze(
         "fn f(a: i32, b: i32): i32 { return a + b }\n

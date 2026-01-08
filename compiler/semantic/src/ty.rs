@@ -5,7 +5,7 @@ use kaede_ast_type as ast_type;
 use kaede_ir::ty as ir_type;
 use kaede_ir::{self as ir, qualified_symbol::QualifiedSymbol};
 use kaede_span::Span;
-use kaede_symbol::Ident;
+use kaede_symbol::{Ident, Symbol};
 
 use crate::context::AnalyzeCommand;
 use crate::{error::SemanticError, SemanticAnalyzer, TopLevelAnalysisResult};
@@ -39,6 +39,9 @@ impl SemanticAnalyzer {
 
             ast_type::TyKind::Array((ety, length)) => Ok(self
                 .analyze_array_type(ety, *length, ty.mutability.into())?
+                .into()),
+            ast_type::TyKind::Slice(elem_ty) => Ok(self
+                .analyze_slice_type(elem_ty, ty.mutability.into())?
                 .into()),
             ast_type::TyKind::Tuple(etys) => Ok(self
                 .analyze_tuple_type(
@@ -285,6 +288,7 @@ impl SemanticAnalyzer {
             let impl_info = match &generic_info.kind {
                 GenericKind::Struct(info) => info.impl_info.as_ref(),
                 GenericKind::Enum(info) => info.impl_info.as_ref(),
+                GenericKind::Slice(info) => info.impl_info.as_ref(),
                 _ => unreachable!(),
             };
 
@@ -303,6 +307,7 @@ impl SemanticAnalyzer {
                 let impl_info = match &mut generic_info.kind {
                     GenericKind::Struct(info) => info.impl_info.as_mut().unwrap(),
                     GenericKind::Enum(info) => info.impl_info.as_mut().unwrap(),
+                    GenericKind::Slice(info) => info.impl_info.as_mut().unwrap(),
                     _ => unreachable!(),
                 };
 
@@ -480,6 +485,132 @@ impl SemanticAnalyzer {
             kind: ir_type::TyKind::Array((self.analyze_type(ety)?, length)).into(),
             mutability,
         })
+    }
+
+    fn analyze_slice_type(
+        &mut self,
+        elem_ty: &ast_type::Ty,
+        mutability: ir_type::Mutability,
+    ) -> anyhow::Result<ir_type::Ty> {
+        let elem_ty = self.analyze_type(elem_ty)?;
+
+        self.generate_slice_impl(elem_ty.clone())?;
+
+        Ok(ir_type::Ty {
+            kind: ir_type::TyKind::Slice(elem_ty).into(),
+            mutability,
+        })
+    }
+
+    fn generate_slice_impl(&mut self, elem_ty: Rc<ir_type::Ty>) -> anyhow::Result<()> {
+        let slice_symbol_name = Symbol::from("__builtin_slice".to_owned());
+
+        let mut slice_symbol = match self.lookup_symbol(slice_symbol_name) {
+            Some(symbol) => symbol,
+            None => return Ok(()),
+        };
+
+        let needs_fallback_lookup = {
+            let borrowed = slice_symbol.borrow();
+            matches!(
+                &borrowed.kind,
+                SymbolTableValueKind::Generic(generic_info)
+                    if matches!(
+                        &generic_info.kind,
+                        GenericKind::Slice(info) if info.impl_info.is_none()
+                    )
+            ) && self.current_module_path() != self.module_path()
+        };
+
+        if needs_fallback_lookup {
+            if let Some(symbol) = self
+                .modules
+                .get(self.module_path())
+                .and_then(|module| module.lookup_symbol(&slice_symbol_name))
+            {
+                slice_symbol = symbol;
+            }
+        }
+
+        let module_path = {
+            let borrowed = slice_symbol.borrow();
+            match &borrowed.kind {
+                SymbolTableValueKind::Generic(generic_info) => match &generic_info.kind {
+                    GenericKind::Slice(_) => generic_info.module_path.clone(),
+                    _ => return Ok(()),
+                },
+
+                _ => return Ok(()),
+            }
+        };
+
+        let mut borrowed_mut = slice_symbol.borrow_mut();
+        let generic_info = match &mut borrowed_mut.kind {
+            SymbolTableValueKind::Generic(generic_info) => generic_info,
+            _ => return Ok(()),
+        };
+
+        let slice_info = match &mut generic_info.kind {
+            GenericKind::Slice(info) => info,
+            _ => return Ok(()),
+        };
+
+        let impl_info = match &mut slice_info.impl_info {
+            Some(info) => info,
+            None => return Ok(()),
+        };
+
+        let generic_args = vec![elem_ty.clone()];
+
+        if impl_info.generateds.contains(&generic_args) {
+            return Ok(());
+        }
+
+        let generic_params = impl_info.impl_.generic_params.as_ref().unwrap().clone();
+
+        self.verify_generic_argument_length(&generic_params, &generic_args, generic_params.span)?;
+
+        impl_info.generateds.push(generic_args.clone());
+
+        let mut impl_ast = impl_info.impl_.clone();
+        impl_ast.generic_params = None;
+
+        let mut methods = vec![];
+
+        for method in impl_ast.items.iter() {
+            if let ast::top::TopLevelKind::Fn(fn_) = &method.kind {
+                let mut fn_decl = fn_.decl.clone();
+                fn_decl.link_once = true;
+
+                methods.push(ast::top::TopLevel {
+                    kind: ast::top::TopLevelKind::Fn(ast::top::Fn {
+                        decl: fn_decl,
+                        body: fn_.body.clone(),
+                        span: fn_.span,
+                    }),
+                    span: fn_.span,
+                });
+            }
+        }
+
+        impl_ast.items = Rc::new(methods);
+
+        drop(borrowed_mut);
+
+        let impl_ir = self.with_module(module_path, |analyzer| {
+            analyzer.with_generic_arguments(&generic_params, &generic_args, |analyzer| {
+                analyzer.with_analyze_command(AnalyzeCommand::NoCommand, |analyzer| {
+                    analyzer.analyze_impl(impl_ast.clone())
+                })
+            })
+        })?;
+
+        if let TopLevelAnalysisResult::TopLevel(top_level) = impl_ir {
+            assert!(matches!(top_level, ir::top::TopLevel::Impl(_)));
+            self.generated_generics.push(top_level);
+        }
+
+        Ok(())
     }
 
     fn analyze_tuple_type(

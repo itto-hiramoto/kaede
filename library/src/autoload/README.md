@@ -1,1 +1,1 @@
-# Files under this folder are automatically loaded for all programs.
+# Files in this directory are automatically compiled and loaded for all programs.

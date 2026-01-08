@@ -327,6 +327,16 @@ impl TypeInferrer {
                     mutability: expected_ty.mutability,
                 }))
             }
+            TyKind::Slice(elem_ty) => {
+                for elem in &arr_lit.elements {
+                    self.check_expr(elem, elem_ty)?;
+                }
+
+                Ok(Rc::new(Ty {
+                    kind: TyKind::Slice(elem_ty.clone()).into(),
+                    mutability: expected_ty.mutability,
+                }))
+            }
             TyKind::Var(_) => {
                 // Type variable - fall back to inference and unify
                 let inferred = self.infer_array_literal(arr_lit)?;
@@ -619,6 +629,25 @@ impl TypeInferrer {
                     .unify(&tuple_idx.element_ty, &element_ty, tuple_idx.span)?;
                 Ok(element_ty)
             }
+            TyKind::Slice(elem_ty) => {
+                let element_ty = match tuple_idx.index {
+                    0 => Rc::new(Ty::wrap_in_pointer(elem_ty.clone())),
+                    1 => Rc::new(make_fundamental_type(
+                        FundamentalTypeKind::U64,
+                        Mutability::Not,
+                    )),
+                    _ => {
+                        return Err(TypeInferError::TupleIndexOutOfBounds {
+                            index: tuple_idx.index as u64,
+                            span,
+                        });
+                    }
+                };
+
+                self.context
+                    .unify(&tuple_idx.element_ty, &element_ty, tuple_idx.span)?;
+                Ok(element_ty)
+            }
             TyKind::UserDefined(_) => {
                 // Enums are internally represented as tuples
                 // Index 0 is the discriminant (i32), index 1+ is variant data
@@ -656,6 +685,7 @@ impl TypeInferrer {
 
         match unwrapped.kind.as_ref() {
             TyKind::Array((elem_ty, _)) => Ok(elem_ty.clone()),
+            TyKind::Slice(elem_ty) => Ok(elem_ty.clone()),
             TyKind::Pointer(ptr_ty) => Ok(ptr_ty.pointee_ty.clone()),
             TyKind::Fundamental(fty) if matches!(fty.kind, FundamentalTypeKind::Str) => {
                 // str can be indexed to get individual characters
@@ -931,7 +961,7 @@ impl TypeInferrer {
             };
 
             // Unify let_stmt.ty with init_ty to ensure they're the same
-            self.context.unify(&let_stmt.ty, &init_ty, let_stmt.span)?;
+            self.context.unify(&init_ty, &let_stmt.ty, let_stmt.span)?;
 
             // Register variable in environment with the final type
             let final_ty = self.context.apply(&let_stmt.ty);
@@ -987,7 +1017,7 @@ impl TypeInferrer {
         let rhs_ty = self.infer_expr(&assign.value)?;
 
         // Unify left and right types
-        self.context.unify(&lhs_ty, &rhs_ty, assign.span)?;
+        self.context.unify(&rhs_ty, &lhs_ty, assign.span)?;
 
         // Assignment expressions return unit
         Ok(Rc::new(Ty::new_unit()))
@@ -1124,10 +1154,12 @@ impl TypeInferrer {
                     let element_ty_opt = match applied_operand_ty.kind.as_ref() {
                         TyKind::Reference(rty) => match rty.get_base_type().kind.as_ref() {
                             TyKind::Array((elem_ty, _)) => Some(elem_ty.clone()),
+                            TyKind::Slice(elem_ty) => Some(elem_ty.clone()),
                             TyKind::Pointer(ptr_ty) => Some(ptr_ty.pointee_ty.clone()),
                             _ => None,
                         },
                         TyKind::Array((elem_ty, _)) => Some(elem_ty.clone()),
+                        TyKind::Slice(elem_ty) => Some(elem_ty.clone()),
                         TyKind::Pointer(ptr_ty) => Some(ptr_ty.pointee_ty.clone()),
                         _ => None,
                     };

@@ -342,41 +342,68 @@ impl SemanticAnalyzer {
     pub fn analyze_impl(&mut self, node: ast::top::Impl) -> anyhow::Result<TopLevelAnalysisResult> {
         let span = node.span;
 
-        if node.generic_params.is_some() {
+        if let Some(_generic_params) = node.generic_params.as_ref() {
             let base_ty = if let ast_type::TyKind::Reference(rty) = node.ty.kind.as_ref() {
                 rty.get_base_type()
             } else {
                 todo!("Error")
             };
 
-            if let ast_type::TyKind::UserDefined(udt) = base_ty.kind.as_ref() {
-                let symbol_kind = self.lookup_symbol(udt.name.symbol()).ok_or_else(|| {
-                    SemanticError::Undeclared {
-                        name: udt.name.symbol(),
-                        span: node.span,
-                    }
-                })?;
-
-                match &mut symbol_kind.borrow_mut().kind {
-                    SymbolTableValueKind::Generic(ref mut generic_info) => {
-                        match &mut generic_info.kind {
-                            GenericKind::Struct(info) => {
-                                info.impl_info = Some(GenericImplInfo::new(node, span));
-                            }
-                            GenericKind::Enum(info) => {
-                                info.impl_info = Some(GenericImplInfo::new(node, span));
-                            }
-                            _ => todo!("Error"),
+            match base_ty.kind.as_ref() {
+                ast_type::TyKind::UserDefined(udt) => {
+                    let symbol_kind = self.lookup_symbol(udt.name.symbol()).ok_or_else(|| {
+                        SemanticError::Undeclared {
+                            name: udt.name.symbol(),
+                            span: node.span,
                         }
+                    })?;
+
+                    match &mut symbol_kind.borrow_mut().kind {
+                        SymbolTableValueKind::Generic(ref mut generic_info) => {
+                            match &mut generic_info.kind {
+                                GenericKind::Struct(info) => {
+                                    info.impl_info = Some(GenericImplInfo::new(node, span));
+                                }
+                                GenericKind::Enum(info) => {
+                                    info.impl_info = Some(GenericImplInfo::new(node, span));
+                                }
+                                _ => todo!("Error"),
+                            }
+                        }
+
+                        _ => todo!("Error"),
                     }
 
-                    _ => todo!("Error"),
+                    // Generic impls are not created immediately, but are created when they are used.
+                    return Ok(TopLevelAnalysisResult::GenericTopLevel);
                 }
 
-                // Generic impls are not created immediately, but are created when they are used.
-                return Ok(TopLevelAnalysisResult::GenericTopLevel);
-            } else {
-                todo!("Error")
+                ast_type::TyKind::Slice(_) => {
+                    let slice_symbol: Symbol = "__builtin_slice".to_owned().into();
+                    let symbol_kind =
+                        self.lookup_symbol(slice_symbol)
+                            .ok_or(SemanticError::Undeclared {
+                                name: slice_symbol,
+                                span: node.span,
+                            })?;
+
+                    match &mut symbol_kind.borrow_mut().kind {
+                        SymbolTableValueKind::Generic(ref mut generic_info) => {
+                            match &mut generic_info.kind {
+                                GenericKind::Slice(info) => {
+                                    info.impl_info = Some(GenericImplInfo::new(node, span));
+                                }
+                                _ => todo!("Error"),
+                            }
+                        }
+
+                        _ => todo!("Error"),
+                    }
+
+                    return Ok(TopLevelAnalysisResult::GenericTopLevel);
+                }
+
+                _ => todo!("Error"),
             }
         }
 
@@ -419,16 +446,16 @@ impl SemanticAnalyzer {
         let (parent_name, is_builtin) = match parent_ty.kind.as_ref() {
             ir::ty::TyKind::Reference(ty) => {
                 let base_ty = ty.get_base_type();
-                if let ir::ty::TyKind::UserDefined(udt) = base_ty.kind.as_ref() {
-                    (udt.name(), false)
-                } else {
-                    // Built-in types
-                    (Symbol::from(base_ty.kind.to_string()), true)
+                match base_ty.kind.as_ref() {
+                    ir::ty::TyKind::UserDefined(udt) => (udt.name(), false),
+                    ir::ty::TyKind::Slice(_) => (Symbol::from("slice".to_owned()), false),
+                    _ => (Symbol::from(base_ty.kind.to_string()), true),
                 }
             }
 
             // Built-in types
             ir::ty::TyKind::Fundamental(fty) => (Symbol::from(fty.kind.to_string()), true),
+            ir::ty::TyKind::Slice(_) => (Symbol::from("slice".to_owned()), false),
 
             _ => unreachable!(),
         };

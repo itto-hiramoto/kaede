@@ -52,7 +52,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             None => panic!("Invalid left of assignment"),
         };
 
-        let value = self.build_expr(&node.value)?.unwrap();
+        let mut value = self.build_expr(&node.value)?.unwrap();
+        value = self.coerce_value_to_type(value, &node.value.ty, &node.assignee.ty)?;
         let new_value = match node.op {
             AssignOp::Replace => value,
             AssignOp::Add => {
@@ -115,7 +116,9 @@ impl<'ctx> CodeGenerator<'ctx> {
         let name = node.name;
 
         if let Some(init) = &node.init {
-            let value = self.build_expr(init)?;
+            let mut value = self.build_expr(init)?;
+            let coerced = self.coerce_value_to_type(value.unwrap(), &init.ty, &node.ty)?;
+            value = Some(coerced);
 
             let llvm_ty = self.conv_to_llvm_type(&node.ty);
 
