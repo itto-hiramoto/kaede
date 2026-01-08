@@ -840,6 +840,7 @@ impl TypeInferrer {
         match builtin_call.kind {
             BuiltinFnCallKind::Unreachable => Ok(Rc::new(Ty::new_never())),
             BuiltinFnCallKind::Str => Ok(Rc::new(Ty::new_str(Mutability::Not))),
+            BuiltinFnCallKind::PointerAdd => Ok(builtin_call.args.0[0].ty.clone()),
         }
     }
 

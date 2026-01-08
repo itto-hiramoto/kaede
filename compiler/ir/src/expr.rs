@@ -235,6 +235,7 @@ pub struct Variable {
 pub enum BuiltinFnCallKind {
     Unreachable,
     Str,
+    PointerAdd,
 }
 
 #[derive(Debug, Clone)]

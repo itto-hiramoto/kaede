@@ -182,6 +182,30 @@ impl<'ctx> CodeGenerator<'ctx> {
                 let len = self.build_expr(&node.args.0[1])?.unwrap();
                 self.build_string_literal_internal(p, len.into_int_value())
             }
+
+            BuiltinFnCallKind::PointerAdd => {
+                let ptr = self
+                    .build_expr(&node.args.0[0])?
+                    .unwrap()
+                    .into_pointer_value();
+                let offset = self.build_expr(&node.args.0[1])?.unwrap().into_int_value();
+
+                // Get the pointee type from the first argument's type
+                let pointee_ty = if let TyKind::Pointer(pty) = node.args.0[0].ty.kind.as_ref() {
+                    &pty.pointee_ty
+                } else {
+                    return Err(CodegenError::ExpectedPointerType.into());
+                };
+
+                let llvm_pointee_ty = self.conv_to_llvm_type(pointee_ty);
+
+                let result_ptr = unsafe {
+                    self.builder
+                        .build_in_bounds_gep(llvm_pointee_ty, ptr, &[offset], "")?
+                };
+
+                Ok(Some(result_ptr.into()))
+            }
         }
     }
 
@@ -1047,7 +1071,11 @@ impl<'ctx> CodeGenerator<'ctx> {
         ) {
             self.build_ptr_cast(value, target_ty.clone())
         } else {
-            todo!("Error");
+            anyhow::bail!(
+                "unsupported cast from `{}` to `{}`",
+                value_ty.kind.to_string(),
+                target_ty.kind.to_string()
+            );
         }
     }
 
