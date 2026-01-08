@@ -1452,6 +1452,85 @@ fn return_array() -> anyhow::Result<()> {
 }
 
 #[test]
+fn array_to_slice_param_codegen() -> anyhow::Result<()> {
+    let program = r#"fn sum(s: [i32]): i32 {
+        let mut sum = 0
+        let mut i = 0
+
+        loop {
+            if i == s.len() {
+                break
+            }
+            sum += s[i]
+            i += 1
+        }
+
+        return sum
+    }
+
+    fn main(): i32 {
+        let ar1: [i32; 2] = [1, 2]
+        let ar2 = [10, 20, 30]
+
+        return sum(ar1) + sum(ar2)
+    }"#;
+
+    assert_eq!(exec(program)?, 63);
+
+    Ok(())
+}
+
+#[test]
+fn array_to_slice_return_codegen() -> anyhow::Result<()> {
+    let program = r#"fn make(): [i32] {
+        return [48, 10]
+    }
+
+    fn main(): i32 {
+        let s = make()
+
+        return s[0] + s[1]
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn slice_len_method_codegen() -> anyhow::Result<()> {
+    let program = r#"fn len_of(s: [i32]): u64 {
+        return s.len()
+    }
+
+    fn main(): i32 {
+        let ar = [5, 6, 7]
+        return len_of(ar) as i32
+    }"#;
+
+    assert_eq!(exec(program)?, 3);
+
+    Ok(())
+}
+
+#[test]
+fn slice_as_ptr_method_codegen() -> anyhow::Result<()> {
+    let program = r#"fn first_plus_len(s: [i32]): i32 {
+        let ptr = s.as_ptr()
+        return ptr[0] + s.len() as i32
+    }
+
+    fn main(): i32 {
+        let ar = [10, 20]
+        return first_plus_len(ar)
+    }"#;
+
+    assert_eq!(exec(program)?, 12);
+
+    Ok(())
+}
+
+#[test]
 fn if_in_loop() -> anyhow::Result<()> {
     let program = r#"struct Person {
         age: i32,

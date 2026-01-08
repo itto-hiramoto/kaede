@@ -1,4 +1,5 @@
 use core::panic;
+use std::rc::Rc;
 
 use error::CodegenError;
 use inkwell::{
@@ -118,6 +119,8 @@ pub struct CodeGenerator<'ctx> {
     loop_break_bb_stk: Vec<BasicBlock<'ctx>>,
 
     closure_counter: usize,
+
+    fn_return_ty_stack: Vec<Option<Rc<Ty>>>,
 }
 
 impl<'ctx> CodeGenerator<'ctx> {
@@ -134,6 +137,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             builder: cgcx.context.create_builder(),
             loop_break_bb_stk: vec![],
             closure_counter: 0,
+            fn_return_ty_stack: Vec::new(),
         })
     }
 
@@ -300,6 +304,19 @@ impl<'ctx> CodeGenerator<'ctx> {
         (closure_struct_ty, fn_type, captures_tuple_ty)
     }
 
+    fn create_llvm_slice_type<'a>(
+        &self,
+        context: &'a Context,
+        _elem_ty: BasicTypeEnum<'a>,
+    ) -> BasicTypeEnum<'a> {
+        let ptr_ty = context.ptr_type(AddressSpace::default());
+        let len_ty = context.i64_type();
+        // { *T, i64 }
+        context
+            .struct_type(&[ptr_ty.into(), len_ty.into()], true)
+            .into()
+    }
+
     fn conv_to_llvm_type(&mut self, ty: &Ty) -> BasicTypeEnum<'ctx> {
         let context = self.context();
 
@@ -328,6 +345,11 @@ impl<'ctx> CodeGenerator<'ctx> {
 
             TyKind::Array((elem_ty, size)) => {
                 self.conv_to_llvm_type(elem_ty).array_type(*size).into()
+            }
+
+            TyKind::Slice(elem_ty) => {
+                let elem_llvm_ty = self.conv_to_llvm_type(elem_ty);
+                self.create_llvm_slice_type(self.context(), elem_llvm_ty)
             }
 
             TyKind::Tuple(types) => {

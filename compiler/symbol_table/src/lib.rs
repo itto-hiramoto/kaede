@@ -67,10 +67,28 @@ pub struct GenericFuncInfo {
 }
 
 #[derive(Debug)]
+pub struct GenericSliceInfo {
+    pub impl_info: Option<GenericImplInfo>,
+}
+
+impl GenericSliceInfo {
+    pub fn new() -> Self {
+        Self { impl_info: None }
+    }
+}
+
+impl Default for GenericSliceInfo {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[derive(Debug)]
 pub enum GenericKind {
     Struct(GenericStructInfo),
     Enum(GenericEnumInfo),
     Func(GenericFuncInfo),
+    Slice(GenericSliceInfo),
 }
 
 #[derive(Debug)]
@@ -88,6 +106,7 @@ impl GenericInfo {
         match &self.kind {
             GenericKind::Struct(info) => info.ast.generic_params.as_ref().unwrap().names.len(),
             GenericKind::Enum(info) => info.ast.generic_params.as_ref().unwrap().names.len(),
+            GenericKind::Slice(_) => 1,
             _ => unreachable!(),
         }
     }

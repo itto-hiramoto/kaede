@@ -252,23 +252,31 @@ impl Parser {
         //  ^~~
         let element_ty = self.ty()?;
 
-        // [i32; 58]
-        //     ^
-        self.consume(&TokenKind::Semi)?;
+        if self.consume_b(&TokenKind::Semi) {
+            // [i32; 58]
+            //       ^~
+            let size = self.array_size()?;
 
-        // [i32; 58]
-        //       ^~
-        let size = self.array_size()?;
+            // [i32; 58]
+            //         ^
+            let finish = self.consume(&TokenKind::CloseBracket)?.finish;
 
-        // [i32; 58]
-        //         ^
-        let finish = self.consume(&TokenKind::CloseBracket)?.finish;
+            Ok(wrap_in_reference(Ty {
+                kind: TyKind::Array((element_ty.into(), size)).into(),
+                mutability: Mutability::Not,
+                span: self.new_span(start, finish),
+            }))
+        } else {
+            // [i32]
+            //     ^
+            let finish = self.consume(&TokenKind::CloseBracket)?.finish;
 
-        Ok(wrap_in_reference(Ty {
-            kind: TyKind::Array((element_ty.into(), size)).into(),
-            mutability: Mutability::Not,
-            span: self.new_span(start, finish),
-        }))
+            Ok(wrap_in_reference(Ty {
+                kind: TyKind::Slice(element_ty.into()).into(),
+                mutability: Mutability::Not,
+                span: self.new_span(start, finish),
+            }))
+        }
     }
 
     fn tuple_ty(&mut self) -> ParseResult<Ty> {

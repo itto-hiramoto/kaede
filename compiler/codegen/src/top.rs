@@ -97,6 +97,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             let basic_block = self.context().append_basic_block(fn_value, "entry");
             self.builder.position_at_end(basic_block);
 
+            self.fn_return_ty_stack.push(node.decl.return_ty.clone());
+
             // Allocate parameters
             let symbol_table = self.build_function_params(fn_value, &node.decl.params)?;
 
@@ -106,6 +108,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             self.build_block(body)?;
 
             self.tcx.pop_symbol_table();
+            self.fn_return_ty_stack.pop();
 
             if fn_value.get_type().get_return_type().is_none() && self.no_terminator() {
                 // If return type is void and there is no termination, insert return

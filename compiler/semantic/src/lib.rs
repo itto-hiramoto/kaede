@@ -16,7 +16,10 @@ use kaede_ir::{
 use kaede_parse::Parser;
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::{Ident, Symbol};
-use kaede_symbol_table::{ScopedSymbolTable, SymbolTable, SymbolTableValue, SymbolTableValueKind};
+use kaede_symbol_table::{
+    GenericInfo, GenericKind, GenericSliceInfo, ScopedSymbolTable, SymbolTable, SymbolTableValue,
+    SymbolTableValueKind,
+};
 
 mod context;
 mod error;
@@ -54,6 +57,28 @@ pub struct SemanticAnalyzer {
 }
 
 impl SemanticAnalyzer {
+    fn insert_builtin_slice_symbol(module_context: &mut ModuleContext, module_path: ModulePath) {
+        let symbol_table_value = SymbolTableValue::new(
+            SymbolTableValueKind::Generic(
+                GenericInfo::new(
+                    GenericKind::Slice(GenericSliceInfo::new()),
+                    module_path.clone(),
+                )
+                .into(),
+            ),
+            module_path,
+        );
+
+        module_context
+            .insert_symbol_to_root_scope(
+                Symbol::from("__builtin_slice".to_owned()),
+                symbol_table_value,
+                Visibility::Public,
+                Span::dummy(),
+            )
+            .unwrap();
+    }
+
     pub fn new(file_path: FilePath, root_dir: PathBuf) -> Self {
         if !root_dir.is_dir() {
             panic!("Root directory is not a directory");
@@ -65,7 +90,8 @@ impl SemanticAnalyzer {
         let mut context = AnalysisContext::new(module_path.clone());
         context.set_current_module_path(module_path.clone());
 
-        let module_context = ModuleContext::new(file_path);
+        let mut module_context = ModuleContext::new(file_path);
+        Self::insert_builtin_slice_symbol(&mut module_context, module_path.clone());
 
         Self {
             modules: HashMap::from([(module_path, module_context)]),
@@ -87,6 +113,7 @@ impl SemanticAnalyzer {
         context.set_current_module_path(module_path.clone());
 
         let mut module_context = ModuleContext::new(FilePath::from(PathBuf::from("test.kd")));
+        Self::insert_builtin_slice_symbol(&mut module_context, module_path.clone());
         module_context.push_scope(SymbolTable::new());
 
         Self {
@@ -374,7 +401,7 @@ impl SemanticAnalyzer {
                     });
                 }
 
-                _ => unreachable!(),
+                TopLevelAnalysisResult::GenericTopLevel => {}
             }
         }
 
@@ -668,6 +695,7 @@ impl SemanticAnalyzer {
         // Create root module
         let mut root_module = ModuleContext::new(FilePath::dummy());
         root_module.push_scope(SymbolTable::new());
+        Self::insert_builtin_slice_symbol(&mut root_module, ModulePath::new(vec![]));
         self.modules.insert(ModulePath::new(vec![]), root_module);
 
         self.context.set_no_prelude(no_prelude);
