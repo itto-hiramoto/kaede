@@ -1,9 +1,9 @@
 use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::expr::{
-    Args, ArrayLiteral, Binary, BinaryKind, Break, CharLiteral, Closure, Else, Expr, ExprKind,
-    FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, Return, StringLiteral,
-    StructLiteral, TupleLiteral,
+    Args, ArrayLiteral, ArrayRepeat, Binary, BinaryKind, Break, CharLiteral, Closure, Else, Expr,
+    ExprKind, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, Return,
+    StringLiteral, StructLiteral, TupleLiteral,
 };
 use kaede_ast_type::{GenericArgs, Ty, TyKind};
 use kaede_lex::token::TokenKind;
@@ -592,7 +592,29 @@ impl Parser {
     fn array_literal(&mut self) -> ParseResult<Expr> {
         let start = self.consume(&TokenKind::OpenBracket).unwrap().start;
 
-        let elements = self.comma_separated_elements(&TokenKind::CloseBracket)?;
+        let first_elem = self.expr()?;
+
+        if self.consume_b(&TokenKind::Semi) {
+            let count = self.expr()?;
+            let finish = self.consume(&TokenKind::CloseBracket)?.finish;
+            let span = self.new_span(start, finish);
+
+            return Ok(Expr {
+                kind: ExprKind::ArrayRepeat(ArrayRepeat {
+                    value: first_elem.into(),
+                    count: count.into(),
+                    span,
+                }),
+                span,
+            });
+        }
+
+        let mut elements = vec![first_elem];
+
+        if !self.check(&TokenKind::CloseBracket) {
+            self.consume(&TokenKind::Comma)?;
+            elements.extend(self.comma_separated_elements(&TokenKind::CloseBracket)?);
+        }
 
         let finish = self.consume(&TokenKind::CloseBracket).unwrap().finish;
 

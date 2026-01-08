@@ -160,6 +160,13 @@ pub struct ArrayLiteral {
 }
 
 #[derive(Debug, Clone)]
+pub struct ArrayRepeat {
+    pub value: Box<Expr>,
+    pub count: u32,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub struct TupleLiteral {
     pub elements: Vec<Expr>,
     pub span: Span,
@@ -244,6 +251,7 @@ pub enum ExprKind {
     CharLiteral(CharLiteral),
     StructLiteral(StructLiteral),
     ArrayLiteral(ArrayLiteral),
+    ArrayRepeat(ArrayRepeat),
     TupleLiteral(TupleLiteral),
     Variable(Variable),
     BooleanLiteral(bool),
