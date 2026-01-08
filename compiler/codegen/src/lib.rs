@@ -119,6 +119,7 @@ pub struct CodeGenerator<'ctx> {
     loop_break_bb_stk: Vec<BasicBlock<'ctx>>,
 
     closure_counter: usize,
+    literal_counter: usize,
 
     fn_return_ty_stack: Vec<Option<Rc<Ty>>>,
 }
@@ -137,6 +138,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             builder: cgcx.context.create_builder(),
             loop_break_bb_stk: vec![],
             closure_counter: 0,
+            literal_counter: 0,
             fn_return_ty_stack: Vec::new(),
         })
     }
@@ -263,6 +265,12 @@ impl<'ctx> CodeGenerator<'ctx> {
         let name = format!("closure_{}", self.closure_counter);
         self.closure_counter += 1;
         Symbol::from(name)
+    }
+
+    fn fresh_literal_name(&mut self, prefix: &str) -> String {
+        let name = format!("{prefix}.{}", self.literal_counter);
+        self.literal_counter += 1;
+        name
     }
 
     fn closure_llvm_types(

@@ -16,7 +16,7 @@ use kaede_ir::{
         FieldAccess, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, TupleIndexing,
     },
     stmt::{Assign, Block, Let, Stmt, TupleUnpack},
-    ty::{FundamentalTypeKind, Mutability, Ty, TyKind, make_fundamental_type},
+    ty::{FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind, make_fundamental_type},
 };
 mod context;
 mod env;
@@ -75,6 +75,24 @@ impl TypeInferrer {
             // Literals
             Int(int_lit) => self.infer_int(int_lit),
             StringLiteral(_) => Ok(Rc::new(Ty::new_str(Mutability::Not))),
+            ByteStringLiteral(_) => {
+                let elem_ty = Rc::new(make_fundamental_type(
+                    FundamentalTypeKind::U8,
+                    Mutability::Not,
+                ));
+                let slice_ty = Ty {
+                    kind: TyKind::Slice(elem_ty).into(),
+                    mutability: Mutability::Not,
+                };
+
+                Ok(Rc::new(Ty {
+                    kind: TyKind::Reference(ReferenceType {
+                        refee_ty: Rc::new(slice_ty),
+                    })
+                    .into(),
+                    mutability: Mutability::Not,
+                }))
+            }
             CharLiteral(_) => Ok(Rc::new(make_fundamental_type(
                 FundamentalTypeKind::Char,
                 Mutability::Not,
@@ -1144,7 +1162,8 @@ impl TypeInferrer {
             }
 
             // Other literals have no child expressions
-            StringLiteral(_) | CharLiteral(_) | BooleanLiteral(_) | Break | FnPointer(_) => {}
+            StringLiteral(_) | ByteStringLiteral(_) | CharLiteral(_) | BooleanLiteral(_)
+            | Break | FnPointer(_) => {}
 
             // Structured literals with child expressions
             ArrayLiteral(arr_lit) => {
