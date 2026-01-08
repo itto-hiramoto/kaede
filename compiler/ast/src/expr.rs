@@ -16,6 +16,12 @@ pub struct StringLiteral {
 }
 
 #[derive(Debug)]
+pub struct ByteStringLiteral {
+    pub bytes: Vec<u8>,
+    pub span: Span,
+}
+
+#[derive(Debug)]
 pub struct CharLiteral {
     pub ch: char,
     pub span: Span,
@@ -250,6 +256,7 @@ impl Expr {
 pub enum ExprKind {
     Int(Int),
     StringLiteral(StringLiteral),
+    ByteStringLiteral(ByteStringLiteral),
     CharLiteral(CharLiteral),
     Binary(Binary),
     Ident(Ident),

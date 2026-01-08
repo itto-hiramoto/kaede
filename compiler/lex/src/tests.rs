@@ -145,3 +145,23 @@ fn unicode_string_literal() {
         ],
     );
 }
+
+#[test]
+fn byte_string_literal() {
+    lex_test(
+        r#"b"hello""#,
+        vec![ByteStringLiteral(b"hello".to_vec()), Semi, Eoi],
+    );
+}
+
+#[test]
+fn byte_string_literal_escape_sequences() {
+    lex_test(
+        r#"b"line1\nline2\t\"quote\"\\backslash""#,
+        vec![
+            ByteStringLiteral(b"line1\nline2\t\"quote\"\\backslash".to_vec()),
+            Semi,
+            Eoi,
+        ],
+    );
+}

@@ -16,6 +16,12 @@ pub struct StringLiteral {
 }
 
 #[derive(Debug, Clone)]
+pub struct ByteStringLiteral {
+    pub bytes: Vec<u8>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub struct CharLiteral {
     pub ch: char,
     pub span: Span,
@@ -248,6 +254,7 @@ pub struct FnPointer {
 pub enum ExprKind {
     Int(Int),
     StringLiteral(StringLiteral),
+    ByteStringLiteral(ByteStringLiteral),
     CharLiteral(CharLiteral),
     StructLiteral(StructLiteral),
     ArrayLiteral(ArrayLiteral),

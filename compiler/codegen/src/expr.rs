@@ -16,10 +16,10 @@ use inkwell::{
 use kaede_common::rust_function_prefix;
 use kaede_ir::{
     expr::{
-        ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BuiltinFnCall, BuiltinFnCallKind, Cast,
-        CharLiteral, Closure, Else, EnumUnpack, EnumVariant, Expr, ExprKind, FieldAccess, FnCall,
-        FnPointer, If, Indexing, Int, LogicalNot, Loop, StringLiteral, StructLiteral,
-        TupleIndexing, TupleLiteral, Variable,
+        ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BuiltinFnCall, BuiltinFnCallKind,
+        ByteStringLiteral, Cast, CharLiteral, Closure, Else, EnumUnpack, EnumVariant, Expr,
+        ExprKind, FieldAccess, FnCall, FnPointer, If, Indexing, Int, LogicalNot, Loop,
+        StringLiteral, StructLiteral, TupleIndexing, TupleLiteral, Variable,
     },
     stmt::Block,
     ty::{
@@ -133,6 +133,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             ExprKind::StructLiteral(node) => self.struct_literal(node)?,
 
             ExprKind::StringLiteral(node) => self.build_string_literal(node)?,
+            ExprKind::ByteStringLiteral(node) => self.build_byte_string_literal(node)?,
 
             ExprKind::CharLiteral(node) => self.build_char_literal(node)?,
 
@@ -607,6 +608,41 @@ impl<'ctx> CodeGenerator<'ctx> {
         let value = self.create_gc_struct(struct_llvm_ty.as_basic_type_enum(), &values)?;
 
         Ok(Some(value.into()))
+    }
+
+    fn build_byte_string_literal(
+        &mut self,
+        node: &ByteStringLiteral,
+    ) -> anyhow::Result<Value<'ctx>> {
+        let i8_ty = self.context().i8_type();
+        let array_ty = i8_ty.array_type(node.bytes.len() as u32);
+
+        let const_bytes = node
+            .bytes
+            .iter()
+            .map(|b| i8_ty.const_int(*b as u64, false))
+            .collect::<Vec<_>>();
+
+        let array_val = i8_ty.const_array(&const_bytes);
+
+        let global_name = self.fresh_literal_name("byte_str");
+        let global = self.module.add_global(array_ty, None, global_name.as_str());
+        global.set_initializer(&array_val);
+        global.set_linkage(Linkage::Internal);
+        global.set_constant(true);
+
+        let elem_ty = Rc::new(make_fundamental_type(
+            FundamentalTypeKind::U8,
+            Mutability::Not,
+        ));
+
+        let slice_ptr = self.build_array_to_slice_conversion(
+            global.as_pointer_value(),
+            node.bytes.len() as u32,
+            &elem_ty,
+        )?;
+
+        Ok(Some(slice_ptr))
     }
 
     fn build_string_literal(&mut self, node: &StringLiteral) -> anyhow::Result<Value<'ctx>> {

@@ -1,9 +1,9 @@
 use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::expr::{
-    Args, ArrayLiteral, ArrayRepeat, Binary, BinaryKind, Break, CharLiteral, Closure, Else, Expr,
-    ExprKind, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, Return,
-    StringLiteral, StructLiteral, TupleLiteral,
+    Args, ArrayLiteral, ArrayRepeat, Binary, BinaryKind, Break, ByteStringLiteral, CharLiteral,
+    Closure, Else, Expr, ExprKind, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Match,
+    MatchArm, Return, StringLiteral, StructLiteral, TupleLiteral,
 };
 use kaede_ast_type::{GenericArgs, Ty, TyKind};
 use kaede_lex::token::TokenKind;
@@ -353,6 +353,10 @@ impl Parser {
             return Ok(lit);
         }
 
+        if let Some(lit) = self.byte_string_literal() {
+            return Ok(lit);
+        }
+
         if let Some(lit) = self.char_literal() {
             return Ok(lit);
         }
@@ -699,6 +703,24 @@ impl Parser {
             span: s.span,
             kind: ExprKind::StringLiteral(s),
         })
+    }
+
+    fn byte_string_literal(&mut self) -> Option<Expr> {
+        if matches!(self.first().kind, TokenKind::ByteStringLiteral(_)) {
+            let token = self.bump().unwrap();
+
+            if let TokenKind::ByteStringLiteral(bytes) = token.kind {
+                return Some(Expr {
+                    span: token.span,
+                    kind: ExprKind::ByteStringLiteral(ByteStringLiteral {
+                        bytes,
+                        span: token.span,
+                    }),
+                });
+            }
+        }
+
+        None
     }
 
     pub fn string_literal_internal(&mut self) -> Option<StringLiteral> {

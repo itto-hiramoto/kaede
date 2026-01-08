@@ -134,6 +134,14 @@ impl Cursor<'_> {
                 self.create_token(TokenKind::Int(n))
             }
 
+            // Byte string literal
+            'b' if self.first() == '"' => {
+                // Consume the opening quote
+                self.bump().unwrap();
+                let bytes = self.byte_string_literal();
+                self.create_token(TokenKind::ByteStringLiteral(bytes))
+            }
+
             // Identifier or reserved words
             c if is_id_start(c) => {
                 let ident = self.ident(c);
@@ -386,6 +394,39 @@ impl Cursor<'_> {
             }
 
             lit.push(c);
+            self.bump().unwrap();
+        }
+    }
+
+    fn byte_string_literal(&mut self) -> Vec<u8> {
+        let mut bytes = Vec::new();
+
+        loop {
+            let c = self.first();
+
+            if c == '\\' {
+                self.bump().unwrap();
+                let c = self.bump().unwrap();
+                let b = match c {
+                    'n' => b'\n',
+                    'r' => b'\r',
+                    't' => b'\t',
+                    '\\' => b'\\',
+                    '"' => b'"',
+                    _ => unreachable!(),
+                };
+
+                bytes.push(b);
+                continue;
+            }
+
+            if c == '"' {
+                // Consume closing quote
+                self.bump().unwrap();
+                return bytes;
+            }
+
+            bytes.push(c as u8);
             self.bump().unwrap();
         }
     }
