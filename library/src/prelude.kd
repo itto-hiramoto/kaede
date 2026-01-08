@@ -12,13 +12,3 @@ pub use std.any.Any
 pub use std.option.Option
 pub use std.string.String
 pub use std.runtime.__prepare_command_line_arguments
-
-impl<T> [T] {
-    pub fn as_ptr(self): *T {
-        return self.0
-    }
-
-    pub fn len(self): u64 {
-        return self.1
-    }
-}
