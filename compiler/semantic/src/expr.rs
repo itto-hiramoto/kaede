@@ -43,6 +43,7 @@ impl SemanticAnalyzer {
             ExprKind::False => self.analyze_boolean_literal(false, span),
             ExprKind::Block(node) => self.analyze_block_expr(node),
             ExprKind::StringLiteral(node) => self.analyze_string_literal(node),
+            ExprKind::ByteStringLiteral(node) => self.analyze_byte_string_literal(node),
             ExprKind::CharLiteral(node) => self.analyze_char_literal(node),
             ExprKind::Binary(node) => self.analyze_binary(node),
             ExprKind::Ident(node) => self.analyze_ident(node),
@@ -1544,6 +1545,32 @@ impl SemanticAnalyzer {
                     ir_type::FundamentalTypeKind::Str,
                     ir_type::Mutability::Not,
                 )),
+                ir_type::Mutability::Not,
+            )),
+            span: node.span,
+        })
+    }
+
+    fn analyze_byte_string_literal(
+        &self,
+        node: &ast::expr::ByteStringLiteral,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let slice_ty = ir_type::Ty {
+            kind: ir_type::TyKind::Slice(Rc::new(ir_type::make_fundamental_type(
+                ir_type::FundamentalTypeKind::U8,
+                ir_type::Mutability::Not,
+            )))
+            .into(),
+            mutability: ir_type::Mutability::Not,
+        };
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::ByteStringLiteral(ir::expr::ByteStringLiteral {
+                bytes: node.bytes.clone(),
+                span: node.span,
+            }),
+            ty: Rc::new(ir_type::wrap_in_ref(
+                Rc::new(slice_ty),
                 ir_type::Mutability::Not,
             )),
             span: node.span,

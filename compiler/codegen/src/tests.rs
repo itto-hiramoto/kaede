@@ -403,6 +403,29 @@ fn string_literal() -> anyhow::Result<()> {
 }
 
 #[test]
+fn byte_string_literal() -> anyhow::Result<()> {
+    let program = r#"fn main(): i32 {
+        let bs = b"hi"
+        return (bs[0] as i32) + (bs[1] as i32)
+    }"#;
+
+    assert_eq!(exec(program)?, 209);
+
+    Ok(())
+}
+
+#[test]
+fn byte_string_literal_with_escapes() -> anyhow::Result<()> {
+    let program = r#"fn main(): i32 {
+        let bs = b"a\n\\\""
+        return (bs[0] as i32) + (bs[1] as i32) + (bs[2] as i32) + (bs[3] as i32)
+    }"#;
+
+    assert_eq!(exec(program)?, 233); // 'a' (97) + '\n' (10) + '\\' (92) + '"' (34)
+    Ok(())
+}
+
+#[test]
 fn string_type() -> anyhow::Result<()> {
     let program = r#"fn f(s: str): str {
         return s
