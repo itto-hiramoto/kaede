@@ -28,6 +28,12 @@ pub struct CharLiteral {
 }
 
 #[derive(Debug)]
+pub struct ByteLiteral {
+    pub byte: u8,
+    pub span: Span,
+}
+
+#[derive(Debug)]
 pub struct StructLiteral {
     pub struct_ty: UserDefinedType,
     pub values: Vec<(Ident, Expr)>,
@@ -265,6 +271,7 @@ pub enum ExprKind {
     Int(Int),
     StringLiteral(StringLiteral),
     ByteStringLiteral(ByteStringLiteral),
+    ByteLiteral(ByteLiteral),
     CharLiteral(CharLiteral),
     Binary(Binary),
     Ident(Ident),

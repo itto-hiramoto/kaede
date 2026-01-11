@@ -165,3 +165,19 @@ fn byte_string_literal_escape_sequences() {
         ],
     );
 }
+
+#[test]
+fn byte_literal() {
+    lex_test(r#"b'a'"#, vec![ByteLiteral(b'a'), Semi, Eoi]);
+    lex_test(r#"b'Z'"#, vec![ByteLiteral(b'Z'), Semi, Eoi]);
+    lex_test(r#"b'0'"#, vec![ByteLiteral(b'0'), Semi, Eoi]);
+}
+
+#[test]
+fn byte_literal_escape_sequences() {
+    lex_test(r#"b'\n'"#, vec![ByteLiteral(b'\n'), Semi, Eoi]);
+    lex_test(r#"b'\r'"#, vec![ByteLiteral(b'\r'), Semi, Eoi]);
+    lex_test(r#"b'\t'"#, vec![ByteLiteral(b'\t'), Semi, Eoi]);
+    lex_test(r#"b'\\'"#, vec![ByteLiteral(b'\\'), Semi, Eoi]);
+    lex_test(r#"b'\''"#, vec![ByteLiteral(b'\''), Semi, Eoi]);
+}
