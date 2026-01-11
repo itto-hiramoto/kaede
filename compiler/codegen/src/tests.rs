@@ -426,6 +426,43 @@ fn byte_string_literal_with_escapes() -> anyhow::Result<()> {
 }
 
 #[test]
+fn byte_literal() -> anyhow::Result<()> {
+    let program = r#"fn main(): i32 {
+        let b = b'A'
+        return b as i32
+    }"#;
+
+    assert_eq!(exec(program)?, 65); // 'A' is 65
+    Ok(())
+}
+
+#[test]
+fn byte_literal_escape_sequences() -> anyhow::Result<()> {
+    let program = r#"fn main(): i32 {
+        let newline = b'\n'
+        let tab = b'\t'
+        let backslash = b'\\'
+        let quote = b'\''
+        return (newline as i32) + (tab as i32) + (backslash as i32) + (quote as i32)
+    }"#;
+
+    assert_eq!(exec(program)?, 10 + 9 + 92 + 39); // '\n' (10) + '\t' (9) + '\\' (92) + '\'' (39)
+    Ok(())
+}
+
+#[test]
+fn byte_literal_arithmetic() -> anyhow::Result<()> {
+    let program = r#"fn main(): i32 {
+        let a = b'a'
+        let z = b'z'
+        return (z - a) as i32
+    }"#;
+
+    assert_eq!(exec(program)?, 25); // 'z' (122) - 'a' (97) = 25
+    Ok(())
+}
+
+#[test]
 fn string_type() -> anyhow::Result<()> {
     let program = r#"fn f(s: str): str {
         return s

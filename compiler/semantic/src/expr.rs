@@ -44,6 +44,7 @@ impl SemanticAnalyzer {
             ExprKind::Block(node) => self.analyze_block_expr(node),
             ExprKind::StringLiteral(node) => self.analyze_string_literal(node),
             ExprKind::ByteStringLiteral(node) => self.analyze_byte_string_literal(node),
+            ExprKind::ByteLiteral(node) => self.analyze_byte_literal(node),
             ExprKind::CharLiteral(node) => self.analyze_char_literal(node),
             ExprKind::Binary(node) => self.analyze_binary(node),
             ExprKind::Ident(node) => self.analyze_ident(node),
@@ -1779,6 +1780,23 @@ impl SemanticAnalyzer {
             }),
             ty: Rc::new(ir_type::make_fundamental_type(
                 ir_type::FundamentalTypeKind::Char,
+                ir_type::Mutability::Not,
+            )),
+            span: node.span,
+        })
+    }
+
+    fn analyze_byte_literal(
+        &self,
+        node: &ast::expr::ByteLiteral,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::ByteLiteral(ir::expr::ByteLiteral {
+                byte: node.byte,
+                span: node.span,
+            }),
+            ty: Rc::new(ir_type::make_fundamental_type(
+                ir_type::FundamentalTypeKind::U8,
                 ir_type::Mutability::Not,
             )),
             span: node.span,
