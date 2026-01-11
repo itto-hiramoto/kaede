@@ -93,6 +93,10 @@ impl TypeInferrer {
                     mutability: Mutability::Not,
                 }))
             }
+            ByteLiteral(_) => Ok(Rc::new(make_fundamental_type(
+                FundamentalTypeKind::U8,
+                Mutability::Not,
+            ))),
             CharLiteral(_) => Ok(Rc::new(make_fundamental_type(
                 FundamentalTypeKind::Char,
                 Mutability::Not,
@@ -1195,8 +1199,8 @@ impl TypeInferrer {
             }
 
             // Other literals have no child expressions
-            StringLiteral(_) | ByteStringLiteral(_) | CharLiteral(_) | BooleanLiteral(_)
-            | Break | FnPointer(_) => {}
+            StringLiteral(_) | ByteStringLiteral(_) | ByteLiteral(_) | CharLiteral(_)
+            | BooleanLiteral(_) | Break | FnPointer(_) => {}
 
             // Structured literals with child expressions
             ArrayLiteral(arr_lit) => {

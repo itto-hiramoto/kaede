@@ -134,12 +134,18 @@ impl Cursor<'_> {
                 self.create_token(TokenKind::Int(n))
             }
 
-            // Byte string literal
+            // Byte string literal or byte literal
             'b' if self.first() == '"' => {
                 // Consume the opening quote
                 self.bump().unwrap();
                 let bytes = self.byte_string_literal();
                 self.create_token(TokenKind::ByteStringLiteral(bytes))
+            }
+            'b' if self.first() == '\'' => {
+                // Consume the opening quote
+                self.bump().unwrap();
+                let byte = self.byte_literal();
+                self.create_token(TokenKind::ByteLiteral(byte))
             }
 
             // Identifier or reserved words
@@ -366,6 +372,38 @@ impl Cursor<'_> {
         }
     }
 
+    /// Parse escape sequence for string/char literals
+    /// Returns the unescaped character
+    fn parse_char_escape(&mut self) -> char {
+        // Assumes backslash has already been consumed
+        let c = self.bump().unwrap();
+        match c {
+            'n' => '\n',
+            'r' => '\r',
+            't' => '\t',
+            '\\' => '\\',
+            '"' => '"',
+            '\'' => '\'',
+            _ => unreachable!(),
+        }
+    }
+
+    /// Parse escape sequence for byte string/byte literals
+    /// Returns the unescaped byte
+    fn parse_byte_escape(&mut self) -> u8 {
+        // Assumes backslash has already been consumed
+        let c = self.bump().unwrap();
+        match c {
+            'n' => b'\n',
+            'r' => b'\r',
+            't' => b'\t',
+            '\\' => b'\\',
+            '"' => b'"',
+            '\'' => b'\'',
+            _ => unreachable!(),
+        }
+    }
+
     fn string_literal(&mut self) -> String {
         let mut lit = String::new();
 
@@ -375,15 +413,7 @@ impl Cursor<'_> {
             // Escape sequence
             if c == '\\' {
                 self.bump().unwrap();
-                let c = self.bump().unwrap();
-                match c {
-                    'n' => lit.push('\n'),
-                    'r' => lit.push('\r'),
-                    't' => lit.push('\t'),
-                    '\\' => lit.push('\\'),
-                    '"' => lit.push('"'),
-                    _ => unreachable!(),
-                }
+                lit.push(self.parse_char_escape());
                 continue;
             }
 
@@ -406,17 +436,7 @@ impl Cursor<'_> {
 
             if c == '\\' {
                 self.bump().unwrap();
-                let c = self.bump().unwrap();
-                let b = match c {
-                    'n' => b'\n',
-                    'r' => b'\r',
-                    't' => b'\t',
-                    '\\' => b'\\',
-                    '"' => b'"',
-                    _ => unreachable!(),
-                };
-
-                bytes.push(b);
+                bytes.push(self.parse_byte_escape());
                 continue;
             }
 
@@ -435,27 +455,37 @@ impl Cursor<'_> {
         let c = self.first();
 
         // Escape sequence
-        if c == '\\' {
+        let result = if c == '\\' {
             self.bump().unwrap();
-            let c = self.bump().unwrap();
-            let result = match c {
-                'n' => '\n',
-                'r' => '\r',
-                't' => '\t',
-                '\\' => '\\',
-                '\'' => '\'',
-                _ => unreachable!(),
-            };
+            self.parse_char_escape()
+        } else {
+            // Regular character
+            self.bump().unwrap();
+            c
+        };
 
-            // Consume closing quote
-            assert_eq!(self.first(), '\'');
+        // Consume closing quote
+        if self.first() == '\'' {
             self.bump().unwrap();
-            return result;
+        } else {
+            todo!()
         }
 
-        // Regular character
-        let result = c;
-        self.bump().unwrap();
+        result
+    }
+
+    fn byte_literal(&mut self) -> u8 {
+        let c = self.first();
+
+        // Escape sequence
+        let result = if c == '\\' {
+            self.bump().unwrap();
+            self.parse_byte_escape()
+        } else {
+            // Regular byte (must be ASCII)
+            self.bump().unwrap();
+            c as u8
+        };
 
         // Consume closing quote
         if self.first() == '\'' {
