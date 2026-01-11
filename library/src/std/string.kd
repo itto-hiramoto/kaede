@@ -30,6 +30,10 @@ impl String {
         return String { chars: chars }
     }
 
+    pub fn as_ptr(self): *char {
+        return self.chars.as_ptr()
+    }
+
     pub fn at(self, idx: u32): Option<char> {
         return self.chars.at(idx)
     }

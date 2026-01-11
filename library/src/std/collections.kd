@@ -16,6 +16,10 @@ impl<T> Vector<T> {
         return Vector<T> { ptr: __mem_alloc(0) as *T, len: 0, capacity: 0 }
     }
 
+    pub fn as_ptr(self): *T {
+        return self.ptr
+    }
+
     pub fn len(self): u32 {
         return self.len
     }
