@@ -1,0 +1,10 @@
+pub extern "C" fn kaede_mem_alloc(size: u64): *i8
+pub extern "C" fn kaede_mem_realloc(ptr: *i8, size: u64): *i8
+
+pub fn __mem_alloc(size: u64): *i8 {
+    return kaede_mem_alloc(size)
+}
+
+pub fn __mem_realloc(ptr: *i8, size: u64): *i8 {
+    return kaede_mem_realloc(ptr, size)
+}

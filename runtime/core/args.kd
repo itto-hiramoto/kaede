@@ -1,12 +1,12 @@
 import std.collections
 
-use std.collections.List
+use std.collections.Vector
 
 pub extern "C" fn strlen(s: *char): u64
 
-pub fn __prepare_command_line_arguments(argc: i32, argv: **char): List<str> {
+pub fn __prepare_command_line_arguments(argc: i32, argv: **char): Vector<str> {
     let mut i = 0
-    let mut args = List<str>::new()
+    let mut args = Vector<str>::new()
     loop {
         if i >= argc {
             break

@@ -1058,6 +1058,47 @@ impl SemanticAnalyzer {
                 })
             }
 
+            "__ptr_add" => {
+                let args = node
+                    .args
+                    .0
+                    .iter()
+                    .map(|arg| self.analyze_expr(arg))
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+
+                Ok(ir::expr::Expr {
+                    ty: args[0].ty.clone(),
+                    kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                        kind: ir::expr::BuiltinFnCallKind::PointerAdd,
+                        args: ir::expr::Args(args, node.span),
+                        span: node.span,
+                    }),
+                    span: node.span,
+                })
+            }
+
+            "__sizeof" => {
+                let args = node
+                    .args
+                    .0
+                    .iter()
+                    .map(|arg| self.analyze_expr(arg))
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+
+                Ok(ir::expr::Expr {
+                    ty: Rc::new(ir_type::make_fundamental_type(
+                        ir_type::FundamentalTypeKind::U64,
+                        ir_type::Mutability::Not,
+                    )),
+                    kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                        kind: ir::expr::BuiltinFnCallKind::SizeOf,
+                        args: ir::expr::Args(args, node.span),
+                        span: node.span,
+                    }),
+                    span: node.span,
+                })
+            }
+
             _ => Err(SemanticError::Undeclared {
                 name: callee.symbol(),
                 span: node.span,
@@ -1133,8 +1174,8 @@ impl SemanticAnalyzer {
         callee: Ident,
     ) -> anyhow::Result<ir::expr::Expr> {
         // Builtin functions
-        if callee.symbol().as_str().starts_with("__") {
-            return self.analyze_builtin_fn_call(node, callee);
+        if let Ok(expr) = self.analyze_builtin_fn_call(node, callee) {
+            return Ok(expr);
         }
 
         let symbol_value =

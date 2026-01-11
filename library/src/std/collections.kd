@@ -1,53 +1,74 @@
 import std.option
+import std.runtime.core.mem
 
 use std.option.Option
+use std.runtime.core.mem.__mem_alloc
+use std.runtime.core.mem.__mem_realloc
 
-pub struct List<T> {
-    value: Option<T>,
-    next: Option<List<T>>,
+pub struct Vector<T> {
+    ptr: *T,
+    len: u32,
+    capacity: u32,
 }
 
-impl<T> List<T> {
-    pub fn new(): mut List<T> {
-        return List<T> { value: Option<T>::None, next: Option<List<T>>::None }
+impl<T> Vector<T> {
+    pub fn new(): mut Vector<T> {
+        return Vector<T> { ptr: __mem_alloc(0) as *T, len: 0, capacity: 0 }
+    }
+
+    pub fn as_ptr(self): *T {
+        return self.ptr
     }
 
     pub fn len(self): u32 {
-        return match self.next {
-            Option::Some(ne) => 1 + ne.len(),
-            Option::None => 1,
+        return self.len
+    }
+
+    pub fn capacity(self): u32 {
+        return self.capacity
+    }
+
+    fn ensure_capacity(mut self, elem_size: u64) {
+        if self.capacity == 0 {
+            self.capacity = 4
+            let new_size = elem_size * (self.capacity as u64)
+            self.ptr = __mem_alloc(new_size) as *T
+            return
         }
+
+        if self.len < self.capacity {
+            return
+        }
+
+        let new_capacity = self.capacity * 2
+        let new_size = elem_size * (new_capacity as u64)
+        self.ptr = __mem_realloc(self.ptr as *i8, new_size) as *T
+        self.capacity = new_capacity
     }
 
     pub fn push(mut self, elem: T) {
-        match self.next {
-            Option::Some(ne) => {
-                ne.push(elem)
-            },
+        let elem_size = __sizeof(elem)
 
-            Option::None => {
-                match self.value {
-                    Option::Some(_) => {
-                        let tmp = List<T> { value: Option<T>::Some(elem), next: Option<List<T>>::None }
-                        self.next = Option<List<T>>::Some(tmp)
-                    },
-                    Option::None => {
-                        // For the first push
-                        self.value = Option<T>::Some(elem)
-                    }
-                }
-            }
+        self.ensure_capacity(elem_size)
+
+        self.ptr[self.len] = elem
+        self.len += 1
+    }
+
+    pub fn pop(mut self): Option<T> {
+        if self.len == 0 {
+            return Option<T>::None
         }
+
+        self.len -= 1
+        return Option<T>::Some(self.ptr[self.len])
     }
 
     pub fn at(self, idx: u32): Option<T> {
-        if idx == 0 {
-            return self.value
+        if idx >= self.len {
+            return Option<T>::None
         }
 
-        return match self.next {
-            Option::Some(ne) => ne.at(idx - 1),
-            Option::None     => Option<T>::None,
-        }
+        return Option<T>::Some(self.ptr[idx])
     }
 }

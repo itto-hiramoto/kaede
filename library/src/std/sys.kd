@@ -1,0 +1,170 @@
+import std.io
+import std.runtime.core.sys
+
+pub extern "C" fn abort()
+
+use std.runtime.core.sys.*
+
+pub struct Fd {
+    raw: i32,
+}
+
+impl Fd {
+    pub fn new(fd: i32): Fd {
+        return Fd { raw: fd }
+    }
+}
+
+pub fn socket_tcp4(): Fd {
+    let fd = __sys_socket_tcp4()
+    if fd < 0 {
+        abort()
+    }
+    return Fd::new(fd)
+}
+
+pub fn set_reuseaddr(fd: Fd) {
+    let r = __sys_set_reuseaddr(fd.raw)
+    if r < 0 {
+        abort()
+    }
+}
+
+pub fn bind_ipv4(fd: Fd, ip: str, port: u16) {
+    let r = __sys_bind_ipv4(fd.raw, ip.as_ptr(), port)
+    if r < 0 {
+        abort()
+    }
+}
+
+pub fn listen(fd: Fd, backlog: i32) {
+    let r = __sys_listen(fd.raw, backlog)
+    if r < 0 {
+        abort()
+    }
+}
+
+pub fn accept(fd: Fd): Fd {
+    let c = __sys_accept(fd.raw)
+    if c < 0 {
+        abort()
+    }
+    return Fd::new(c)
+}
+
+pub fn close(fd: Fd) {
+    let r = __sys_close(fd.raw)
+    if r < 0 {
+        abort()
+    }
+}
+
+// ===== I/O =====
+
+pub fn read(fd: Fd, buf: mut [u8]): u64 {
+    let n = __sys_read(fd.raw, buf.as_ptr() as *i8, buf.len())
+
+    if n < 0 {
+        abort()
+    }
+
+    return n as u64
+}
+
+pub fn write(fd: Fd, buf: [u8]): u64 {
+    return write_all(fd, buf)
+}
+
+fn write_all(fd: Fd, buf: [u8]): u64 {
+    let mut off = 0
+    let total = buf.len()
+
+    loop {
+        if off >= total {
+            break
+        }
+
+        let ptr = __ptr_add(buf.as_ptr(), off)
+        let rem = total - off
+
+        let n = __sys_write(fd.raw, ptr as *i8, rem)
+
+        if n < 0 {
+            abort()
+        }
+
+        if n == 0 {
+            abort()
+        }
+
+        off += n as u64
+    }
+
+    return total
+}
+
+pub fn read_until(fd: Fd, buf: mut [u8], delim: [u8]): u64 {
+    let mut filled = 0
+
+    loop {
+        if filled >= buf.len() {
+            abort()
+        }
+
+        let mut tail = buf[filled:buf.len()]
+
+        let n = std.sys.read(fd, tail)
+        if n <= 0 {
+            abort()
+        }
+
+        filled += n
+
+        let p = find_subslice(buf[0:filled], delim)
+        if p >= 0 {
+            return (p as u64) + delim.len()
+        }
+    }
+
+    __unreachable()
+}
+
+fn find_subslice(haystack: [u8], needle: [u8]): i32 {
+    let hlen = haystack.len()
+    let nlen = needle.len()
+
+    if hlen < nlen {
+        return -1
+    }
+
+    let mut i = 0
+
+    loop {
+        if i > hlen - nlen {
+            return -1
+        }
+
+        let mut j = 0
+        let mut ok = true
+
+        loop {
+            if j >= nlen {
+                break
+            }
+
+            if haystack[i + j] != needle[j] {
+                ok = false
+                break
+            }
+            j += 1
+        }
+
+        if ok {
+            return i as i32
+        }
+
+        i += 1
+    }
+
+    return -1
+}

@@ -458,6 +458,83 @@ fn match_catch_all_undefined_function_enum_error() -> anyhow::Result<()> {
     Ok(())
 }
 
+#[test]
+fn field_access_and_indexing() -> anyhow::Result<()> {
+    // Test that field access with indexing works correctly
+    semantic_analyze(
+        "struct Container { data: [i32; 3] }
+        fn f(): i32 {
+            let c = Container { data: [1, 2, 3] }
+            return c.data[0]
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn indexing_and_field_access() -> anyhow::Result<()> {
+    // Test that indexing followed by field access works correctly
+    semantic_analyze(
+        "struct Item { value: i32 }
+        fn f(): i32 {
+            let item1 = Item { value: 10 }
+            let item2 = Item { value: 20 }
+            let item3 = Item { value: 30 }
+            let items: [Item; 3] = [item1, item2, item3]
+            return items[1].value
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn multiple_indexing() -> anyhow::Result<()> {
+    // Test that multiple indexing operations work correctly
+    semantic_analyze(
+        "fn f(): i32 {
+            let row1: [i32; 2] = [1, 2]
+            let row2: [i32; 2] = [3, 4]
+            let matrix: [[i32; 2]; 2] = [row1, row2]
+            return matrix[0][1]
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn method_call_and_indexing() -> anyhow::Result<()> {
+    // Test that method call followed by indexing works correctly
+    semantic_analyze(
+        "struct Container { items: [i32; 3] }
+        impl Container {
+            fn get_items(self): [i32; 3] {
+                return self.items
+            }
+        }
+        fn f(): i32 {
+            let c = Container { items: [10, 20, 30] }
+            return c.get_items()[1]
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn complex_chaining() -> anyhow::Result<()> {
+    // Test complex chaining of field access, indexing, and method calls
+    semantic_analyze(
+        "struct Inner { values: [i32; 2] }
+        struct Outer { inners: [Inner; 2] }
+        fn f(): i32 {
+            let inner1 = Inner { values: [1, 2] }
+            let inner2 = Inner { values: [3, 4] }
+            let outer = Outer { inners: [inner1, inner2] }
+            return outer.inners[0].values[1]
+        }",
+    )?;
+    Ok(())
+}
+
 fn find_function_body(ir: kaede_ir::CompileUnit, name: &str) -> kaede_ir::stmt::Block {
     for top in ir.top_levels {
         if let TopLevel::Fn(f) = top {

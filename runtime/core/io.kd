@@ -1,0 +1,15 @@
+pub extern "C" fn kaede_rt_stdin(): *i8
+pub extern "C" fn kaede_rt_stdout(): *i8
+pub extern "C" fn kaede_rt_stderr(): *i8
+
+pub fn __stdin(): *i8 {
+    return kaede_rt_stdin()
+}
+
+pub fn __stdout(): *i8 {
+    return kaede_rt_stdout()
+}
+
+pub fn __stderr(): *i8 {
+    return kaede_rt_stderr()
+}

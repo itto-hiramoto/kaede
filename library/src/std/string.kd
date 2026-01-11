@@ -1,20 +1,20 @@
 import std.collections
 import std.option
 
-use std.collections.List
+use std.collections.Vector
 use std.option.Option
 
 pub struct String {
-    chars: List<char>,
+    chars: Vector<char>,
 }
 
 impl String {
     pub fn new(): mut String {
-        return String { chars: List<char>::new() }
+        return String { chars: Vector<char>::new() }
     }
 
     pub fn from(s: str): mut String {
-        let mut chars = List<char>::new()
+        let mut chars = Vector<char>::new()
 
         let mut i = 0
         loop {
@@ -28,6 +28,10 @@ impl String {
         }
 
         return String { chars: chars }
+    }
+
+    pub fn as_ptr(self): *char {
+        return self.chars.as_ptr()
     }
 
     pub fn at(self, idx: u32): Option<char> {

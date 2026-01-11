@@ -6,14 +6,14 @@ use tokenize.Token
 
 pub struct Parser {
     current_idx: u32,
-    tokens: List<Token>,
+    tokens: Vector<Token>,
 }
 
 impl Parser {
     pub fn new(): mut Parser {
         return Parser {
             current_idx: 0,
-            tokens: List<Token>::new(),
+            tokens: Vector<Token>::new(),
         }
     }
 
@@ -62,7 +62,7 @@ impl Parser {
         __unreachable()
     }
 
-    pub fn parse(mut self, tokens: List<Token>): Node {
+    pub fn parse(mut self, tokens: Vector<Token>): Node {
         self.clear()
         self.tokens = tokens
         return self.add_or_sub()

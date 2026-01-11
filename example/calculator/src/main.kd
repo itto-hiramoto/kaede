@@ -7,7 +7,7 @@ use tokenize.Tokenizer
 use parse.Parser
 use eval.Evaluator
 
-fn main(args: List<str>): i32 {
+fn main(args: Vector<str>): i32 {
     let expr = String::from(match args.at(1) {
         Option::Some(expr) => expr,
 

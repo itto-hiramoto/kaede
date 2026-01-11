@@ -6,6 +6,7 @@ import subprocess
 import os
 import tempfile
 import platform
+import runtime
 
 this_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -57,25 +58,33 @@ def install_kaede_rust_bridge_codegen(kaede_dir):
     print("Done!")
 
 
-def install_standard_library(kaede_lib_dir, bdwgc_lib_path, kaede_lib_path):
+def install_standard_library(kaede_lib_dir, bdwgc_lib_path, bdwgc_include_dir, kaede_lib_path):
     print("Installing standard library...")
 
     # Copy standard library source files
     kaede_lib_src_dir = os.path.join(kaede_lib_dir, "src")
     shutil.copytree(os.path.join(this_dir, "src"), kaede_lib_src_dir)
+    kaede_runtime_core_src_dir = os.path.join(kaede_lib_src_dir, "std", "runtime", "core")
+    runtime_core_src_dir = os.path.join(runtime.this_dir, "core")
+    if os.path.exists(runtime_core_src_dir):
+        os.makedirs(kaede_runtime_core_src_dir, exist_ok=True)
+        shutil.copytree(
+            runtime_core_src_dir, kaede_runtime_core_src_dir, dirs_exist_ok=True
+        )
+
+    kaede_runtime_src_dir = os.path.join(kaede_lib_dir, "runtime")
+    runtime.install_runtime_sources(kaede_runtime_src_dir, exclude_core=True)
 
     # Build standard library
     autoload_files = []
     std_lib_files = []
-    std_c_files = []
+    runtime_c_files = runtime.collect_runtime_c_sources(kaede_runtime_src_dir)
     for file in pathlib.Path(os.path.join(kaede_lib_src_dir, "autoload")).glob(
         "**/*.kd"
     ):
         autoload_files.append(str(file))
     for file in pathlib.Path(os.path.join(kaede_lib_src_dir, "std")).glob("**/*.kd"):
         std_lib_files.append(str(file))
-    for file in pathlib.Path(os.path.join(kaede_lib_src_dir, "std")).glob("**/*.c"):
-        std_c_files.append(str(file))
     std_lib_files = [file for file in std_lib_files if file not in autoload_files]
     t1 = tempfile.NamedTemporaryFile()
     t2 = tempfile.NamedTemporaryFile()
@@ -115,11 +124,13 @@ def install_standard_library(kaede_lib_dir, bdwgc_lib_path, kaede_lib_path):
             "gcc",
             "-shared",
             "-fPIC",
+            "-I",
+            bdwgc_include_dir,
             "-o",
             kaede_lib_path,
             t1.name,
             t2.name,
-            *std_c_files,
+            *runtime_c_files,
             bdwgc_lib_path,
         ]
     ).check_returncode()
@@ -144,7 +155,12 @@ def install(kaede_dir):
     bdwgc_lib_path = os.path.join(bdwgc_install_dir, "lib", f"libgc.{lib_extension}")
     kaede_lib_path = os.path.join(kaede_lib_dir, f"libkd.{lib_extension}")
 
-    install_standard_library(kaede_lib_dir, bdwgc_lib_path, kaede_lib_path)
+    install_standard_library(
+        kaede_lib_dir,
+        bdwgc_lib_path,
+        os.path.join(bdwgc_install_dir, "include"),
+        kaede_lib_path,
+    )
     install_kaede_rust_bridge_codegen(kaede_dir)
 
     # Create a symbolic link to easily link with GC from compiler side

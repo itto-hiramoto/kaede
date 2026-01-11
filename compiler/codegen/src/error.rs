@@ -19,6 +19,9 @@ pub enum CodegenError {
     #[error("expected closure type")]
     ExpectedClosureType,
 
+    #[error("expected pointer type")]
+    ExpectedPointerType,
+
     #[error("unsupported capture expression")]
     UnsupportedCaptureExpression,
 

@@ -208,11 +208,11 @@ impl Parser {
     }
 
     fn cast(&mut self) -> ParseResult<Expr> {
-        let mut node = self.access()?;
+        let mut node = self.postfix()?;
 
         loop {
             if self.consume_b(&TokenKind::As) {
-                let right = self.access()?;
+                let right = self.postfix()?;
                 node = Expr {
                     span: self.new_span(node.span.start, right.span.finish),
                     kind: ExprKind::Binary(Binary::new(
@@ -227,13 +227,15 @@ impl Parser {
         }
     }
 
-    // Field access or module item access or tuple indexing
-    fn access(&mut self) -> ParseResult<Expr> {
-        let mut node = self.postfix()?;
+    /// Postfix operators: field access (.), indexing ([]), slicing ([start:end]), and function calls (())
+    /// All have the same precedence and are evaluated left-to-right
+    fn postfix(&mut self) -> ParseResult<Expr> {
+        let mut node = self.scope_resolution()?;
 
         loop {
             if self.consume_b(&TokenKind::Dot) {
-                let right = self.postfix()?;
+                // Field access or module item access or tuple indexing
+                let right = self.scope_resolution()?;
                 node = Expr {
                     span: self.new_span(node.span.start, right.span.finish),
                     kind: ExprKind::Binary(Binary::new(
@@ -242,18 +244,8 @@ impl Parser {
                         right.into(),
                     )),
                 };
-            } else {
-                return Ok(node);
-            }
-        }
-    }
-
-    /// Array subscripting
-    fn indexing(&mut self) -> ParseResult<Expr> {
-        let mut node = self.scope_resolution()?;
-
-        loop {
-            if self.consume_b(&TokenKind::OpenBracket) {
+            } else if self.consume_b(&TokenKind::OpenBracket) {
+                // Array subscripting or slicing
                 let span_start = node.span.start;
 
                 // Check for slicing syntax with ':'.
@@ -314,17 +306,8 @@ impl Parser {
                         }),
                     };
                 }
-            } else {
-                return Ok(node);
-            }
-        }
-    }
-
-    fn postfix(&mut self) -> ParseResult<Expr> {
-        let mut node = self.indexing()?;
-
-        loop {
-            if self.check(&TokenKind::OpenParen) {
+            } else if self.check(&TokenKind::OpenParen) {
+                // Function call
                 node = self.fn_call_from_expr(node)?;
             } else {
                 break;

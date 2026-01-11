@@ -1,0 +1,45 @@
+pub extern "C" fn kaede_sys_socket_tcp4(): i32
+pub extern "C" fn kaede_sys_set_reuseaddr(fd: i32): i32
+pub extern "C" fn kaede_sys_bind_ipv4(fd: i32, ip_or_null: *i8, port: u16): i32
+pub extern "C" fn kaede_sys_listen(fd: i32, backlog: i32): i32
+pub extern "C" fn kaede_sys_accept(listen_fd: i32): i32
+pub extern "C" fn kaede_sys_read(fd: i32, buf: *i8, len: u64): i64
+pub extern "C" fn kaede_sys_write(fd: i32, buf: *i8, len: u64): i64
+pub extern "C" fn kaede_sys_close(fd: i32): i32
+pub extern "C" fn kaede_sys_errno(): i32
+
+pub fn __sys_socket_tcp4(): i32 {
+    return kaede_sys_socket_tcp4()
+}
+
+pub fn __sys_set_reuseaddr(fd: i32): i32 {
+    return kaede_sys_set_reuseaddr(fd)
+}
+
+pub fn __sys_bind_ipv4(fd: i32, ip_or_null: *i8, port: u16): i32 {
+    return kaede_sys_bind_ipv4(fd, ip_or_null, port)
+}
+
+pub fn __sys_listen(fd: i32, backlog: i32): i32 {
+    return kaede_sys_listen(fd, backlog)
+}
+
+pub fn __sys_accept(listen_fd: i32): i32 {
+    return kaede_sys_accept(listen_fd)
+}
+
+pub fn __sys_read(fd: i32, buf: *i8, len: u64): i64 {
+    return kaede_sys_read(fd, buf, len)
+}
+
+pub fn __sys_write(fd: i32, buf: *i8, len: u64): i64 {
+    return kaede_sys_write(fd, buf, len)
+}
+
+pub fn __sys_close(fd: i32): i32 {
+    return kaede_sys_close(fd)
+}
+
+pub fn __sys_errno(): i32 {
+    return kaede_sys_errno()
+}
