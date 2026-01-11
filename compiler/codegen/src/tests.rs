@@ -1591,6 +1591,59 @@ fn slice_as_ptr_method_codegen() -> anyhow::Result<()> {
 }
 
 #[test]
+fn slice_full_range_codegen() -> anyhow::Result<()> {
+    let program = r#"fn main(): i32 {
+        let ar = [1, 2, 3, 4]
+        let s = ar[:]
+        return s.len() as i32 + s[0] + s[3]
+    }"#;
+
+    assert_eq!(exec(program)?, 9); // 4(len) + 1 + 4
+
+    Ok(())
+}
+
+#[test]
+fn slice_range_codegen() -> anyhow::Result<()> {
+    let program = r#"fn main(): i32 {
+        let ar = [5, 6, 7, 8, 9]
+        let s = ar[1:4] // 6,7,8
+        return s.len() as i32 + s[0] + s[2]
+    }"#;
+
+    assert_eq!(exec(program)?, 17); // 3 + 6 + 8
+
+    Ok(())
+}
+
+#[test]
+fn slice_trailing_and_nested_codegen() -> anyhow::Result<()> {
+    let program = r#"fn main(): i32 {
+        let ar = [10, 20, 30, 40]
+        let mid = ar[1:4] // 20,30,40
+        let tail = mid[1:] // 30,40
+        return tail[0] + tail.len() as i32
+    }"#;
+
+    assert_eq!(exec(program)?, 32); // 30 + 2
+
+    Ok(())
+}
+
+#[test]
+fn slice_empty_codegen() -> anyhow::Result<()> {
+    let program = r#"fn main(): i32 {
+        let ar = [1, 2, 3]
+        let empty = ar[2:2]
+        return empty.len() as i32
+    }"#;
+
+    assert_eq!(exec(program)?, 0);
+
+    Ok(())
+}
+
+#[test]
 fn if_in_loop() -> anyhow::Result<()> {
     let program = r#"struct Person {
         age: i32,

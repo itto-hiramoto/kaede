@@ -174,6 +174,14 @@ pub struct Indexing {
 }
 
 #[derive(Debug)]
+pub struct Slicing {
+    pub operand: Box<Expr>,
+    pub start: Option<Box<Expr>>,
+    pub end: Option<Box<Expr>>,
+    pub span: Span,
+}
+
+#[derive(Debug)]
 pub struct Loop {
     pub body: Block,
     pub span: Span,
@@ -269,6 +277,7 @@ pub enum ExprKind {
     ArrayLiteral(ArrayLiteral),
     ArrayRepeat(ArrayRepeat),
     Indexing(Indexing),
+    Slicing(Slicing),
     TupleLiteral(TupleLiteral),
     Closure(Closure),
     Return(Return),

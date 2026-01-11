@@ -13,7 +13,7 @@ pub use crate::error::TypeInferError;
 use kaede_ir::{
     expr::{
         Binary, BinaryKind, BuiltinFnCall, BuiltinFnCallKind, Cast, EnumVariant, Expr, ExprKind,
-        FieldAccess, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, TupleIndexing,
+        FieldAccess, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Slicing, TupleIndexing,
     },
     stmt::{Assign, Block, Let, Stmt, TupleUnpack},
     ty::{FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind, make_fundamental_type},
@@ -122,6 +122,7 @@ impl TypeInferrer {
             FieldAccess(field) => self.infer_field_access(field),
             TupleIndexing(tuple_idx) => self.infer_tuple_indexing(tuple_idx),
             Indexing(idx) => self.infer_indexing(idx),
+            Slicing(slicing) => self.infer_slicing(slicing),
 
             // Enum
             EnumVariant(enum_var) => self.infer_enum_variant(enum_var),
@@ -781,6 +782,38 @@ impl TypeInferrer {
         }
     }
 
+    fn infer_slicing(&mut self, slicing: &Slicing) -> Result<Rc<Ty>, TypeInferError> {
+        let operand_ty = self.infer_expr(&slicing.operand)?;
+        let start_ty = self.infer_expr(&slicing.start)?;
+        let end_ty = self.infer_expr(&slicing.end)?;
+
+        let index_ty = Rc::new(make_fundamental_type(
+            FundamentalTypeKind::U64,
+            Mutability::Not,
+        ));
+
+        self.context.unify(&start_ty, &index_ty, slicing.span)?;
+        self.context.unify(&end_ty, &index_ty, slicing.span)?;
+
+        let unwrapped = Self::unwrap_reference(&operand_ty);
+
+        let elem_ty = match unwrapped.kind.as_ref() {
+            TyKind::Array((elem_ty, _)) | TyKind::Slice(elem_ty) => elem_ty.clone(),
+            TyKind::Var(_) => self.context.fresh(),
+            _ => return Err(TypeInferError::NotIndexable { span: slicing.span }),
+        };
+
+        let slice_ty = Rc::new(Ty {
+            kind: TyKind::Slice(elem_ty).into(),
+            mutability: Mutability::Not,
+        });
+
+        Ok(Rc::new(Ty {
+            kind: TyKind::Reference(ReferenceType { refee_ty: slice_ty }).into(),
+            mutability: operand_ty.mutability,
+        }))
+    }
+
     fn infer_enum_variant(&mut self, enum_var: &EnumVariant) -> Result<Rc<Ty>, TypeInferError> {
         if let Some(value_expr) = &enum_var.value {
             let _value_ty = self.infer_expr(value_expr)?;
@@ -1258,6 +1291,42 @@ impl TypeInferrer {
 
                     if let Some(elem_ty) = element_ty_opt {
                         expr.ty = elem_ty;
+                    }
+                }
+            }
+            Slicing(slicing) => {
+                self.apply_expr(std::rc::Rc::make_mut(&mut slicing.operand))?;
+                self.apply_expr(&mut slicing.start)?;
+                self.apply_expr(&mut slicing.end)?;
+                slicing.elem_ty = self.context.apply(&slicing.elem_ty);
+                expr.ty = self.context.apply(&expr.ty);
+
+                if matches!(expr.ty.kind.as_ref(), TyKind::Var(_)) {
+                    let applied_operand_ty = self.context.apply(&slicing.operand.ty);
+                    let elem_ty_opt = match applied_operand_ty.kind.as_ref() {
+                        TyKind::Reference(rty) => match rty.get_base_type().kind.as_ref() {
+                            TyKind::Array((elem_ty, _)) | TyKind::Slice(elem_ty) => {
+                                Some(elem_ty.clone())
+                            }
+                            _ => None,
+                        },
+                        TyKind::Array((elem_ty, _)) | TyKind::Slice(elem_ty) => {
+                            Some(elem_ty.clone())
+                        }
+                        _ => None,
+                    };
+
+                    if let Some(elem_ty) = elem_ty_opt {
+                        expr.ty = Rc::new(Ty {
+                            kind: TyKind::Reference(ReferenceType {
+                                refee_ty: Rc::new(Ty {
+                                    kind: TyKind::Slice(elem_ty).into(),
+                                    mutability: Mutability::Not,
+                                }),
+                            })
+                            .into(),
+                            mutability: applied_operand_ty.mutability,
+                        });
                     }
                 }
             }
