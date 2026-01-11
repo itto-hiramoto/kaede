@@ -3,7 +3,7 @@ use std::{collections::VecDeque, rc::Rc};
 use kaede_ast::expr::{
     Args, ArrayLiteral, ArrayRepeat, Binary, BinaryKind, Break, ByteStringLiteral, CharLiteral,
     Closure, Else, Expr, ExprKind, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Match,
-    MatchArm, Return, StringLiteral, StructLiteral, TupleLiteral,
+    MatchArm, Return, Slicing, StringLiteral, StructLiteral, TupleLiteral,
 };
 use kaede_ast_type::{GenericArgs, Ty, TyKind};
 use kaede_lex::token::TokenKind;
@@ -254,17 +254,66 @@ impl Parser {
 
         loop {
             if self.consume_b(&TokenKind::OpenBracket) {
-                let index = self.expr()?;
-                let finish = self.consume(&TokenKind::CloseBracket)?.finish;
-                let span = self.new_span(node.span.start, finish);
-                node = Expr {
-                    span,
-                    kind: ExprKind::Indexing(Indexing {
-                        operand: node.into(),
-                        index: index.into(),
-                        span,
-                    }),
+                let span_start = node.span.start;
+
+                // Check for slicing syntax with ':'.
+                let (start, end, is_slicing) = if self.consume_b(&TokenKind::Colon) {
+                    // [:end] or [:]
+                    let end = if self.check(&TokenKind::CloseBracket) {
+                        None
+                    } else {
+                        Some(self.expr()?)
+                    };
+                    (None, end, true)
+                } else {
+                    let first = self.expr()?;
+
+                    if self.consume_b(&TokenKind::Colon) {
+                        // [start:end] or [start:]
+                        let end = if self.check(&TokenKind::CloseBracket) {
+                            None
+                        } else {
+                            Some(self.expr()?)
+                        };
+                        (Some(first), end, true)
+                    } else {
+                        // [index]
+                        let finish = self.consume(&TokenKind::CloseBracket)?.finish;
+                        let span = self.new_span(span_start, finish);
+                        node = Expr {
+                            span,
+                            kind: ExprKind::Indexing(Indexing {
+                                operand: node.into(),
+                                index: first.into(),
+                                span,
+                            }),
+                        };
+                        continue;
+                    }
                 };
+
+                if self.check(&TokenKind::Colon) {
+                    return Err(ParseError::ExpectedError {
+                        expected: "]".to_string(),
+                        but: ":".to_string(),
+                        span: self.first().span,
+                    }
+                    .into());
+                }
+
+                if is_slicing {
+                    let finish = self.consume(&TokenKind::CloseBracket)?.finish;
+                    let span = self.new_span(span_start, finish);
+                    node = Expr {
+                        span,
+                        kind: ExprKind::Slicing(Slicing {
+                            operand: node.into(),
+                            start: start.map(Box::new),
+                            end: end.map(Box::new),
+                            span,
+                        }),
+                    };
+                }
             } else {
                 return Ok(node);
             }

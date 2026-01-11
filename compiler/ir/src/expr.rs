@@ -194,6 +194,15 @@ pub struct Indexing {
 }
 
 #[derive(Debug, Clone)]
+pub struct Slicing {
+    pub operand: Rc<Expr>,
+    pub start: Box<Expr>,
+    pub end: Box<Expr>,
+    pub elem_ty: Rc<Ty>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub struct Loop {
     pub body: Block,
     pub span: Span,
@@ -269,6 +278,7 @@ pub enum ExprKind {
     TupleIndexing(TupleIndexing),
     EnumVariant(EnumVariant),
     Indexing(Indexing),
+    Slicing(Slicing),
     LogicalNot(LogicalNot),
     FnCall(FnCall),
     FnPointer(FnPointer),

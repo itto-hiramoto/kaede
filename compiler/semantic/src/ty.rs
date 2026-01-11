@@ -502,7 +502,7 @@ impl SemanticAnalyzer {
         })
     }
 
-    fn generate_slice_impl(&mut self, elem_ty: Rc<ir_type::Ty>) -> anyhow::Result<()> {
+    pub(crate) fn generate_slice_impl(&mut self, elem_ty: Rc<ir_type::Ty>) -> anyhow::Result<()> {
         let slice_symbol_name = Symbol::from("__builtin_slice".to_owned());
 
         let mut slice_symbol = match self.lookup_symbol(slice_symbol_name) {

@@ -18,7 +18,7 @@ use kaede_ir::{
     expr::{
         ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BuiltinFnCall, BuiltinFnCallKind,
         ByteStringLiteral, Cast, CharLiteral, Closure, Else, EnumUnpack, EnumVariant, Expr,
-        ExprKind, FieldAccess, FnCall, FnPointer, If, Indexing, Int, LogicalNot, Loop,
+        ExprKind, FieldAccess, FnCall, FnPointer, If, Indexing, Int, LogicalNot, Loop, Slicing,
         StringLiteral, StructLiteral, TupleIndexing, TupleLiteral, Variable,
     },
     stmt::Block,
@@ -155,6 +155,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             ExprKind::Cast(node) => self.build_cast(node)?,
 
             ExprKind::Indexing(node) => self.build_indexing(node)?,
+            ExprKind::Slicing(node) => self.build_slicing(node)?,
 
             ExprKind::Binary(node) => self.build_arithmetic_binary(node)?,
 
@@ -1170,6 +1171,95 @@ impl<'ctx> CodeGenerator<'ctx> {
         }
 
         todo!("Error")
+    }
+
+    fn build_slicing(&mut self, node: &Slicing) -> anyhow::Result<Value<'ctx>> {
+        let operand_value = self.build_expr(&node.operand)?.unwrap();
+        let operand_ty = node.operand.ty.clone();
+
+        let start_val = self.build_expr(&node.start)?.unwrap().into_int_value();
+        let end_val = self.build_expr(&node.end)?.unwrap().into_int_value();
+
+        let start_i64 = self
+            .builder
+            .build_int_cast(start_val, self.context().i64_type(), "")?;
+        let end_i64 = self
+            .builder
+            .build_int_cast(end_val, self.context().i64_type(), "")?;
+
+        let elem_llvm_ty = self.conv_to_llvm_type(&node.elem_ty);
+
+        let data_ptr = match operand_ty.kind.as_ref() {
+            TyKind::Reference(rty) => match rty.get_base_type().kind.as_ref() {
+                TyKind::Array(_) => {
+                    let array_llvm_ty = self
+                        .conv_to_llvm_type(&rty.get_base_type())
+                        .into_array_type();
+                    let start_i32 =
+                        self.builder
+                            .build_int_cast(start_i64, self.context().i32_type(), "")?;
+
+                    unsafe {
+                        self.builder.build_in_bounds_gep(
+                            array_llvm_ty,
+                            operand_value.into_pointer_value(),
+                            &[self.context().i32_type().const_zero(), start_i32],
+                            "",
+                        )?
+                    }
+                }
+                TyKind::Slice(_) => {
+                    let slice_llvm_ty = self
+                        .conv_to_llvm_type(&rty.get_base_type())
+                        .into_struct_type();
+
+                    let data_gep = unsafe {
+                        self.builder.build_in_bounds_gep(
+                            slice_llvm_ty,
+                            operand_value.into_pointer_value(),
+                            &[
+                                self.context().i32_type().const_zero(),
+                                self.context().i32_type().const_zero(),
+                            ],
+                            "",
+                        )?
+                    };
+
+                    let data_ptr = self.builder.build_load(
+                        slice_llvm_ty.get_field_type_at_index(0).unwrap(),
+                        data_gep,
+                        "",
+                    )?;
+
+                    unsafe {
+                        self.builder.build_in_bounds_gep(
+                            elem_llvm_ty,
+                            data_ptr.into_pointer_value(),
+                            &[start_i64],
+                            "",
+                        )?
+                    }
+                }
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
+        };
+
+        let len_value = self
+            .builder
+            .build_int_sub(end_i64, start_i64, "")?
+            .as_basic_value_enum();
+
+        let slice_ty = Ty {
+            kind: TyKind::Slice(node.elem_ty.clone()).into(),
+            mutability: Mutability::Not,
+        };
+        let slice_llvm_ty = self.conv_to_llvm_type(&slice_ty);
+
+        let slice_ptr =
+            self.create_gc_struct(slice_llvm_ty, &[data_ptr.as_basic_value_enum(), len_value])?;
+
+        Ok(Some(slice_ptr.as_basic_value_enum()))
     }
 
     fn build_pointer_indexing(

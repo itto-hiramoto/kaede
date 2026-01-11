@@ -119,6 +119,83 @@ fn array_to_slice_var() -> anyhow::Result<()> {
 }
 
 #[test]
+fn slice_full_range() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn f() {
+            let ar = [0, 1, 2]
+            let _ = ar[:]
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn slice_from_start() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn f() {
+            let ar = [0, 1, 2, 3, 4]
+            let _ = ar[:3]
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn slice_to_end() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn f() {
+            let ar = [0, 1, 2, 3, 4]
+            let _ = ar[2:]
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn slice_range() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn f() {
+            let ar = [0, 1, 2, 3, 4]
+            let _ = ar[1:4]
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn slice_of_slice() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn f(s: [i32]) {
+            let mid = s[1:4]
+            let tail = mid[1:]
+            let _ = tail[0]
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn slice_type_inference() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn f(): [i32] {
+            let ar = [1, 2, 3, 4]
+            return ar[1:]
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn slice_bounds_error() -> anyhow::Result<()> {
+    semantic_analyze_expect_error(
+        "fn f() {
+            let _ = true[:]
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn function_call() -> anyhow::Result<()> {
     semantic_analyze(
         "fn f(a: i32, b: i32): i32 { return a + b }\n

@@ -50,6 +50,7 @@ impl SemanticAnalyzer {
             ExprKind::LogicalNot(node) => self.analyze_logical_not(node),
             ExprKind::Return(node) => self.analyze_return(node),
             ExprKind::Indexing(node) => self.analyze_array_or_ptr_indexing(node),
+            ExprKind::Slicing(node) => self.analyze_slicing(node),
             ExprKind::FnCall(node) => self.analyze_fn_call(node),
             ExprKind::If(node) => self.analyze_if(node),
             ExprKind::Break(node) => self.analyze_break(node),
@@ -1273,6 +1274,155 @@ impl SemanticAnalyzer {
                 index: Box::new(index),
                 span,
             }),
+            span,
+        })
+    }
+
+    fn analyze_slicing(&mut self, node: &ast::expr::Slicing) -> anyhow::Result<ir::expr::Expr> {
+        let operand = Rc::new(self.analyze_expr(&node.operand)?);
+        let span = node.span;
+
+        let base_ty = match operand.ty.kind.as_ref() {
+            ir_type::TyKind::Reference(rty) => rty.get_base_type(),
+            _ => {
+                return Err(SemanticError::NotIndexable {
+                    ty: operand.ty.kind.to_string(),
+                    span,
+                }
+                .into())
+            }
+        };
+
+        let (elem_ty, default_end) = match base_ty.kind.as_ref() {
+            ir_type::TyKind::Array((elem_ty, len)) => {
+                (elem_ty.clone(), self.u64_literal(*len as u64, span))
+            }
+            ir_type::TyKind::Slice(elem_ty) => {
+                let len_expr = self.slice_length_expr(operand.clone(), span)?;
+                (elem_ty.clone(), len_expr)
+            }
+            _ => {
+                return Err(SemanticError::NotIndexable {
+                    ty: operand.ty.kind.to_string(),
+                    span,
+                }
+                .into())
+            }
+        };
+
+        self.generate_slice_impl(elem_ty.clone())?;
+
+        let start_expr = match &node.start {
+            Some(expr) => {
+                let analyzed = self.analyze_expr(expr)?;
+                self.cast_index_to_u64(analyzed, expr.span)?
+            }
+            None => self.u64_literal(0, span),
+        };
+
+        let end_expr = match &node.end {
+            Some(expr) => {
+                let analyzed = self.analyze_expr(expr)?;
+                self.cast_index_to_u64(analyzed, expr.span)?
+            }
+            None => default_end,
+        };
+
+        let slice_ty = Rc::new(ir_type::Ty {
+            kind: ir_type::TyKind::Slice(elem_ty.clone()).into(),
+            mutability: ir_type::Mutability::Not,
+        });
+
+        let ty = Rc::new(ir_type::wrap_in_ref(slice_ty, operand.ty.mutability));
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::Slicing(ir::expr::Slicing {
+                operand,
+                start: Box::new(start_expr),
+                end: Box::new(end_expr),
+                elem_ty,
+                span,
+            }),
+            ty,
+            span,
+        })
+    }
+
+    fn cast_index_to_u64(
+        &self,
+        expr: ir::expr::Expr,
+        span: Span,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        match expr.ty.kind.as_ref() {
+            ir_type::TyKind::Fundamental(fty) if fty.is_int_or_char_or_bool() => {}
+            ir_type::TyKind::Var(_) => {}
+            _ => {
+                return Err(SemanticError::MismatchedTypes {
+                    types: (expr.ty.kind.to_string(), "integer".to_string()),
+                    span,
+                }
+                .into());
+            }
+        }
+
+        let target_ty = Rc::new(ir_type::make_fundamental_type(
+            ir_type::FundamentalTypeKind::U64,
+            ir_type::Mutability::Not,
+        ));
+
+        if matches!(
+            expr.ty.kind.as_ref(),
+            ir_type::TyKind::Fundamental(fty)
+                if fty.kind == ir_type::FundamentalTypeKind::U64
+        ) {
+            return Ok(expr);
+        }
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::Cast(ir::expr::Cast {
+                operand: Box::new(expr),
+                target_ty: target_ty.clone(),
+                span,
+            }),
+            ty: target_ty,
+            span,
+        })
+    }
+
+    fn u64_literal(&self, value: u64, span: Span) -> ir::expr::Expr {
+        let ty = Rc::new(ir_type::make_fundamental_type(
+            ir_type::FundamentalTypeKind::U64,
+            ir_type::Mutability::Not,
+        ));
+
+        ir::expr::Expr {
+            kind: ir::expr::ExprKind::Int(ir::expr::Int {
+                kind: ir::expr::IntKind::U64(value),
+                span,
+            }),
+            ty,
+            span,
+        }
+    }
+
+    fn slice_length_expr(
+        &self,
+        operand: Rc<ir::expr::Expr>,
+        span: Span,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let len_ty = Rc::new(ir_type::make_fundamental_type(
+            ir_type::FundamentalTypeKind::U64,
+            ir_type::Mutability::Not,
+        ));
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::TupleIndexing(ir::expr::TupleIndexing {
+                tuple: operand,
+                element_ty: len_ty.clone(),
+                index: 1,
+                span,
+            }),
+            ty: len_ty,
             span,
         })
     }
