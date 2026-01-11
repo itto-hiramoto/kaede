@@ -207,6 +207,21 @@ impl<'ctx> CodeGenerator<'ctx> {
 
                 Ok(Some(result_ptr.into()))
             }
+
+            BuiltinFnCallKind::SizeOf => {
+                let llvm_ty = self.conv_to_llvm_type(&node.args.0[0].ty);
+                let size_val = llvm_ty.size_of().unwrap();
+                let u64_ty = self.context().i64_type();
+
+                let size_u64 = if size_val.get_type() == u64_ty {
+                    size_val
+                } else {
+                    self.builder
+                        .build_int_cast(size_val, u64_ty, "sizeof.cast")?
+                };
+
+                Ok(Some(size_u64.as_basic_value_enum()))
+            }
         }
     }
 

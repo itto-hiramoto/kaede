@@ -74,8 +74,8 @@ impl Tokenizer {
         return n
     }
 
-    pub fn tokenize(self, program: String): Option<List<Token>> {
-        let mut tokens = List<Token>::new()
+    pub fn tokenize(self, program: String): Option<Vector<Token>> {
+        let mut tokens = Vector<Token>::new()
 
         let mut i = 0
 
@@ -143,6 +143,6 @@ impl Tokenizer {
             }
         }
 
-        return Option<List<Token>>::Some(tokens)
+        return Option<Vector<Token>>::Some(tokens)
     }
 }

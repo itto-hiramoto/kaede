@@ -2916,7 +2916,7 @@ fn recursive_function() -> anyhow::Result<()> {
 fn prelude() -> anyhow::Result<()> {
     let program = r#"
         fn main(): i32 {
-            let mut v = List<i32>::new()
+            let mut v = Vector<i32>::new()
             v.push(58)
             return match v.at(0 as u32) {
                 Option::Some(n) => n,

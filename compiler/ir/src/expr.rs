@@ -245,6 +245,7 @@ pub enum BuiltinFnCallKind {
     Unreachable,
     Str,
     PointerAdd,
+    SizeOf,
 }
 
 #[derive(Debug, Clone)]

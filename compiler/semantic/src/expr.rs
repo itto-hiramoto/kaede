@@ -1076,6 +1076,28 @@ impl SemanticAnalyzer {
                 })
             }
 
+            "__sizeof" => {
+                let args = node
+                    .args
+                    .0
+                    .iter()
+                    .map(|arg| self.analyze_expr(arg))
+                    .collect::<anyhow::Result<Vec<_>>>()?;
+
+                Ok(ir::expr::Expr {
+                    ty: Rc::new(ir_type::make_fundamental_type(
+                        ir_type::FundamentalTypeKind::U64,
+                        ir_type::Mutability::Not,
+                    )),
+                    kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                        kind: ir::expr::BuiltinFnCallKind::SizeOf,
+                        args: ir::expr::Args(args, node.span),
+                        span: node.span,
+                    }),
+                    span: node.span,
+                })
+            }
+
             _ => Err(SemanticError::Undeclared {
                 name: callee.symbol(),
                 span: node.span,

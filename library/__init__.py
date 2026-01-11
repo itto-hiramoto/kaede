@@ -58,7 +58,7 @@ def install_kaede_rust_bridge_codegen(kaede_dir):
     print("Done!")
 
 
-def install_standard_library(kaede_lib_dir, bdwgc_lib_path, kaede_lib_path):
+def install_standard_library(kaede_lib_dir, bdwgc_lib_path, bdwgc_include_dir, kaede_lib_path):
     print("Installing standard library...")
 
     # Copy standard library source files
@@ -124,6 +124,8 @@ def install_standard_library(kaede_lib_dir, bdwgc_lib_path, kaede_lib_path):
             "gcc",
             "-shared",
             "-fPIC",
+            "-I",
+            bdwgc_include_dir,
             "-o",
             kaede_lib_path,
             t1.name,
@@ -153,7 +155,12 @@ def install(kaede_dir):
     bdwgc_lib_path = os.path.join(bdwgc_install_dir, "lib", f"libgc.{lib_extension}")
     kaede_lib_path = os.path.join(kaede_lib_dir, f"libkd.{lib_extension}")
 
-    install_standard_library(kaede_lib_dir, bdwgc_lib_path, kaede_lib_path)
+    install_standard_library(
+        kaede_lib_dir,
+        bdwgc_lib_path,
+        os.path.join(bdwgc_install_dir, "include"),
+        kaede_lib_path,
+    )
     install_kaede_rust_bridge_codegen(kaede_dir)
 
     # Create a symbolic link to easily link with GC from compiler side

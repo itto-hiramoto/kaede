@@ -874,6 +874,10 @@ impl TypeInferrer {
             BuiltinFnCallKind::Unreachable => Ok(Rc::new(Ty::new_never())),
             BuiltinFnCallKind::Str => Ok(Rc::new(Ty::new_str(Mutability::Not))),
             BuiltinFnCallKind::PointerAdd => Ok(builtin_call.args.0[0].ty.clone()),
+            BuiltinFnCallKind::SizeOf => Ok(Rc::new(make_fundamental_type(
+                FundamentalTypeKind::U64,
+                Mutability::Not,
+            ))),
         }
     }
 
