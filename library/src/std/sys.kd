@@ -102,3 +102,68 @@ fn write_all(fd: Fd, buf: [u8]): u64 {
 
     return total
 }
+
+pub fn read_until(fd: Fd, buf: mut [u8], delim: [u8]): u64 {
+    let mut filled = 0
+
+    loop {
+        if filled >= buf.len() {
+            abort()
+        }
+
+        let mut tail = buf[filled:buf.len() - filled]
+
+        let n = std.sys.read(fd, tail)
+        if n <= 0 {
+            abort()
+        }
+
+        filled += n
+
+        if find_subslice(buf[0:filled], delim) >= 0 {
+            return filled
+        }
+    }
+
+    __unreachable()
+}
+
+fn find_subslice(haystack: [u8], needle: [u8]): i32 {
+    let hlen = haystack.len()
+    let nlen = needle.len()
+
+    if hlen < nlen {
+        return -1
+    }
+
+    let mut i = 0
+
+    loop {
+        if i > hlen - nlen {
+            return -1
+        }
+
+        let mut j = 0
+        let mut ok = true
+
+        loop {
+            if j >= nlen {
+                break
+            }
+
+            if haystack[i + j] != needle[j] {
+                ok = false
+                break
+            }
+            j += 1
+        }
+
+        if ok {
+            return i as i32
+        }
+
+        i += 1
+    }
+
+    return -1
+}
