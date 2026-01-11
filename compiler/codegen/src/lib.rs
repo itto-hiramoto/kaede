@@ -368,7 +368,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 context.struct_type(llvm_types.as_slice(), true).into()
             }
 
-            TyKind::Var(_) => unreachable!("Should be replaced by type inference!"),
+            TyKind::Var(_) => self.context().i32_type().as_basic_type_enum(),
 
             TyKind::Unit => panic!("Cannot get LLVM type of unit type!"),
             TyKind::Never => panic!("Cannot get LLVM type of never type!"),
