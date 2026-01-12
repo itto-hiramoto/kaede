@@ -147,6 +147,24 @@ fn unicode_string_literal() {
 }
 
 #[test]
+fn string_literal_escape_sequences() {
+    lex_test(
+        r#""hello\nworld\t\0""#,
+        vec![StringLiteral("hello\nworld\t\0".to_string()), Semi, Eoi],
+    );
+}
+
+#[test]
+fn char_literal_escape_sequences() {
+    lex_test(r#"'\n'"#, vec![CharLiteral('\n'), Semi, Eoi]);
+    lex_test(r#"'\r'"#, vec![CharLiteral('\r'), Semi, Eoi]);
+    lex_test(r#"'\t'"#, vec![CharLiteral('\t'), Semi, Eoi]);
+    lex_test(r#"'\0'"#, vec![CharLiteral('\0'), Semi, Eoi]);
+    lex_test(r#"'\\'"#, vec![CharLiteral('\\'), Semi, Eoi]);
+    lex_test(r#"'\''"#, vec![CharLiteral('\''), Semi, Eoi]);
+}
+
+#[test]
 fn byte_string_literal() {
     lex_test(
         r#"b"hello""#,
@@ -157,9 +175,9 @@ fn byte_string_literal() {
 #[test]
 fn byte_string_literal_escape_sequences() {
     lex_test(
-        r#"b"line1\nline2\t\"quote\"\\backslash""#,
+        r#"b"line1\nline2\t\"quote\"\\backslash\0null""#,
         vec![
-            ByteStringLiteral(b"line1\nline2\t\"quote\"\\backslash".to_vec()),
+            ByteStringLiteral(b"line1\nline2\t\"quote\"\\backslash\0null".to_vec()),
             Semi,
             Eoi,
         ],
@@ -178,6 +196,7 @@ fn byte_literal_escape_sequences() {
     lex_test(r#"b'\n'"#, vec![ByteLiteral(b'\n'), Semi, Eoi]);
     lex_test(r#"b'\r'"#, vec![ByteLiteral(b'\r'), Semi, Eoi]);
     lex_test(r#"b'\t'"#, vec![ByteLiteral(b'\t'), Semi, Eoi]);
+    lex_test(r#"b'\0'"#, vec![ByteLiteral(b'\0'), Semi, Eoi]);
     lex_test(r#"b'\\'"#, vec![ByteLiteral(b'\\'), Semi, Eoi]);
     lex_test(r#"b'\''"#, vec![ByteLiteral(b'\''), Semi, Eoi]);
 }
