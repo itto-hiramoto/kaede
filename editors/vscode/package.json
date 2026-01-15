@@ -1,0 +1,48 @@
+{
+  "name": "kaede",
+  "displayName": "Kaede Language Support",
+  "publisher": "kaede-lang",
+  "version": "0.1.0",
+  "engines": {
+    "vscode": "^1.78.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "kaede",
+        "aliases": [
+          "Kaede",
+          "kaede"
+        ],
+        "extensions": [
+          ".kd"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "kaede",
+        "scopeName": "source.kaede",
+        "path": "./syntaxes/kaede.tmLanguage.json"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^18.18.0",
+    "@types/vscode": "^1.78.0",
+    "typescript": "^5.2.2"
+  }
+}
