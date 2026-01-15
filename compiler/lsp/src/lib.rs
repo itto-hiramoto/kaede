@@ -1,4 +1,7 @@
-use std::{collections::HashMap, path::{Path, PathBuf}};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use kaede_parse::{ParseError, Parser};
 use kaede_semantic::{SemanticAnalyzer, SemanticError};
@@ -66,7 +69,9 @@ impl Backend {
         .await
         .unwrap_or_else(|err| vec![diagnostic_with_span(None, err.to_string())]);
 
-        self.client.publish_diagnostics(uri, diagnostics, None).await;
+        self.client
+            .publish_diagnostics(uri, diagnostics, None)
+            .await;
     }
 }
 
@@ -113,7 +118,10 @@ impl LanguageServer for Backend {
     async fn did_open(&self, params: tower_lsp::lsp_types::DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
         let text = params.text_document.text;
-        self.documents.write().await.insert(uri.clone(), text.clone());
+        self.documents
+            .write()
+            .await
+            .insert(uri.clone(), text.clone());
         self.analyze_and_publish(uri, text).await;
     }
 
@@ -126,8 +134,13 @@ impl LanguageServer for Backend {
             .map(|change| change.text)
             .unwrap_or_default();
 
-        self.client.publish_diagnostics(uri.clone(), Vec::new(), None).await;
-        self.documents.write().await.insert(uri.clone(), text.clone());
+        self.client
+            .publish_diagnostics(uri.clone(), Vec::new(), None)
+            .await;
+        self.documents
+            .write()
+            .await
+            .insert(uri.clone(), text.clone());
         self.analyze_and_publish(uri, text).await;
     }
 
@@ -156,7 +169,10 @@ fn location_to_position(location: Location) -> Position {
 }
 
 fn span_to_range(span: Span) -> Range {
-    Range::new(location_to_position(span.start), location_to_position(span.finish))
+    Range::new(
+        location_to_position(span.start),
+        location_to_position(span.finish),
+    )
 }
 
 pub fn file_path_to_url(file_path: FilePath) -> Option<Url> {
@@ -164,9 +180,9 @@ pub fn file_path_to_url(file_path: FilePath) -> Option<Url> {
 }
 
 fn diagnostic_with_span(span: Option<Span>, message: String) -> Diagnostic {
-    let range = span.map(span_to_range).unwrap_or_else(|| {
-        Range::new(Position::new(0, 0), Position::new(0, 0))
-    });
+    let range = span
+        .map(span_to_range)
+        .unwrap_or_else(|| Range::new(Position::new(0, 0), Position::new(0, 0)));
 
     Diagnostic {
         range,
