@@ -10,6 +10,7 @@ members = [
   "compiler/symbol",
   "compiler/common",
   "compiler/ir",
+  "compiler/lsp",
   "compiler/semantic",
   "compiler/type_infer",
   "compiler/symbol_table",

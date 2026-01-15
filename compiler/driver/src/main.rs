@@ -80,6 +80,8 @@ enum Commands {
     },
     /// Build a Kaede Rust bridge project
     Build,
+    /// Run Kaede Language Server
+    Lsp,
 }
 
 fn to_inkwell_opt_level(level: u8) -> OptimizationLevel {
@@ -341,6 +343,13 @@ fn main() -> anyhow::Result<()> {
             }
             Commands::Build => {
                 build_project()?;
+                return Ok(());
+            }
+            Commands::Lsp => {
+                let runtime = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()?;
+                runtime.block_on(kaede_lsp::run_stdio());
                 return Ok(());
             }
         }
