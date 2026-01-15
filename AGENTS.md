@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Rust workspace in `Cargo.toml` with compiler crates in `compiler/` (lex/parse/ast/semantic/type_infer/codegen/driver/etc.).
+- Rust workspace in `Cargo.toml` with compiler crates in `compiler/` (lex/parse/ast/semantic/type_infer/codegen/driver/lsp/etc.).
 - CLI entrypoint in `compiler/driver` (`kaede` binary); shared utilities in `compiler/common`, source locations (`span`), and symbol handling (`symbol`, `symbol_table`).
 - Language runtime and bridge helpers live in `library/` (includes GC and Rust bridge codegen); samples in `example/`.
 - Build artifacts land in `target/`; keep working tree clean before commits.
@@ -12,6 +12,7 @@
 - Lint: `cargo clippy -- -D warnings`.
 - Tests: `cargo test --release --no-fail-fast -- --test-threads=1` (CI uses single thread to avoid flakiness).
 - Run the compiler locally: `cargo run -p kaede_compiler_driver -- <file.kaede> -o <out>`; add `--display-llvm-ir` or `-O3` as needed.
+- Run the LSP server: `cargo run -p kaede_compiler_driver -- lsp` (stdio-based LSP).
 
 ## Coding Style & Naming Conventions
 - Rust 2021 edition; default 4-space indentation.

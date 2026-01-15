@@ -6,7 +6,8 @@ mod ty;
 
 use std::collections::VecDeque;
 
-use error::{ParseError, ParseResult};
+use error::ParseResult;
+pub use error::ParseError;
 use kaede_ast::{expr::Expr, CompileUnit};
 use kaede_lex::{
     token::{Token, TokenKind},
