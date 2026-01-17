@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 - Rust workspace in `Cargo.toml` with compiler crates in `compiler/` (lex/parse/ast/semantic/type_infer/codegen/driver/lsp/etc.).
 - CLI entrypoint in `compiler/driver` (`kaede` binary); shared utilities in `compiler/common`, source locations (`span`), and symbol handling (`symbol`, `symbol_table`).
-- Language runtime and bridge helpers live in `library/` (includes GC and Rust bridge codegen); samples in `example/`.
+- Standard library lives in `library/src/std/`, C FFI implementations in `library/ffi/`, and Rust bridge codegen in `library/kaede-rust-bridge-codegen/`; samples in `example/`.
 - Build artifacts land in `target/`; keep working tree clean before commits.
 
 ## Build, Test, and Development Commands

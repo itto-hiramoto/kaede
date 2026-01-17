@@ -1,9 +1,12 @@
 import std.io
-import std.runtime.core.sys
+import std.ffi.sys
+import std.string
+
+use std.string.String
 
 pub extern "C" fn abort()
 
-use std.runtime.core.sys.*
+use std.ffi.sys.*
 
 pub struct Fd {
     raw: i32,
@@ -129,7 +132,7 @@ pub fn read_until(fd: Fd, buf: mut [u8], delim: [u8]): u64 {
     __unreachable()
 }
 
-fn find_subslice(haystack: [u8], needle: [u8]): i32 {
+pub fn find_subslice(haystack: [u8], needle: [u8]): i32 {
     let hlen = haystack.len()
     let nlen = needle.len()
 
@@ -166,5 +169,54 @@ fn find_subslice(haystack: [u8], needle: [u8]): i32 {
         i += 1
     }
 
+    return -1
+}
+
+pub fn parse_request_line(header: [u8]): (String, String, String) {
+    let i = find_subslice(header, b"\r\n")
+    if i < 0 {
+        abort() // 400
+    }
+
+    let line = header[0:i] // "GET /path HTTP/1.1"
+    return split3_spaces(line)
+}
+
+fn split3_spaces(line: [u8]): (String, String, String) {
+    let sp1 = find_byte(line, b' ')
+    if sp1 < 0 {
+        abort()
+    }
+
+    let rest = line[(sp1 + 1):line.len()]
+
+    let sp2 = find_byte(rest, b' ')
+    if sp2 < 0 {
+        abort()
+    }
+
+    let method_bytes = line[0:sp1]
+    let target_bytes = rest[0:sp2]
+    let ver_bytes    = rest[(sp2 + 1):rest.len()]
+
+    let method = String::from_bytes(method_bytes)
+    let target = String::from_bytes(target_bytes)
+    let ver    = String::from_bytes(ver_bytes)
+
+    return (method, target, ver)
+}
+
+fn find_byte(buf: [u8], b: u8): i32 {
+    let mut i = 0
+    loop {
+        if i == buf.len() {
+            break
+        }
+
+        if buf[i] == b {
+            return i as i32
+        }
+        i += 1
+    }
     return -1
 }

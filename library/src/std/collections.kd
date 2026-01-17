@@ -1,9 +1,9 @@
 import std.option
-import std.runtime.core.mem
+import std.ffi.mem
 
 use std.option.Option
-use std.runtime.core.mem.__mem_alloc
-use std.runtime.core.mem.__mem_realloc
+use std.ffi.mem.__mem_alloc
+use std.ffi.mem.__mem_realloc
 
 pub struct Vector<T> {
     ptr: *T,

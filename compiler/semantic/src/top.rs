@@ -448,14 +448,16 @@ impl SemanticAnalyzer {
                 let base_ty = ty.get_base_type();
                 match base_ty.kind.as_ref() {
                     ir::ty::TyKind::UserDefined(udt) => (udt.name(), false),
-                    ir::ty::TyKind::Slice(_) => (Symbol::from("slice".to_owned()), false),
+                    ir::ty::TyKind::Slice(elem_ty) => {
+                        (self.slice_method_parent_name(elem_ty), false)
+                    }
                     _ => (Symbol::from(base_ty.kind.to_string()), true),
                 }
             }
 
             // Built-in types
             ir::ty::TyKind::Fundamental(fty) => (Symbol::from(fty.kind.to_string()), true),
-            ir::ty::TyKind::Slice(_) => (Symbol::from("slice".to_owned()), false),
+            ir::ty::TyKind::Slice(elem_ty) => (self.slice_method_parent_name(elem_ty), false),
 
             _ => unreachable!(),
         };

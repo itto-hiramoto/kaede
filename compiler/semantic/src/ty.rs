@@ -562,7 +562,18 @@ impl SemanticAnalyzer {
 
         let generic_args = vec![elem_ty.clone()];
 
-        if impl_info.generateds.contains(&generic_args) {
+        let already_generated = impl_info.generateds.iter().any(|args| {
+            args.len() == generic_args.len()
+                && args.iter().zip(&generic_args).all(|(a, b)| {
+                    match (a.kind.as_ref(), b.kind.as_ref()) {
+                        (ir_type::TyKind::Var(_), ir_type::TyKind::Var(_)) => true,
+                        (ir_type::TyKind::Var(_), _) | (_, ir_type::TyKind::Var(_)) => false,
+                        _ => a.kind == b.kind,
+                    }
+                })
+        });
+
+        if already_generated {
             return Ok(());
         }
 

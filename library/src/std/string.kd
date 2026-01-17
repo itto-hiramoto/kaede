@@ -30,6 +30,26 @@ impl String {
         return String { chars: chars }
     }
 
+    pub fn from_bytes(bytes: [u8]): String {
+        let mut chars = Vector<char>::new()
+
+        let mut i = 0
+        loop {
+            if i == bytes.len() {
+                break
+            }
+
+            chars.push(bytes[i] as char)
+
+            i += 1
+        }
+
+        // Add null terminator
+        chars.push('\0')
+
+        return String { chars: chars }
+    }
+
     pub fn as_ptr(self): *char {
         return self.chars.as_ptr()
     }

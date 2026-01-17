@@ -2276,7 +2276,7 @@ impl SemanticAnalyzer {
                     self.create_method_call_ir(
                         callee_symbol,
                         self.module_path().clone(),
-                        Symbol::from("slice".to_owned()),
+                        self.slice_method_parent_name(elem_ty),
                         call_node,
                         lhs,
                         span,
@@ -2538,7 +2538,12 @@ impl SemanticAnalyzer {
 
         let target_ast_ty = match &node.rhs.kind {
             ast::expr::ExprKind::Ty(ty) => ty,
-            _ => todo!("Error"),
+            _ => {
+                return Err(SemanticError::ExpectedTypeInCast {
+                    span: node.rhs.span,
+                }
+                .into())
+            }
         };
 
         let target_ir_ty = self.analyze_type(target_ast_ty)?;
