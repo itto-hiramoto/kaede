@@ -6,7 +6,6 @@ import subprocess
 import os
 import tempfile
 import platform
-import runtime
 
 this_dir = os.path.dirname(os.path.abspath(__file__))
 
@@ -64,21 +63,17 @@ def install_standard_library(kaede_lib_dir, bdwgc_lib_path, bdwgc_include_dir, k
     # Copy standard library source files
     kaede_lib_src_dir = os.path.join(kaede_lib_dir, "src")
     shutil.copytree(os.path.join(this_dir, "src"), kaede_lib_src_dir)
-    kaede_runtime_core_src_dir = os.path.join(kaede_lib_src_dir, "std", "runtime", "core")
-    runtime_core_src_dir = os.path.join(runtime.this_dir, "core")
-    if os.path.exists(runtime_core_src_dir):
-        os.makedirs(kaede_runtime_core_src_dir, exist_ok=True)
-        shutil.copytree(
-            runtime_core_src_dir, kaede_runtime_core_src_dir, dirs_exist_ok=True
-        )
-
-    kaede_runtime_src_dir = os.path.join(kaede_lib_dir, "runtime")
-    runtime.install_runtime_sources(kaede_runtime_src_dir, exclude_core=True)
+    kaede_ffi_src_dir = os.path.join(kaede_lib_dir, "ffi")
+    ffi_src_dir = os.path.join(this_dir, "ffi")
+    if os.path.exists(ffi_src_dir):
+        shutil.copytree(ffi_src_dir, kaede_ffi_src_dir)
 
     # Build standard library
     autoload_files = []
     std_lib_files = []
-    runtime_c_files = runtime.collect_runtime_c_sources(kaede_runtime_src_dir)
+    ffi_c_files = []
+    for path in pathlib.Path(kaede_ffi_src_dir).glob("**/*.c"):
+        ffi_c_files.append(str(path))
     for file in pathlib.Path(os.path.join(kaede_lib_src_dir, "autoload")).glob(
         "**/*.kd"
     ):
@@ -130,7 +125,7 @@ def install_standard_library(kaede_lib_dir, bdwgc_lib_path, bdwgc_include_dir, k
             kaede_lib_path,
             t1.name,
             t2.name,
-            *runtime_c_files,
+            *ffi_c_files,
             bdwgc_lib_path,
         ]
     ).check_returncode()

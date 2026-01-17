@@ -167,4 +167,7 @@ pub enum SemanticError {
 
     #[error("failed to create target machine")]
     FailedToCreateTargetMachine,
+
+    #[error("{}:{}:{} expected type on right-hand side of cast expression", span.file, span.start.line, span.start.column)]
+    ExpectedTypeInCast { span: Span },
 }

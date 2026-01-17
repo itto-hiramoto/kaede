@@ -304,6 +304,10 @@ impl SemanticAnalyzer {
         .into()
     }
 
+    pub fn slice_method_parent_name(&self, elem_ty: &Rc<ir_type::Ty>) -> Symbol {
+        format!("slice<{}>", elem_ty.kind).into()
+    }
+
     pub fn create_method_key(
         &self,
         parent_name: Symbol,
