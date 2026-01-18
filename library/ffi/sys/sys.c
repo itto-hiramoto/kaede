@@ -76,3 +76,10 @@ long kaede_sys_write(sys_fd_t fd, const void *buf, size_t len) {
 int kaede_sys_close(sys_fd_t fd) { return close((int)fd); }
 
 int kaede_sys_errno(void) { return errno; }
+
+int kaede_strcmp(const char *s1, size_t len1, const char *s2, size_t len2) {
+  if (len1 != len2)
+    return 1;
+
+  return memcmp(s1, s2, len1);
+}

@@ -26,6 +26,8 @@ int kaede_sys_close(sys_fd_t fd);
 /* --- Error introspection (optional but handy) --- */
 int kaede_sys_errno(void);
 
+int kaede_strcmp(const char *s1, size_t len1, const char *s2, size_t len2);
+
 #ifdef __cplusplus
 }
 #endif

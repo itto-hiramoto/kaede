@@ -1024,9 +1024,9 @@ impl SemanticAnalyzer {
         &mut self,
         node: &ast::expr::FnCall,
         callee: Ident,
-    ) -> anyhow::Result<ir::expr::Expr> {
+    ) -> Option<anyhow::Result<ir::expr::Expr>> {
         match callee.symbol().as_str() {
-            "__unreachable" => Ok(ir::expr::Expr {
+            "__unreachable" => Some(Ok(ir::expr::Expr {
                 kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
                     kind: ir::expr::BuiltinFnCallKind::Unreachable,
                     args: ir::expr::Args(vec![], node.span),
@@ -1034,76 +1034,66 @@ impl SemanticAnalyzer {
                 }),
                 ty: Rc::new(ir_type::Ty::new_never()),
                 span: node.span,
-            }),
+            })),
 
-            "__str" => {
-                let args = node
-                    .args
+            "__str" => Some(
+                node.args
                     .0
                     .iter()
                     .map(|arg| self.analyze_expr(arg))
-                    .collect::<anyhow::Result<Vec<_>>>()?;
-
-                Ok(ir::expr::Expr {
-                    kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
-                        kind: ir::expr::BuiltinFnCallKind::Str,
-                        args: ir::expr::Args(args, node.span),
+                    .collect::<anyhow::Result<Vec<_>>>()
+                    .map(|args| ir::expr::Expr {
+                        kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                            kind: ir::expr::BuiltinFnCallKind::Str,
+                            args: ir::expr::Args(args, node.span),
+                            span: node.span,
+                        }),
+                        ty: Rc::new(ir_type::wrap_in_ref(
+                            Rc::new(ir_type::Ty::new_str(ir_type::Mutability::Not)),
+                            ir_type::Mutability::Not,
+                        )),
                         span: node.span,
                     }),
-                    ty: Rc::new(ir_type::wrap_in_ref(
-                        Rc::new(ir_type::Ty::new_str(ir_type::Mutability::Not)),
-                        ir_type::Mutability::Not,
-                    )),
-                    span: node.span,
-                })
-            }
+            ),
 
-            "__ptr_add" => {
-                let args = node
-                    .args
+            "__ptr_add" => Some(
+                node.args
                     .0
                     .iter()
                     .map(|arg| self.analyze_expr(arg))
-                    .collect::<anyhow::Result<Vec<_>>>()?;
-
-                Ok(ir::expr::Expr {
-                    ty: args[0].ty.clone(),
-                    kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
-                        kind: ir::expr::BuiltinFnCallKind::PointerAdd,
-                        args: ir::expr::Args(args, node.span),
+                    .collect::<anyhow::Result<Vec<_>>>()
+                    .map(|args| ir::expr::Expr {
+                        ty: args[0].ty.clone(),
+                        kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                            kind: ir::expr::BuiltinFnCallKind::PointerAdd,
+                            args: ir::expr::Args(args, node.span),
+                            span: node.span,
+                        }),
                         span: node.span,
                     }),
-                    span: node.span,
-                })
-            }
+            ),
 
-            "__sizeof" => {
-                let args = node
-                    .args
+            "__sizeof" => Some(
+                node.args
                     .0
                     .iter()
                     .map(|arg| self.analyze_expr(arg))
-                    .collect::<anyhow::Result<Vec<_>>>()?;
-
-                Ok(ir::expr::Expr {
-                    ty: Rc::new(ir_type::make_fundamental_type(
-                        ir_type::FundamentalTypeKind::U64,
-                        ir_type::Mutability::Not,
-                    )),
-                    kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
-                        kind: ir::expr::BuiltinFnCallKind::SizeOf,
-                        args: ir::expr::Args(args, node.span),
+                    .collect::<anyhow::Result<Vec<_>>>()
+                    .map(|args| ir::expr::Expr {
+                        ty: Rc::new(ir_type::make_fundamental_type(
+                            ir_type::FundamentalTypeKind::U64,
+                            ir_type::Mutability::Not,
+                        )),
+                        kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                            kind: ir::expr::BuiltinFnCallKind::SizeOf,
+                            args: ir::expr::Args(args, node.span),
+                            span: node.span,
+                        }),
                         span: node.span,
                     }),
-                    span: node.span,
-                })
-            }
+            ),
 
-            _ => Err(SemanticError::Undeclared {
-                name: callee.symbol(),
-                span: node.span,
-            }
-            .into()),
+            _ => None,
         }
     }
 
@@ -1174,8 +1164,8 @@ impl SemanticAnalyzer {
         callee: Ident,
     ) -> anyhow::Result<ir::expr::Expr> {
         // Builtin functions
-        if let Ok(expr) = self.analyze_builtin_fn_call(node, callee) {
-            return Ok(expr);
+        if let Some(result) = self.analyze_builtin_fn_call(node, callee) {
+            return result;
         }
 
         let symbol_value =
