@@ -220,3 +220,20 @@ fn find_byte(buf: [u8], b: u8): i32 {
     }
     return -1
 }
+
+pub fn header_has_connection_close(header: [u8], version: str): bool {
+    if find_subslice(header, b"Connection: close") >= 0 {
+        return true
+    }
+
+    // HTTP/1.0 is close by default
+    if version == "HTTP/1.0" {
+        if find_subslice(header, b"Connection: keep-alive") >= 0 {
+            return false
+        }
+        return true
+    }
+
+    // HTTP/1.1 is keep-alive by default
+    return false
+}

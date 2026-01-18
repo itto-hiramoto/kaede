@@ -1408,6 +1408,14 @@ impl<'ctx> CodeGenerator<'ctx> {
         let left = self.build_expr(&node.lhs)?.unwrap();
         let right = self.build_expr(&node.rhs)?.unwrap();
 
+        if left_ty.is_str() && right_ty.is_str() {
+            return match node.kind {
+                Eq => self.build_str_equal(left, right),
+                Ne => self.build_str_not_equal(left, right),
+                _ => anyhow::bail!("unsupported operation for str type: {:?}", node.kind),
+            };
+        }
+
         // If operands are not int
         if !(left.is_int_value() && right.is_int_value()) {
             todo!("Error");
@@ -1531,6 +1539,108 @@ impl<'ctx> CodeGenerator<'ctx> {
                 }
             }
         })
+    }
+
+    fn build_str_equal(
+        &mut self,
+        left: BasicValueEnum<'ctx>,
+        right: BasicValueEnum<'ctx>,
+    ) -> anyhow::Result<Value<'ctx>> {
+        let cmp = self.build_strcmp(left, right)?;
+        let zero = self.context().i32_type().const_zero();
+
+        Ok(Some(
+            self.builder
+                .build_int_compare(IntPredicate::EQ, cmp, zero, "")?
+                .into(),
+        ))
+    }
+
+    fn build_str_not_equal(
+        &mut self,
+        left: BasicValueEnum<'ctx>,
+        right: BasicValueEnum<'ctx>,
+    ) -> anyhow::Result<Value<'ctx>> {
+        let cmp = self.build_strcmp(left, right)?;
+        let zero = self.context().i32_type().const_zero();
+
+        Ok(Some(
+            self.builder
+                .build_int_compare(IntPredicate::NE, cmp, zero, "")?
+                .into(),
+        ))
+    }
+
+    fn build_strcmp(
+        &mut self,
+        left: BasicValueEnum<'ctx>,
+        right: BasicValueEnum<'ctx>,
+    ) -> anyhow::Result<IntValue<'ctx>> {
+        let str_llvm_ty = FundamentalType::create_llvm_str_type(self.context()).into_struct_type();
+
+        let (left_ptr, left_len) = self.load_str_ptr_and_len(left, str_llvm_ty)?;
+        let (right_ptr, right_len) = self.load_str_ptr_and_len(right, str_llvm_ty)?;
+
+        let strcmp_fn = match self.module.get_function("kaede_strcmp") {
+            Some(f) => f,
+            None => {
+                let ptr_ty = str_llvm_ty.get_field_type_at_index(0).unwrap();
+                let len_ty = str_llvm_ty.get_field_type_at_index(1).unwrap();
+
+                let fn_type = self.context().i32_type().fn_type(
+                    &[ptr_ty.into(), len_ty.into(), ptr_ty.into(), len_ty.into()],
+                    false,
+                );
+
+                self.module
+                    .add_function("kaede_strcmp", fn_type, Some(Linkage::External))
+            }
+        };
+
+        let cmp = self.builder.build_call(
+            strcmp_fn,
+            &[
+                left_ptr.into(),
+                left_len.into(),
+                right_ptr.into(),
+                right_len.into(),
+            ],
+            "",
+        )?;
+
+        Ok(cmp.try_as_basic_value().left().unwrap().into_int_value())
+    }
+
+    fn load_str_ptr_and_len(
+        &mut self,
+        str_value: BasicValueEnum<'ctx>,
+        str_llvm_ty: StructType<'ctx>,
+    ) -> anyhow::Result<(PointerValue<'ctx>, IntValue<'ctx>)> {
+        let str_ptr = str_value.into_pointer_value();
+        let zero = self.context().i32_type().const_zero();
+        let one = self.context().i32_type().const_int(1, false);
+
+        let data_gep = unsafe {
+            self.builder
+                .build_in_bounds_gep(str_llvm_ty, str_ptr, &[zero, zero], "")?
+        };
+        let data_ptr = self.builder.build_load(
+            str_llvm_ty.get_field_type_at_index(0).unwrap(),
+            data_gep,
+            "",
+        )?;
+
+        let len_gep = unsafe {
+            self.builder
+                .build_in_bounds_gep(str_llvm_ty, str_ptr, &[zero, one], "")?
+        };
+        let len = self.builder.build_load(
+            str_llvm_ty.get_field_type_at_index(1).unwrap(),
+            len_gep,
+            "",
+        )?;
+
+        Ok((data_ptr.into_pointer_value(), len.into_int_value()))
     }
 
     fn build_logical_or(

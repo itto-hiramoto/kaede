@@ -54,6 +54,21 @@ impl String {
         return self.chars.as_ptr()
     }
 
+    pub fn len(self): u32 {
+        let len = self.chars.len()
+
+        if len == 0 {
+            return 0
+        }
+
+        // Exclude the trailing null terminator
+        return len - 1
+    }
+
+    pub fn as_str(self): str {
+        return __str(self.as_ptr(), self.len())
+    }
+
     pub fn at(self, idx: u32): Option<char> {
         return self.chars.at(idx)
     }
