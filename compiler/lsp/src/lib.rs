@@ -267,6 +267,7 @@ fn semantic_error_span(err: &SemanticError) -> Option<Span> {
         | SemanticError::MatchMustHaveNonCatchAllArm { span }
         | SemanticError::DuplicatePattern { span, .. }
         | SemanticError::UnitVariantCannotUnpack { span, .. }
+        | SemanticError::ExpectedTypeInCast { span }
         | SemanticError::UnsupportedLanguageLinkage { span, .. } => Some(*span),
         SemanticError::MainNotFound
         | SemanticError::LLVMError { .. }
