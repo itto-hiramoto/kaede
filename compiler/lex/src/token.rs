@@ -128,6 +128,8 @@ pub enum TokenKind {
     Self_,
     /// "use"
     Use,
+    /// "spawn"
+    Spawn,
 
     /// "true"
     True,
@@ -214,6 +216,7 @@ impl std::fmt::Display for TokenKind {
                 As => "'as'",
                 Self_ => "'self'",
                 Use => "'use'",
+                Spawn => "'spawn'",
 
                 True => "'true'",
                 False => "'false'",

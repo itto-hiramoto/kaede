@@ -52,6 +52,12 @@ pub struct FnCall {
 }
 
 #[derive(Debug)]
+pub struct Spawn {
+    pub callee: Box<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug)]
 pub struct Int {
     pub kind: IntKind,
     pub span: Span,
@@ -287,6 +293,7 @@ pub enum ExprKind {
     Slicing(Slicing),
     TupleLiteral(TupleLiteral),
     Closure(Closure),
+    Spawn(Spawn),
     Return(Return),
     If(If),
     Loop(Loop),

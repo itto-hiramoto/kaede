@@ -590,6 +590,58 @@ impl SemanticAnalyzer {
             ))),
         };
 
+        let runtime_init_decl = ir::top::FnDecl {
+            lang_linkage: kaede_common::LangLinkage::C,
+            link_once: false,
+            name: QualifiedSymbol::new(
+                ModulePath::new(vec![]),
+                "kaede_runtime_init".to_owned().into(),
+            ),
+            params: vec![],
+            is_c_variadic: false,
+            return_ty: None,
+        };
+
+        let runtime_run_decl = ir::top::FnDecl {
+            lang_linkage: kaede_common::LangLinkage::C,
+            link_once: false,
+            name: QualifiedSymbol::new(
+                ModulePath::new(vec![]),
+                "kaede_runtime_run".to_owned().into(),
+            ),
+            params: vec![],
+            is_c_variadic: false,
+            return_ty: Some(Rc::new(ir::ty::make_fundamental_type(
+                ir::ty::FundamentalTypeKind::I32,
+                ir::ty::Mutability::Not,
+            ))),
+        };
+
+        let runtime_shutdown_decl = ir::top::FnDecl {
+            lang_linkage: kaede_common::LangLinkage::C,
+            link_once: false,
+            name: QualifiedSymbol::new(
+                ModulePath::new(vec![]),
+                "kaede_runtime_shutdown".to_owned().into(),
+            ),
+            params: vec![],
+            is_c_variadic: false,
+            return_ty: None,
+        };
+
+        top_level_irs.push(ir::top::TopLevel::Fn(Rc::new(ir::top::Fn {
+            decl: runtime_init_decl.clone(),
+            body: None,
+        })));
+        top_level_irs.push(ir::top::TopLevel::Fn(Rc::new(ir::top::Fn {
+            decl: runtime_run_decl.clone(),
+            body: None,
+        })));
+        top_level_irs.push(ir::top::TopLevel::Fn(Rc::new(ir::top::Fn {
+            decl: runtime_shutdown_decl.clone(),
+            body: None,
+        })));
+
         let kdmain_symbol =
             self.lookup_symbol("main".to_owned().into())
                 .ok_or(SemanticError::Undeclared {
@@ -602,33 +654,107 @@ impl SemanticAnalyzer {
             _ => unreachable!(),
         };
 
-        let args = if kdmain_decl.params.len() == 1 {
-            // Expect that main has command line arguments parameter
-            let prepare_command_line_arguments = self.prepare_command_line_arguments()?;
-            vec![prepare_command_line_arguments]
+        let mut body = Vec::new();
+
+        let runtime_init_expr = ir::expr::Expr {
+            kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
+                callee: runtime_init_decl.clone().into(),
+                args: ir::expr::Args(vec![], Span::dummy()),
+                span: Span::dummy(),
+            }),
+            ty: Rc::new(ir::ty::Ty::new_unit()),
+            span: Span::dummy(),
+        };
+        body.push(ir::stmt::Stmt::Expr(Rc::new(runtime_init_expr)));
+
+        let (spawn_args, spawn_arg_types, args_let) = if kdmain_decl.params.len() == 1 {
+            let args_expr = self.prepare_command_line_arguments()?;
+            let args_symbol = self.fresh_temp_symbol("__kdmain_args");
+
+            let args_let = ir::stmt::Stmt::Let(ir::stmt::Let {
+                name: args_symbol,
+                init: Some(args_expr.clone()),
+                ty: args_expr.ty.clone(),
+                span: Span::dummy(),
+            });
+
+            let args_var = ir::expr::Expr {
+                kind: ir::expr::ExprKind::Variable(ir::expr::Variable {
+                    name: args_symbol,
+                    ty: args_expr.ty.clone(),
+                    span: Span::dummy(),
+                }),
+                ty: args_expr.ty.clone(),
+                span: Span::dummy(),
+            };
+
+            (vec![args_var], vec![args_expr.ty], Some(args_let))
         } else {
-            vec![]
+            (vec![], vec![], None)
         };
 
-        let kdmain_call_node = ir::expr::FnCall {
-            callee: kdmain_decl.clone(),
-            args: ir::expr::Args(args, Span::dummy()),
+        if let Some(args_let) = args_let {
+            body.push(args_let);
+        }
+
+        let spawn_expr = ir::expr::Expr {
+            kind: ir::expr::ExprKind::Spawn(ir::expr::Spawn {
+                callee: kdmain_decl.clone(),
+                args: spawn_args,
+                arg_types: spawn_arg_types,
+                span: Span::dummy(),
+                is_main: true,
+            }),
+            ty: Rc::new(ir::ty::Ty::new_unit()),
+            span: Span::dummy(),
+        };
+        body.push(ir::stmt::Stmt::Expr(Rc::new(spawn_expr)));
+
+        let exit_code_symbol = self.fresh_temp_symbol("__kaede_exit_code");
+        let exit_code_expr = ir::expr::Expr {
+            kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
+                callee: runtime_run_decl.clone().into(),
+                args: ir::expr::Args(vec![], Span::dummy()),
+                span: Span::dummy(),
+            }),
+            ty: runtime_run_decl.return_ty.clone().unwrap(),
             span: Span::dummy(),
         };
 
-        let return_statement = ir::expr::ExprKind::Return(Some(Box::new(ir::expr::Expr {
-            kind: ir::expr::ExprKind::FnCall(kdmain_call_node),
-            ty: kdmain_decl
-                .return_ty
-                .clone()
-                .unwrap_or_else(|| ir::ty::Ty::new_never().into()),
+        body.push(ir::stmt::Stmt::Let(ir::stmt::Let {
+            name: exit_code_symbol,
+            init: Some(exit_code_expr),
+            ty: runtime_run_decl.return_ty.clone().unwrap(),
             span: Span::dummy(),
-        })));
+        }));
+
+        let runtime_shutdown_expr = ir::expr::Expr {
+            kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
+                callee: runtime_shutdown_decl.clone().into(),
+                args: ir::expr::Args(vec![], Span::dummy()),
+                span: Span::dummy(),
+            }),
+            ty: Rc::new(ir::ty::Ty::new_unit()),
+            span: Span::dummy(),
+        };
+        body.push(ir::stmt::Stmt::Expr(Rc::new(runtime_shutdown_expr)));
+
+        let exit_code_var = ir::expr::Expr {
+            kind: ir::expr::ExprKind::Variable(ir::expr::Variable {
+                name: exit_code_symbol,
+                ty: runtime_run_decl.return_ty.clone().unwrap(),
+                span: Span::dummy(),
+            }),
+            ty: runtime_run_decl.return_ty.clone().unwrap(),
+            span: Span::dummy(),
+        };
+
+        let return_statement = ir::expr::ExprKind::Return(Some(Box::new(exit_code_var)));
 
         let main_fn = ir::top::TopLevel::Fn(Rc::new(ir::top::Fn {
             decl: main_fn_decl,
             body: Some(ir::stmt::Block {
-                body: vec![],
+                body,
                 last_expr: Some(Box::new(ir::expr::Expr {
                     kind: return_statement,
                     ty: ir::ty::make_fundamental_type(

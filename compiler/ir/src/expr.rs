@@ -51,6 +51,15 @@ pub struct FnCall {
 }
 
 #[derive(Debug, Clone)]
+pub struct Spawn {
+    pub callee: Rc<FnDecl>,
+    pub args: Vec<Expr>,
+    pub arg_types: Vec<Rc<Ty>>,
+    pub span: Span,
+    pub is_main: bool,
+}
+
+#[derive(Debug, Clone)]
 pub struct Int {
     pub kind: IntKind,
     pub span: Span,
@@ -289,6 +298,7 @@ pub enum ExprKind {
     Slicing(Slicing),
     LogicalNot(LogicalNot),
     FnCall(FnCall),
+    Spawn(Spawn),
     FnPointer(FnPointer),
     Closure(Closure),
     Return(Option<Box<Expr>>),

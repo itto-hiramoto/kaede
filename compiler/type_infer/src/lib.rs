@@ -13,7 +13,8 @@ pub use crate::error::TypeInferError;
 use kaede_ir::{
     expr::{
         Binary, BinaryKind, BuiltinFnCall, BuiltinFnCallKind, Cast, EnumVariant, Expr, ExprKind,
-        FieldAccess, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Slicing, TupleIndexing,
+        FieldAccess, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Slicing, Spawn,
+        TupleIndexing,
     },
     stmt::{Assign, Block, Let, Stmt, TupleUnpack},
     ty::{FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind, make_fundamental_type},
@@ -135,6 +136,7 @@ impl TypeInferrer {
             FnCall(fn_call) => self.infer_fn_call(fn_call),
             BuiltinFnCall(builtin_call) => self.infer_builtin_fn_call(builtin_call),
             FnPointer(_) => Ok(expr_ty.clone()),
+            Spawn(spawn) => self.infer_spawn(spawn),
 
             // Control flow
             If(if_expr) => self.infer_if(if_expr),
@@ -865,6 +867,14 @@ impl TypeInferrer {
             .unwrap_or_else(|| Rc::new(Ty::new_unit())))
     }
 
+    fn infer_spawn(&mut self, spawn: &Spawn) -> Result<Rc<Ty>, TypeInferError> {
+        for arg in &spawn.args {
+            self.infer_expr(arg)?;
+        }
+
+        Ok(Rc::new(Ty::new_unit()))
+    }
+
     fn infer_builtin_fn_call(
         &mut self,
         builtin_call: &BuiltinFnCall,
@@ -1361,6 +1371,26 @@ impl TypeInferrer {
                     applied_callee.return_ty = Some(self.context.apply(&ret));
                 }
                 fn_call.callee = applied_callee.into();
+            }
+            Spawn(spawn) => {
+                for arg in &mut spawn.args {
+                    self.apply_expr(arg)?;
+                }
+
+                let mut applied_callee = (*spawn.callee).clone();
+                for param in applied_callee.params.iter_mut() {
+                    param.ty = self.context.apply(&param.ty);
+                }
+                if let Some(ret) = applied_callee.return_ty.clone() {
+                    applied_callee.return_ty = Some(self.context.apply(&ret));
+                }
+                spawn.callee = applied_callee.into();
+
+                spawn.arg_types = spawn
+                    .arg_types
+                    .iter()
+                    .map(|ty| self.context.apply(ty))
+                    .collect();
             }
             Closure(closure) => {
                 for capture in &mut closure.captures {

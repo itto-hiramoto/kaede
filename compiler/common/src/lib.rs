@@ -22,6 +22,10 @@ pub fn kaede_lib_path() -> PathBuf {
     kaede_dir().join(format!("lib/libkd.{}", lib_extension()))
 }
 
+pub fn kaede_runtime_lib_path() -> PathBuf {
+    kaede_dir().join("lib/libkaede_runtime.a")
+}
+
 pub fn kaede_lib_src_dir() -> PathBuf {
     kaede_dir().join("lib/src")
 }
