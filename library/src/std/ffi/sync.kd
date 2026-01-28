@@ -1,0 +1,10 @@
+// Mutex FFI
+pub extern "C" fn kaede_mutex_new(): *i8
+pub extern "C" fn kaede_mutex_lock(m: *i8)
+pub extern "C" fn kaede_mutex_unlock(m: *i8)
+
+// WaitGroup FFI
+pub extern "C" fn kaede_wg_new(): *i8
+pub extern "C" fn kaede_wg_add(wg: *i8, delta: i32)
+pub extern "C" fn kaede_wg_done(wg: *i8)
+pub extern "C" fn kaede_wg_wait(wg: *i8)

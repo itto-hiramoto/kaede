@@ -100,8 +100,8 @@ int main(void) {
             exe_path.to_str().unwrap(),
             harness_path.to_str().unwrap(),
             obj_path.to_str().unwrap(),
-            kaede_runtime_lib_path.to_str().unwrap(),
             kaede_std_lib_path.to_str().unwrap(),
+            kaede_runtime_lib_path.to_str().unwrap(),
             kaede_gc_lib_path.to_str().unwrap(),
             "-pthread",
         ])
@@ -3530,5 +3530,46 @@ fn function_and_closure_share_fn_type() -> anyhow::Result<()> {
         }
     "#;
     assert_eq!(exec(program)?, 16);
+    Ok(())
+}
+
+#[test]
+fn spawn_mutex_waitgroup() -> anyhow::Result<()> {
+    let program = r#"
+        import std.sync
+        import std.collections
+
+        use std.sync.Mutex
+        use std.sync.WaitGroup
+        use std.collections.Vector
+
+        fn worker(id: i32, lock: Mutex, wg: WaitGroup, xs: mut Vector<i32>) {
+            lock.lock()
+            xs.push(id)
+            lock.unlock()
+            wg.done()
+        }
+
+        fn main(): i32 {
+            let lock = Mutex::new()
+            let wg = WaitGroup::new()
+            let mut xs = Vector<i32>::new()
+
+            let mut i = 0
+            loop {
+                if i >= 10 {
+                    break
+                }
+                i += 1
+                wg.add(1)
+                spawn worker(i, lock, wg, xs)
+            }
+
+            wg.wait()
+            return xs.len() as i32
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 10);
     Ok(())
 }
