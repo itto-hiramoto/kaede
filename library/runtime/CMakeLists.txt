@@ -7,6 +7,8 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 
 # Source files
 set(SOURCES
+    src/mutex.c
+    src/waitgroup.c
     src/task.c
     src/worker.c
     src/runtime.c

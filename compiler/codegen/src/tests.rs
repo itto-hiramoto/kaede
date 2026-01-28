@@ -100,8 +100,8 @@ int main(void) {
             exe_path.to_str().unwrap(),
             harness_path.to_str().unwrap(),
             obj_path.to_str().unwrap(),
-            kaede_runtime_lib_path.to_str().unwrap(),
             kaede_std_lib_path.to_str().unwrap(),
+            kaede_runtime_lib_path.to_str().unwrap(),
             kaede_gc_lib_path.to_str().unwrap(),
             "-pthread",
         ])

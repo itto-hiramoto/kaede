@@ -1,0 +1,43 @@
+import std.ffi.sync
+
+use std.ffi.sync.*
+
+pub struct Mutex {
+    ptr: *i8,
+}
+
+impl Mutex {
+    pub fn new(): Mutex {
+        return Mutex { ptr: kaede_mutex_new() }
+    }
+
+    pub fn lock(self) {
+        kaede_mutex_lock(self.ptr)
+    }
+
+    pub fn unlock(self) {
+        kaede_mutex_unlock(self.ptr)
+    }
+}
+
+pub struct WaitGroup {
+    ptr: *i8,
+}
+
+impl WaitGroup {
+    pub fn new(): WaitGroup {
+        return WaitGroup { ptr: kaede_wg_new() }
+    }
+
+    pub fn add(self, delta: i32) {
+        kaede_wg_add(self.ptr, delta)
+    }
+
+    pub fn done(self) {
+        kaede_wg_done(self.ptr)
+    }
+
+    pub fn wait(self) {
+        kaede_wg_wait(self.ptr)
+    }
+}
