@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.68"
 tower-lsp = "0.20.0"
-tokio = { version = "=1.32.0", features = ["io-std", "rt-multi-thread", "sync"] }
+tokio = { version = "=1.38.2", features = ["io-std", "rt-multi-thread", "sync"] }
 
 kaede_parse = { path = "../parse" }
 kaede_semantic = { path = "../semantic" }
