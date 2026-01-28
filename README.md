@@ -17,13 +17,14 @@
 
 - LLVM 17
 - Python 3
+- CMake
 - C compiler (gcc or clang)
 - **Supported architectures**: x86-64, AArch64
 
 ### macOS / Linux (Homebrew)
 
 ```bash
-$ brew install llvm@17
+$ brew install llvm@17 cmake python
 $ export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"
 ```
 
