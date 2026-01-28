@@ -10,7 +10,7 @@
 - Install prerequisites once: `./install.py` (sets up standard library/bridge code). On macOS add `export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"` to load LLVM.
 - Format check: `cargo fmt --all -- --check`.
 - Lint: `cargo clippy -- -D warnings`.
-- Tests: `cargo test --release --no-fail-fast -- --test-threads=1` (CI uses single thread to avoid flakiness).
+- Tests: `cargo test --release --no-fail-fast`.
 - Run the compiler locally: `cargo run -p kaede_compiler_driver -- <file.kaede> -o <out>`; add `--display-llvm-ir` or `-O3` as needed.
 - Run the LSP server: `cargo run -p kaede_compiler_driver -- lsp` (stdio-based LSP).
 
@@ -23,7 +23,7 @@
 ## Testing Guidelines
 - Use Rust `#[test]` in-module or `tests/` integration suites; mirror issues with regression tests.
 - For compiler features, include sample programs under `compiler/*/tests` or integration `tests/` that assert diagnostics/output.
-- Keep tests deterministic; avoid parallel-only assumptions (CI runs `--test-threads=1`).
+- Keep tests deterministic; avoid parallel-only assumptions.
 
 ## Commit & Pull Request Guidelines
 - Follow conventional commits seen in history (`feat:`, `fix:`, `refactor:`, `chore:`, etc.).

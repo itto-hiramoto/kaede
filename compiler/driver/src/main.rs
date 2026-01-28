@@ -11,7 +11,7 @@ use anyhow::{anyhow, Context as _};
 use colored::Colorize;
 use inkwell::{context::Context, module::Module, OptimizationLevel};
 use kaede_codegen::{error::CodegenError, CodeGenerator, CodegenCtx};
-use kaede_common::{kaede_gc_lib_path, kaede_lib_path};
+use kaede_common::{kaede_gc_lib_path, kaede_lib_path, kaede_runtime_lib_path};
 use kaede_parse::Parser;
 use kaede_semantic::SemanticAnalyzer;
 use tempfile::{NamedTempFile, TempPath};
@@ -153,10 +153,13 @@ fn emit_exe_file(
 
     let kaede_lib_path = kaede_lib_path();
     let kaede_gc_lib_path = kaede_gc_lib_path();
+    let kaede_runtime_lib_path = kaede_runtime_lib_path();
 
     // Add standard libraries
+    args.push(kaede_runtime_lib_path.as_os_str()); // Link with runtime
     args.push(kaede_lib_path.as_os_str()); // Link with standard library
     args.push(kaede_gc_lib_path.as_os_str()); // Link with garbage collector
+    args.push(OsStr::new("-pthread"));
 
     let status = Command::new("cc").args(&args).status()?;
 

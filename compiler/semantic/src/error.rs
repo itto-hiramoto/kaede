@@ -170,4 +170,10 @@ pub enum SemanticError {
 
     #[error("{}:{}:{} expected type on right-hand side of cast expression", span.file, span.start.line, span.start.column)]
     ExpectedTypeInCast { span: Span },
+
+    #[error("{}:{}:{} `spawn` expects a function call", span.file, span.start.line, span.start.column)]
+    SpawnTargetNotCall { span: Span },
+
+    #[error("{}:{}:{} `spawn` requires a function returning `()`; got `{}`", span.file, span.start.line, span.start.column, ty)]
+    SpawnReturnTypeNotUnit { ty: String, span: Span },
 }

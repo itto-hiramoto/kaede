@@ -1,16 +1,14 @@
-//! This tests should be run in a single thread
-//! Because the tests is executed through JIT compilation, processing it in parallel will break the GC and cause errors
-//!
-//! I tried testing using AOT compilation, but single-threaded JIT compilation was faster
+//! These tests compile and execute binaries and rely on GC/runtime state.
 
+use std::fs;
 use std::path::PathBuf;
+use std::process::Command;
 
-use inkwell::{
-    context::Context, module::Module, support::load_library_permanently, OptimizationLevel,
-};
-use kaede_common::{kaede_gc_lib_path, kaede_lib_path};
+use inkwell::context::Context;
+use kaede_common::{kaede_gc_lib_path, kaede_lib_path, kaede_runtime_lib_path};
 use kaede_parse::Parser;
 use kaede_semantic::{SemanticAnalyzer, SemanticError};
+use tempfile::tempdir;
 
 use crate::{CodeGenerator, CodegenCtx};
 
@@ -18,35 +16,6 @@ use crate::{CodeGenerator, CodegenCtx};
 fn extract_semantic_error(err: anyhow::Error) -> SemanticError {
     err.downcast::<SemanticError>()
         .expect("Expected SemanticError in test")
-}
-
-fn jit_compile(module: &Module) -> anyhow::Result<i32> {
-    let kaede_gc_lib_path = kaede_gc_lib_path();
-    let kaede_std_lib_path = kaede_lib_path();
-
-    // Load bdw-gc (boehm-gc)
-    if kaede_gc_lib_path.exists() {
-        load_library_permanently(&kaede_gc_lib_path)?;
-    } else {
-        panic!("{} not found!", kaede_gc_lib_path.to_string_lossy());
-    }
-
-    // Load standard libarary
-    if kaede_std_lib_path.exists() {
-        load_library_permanently(&kaede_std_lib_path)?;
-    } else {
-        panic!("{} not found!", kaede_std_lib_path.to_string_lossy());
-    }
-
-    let ee = module
-        .create_jit_execution_engine(OptimizationLevel::None)
-        .unwrap();
-
-    Ok(unsafe {
-        ee.get_function::<unsafe extern "C" fn() -> i32>("main")
-            .unwrap()
-            .call()
-    })
 }
 
 /// Return exit status
@@ -60,8 +29,98 @@ fn exec(program: &str) -> anyhow::Result<i32> {
     let ir = SemanticAnalyzer::new_for_single_file_test().analyze(ast, false, false)?;
 
     let module = CodeGenerator::new(&cgcx).unwrap().codegen(ir).unwrap();
+    if let Some(main_fn) = module.get_function("main") {
+        unsafe {
+            main_fn.delete();
+        }
+    }
 
-    Ok(jit_compile(&module).unwrap())
+    let temp_dir = tempdir()?;
+    let bitcode_path = temp_dir.path().join("test.bc");
+    let obj_path = temp_dir.path().join("test.o");
+    let harness_path = temp_dir.path().join("test_main.c");
+    let exe_path = temp_dir.path().join("test_exec");
+
+    module.write_bitcode_to_path(&bitcode_path);
+
+    let status = Command::new("llc")
+        .args([
+            "-filetype=obj",
+            "-relocation-model=pic",
+            "-o",
+            obj_path.to_str().unwrap(),
+            bitcode_path.to_str().unwrap(),
+        ])
+        .status()?;
+    if !status.success() {
+        anyhow::bail!("Failed to emit object file using 'llc'");
+    }
+
+    let harness_src = r#"
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+
+typedef void (*TaskFn)(void *);
+
+extern int32_t kdmain(void);
+
+void kaede_runtime_init(void);
+void kaede_spawn_main(TaskFn fn, void *arg, size_t arg_size);
+int kaede_runtime_run(void);
+void kaede_runtime_shutdown(void);
+void kaede_runtime_set_exit_code(int code);
+
+static void kaede_test_main(void *arg) {
+    (void)arg;
+    int32_t code = kdmain();
+    kaede_runtime_set_exit_code((int)code);
+}
+
+int main(void) {
+    kaede_runtime_init();
+    kaede_spawn_main(kaede_test_main, NULL, 0);
+    int code = kaede_runtime_run();
+    kaede_runtime_shutdown();
+    fprintf(stderr, "%d\n", code);
+    return 0;
+}
+"#;
+
+    fs::write(&harness_path, harness_src)?;
+
+    let kaede_gc_lib_path = kaede_gc_lib_path();
+    let kaede_std_lib_path = kaede_lib_path();
+    let kaede_runtime_lib_path = kaede_runtime_lib_path();
+
+    let status = Command::new("cc")
+        .args([
+            "-fPIE",
+            "-o",
+            exe_path.to_str().unwrap(),
+            harness_path.to_str().unwrap(),
+            obj_path.to_str().unwrap(),
+            kaede_runtime_lib_path.to_str().unwrap(),
+            kaede_std_lib_path.to_str().unwrap(),
+            kaede_gc_lib_path.to_str().unwrap(),
+            "-pthread",
+        ])
+        .status()?;
+    if !status.success() {
+        anyhow::bail!("Failed to emit executable file using 'cc'");
+    }
+
+    let output = Command::new(&exe_path).output()?;
+    if !output.status.success() {
+        anyhow::bail!("Executable terminated by signal");
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let code = stderr
+        .trim()
+        .parse::<i32>()
+        .map_err(|_| anyhow::anyhow!("Failed to parse test output"))?;
+    Ok(code)
 }
 
 #[test]

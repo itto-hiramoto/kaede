@@ -133,6 +133,33 @@ def install_standard_library(kaede_lib_dir, bdwgc_lib_path, bdwgc_include_dir, k
     print("Done!")
 
 
+def install_runtime(kaede_lib_dir):
+    print("Installing runtime library...")
+
+    runtime_src_dir = os.path.join(this_dir, "runtime")
+    runtime_build_dir = os.path.join(this_dir, "runtime_build")
+    runtime_lib_path = os.path.join(kaede_lib_dir, "libkaede_runtime.a")
+
+    if not os.path.exists(runtime_build_dir):
+        os.mkdir(runtime_build_dir)
+
+    subprocess.run(
+        [
+            "cmake",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-S",
+            runtime_src_dir,
+            "-B",
+            runtime_build_dir,
+        ]
+    ).check_returncode()
+    subprocess.run(["cmake", "--build", runtime_build_dir, "-j"]).check_returncode()
+
+    shutil.copy(os.path.join(runtime_build_dir, "libkaede_runtime.a"), runtime_lib_path)
+
+    print("Done!")
+
+
 # Install libraries
 def install(kaede_dir):
     third_party_dir = os.path.join(kaede_dir, "third_party")
@@ -156,6 +183,7 @@ def install(kaede_dir):
         os.path.join(bdwgc_install_dir, "include"),
         kaede_lib_path,
     )
+    install_runtime(kaede_lib_dir)
     install_kaede_rust_bridge_codegen(kaede_dir)
 
     # Create a symbolic link to easily link with GC from compiler side

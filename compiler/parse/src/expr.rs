@@ -3,7 +3,7 @@ use std::{collections::VecDeque, rc::Rc};
 use kaede_ast::expr::{
     Args, ArrayLiteral, ArrayRepeat, Binary, BinaryKind, Break, ByteLiteral, ByteStringLiteral,
     CharLiteral, Closure, Else, Expr, ExprKind, FnCall, If, Indexing, Int, IntKind, LogicalNot,
-    Loop, Match, MatchArm, Return, Slicing, StringLiteral, StructLiteral, TupleLiteral,
+    Loop, Match, MatchArm, Return, Slicing, Spawn, StringLiteral, StructLiteral, TupleLiteral,
 };
 use kaede_ast_type::{GenericArgs, Ty, TyKind};
 use kaede_lex::token::TokenKind;
@@ -374,6 +374,10 @@ impl Parser {
 
         if self.check(&TokenKind::Return) {
             return self.return_();
+        }
+
+        if self.check(&TokenKind::Spawn) {
+            return self.spawn_expr();
         }
 
         // Array literal
@@ -1000,6 +1004,20 @@ impl Parser {
             kind: ExprKind::Return(Return {
                 span,
                 val: Some(expr.into()),
+            }),
+            span,
+        })
+    }
+
+    fn spawn_expr(&mut self) -> ParseResult<Expr> {
+        let start = self.consume(&TokenKind::Spawn)?.start;
+        let callee = self.expr()?;
+        let span = self.new_span(start, callee.span.finish);
+
+        Ok(Expr {
+            kind: ExprKind::Spawn(Spawn {
+                callee: callee.into(),
+                span,
             }),
             span,
         })

@@ -60,10 +60,61 @@ impl SemanticAnalyzer {
             ExprKind::StructLiteral(node) => self.analyze_struct_literal(node),
             ExprKind::TupleLiteral(node) => self.analyze_tuple_literal(node),
             ExprKind::Closure(node) => self.analyze_closure(node),
+            ExprKind::Spawn(node) => self.analyze_spawn(node),
 
             ExprKind::Ty(_) => todo!(),
             ExprKind::GenericIdent(_) => todo!(),
         }
+    }
+
+    fn analyze_spawn(&mut self, node: &ast::expr::Spawn) -> anyhow::Result<ir::expr::Expr> {
+        let call_node = match &node.callee.kind {
+            ast::expr::ExprKind::FnCall(call) => call,
+            _ => {
+                return Err(SemanticError::SpawnTargetNotCall { span: node.span }.into());
+            }
+        };
+
+        let call_expr = self.analyze_fn_call(call_node)?;
+
+        let (callee, args) = match call_expr.kind {
+            ir::expr::ExprKind::FnCall(call) => (call.callee, call.args.0),
+            _ => {
+                return Err(SemanticError::SpawnTargetNotCall { span: node.span }.into());
+            }
+        };
+
+        let returns_unit = match callee.return_ty.as_ref() {
+            None => true,
+            Some(ty) => matches!(ty.kind.as_ref(), ir_type::TyKind::Unit),
+        };
+
+        if !returns_unit {
+            return Err(SemanticError::SpawnReturnTypeNotUnit {
+                ty: callee
+                    .return_ty
+                    .as_ref()
+                    .map(|ty| ty.kind.to_string())
+                    .unwrap_or_else(|| "()".to_string()),
+                span: node.span,
+            }
+            .into());
+        }
+
+        let arg_types = args.iter().map(|arg| arg.ty.clone()).collect();
+        let span = node.span;
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::Spawn(ir::expr::Spawn {
+                callee,
+                args,
+                arg_types,
+                span,
+                is_main: false,
+            }),
+            ty: Rc::new(ir_type::Ty::new_unit()),
+            span,
+        })
     }
 
     fn analyze_tuple_literal(

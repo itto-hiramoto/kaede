@@ -9,8 +9,8 @@ use crate::{
 use inkwell::{
     module::Linkage,
     types::{BasicType, StructType},
-    values::{BasicValue, BasicValueEnum, IntValue, PointerValue},
-    IntPredicate,
+    values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
+    AddressSpace, IntPredicate,
 };
 
 use kaede_common::rust_function_prefix;
@@ -19,7 +19,7 @@ use kaede_ir::{
         ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BuiltinFnCall, BuiltinFnCallKind,
         ByteLiteral, ByteStringLiteral, Cast, CharLiteral, Closure, Else, EnumUnpack, EnumVariant,
         Expr, ExprKind, FieldAccess, FnCall, FnPointer, If, Indexing, Int, LogicalNot, Loop,
-        Slicing, StringLiteral, StructLiteral, TupleIndexing, TupleLiteral, Variable,
+        Slicing, Spawn, StringLiteral, StructLiteral, TupleIndexing, TupleLiteral, Variable,
     },
     stmt::Block,
     ty::{
@@ -169,6 +169,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             ExprKind::BuiltinFnCall(node) => self.build_builtin_fn_call(node)?,
 
             ExprKind::Closure(closure) => self.build_closure(closure, &node.ty)?,
+
+            ExprKind::Spawn(spawn) => self.build_spawn(spawn)?,
         })
     }
 
@@ -874,6 +876,208 @@ impl<'ctx> CodeGenerator<'ctx> {
         )?;
 
         Ok(Some(value.into()))
+    }
+
+    fn build_spawn(&mut self, node: &Spawn) -> anyhow::Result<Value<'ctx>> {
+        let args_struct_ty = if node.args.is_empty() {
+            None
+        } else {
+            Some(self.spawn_args_struct_type(&node.arg_types))
+        };
+
+        let wrapper = self.build_spawn_wrapper(node, args_struct_ty)?;
+        let (arg_ptr, arg_size) = self.build_spawn_args(node, args_struct_ty)?;
+
+        let ptr_ty = self.context().ptr_type(AddressSpace::default());
+        let spawn_fn_name = if node.is_main {
+            "kaede_spawn_main"
+        } else {
+            "kaede_spawn_with_arg"
+        };
+        let spawn_fn = self.declare_runtime_fn(
+            spawn_fn_name,
+            self.context().void_type().fn_type(
+                &[
+                    ptr_ty.into(),
+                    ptr_ty.into(),
+                    self.context().i64_type().into(),
+                ],
+                false,
+            ),
+        );
+
+        let fn_ptr = self.builder.build_pointer_cast(
+            wrapper.as_global_value().as_pointer_value(),
+            ptr_ty,
+            "",
+        )?;
+
+        self.builder.build_call(
+            spawn_fn,
+            &[fn_ptr.into(), arg_ptr.into(), arg_size.into()],
+            "",
+        )?;
+
+        Ok(None)
+    }
+
+    fn spawn_args_struct_type(&mut self, arg_types: &[Rc<Ty>]) -> StructType<'ctx> {
+        let fields = arg_types
+            .iter()
+            .map(|ty| self.conv_to_llvm_type(ty))
+            .collect::<Vec<_>>();
+        self.context().struct_type(&fields, true)
+    }
+
+    fn build_spawn_args(
+        &mut self,
+        node: &Spawn,
+        args_struct_ty: Option<StructType<'ctx>>,
+    ) -> anyhow::Result<(PointerValue<'ctx>, IntValue<'ctx>)> {
+        let ptr_ty = self.context().ptr_type(AddressSpace::default());
+        if node.args.is_empty() {
+            let zero = self.context().i64_type().const_zero();
+            return Ok((ptr_ty.const_null(), zero));
+        }
+
+        let args_struct_ty = args_struct_ty.unwrap();
+        let args_alloca =
+            self.create_entry_block_alloca("spawn.args", args_struct_ty.as_basic_type_enum())?;
+
+        for (idx, arg) in node.args.iter().enumerate() {
+            let mut value = self.build_expr(arg)?.unwrap();
+            if let Some(param) = node.callee.params.get(idx) {
+                value = self.coerce_value_to_type(value, &arg.ty, &param.ty)?;
+            }
+
+            let gep = unsafe {
+                self.builder.build_in_bounds_gep(
+                    args_struct_ty,
+                    args_alloca,
+                    &[
+                        self.context().i32_type().const_zero(),
+                        self.context().i32_type().const_int(idx as u64, false),
+                    ],
+                    "",
+                )?
+            };
+
+            self.builder.build_store(gep, value)?;
+        }
+
+        let size_val = args_struct_ty.size_of().unwrap();
+        let size_i64 =
+            self.builder
+                .build_int_cast(size_val, self.context().i64_type(), "spawn.arg_size")?;
+
+        Ok((args_alloca, size_i64))
+    }
+
+    fn build_spawn_wrapper(
+        &mut self,
+        node: &Spawn,
+        args_struct_ty: Option<StructType<'ctx>>,
+    ) -> anyhow::Result<FunctionValue<'ctx>> {
+        let wrapper_name = self.fresh_spawn_name();
+        let ptr_ty = self.context().ptr_type(AddressSpace::default());
+        let wrapper_fn = self.module.add_function(
+            wrapper_name.as_str(),
+            self.context().void_type().fn_type(&[ptr_ty.into()], false),
+            Some(Linkage::Internal),
+        );
+
+        let saved_block = self.builder.get_insert_block();
+        let entry = self.context().append_basic_block(wrapper_fn, "entry");
+        self.builder.position_at_end(entry);
+
+        let mut args = Vec::new();
+        if let Some(args_struct_ty) = args_struct_ty {
+            let arg_ptr = wrapper_fn.get_first_param().unwrap().into_pointer_value();
+            let struct_ptr = self.builder.build_pointer_cast(
+                arg_ptr,
+                self.context().ptr_type(AddressSpace::default()),
+                "",
+            )?;
+
+            for (idx, arg_ty) in node.arg_types.iter().enumerate() {
+                let gep = unsafe {
+                    self.builder.build_in_bounds_gep(
+                        args_struct_ty,
+                        struct_ptr,
+                        &[
+                            self.context().i32_type().const_zero(),
+                            self.context().i32_type().const_int(idx as u64, false),
+                        ],
+                        "",
+                    )?
+                };
+                let llvm_ty = self.conv_to_llvm_type(arg_ty);
+                let value = self.builder.build_load(llvm_ty, gep, "")?;
+                args.push(value.into());
+            }
+        }
+
+        let callee_value = self
+            .callee_symbols(&node.callee)
+            .iter()
+            .find_map(|name| {
+                self.tcx.lookup_symbol(*name).map(|symbol| {
+                    let value = symbol.borrow();
+                    match &*value {
+                        SymbolTableValue::Function(fn_value) => Some(*fn_value),
+                        _ => None,
+                    }
+                })
+            })
+            .flatten()
+            .ok_or(CodegenError::UnknownCallee {
+                name: node.callee.name.symbol(),
+            })?;
+
+        let call = self.builder.build_call(callee_value, args.as_slice(), "")?;
+
+        if node.is_main {
+            let exit_code = match node.callee.return_ty.as_ref() {
+                Some(ty) => match ty.kind.as_ref() {
+                    TyKind::Fundamental(fund) if fund.kind == FundamentalTypeKind::I32 => {
+                        call.try_as_basic_value().left().unwrap().into_int_value()
+                    }
+                    TyKind::Unit => self.context().i32_type().const_zero(),
+                    _ => self.context().i32_type().const_zero(),
+                },
+                None => self.context().i32_type().const_zero(),
+            };
+
+            let set_exit_code = self.declare_runtime_fn(
+                "kaede_runtime_set_exit_code",
+                self.context()
+                    .void_type()
+                    .fn_type(&[self.context().i32_type().into()], false),
+            );
+            self.builder
+                .build_call(set_exit_code, &[exit_code.into()], "")?;
+        }
+
+        self.builder.build_return(None)?;
+
+        if let Some(saved_block) = saved_block {
+            self.builder.position_at_end(saved_block);
+        }
+
+        Ok(wrapper_fn)
+    }
+
+    fn declare_runtime_fn(
+        &mut self,
+        name: &str,
+        fn_type: inkwell::types::FunctionType<'ctx>,
+    ) -> FunctionValue<'ctx> {
+        if let Some(existing) = self.module.get_function(name) {
+            return existing;
+        }
+
+        self.module
+            .add_function(name, fn_type, Some(Linkage::External))
     }
 
     fn callee_symbols(&self, callee: &kaede_ir::top::FnDecl) -> Vec<Symbol> {
