@@ -127,7 +127,7 @@ static void worker_loop_impl(int worker_id) {
         }
     }
 
-    printf("Worker %d exiting\n", worker_id);
+    (void)worker_id;
 }
 
 void *worker_loop(void *arg) {
