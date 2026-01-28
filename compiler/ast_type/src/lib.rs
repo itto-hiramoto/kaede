@@ -454,22 +454,20 @@ impl UserDefinedType {
 
 impl Display for UserDefinedType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.generic_args.is_none() {
-            write!(f, "{}", self.name.symbol().as_str())
-        } else {
+        if let Some(generic_args) = &self.generic_args {
             write!(
                 f,
                 "{}<{}>",
                 self.name.symbol().as_str(),
-                self.generic_args
-                    .as_ref()
-                    .unwrap()
+                generic_args
                     .types
                     .iter()
                     .map(|t| t.kind.to_string())
                     .collect::<Vec<_>>()
                     .join(", ")
             )
+        } else {
+            write!(f, "{}", self.name.symbol().as_str())
         }
     }
 }
