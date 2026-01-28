@@ -3,34 +3,57 @@
 > [!WARNING]
 > As this project is still in the pre-release phase, there is still a possibility that the language specifications could change significantly!
 
-# Installation
+**Kaede** is an experimental systems programming language that combines:
 
-## Install dependencies with homebrew
+- **Go-style green threads** — Lightweight concurrent tasks with multi-core scheduling
+- **Rust-like syntax** — Modern, expressive syntax with static typing
+- **Bidirectional type inference** — Minimal type annotations with full type safety
+- **Seamless Rust interop** — Auto-generated bindings to call Rust functions directly
+- **Garbage collection** — Automatic memory management without ownership complexity
 
-### LLVM 17
+## Installation
+
+### Prerequisites
+
+- LLVM 17
+- Python 3
+- C compiler (gcc or clang)
+
+### macOS / Linux (Homebrew)
 
 ```bash
 $ brew install llvm@17
-```
-
-### Environment Variable Configuration
-
-```bash
 $ export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"
 ```
 
-If you want to make it permanent, put it in a shell initialization file.<br/>
-For example, in the case of a `~/.profile`.
+To make it permanent, add to your shell profile (`~/.profile`, `~/.zshrc`, etc.):
 
 ```bash
 $ echo 'export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"' >> ~/.profile
 ```
 
-## Install standard library and compiler
-
-Make sure Python3 is installed.
+### Build & Install
 
 ```bash
 $ ./install.py
 $ kaede -h
 ```
+
+## Usage
+
+```bash
+# Create a new project
+$ kaede new myproject
+$ cd myproject
+
+# Build the project
+$ kaede build
+```
+
+## Editor Support
+
+- **VSCode**: Extension available in `editors/vscode/`
+
+## License
+
+[TBD]
