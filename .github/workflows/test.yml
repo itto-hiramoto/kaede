@@ -53,5 +53,4 @@ jobs:
         run: cargo clippy -- -D warnings
 
       - name: Run test
-        # Execute in single thread because errors occur in parallel
-        run: cargo test --release --no-fail-fast -- --test-threads=1
+        run: cargo test --release --no-fail-fast

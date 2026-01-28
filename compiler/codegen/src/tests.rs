@@ -1,5 +1,4 @@
-//! These tests should be run in a single thread.
-//! They compile and execute binaries and rely on GC/runtime state.
+//! These tests compile and execute binaries and rely on GC/runtime state.
 
 use std::fs;
 use std::path::PathBuf;
