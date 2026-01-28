@@ -671,6 +671,7 @@ dependencies = [
  "kaede_semantic",
  "kaede_span",
  "kaede_symbol",
+ "tempfile",
  "thiserror",
 ]
 

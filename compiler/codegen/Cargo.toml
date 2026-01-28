@@ -16,3 +16,6 @@ kaede_parse = { path = "../parse" }
 kaede_symbol = { path = "../symbol" }
 kaede_common = { path = "../common" }
 kaede_semantic = { path = "../semantic" }
+
+[dev-dependencies]
+tempfile = "3"
