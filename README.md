@@ -18,6 +18,7 @@
 - LLVM 17
 - Python 3
 - C compiler (gcc or clang)
+- **Supported architectures**: x86-64, AArch64
 
 ### macOS / Linux (Homebrew)
 
