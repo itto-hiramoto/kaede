@@ -7,8 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Task queue and synchronization primitives for the user-level scheduler.
 static struct TaskQueue tasks;
 static pthread_mutex_t tasks_mutex;
+static pthread_cond_t tasks_cond;
 static pthread_once_t runtime_init_once = PTHREAD_ONCE_INIT;
 static bool runtime_init_ok = false;
 static pthread_mutex_t main_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -32,7 +34,16 @@ static void runtime_init_impl(void) {
         return;
     }
 
+    // This condition variable wakes sleeping workers when new tasks are enqueued
+    // or when the main task finishes (shutdown).
+    if (pthread_cond_init(&tasks_cond, NULL) != 0) {
+        pthread_mutex_destroy(&tasks_mutex);
+        runtime_init_ok = false;
+        return;
+    }
+
     if (!task_queue_init(&tasks, 1024)) {
+        pthread_cond_destroy(&tasks_cond);
         pthread_mutex_destroy(&tasks_mutex);
         runtime_init_ok = false;
         return;
@@ -52,6 +63,10 @@ static void task_finished(void) {
         main_finished = true;
         pthread_cond_broadcast(&main_cond);
         pthread_mutex_unlock(&main_mutex);
+        // Wake any workers blocked on the queue so they can exit promptly.
+        pthread_mutex_lock(&tasks_mutex);
+        pthread_cond_broadcast(&tasks_cond);
+        pthread_mutex_unlock(&tasks_mutex);
     }
 
     // Switch back to scheduler
@@ -78,6 +93,7 @@ void worker_deinit(void) {
     task_queue_deinit(&tasks);
     pthread_mutex_unlock(&tasks_mutex);
     pthread_mutex_destroy(&tasks_mutex);
+    pthread_cond_destroy(&tasks_cond);
 }
 
 static void worker_loop_impl(int worker_id) {
@@ -94,11 +110,16 @@ static void worker_loop_impl(int worker_id) {
     for (;;) {
         struct Task task;
         pthread_mutex_lock(&tasks_mutex);
-        const bool ok = task_queue_pop(&tasks, &task);
-        pthread_mutex_unlock(&tasks_mutex);
-        if (!ok) {
-            break;
+        while (task_queue_is_empty(&tasks)) {
+            if (main_finished) {
+                pthread_mutex_unlock(&tasks_mutex);
+                return;
+            }
+            // No task available: sleep until someone enqueues or main finishes.
+            pthread_cond_wait(&tasks_cond, &tasks_mutex);
         }
+        (void)task_queue_pop(&tasks, &task);
+        pthread_mutex_unlock(&tasks_mutex);
 
         // Store pointer to local task variable
         // This is safe because context_switch returns to the same stack frame
@@ -121,8 +142,10 @@ static void worker_loop_impl(int worker_id) {
             // Push the task back to the queue
             pthread_mutex_lock(&tasks_mutex);
             (void)task_queue_push(&tasks, &task);
+            pthread_cond_signal(&tasks_cond);
             pthread_mutex_unlock(&tasks_mutex);
         } else {
+            // Task completed: reclaim its stack/resources.
             task_cleanup(&task);
         }
     }
@@ -190,6 +213,10 @@ bool worker_spawn(TaskFn fn, void *arg, size_t arg_size, bool is_main) {
 
     pthread_mutex_lock(&tasks_mutex);
     const bool ok = task_queue_push(&tasks, &task);
+    if (ok) {
+        // Wake one worker to pick up the newly enqueued task.
+        pthread_cond_signal(&tasks_cond);
+    }
     pthread_mutex_unlock(&tasks_mutex);
     if (!ok) {
         fprintf(stderr, "Failed to push task to queue\n");
