@@ -55,17 +55,25 @@ impl SemanticAnalyzer {
 
             ast_type::TyKind::Generic(gty) => self.analyze_generic_type(gty, ty.span),
 
-            ast_type::TyKind::External(ty, access_chain) => {
+            ast_type::TyKind::External(inner_ty, access_chain) => {
+                let outer_mutability = ty.mutability;
                 let (_, module_path) = self.create_module_path_from_access_chain(
                     access_chain
                         .iter()
                         .map(|i| i.symbol())
                         .collect::<Vec<_>>()
                         .as_slice(),
-                    ty.span,
+                    inner_ty.span,
                 )?;
 
-                self.with_module(module_path, |analyzer| analyzer.analyze_type(ty))
+                let analyzed_ty =
+                    self.with_module(module_path, |analyzer| analyzer.analyze_type(inner_ty))?;
+
+                // Apply outer mutability to the analyzed type
+                Ok(ir_type::change_mutability_dup(
+                    analyzed_ty,
+                    outer_mutability.into(),
+                ))
             }
 
             ast_type::TyKind::Unit => Ok(ir_type::Ty::new_unit().into()),
