@@ -2218,6 +2218,7 @@ impl SemanticAnalyzer {
                 ir_type::TyKind::UserDefined(_)
                     | ir_type::TyKind::Tuple(_)
                     | ir_type::TyKind::Slice(_)
+                    | ir_type::TyKind::Array(_)
             ) {
                 self.analyze_struct_access_or_tuple_indexing(left, &node.rhs)
             } else {
@@ -2439,6 +2440,28 @@ impl SemanticAnalyzer {
 
                     self.analyze_tuple_indexing(lhs, rhs, &elements_ty)
                 }
+            },
+
+            ir_type::TyKind::Array((elem_ty, _len)) => match &rhs.kind {
+                ast::expr::ExprKind::FnCall(call_node) => {
+                    let span = Span::new(lhs.span.start, call_node.span.finish, lhs.span.file);
+                    let callee_symbol = self.callee_symbol(call_node)?;
+
+                    // Generate slice impl for this element type
+                    self.generate_slice_impl(elem_ty.clone())?;
+
+                    // Arrays use slice methods (array is coerced to slice at codegen)
+                    self.create_method_call_ir(
+                        callee_symbol,
+                        self.module_path().clone(),
+                        self.slice_method_parent_name(elem_ty),
+                        call_node,
+                        lhs,
+                        span,
+                    )
+                }
+
+                _ => Err(SemanticError::HasNoFields { span }.into()),
             },
 
             // str is internally represented as (*i8, u64) tuple
