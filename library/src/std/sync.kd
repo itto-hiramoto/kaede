@@ -7,15 +7,15 @@ pub struct Mutex {
 }
 
 impl Mutex {
-    pub fn new(): Mutex {
+    pub fn new(): mut Mutex {
         return Mutex { ptr: kaede_mutex_new() }
     }
 
-    pub fn lock(self) {
+    pub fn lock(mut self) {
         kaede_mutex_lock(self.ptr)
     }
 
-    pub fn unlock(self) {
+    pub fn unlock(mut self) {
         kaede_mutex_unlock(self.ptr)
     }
 }
@@ -25,15 +25,15 @@ pub struct WaitGroup {
 }
 
 impl WaitGroup {
-    pub fn new(): WaitGroup {
+    pub fn new(): mut WaitGroup {
         return WaitGroup { ptr: kaede_wg_new() }
     }
 
-    pub fn add(self, delta: i32) {
+    pub fn add(mut self, delta: i32) {
         kaede_wg_add(self.ptr, delta)
     }
 
-    pub fn done(self) {
+    pub fn done(mut self) {
         kaede_wg_done(self.ptr)
     }
 
