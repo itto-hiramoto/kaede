@@ -1,10 +1,7 @@
-import std.io
 import std.ffi.sys
 import std.string
 
 use std.string.String
-
-pub extern "C" fn abort()
 
 use std.ffi.sys.*
 
@@ -21,7 +18,7 @@ impl Fd {
 pub fn socket_tcp4(): Fd {
     let fd = __sys_socket_tcp4()
     if fd < 0 {
-        abort()
+        panic("socket_tcp4 failed")
     }
     return Fd::new(fd)
 }
@@ -29,28 +26,28 @@ pub fn socket_tcp4(): Fd {
 pub fn set_reuseaddr(fd: Fd) {
     let r = __sys_set_reuseaddr(fd.raw)
     if r < 0 {
-        abort()
+        panic("set_reuseaddr failed")
     }
 }
 
 pub fn bind_ipv4(fd: Fd, ip: str, port: u16) {
     let r = __sys_bind_ipv4(fd.raw, ip.as_ptr(), port)
     if r < 0 {
-        abort()
+        panic("bind_ipv4 failed")
     }
 }
 
 pub fn listen(fd: Fd, backlog: i32) {
     let r = __sys_listen(fd.raw, backlog)
     if r < 0 {
-        abort()
+        panic("listen failed")
     }
 }
 
 pub fn accept(fd: Fd): Fd {
     let c = __sys_accept(fd.raw)
     if c < 0 {
-        abort()
+        panic("accept failed")
     }
     return Fd::new(c)
 }
@@ -58,7 +55,7 @@ pub fn accept(fd: Fd): Fd {
 pub fn close(fd: Fd) {
     let r = __sys_close(fd.raw)
     if r < 0 {
-        abort()
+        panic("close failed")
     }
 }
 
@@ -68,7 +65,7 @@ pub fn read(fd: Fd, buf: mut [u8]): u64 {
     let n = __sys_read(fd.raw, buf.as_ptr() as *i8, buf.len())
 
     if n < 0 {
-        abort()
+        panic("read failed")
     }
 
     return n as u64
@@ -89,11 +86,11 @@ fn write_all(fd: Fd, buf: [u8]): u64 {
         let n = __sys_write(fd.raw, ptr as *i8, rem)
 
         if n < 0 {
-            abort()
+            panic("write failed")
         }
 
         if n == 0 {
-            abort()
+            panic("write returned 0")
         }
 
         off += n as u64
@@ -107,14 +104,18 @@ pub fn read_until(fd: Fd, buf: mut [u8], delim: [u8]): u64 {
 
     loop {
         if filled >= buf.len() {
-            abort()
+            panic("read_until: buffer full")
         }
 
         let mut tail = buf[filled:buf.len()]
 
         let n = std.sys.read(fd, tail)
-        if n <= 0 {
-            abort()
+        if n < 0 {
+            panic("read_until: read failed")
+        }
+        if n == 0 {
+            // EOF: caller decides how to handle closed connection
+            return 0
         }
 
         filled += n
@@ -163,7 +164,7 @@ pub fn find_subslice(haystack: [u8], needle: [u8]): i32 {
 pub fn parse_request_line(header: [u8]): (String, String, String) {
     let i = find_subslice(header, b"\r\n")
     if i < 0 {
-        abort() // 400
+        panic("parse_request_line: missing CRLF")
     }
 
     let line = header[0:i] // "GET /path HTTP/1.1"
@@ -173,14 +174,14 @@ pub fn parse_request_line(header: [u8]): (String, String, String) {
 fn split3_spaces(line: [u8]): (String, String, String) {
     let sp1 = find_byte(line, b' ')
     if sp1 < 0 {
-        abort()
+        panic("split3_spaces: missing first space")
     }
 
     let rest = line[(sp1 + 1):line.len()]
 
     let sp2 = find_byte(rest, b' ')
     if sp2 < 0 {
-        abort()
+        panic("split3_spaces: missing second space")
     }
 
     let method_bytes = line[0:sp1]
