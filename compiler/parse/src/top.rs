@@ -244,7 +244,7 @@ impl Parser {
     }
 
     fn fn_decl(&mut self, vis: Visibility) -> ParseResult<FnDecl> {
-        let start = self.consume(&TokenKind::Fn).unwrap().start;
+        let start = self.consume(&TokenKind::Fn)?.start;
 
         let name = self.ident()?;
 
