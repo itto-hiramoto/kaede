@@ -200,6 +200,13 @@ pub struct Loop {
 }
 
 #[derive(Debug)]
+pub struct While {
+    pub cond: Box<Expr>,
+    pub body: Block,
+    pub span: Span,
+}
+
+#[derive(Debug)]
 pub struct Break {
     pub span: Span,
 }
@@ -297,6 +304,7 @@ pub enum ExprKind {
     Return(Return),
     If(If),
     Loop(Loop),
+    While(While),
     Break(Break),
     Match(Match),
     Block(Block),

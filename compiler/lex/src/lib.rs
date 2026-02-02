@@ -161,6 +161,7 @@ impl Cursor<'_> {
                     "else" => self.create_token(TokenKind::Else),
                     "loop" => self.create_token(TokenKind::Loop),
                     "break" => self.create_token(TokenKind::Break),
+                    "while" => self.create_token(TokenKind::While),
                     "mut" => self.create_token(TokenKind::Mut),
                     "struct" => self.create_token(TokenKind::Struct),
                     "true" => self.create_token(TokenKind::True),

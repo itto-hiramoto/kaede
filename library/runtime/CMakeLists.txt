@@ -34,6 +34,8 @@ find_package(Threads REQUIRED)
 target_link_libraries(kaede_runtime PRIVATE Threads::Threads)
 target_compile_definitions(kaede_runtime PRIVATE GC_THREADS GC_ALLOW_REGISTER_THREADS)
 
+set_target_properties(kaede_runtime PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 # Set compiler flags for x86_64 assembly
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(kaede_runtime PRIVATE -Wall -Wextra)
