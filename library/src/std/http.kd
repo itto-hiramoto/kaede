@@ -1,0 +1,89 @@
+import std.sys
+
+use std.sys.Fd
+
+// Minimal HTTP helpers for simple servers.
+
+pub fn parse_content_length(header: [u8]): i32 {
+    let key = b"Content-Length: "
+    let idx = std.sys.find_subslice(header, key)
+    if idx < 0 {
+        return 0
+    }
+
+    let mut i = (idx as u64) + key.len()
+    let mut val: i32 = 0
+    while i < header.len() {
+        let b = header[i]
+        if b == b'\r' {
+            break
+        }
+        if b < b'0' || b > b'9' {
+            return -1
+        }
+        val = (val * 10) + ((b - b'0') as i32)
+        i += 1
+    }
+    return val
+}
+
+fn write_content_length(conn: Fd, len: u64) {
+    let prefix = b"Content-Length: "
+    std.sys.write(conn, prefix)
+
+    let mut digits = [0; 20]
+    let mut d = 0
+    let mut n = len
+    if n == 0 {
+        digits[0] = b'0'
+        d = 1
+    } else {
+        while n > 0 {
+            let digit = (n % 10) as u8
+            digits[d] = b'0' + digit
+            d += 1
+            n = n / 10
+        }
+    }
+
+    let mut j = d
+    loop {
+        if j == 0 {
+            break
+        }
+        j -= 1
+        let mut one = [0; 1]
+        one[0] = digits[j]
+        std.sys.write(conn, one)
+    }
+
+    std.sys.write(conn, b"\r\n")
+}
+
+pub fn write_status_line(conn: Fd, status: i32) {
+    if status == 200 {
+        std.sys.write(conn, b"HTTP/1.1 200 OK\r\n")
+    } else if status == 404 {
+        std.sys.write(conn, b"HTTP/1.1 404 Not Found\r\n")
+    } else if status == 400 {
+        std.sys.write(conn, b"HTTP/1.1 400 Bad Request\r\n")
+    } else if status == 413 {
+        std.sys.write(conn, b"HTTP/1.1 413 Payload Too Large\r\n")
+    } else {
+        std.sys.write(conn, b"HTTP/1.1 500 Internal Server Error\r\n")
+    }
+}
+
+pub fn write_text_response(conn: Fd, close_conn: bool, status: i32, body: [u8]) {
+    write_status_line(conn, status)
+    if close_conn {
+        std.sys.write(conn, b"Connection: close\r\n")
+    }
+    write_content_length(conn, body.len())
+    std.sys.write(conn, b"\r\n")
+    std.sys.write(conn, body)
+}
+
+pub fn write_bytes_response(conn: Fd, close_conn: bool, status: i32, body: [u8]) {
+    write_text_response(conn, close_conn, status, body)
+}

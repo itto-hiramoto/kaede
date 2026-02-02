@@ -71,6 +71,20 @@ pub fn read(fd: Fd, buf: mut [u8]): u64 {
     return n as u64
 }
 
+// Read exactly `len` bytes unless EOF is hit; returns bytes read.
+pub fn read_exact(fd: Fd, buf: mut [u8], len: u64): u64 {
+    let mut read_total = 0
+    while read_total < len {
+        let mut slice = buf[read_total:buf.len()]
+        let n = std.sys.read(fd, slice)
+        if n == 0 {
+            break
+        }
+        read_total += n
+    }
+    return read_total
+}
+
 pub fn write(fd: Fd, buf: [u8]): u64 {
     return write_all(fd, buf)
 }
@@ -107,7 +121,8 @@ pub fn read_until(fd: Fd, buf: mut [u8], delim: [u8]): u64 {
             panic("read_until: buffer full")
         }
 
-        let mut tail = buf[filled:buf.len()]
+        // Read 1 byte at a time to avoid consuming beyond the delimiter
+        let mut tail = buf[filled:(filled + 1)]
 
         let n = std.sys.read(fd, tail)
         if n < 0 {
