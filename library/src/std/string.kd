@@ -17,13 +17,8 @@ impl String {
         let mut chars = Vector<char>::new()
 
         let mut i = 0
-        loop {
-            if i == s.len() {
-                break
-            }
-
+        while i < s.len() {
             chars.push(s[i])
-
             i += 1
         }
 
@@ -34,13 +29,8 @@ impl String {
         let mut chars = Vector<char>::new()
 
         let mut i = 0
-        loop {
-            if i == bytes.len() {
-                break
-            }
-
+        while i < bytes.len() {
             chars.push(bytes[i] as char)
-
             i += 1
         }
 

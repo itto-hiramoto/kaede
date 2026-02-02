@@ -136,6 +136,14 @@ impl Parser {
         }
     }
 
+    // Discard the most recent checkpoint without backtracking.
+    // Call this when a speculative parse succeeded.
+    fn discard_checkpoint(&mut self) {
+        self.checkpoint_stack
+            .pop()
+            .expect("Attempted to discard checkpoint without a checkpoint");
+    }
+
     /// Check without consuming tokens
     fn check(&mut self, tok: &TokenKind) -> bool {
         &self.first().kind == tok

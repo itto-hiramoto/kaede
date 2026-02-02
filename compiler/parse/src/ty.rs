@@ -87,6 +87,9 @@ impl Parser {
                 // Last segment was the type name, everything before is the access chain
                 let access_chain = segments;
 
+                // Discard checkpoint - we successfully parsed an access chain
+                self.discard_checkpoint();
+
                 Ok(Ty {
                     span: base_ty.span,
                     kind: TyKind::External(base_ty, access_chain).into(),

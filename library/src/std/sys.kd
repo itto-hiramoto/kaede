@@ -82,11 +82,7 @@ fn write_all(fd: Fd, buf: [u8]): u64 {
     let mut off = 0
     let total = buf.len()
 
-    loop {
-        if off >= total {
-            break
-        }
-
+    while off < total {
         let ptr = __ptr_add(buf.as_ptr(), off)
         let rem = total - off
 
@@ -142,19 +138,11 @@ pub fn find_subslice(haystack: [u8], needle: [u8]): i32 {
 
     let mut i = 0
 
-    loop {
-        if i > hlen - nlen {
-            return -1
-        }
-
+    while i <= hlen - nlen {
         let mut j = 0
         let mut ok = true
 
-        loop {
-            if j >= nlen {
-                break
-            }
-
+        while j < nlen {
             if haystack[i + j] != needle[j] {
                 ok = false
                 break
@@ -208,11 +196,7 @@ fn split3_spaces(line: [u8]): (String, String, String) {
 
 fn find_byte(buf: [u8], b: u8): i32 {
     let mut i = 0
-    loop {
-        if i == buf.len() {
-            break
-        }
-
+    while i < buf.len() {
         if buf[i] == b {
             return i as i32
         }
