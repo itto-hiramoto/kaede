@@ -154,7 +154,6 @@ fn emit_exe_file(
     let kaede_lib_path = kaede_lib_path();
     let kaede_gc_lib_path = kaede_gc_lib_path();
     let kaede_runtime_lib_path = kaede_runtime_lib_path();
-
     // Add standard libraries
     args.push(kaede_lib_path.as_os_str()); // Link with standard library
     args.push(kaede_runtime_lib_path.as_os_str()); // Link with runtime

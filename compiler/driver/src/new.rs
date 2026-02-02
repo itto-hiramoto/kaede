@@ -65,10 +65,10 @@ fn create_rust_bridge_project(project_dir: &Path, project_name: &str) -> anyhow:
 
     // Add build-dependencies section
     cargo_toml_content.push_str("\n[build-dependencies]\n");
-    let codegen_path = kaede_rust_bridge_codegen_path();
+    let krb_path = kaede_rust_bridge_codegen_path();
     cargo_toml_content.push_str(&format!(
         "kaede-rust-bridge-codegen = {{ path = \"{}\" }}\n",
-        codegen_path.display()
+        krb_path.display()
     ));
 
     // Add workspace section

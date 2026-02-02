@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::{anyhow, Context as _};
 use inkwell::OptimizationLevel;
+use kaede_common::lib_extension;
 
 use crate::{compile_and_link, CompileOption, CompileUnitInfo};
 
@@ -61,7 +62,7 @@ fn build_rust_library_if_present() -> anyhow::Result<Vec<PathBuf>> {
             .and_then(|line| line.split('"').nth(1))
             .ok_or_else(|| anyhow!("Could not find package name in rust/Cargo.toml"))?;
 
-        let rust_lib_path = format!("rust/target/debug/lib{}.so", package_name.replace('-', "_"));
+        let rust_lib_path = format!("rust/target/debug/lib{}.{}", package_name.replace('-', "_"), lib_extension());
         if !Path::new(&rust_lib_path).exists() {
             anyhow::bail!(
                 "Rust library not found at: {}. Make sure cargo build succeeded.",
