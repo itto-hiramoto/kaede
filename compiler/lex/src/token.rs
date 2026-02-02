@@ -162,8 +162,8 @@ impl std::fmt::Display for TokenKind {
 
                 OpenParen => "'('",
                 CloseParen => "')'",
-                OpenBrace => "'{{'",
-                CloseBrace => "'}}'",
+                OpenBrace => "'{'",
+                CloseBrace => "'}'",
                 OpenBracket => "'['",
                 CloseBracket => "']'",
                 Comma => "','",
