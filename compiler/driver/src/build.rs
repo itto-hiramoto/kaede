@@ -62,7 +62,11 @@ fn build_rust_library_if_present() -> anyhow::Result<Vec<PathBuf>> {
             .and_then(|line| line.split('"').nth(1))
             .ok_or_else(|| anyhow!("Could not find package name in rust/Cargo.toml"))?;
 
-        let rust_lib_path = format!("rust/target/debug/lib{}.{}", package_name.replace('-', "_"), lib_extension());
+        let rust_lib_path = format!(
+            "rust/target/debug/lib{}.{}",
+            package_name.replace('-', "_"),
+            lib_extension()
+        );
         if !Path::new(&rust_lib_path).exists() {
             anyhow::bail!(
                 "Rust library not found at: {}. Make sure cargo build succeeded.",
