@@ -3543,7 +3543,7 @@ fn spawn_mutex_waitgroup() -> anyhow::Result<()> {
         use std.sync.WaitGroup
         use std.collections.Vector
 
-        fn worker(id: i32, lock: Mutex, wg: WaitGroup, xs: mut Vector<i32>) {
+        fn worker(id: i32, lock: mut Mutex, wg: mut WaitGroup, xs: mut Vector<i32>) {
             lock.lock()
             xs.push(id)
             lock.unlock()
@@ -3551,8 +3551,8 @@ fn spawn_mutex_waitgroup() -> anyhow::Result<()> {
         }
 
         fn main(): i32 {
-            let lock = Mutex::new()
-            let wg = WaitGroup::new()
+            let mut lock = Mutex::new()
+            let mut wg = WaitGroup::new()
             let mut xs = Vector<i32>::new()
 
             let mut i = 0
