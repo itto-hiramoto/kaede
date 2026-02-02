@@ -32,11 +32,19 @@ impl<'ctx> CodeGenerator<'ctx> {
         self.tcx.push_symbol_table(SymbolTable::new());
 
         for stmt in &block.body {
+            // If there's already a terminator (from panic, return, break, etc.),
+            // don't generate any more code in this block
+            if !self.no_terminator() {
+                break;
+            }
             self.build_statement(stmt)?;
         }
 
         if let Some(last_expr) = &block.last_expr {
-            self.build_expr(last_expr)?;
+            // Only build last expression if there's no terminator yet
+            if self.no_terminator() {
+                self.build_expr(last_expr)?;
+            }
         }
 
         self.tcx.pop_symbol_table();

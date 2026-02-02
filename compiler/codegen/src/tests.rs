@@ -123,6 +123,104 @@ int main(void) {
     Ok(code)
 }
 
+/// Execute a program and return stderr, expecting the program to abort
+fn exec_expect_abort(program: &str) -> anyhow::Result<String> {
+    let context = Context::create();
+    let cgcx = CodegenCtx::new(&context, false).unwrap();
+
+    let file = PathBuf::from("test").into();
+
+    let ast = Parser::new(program, file).run().unwrap();
+    let ir = SemanticAnalyzer::new_for_single_file_test().analyze(ast, false, false)?;
+
+    let module = CodeGenerator::new(&cgcx).unwrap().codegen(ir).unwrap();
+    if let Some(main_fn) = module.get_function("main") {
+        unsafe {
+            main_fn.delete();
+        }
+    }
+
+    let temp_dir = tempdir()?;
+    let bitcode_path = temp_dir.path().join("test.bc");
+    let obj_path = temp_dir.path().join("test.o");
+    let harness_path = temp_dir.path().join("test_main.c");
+    let exe_path = temp_dir.path().join("test_exec");
+
+    module.write_bitcode_to_path(&bitcode_path);
+
+    let status = Command::new("llc")
+        .args([
+            "-filetype=obj",
+            "-relocation-model=pic",
+            "-o",
+            obj_path.to_str().unwrap(),
+            bitcode_path.to_str().unwrap(),
+        ])
+        .status()?;
+    if !status.success() {
+        anyhow::bail!("Failed to emit object file using 'llc'");
+    }
+
+    let harness_src = r#"
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+
+typedef void (*TaskFn)(void *);
+
+extern int32_t kdmain(void);
+
+void kaede_runtime_init(void);
+void kaede_spawn_main(TaskFn fn, void *arg, size_t arg_size);
+int kaede_runtime_run(void);
+void kaede_runtime_shutdown(void);
+void kaede_runtime_set_exit_code(int code);
+
+static void kaede_test_main(void *arg) {
+    (void)arg;
+    int32_t code = kdmain();
+    kaede_runtime_set_exit_code((int)code);
+}
+
+int main(void) {
+    kaede_runtime_init();
+    kaede_spawn_main(kaede_test_main, NULL, 0);
+    int code = kaede_runtime_run();
+    kaede_runtime_shutdown();
+    fprintf(stderr, "%d\n", code);
+    return 0;
+}
+"#;
+
+    fs::write(&harness_path, harness_src)?;
+
+    let kaede_gc_lib_path = kaede_gc_lib_path();
+    let kaede_std_lib_path = kaede_lib_path();
+    let kaede_runtime_lib_path = kaede_runtime_lib_path();
+
+    let status = Command::new("cc")
+        .args([
+            "-fPIE",
+            "-o",
+            exe_path.to_str().unwrap(),
+            harness_path.to_str().unwrap(),
+            obj_path.to_str().unwrap(),
+            kaede_std_lib_path.to_str().unwrap(),
+            kaede_runtime_lib_path.to_str().unwrap(),
+            kaede_gc_lib_path.to_str().unwrap(),
+            "-pthread",
+        ])
+        .status()?;
+    if !status.success() {
+        anyhow::bail!("Failed to emit executable file using 'cc'");
+    }
+
+    let output = Command::new(&exe_path).output()?;
+    // We expect the program to abort, so don't check status.success()
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    Ok(stderr)
+}
+
 #[test]
 fn add() -> anyhow::Result<()> {
     assert_eq!(exec("fn main(): i32 { return 48 + 10 }")?, 58);
@@ -3588,5 +3686,61 @@ fn spawn_mutex_waitgroup() -> anyhow::Result<()> {
     "#;
 
     assert_eq!(exec(program)?, 10);
+    Ok(())
+}
+
+#[test]
+fn panic_basic() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            panic("Something went wrong")
+            return 0
+        }
+    "#;
+
+    let stderr = exec_expect_abort(program)?;
+    assert!(stderr.contains("panic: Something went wrong"));
+    assert!(stderr.contains("(at test:"));
+    Ok(())
+}
+
+#[test]
+fn panic_never_type_in_if() -> anyhow::Result<()> {
+    // Test that panic returns Never type and works in if expressions
+    let program = r#"
+        fn main(): i32 {
+            let x = if false {
+                panic("unreachable")
+            } else {
+                42
+            }
+            return x
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 42);
+    Ok(())
+}
+
+#[test]
+fn panic_never_type_in_match() -> anyhow::Result<()> {
+    // Test that panic returns Never type and works in match expressions
+    let program = r#"
+        enum Result {
+            Ok(i32),
+            Err,
+        }
+
+        fn main(): i32 {
+            let r = Result::Ok(58)
+            let x = match r {
+                Result::Ok(v) => v,
+                Result::Err => panic("error occurred"),
+            }
+            return x
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
     Ok(())
 }

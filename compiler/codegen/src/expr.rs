@@ -225,7 +225,88 @@ impl<'ctx> CodeGenerator<'ctx> {
 
                 Ok(Some(size_u64.as_basic_value_enum()))
             }
+
+            BuiltinFnCallKind::Panic => {
+                self.build_panic(node)?;
+                Ok(None)
+            }
         }
+    }
+
+    fn build_panic(&mut self, node: &BuiltinFnCall) -> anyhow::Result<()> {
+        // Declare write(fd: i32, buf: *i8, len: u64) -> i32
+        let i32_ty = self.context().i32_type();
+        let i64_ty = self.context().i64_type();
+        let ptr_ty = self.context().ptr_type(inkwell::AddressSpace::default());
+        let write_fn_ty = i32_ty.fn_type(&[i32_ty.into(), ptr_ty.into(), i64_ty.into()], false);
+        let write_fn = self.declare_runtime_fn("write", write_fn_ty);
+
+        // Declare abort()
+        let void_ty = self.context().void_type();
+        let abort_fn_ty = void_ty.fn_type(&[], false);
+        let abort_fn = self.declare_runtime_fn("abort", abort_fn_ty);
+
+        let stderr_fd = i32_ty.const_int(2, false);
+
+        // Build "panic: " prefix
+        let prefix = "panic: ";
+        let prefix_global = self
+            .builder
+            .build_global_string_ptr(prefix, "panic.prefix")?;
+        let prefix_len = i64_ty.const_int(prefix.len() as u64, false);
+        self.builder.build_call(
+            write_fn,
+            &[
+                stderr_fd.into(),
+                prefix_global.as_pointer_value().into(),
+                prefix_len.into(),
+            ],
+            "",
+        )?;
+
+        // Build user message (if provided)
+        if !node.args.0.is_empty() {
+            let msg_val = self.build_expr(&node.args.0[0])?.unwrap();
+            // msg_val is a pointer to str struct { ptr, len }
+            let str_llvm_ty =
+                FundamentalType::create_llvm_str_type(self.context()).into_struct_type();
+            let (msg_ptr, msg_len) = self.load_str_ptr_and_len(msg_val, str_llvm_ty)?;
+            self.builder.build_call(
+                write_fn,
+                &[stderr_fd.into(), msg_ptr.into(), msg_len.into()],
+                "",
+            )?;
+        }
+
+        // Build " (at file:line)\n" suffix
+        let file_path = node.span.file.path();
+        let file_name = file_path
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let line = node.span.start.line;
+        let suffix = format!(" (at {}:{})\n", file_name, line);
+        let suffix_global = self
+            .builder
+            .build_global_string_ptr(&suffix, "panic.suffix")?;
+        let suffix_len = i64_ty.const_int(suffix.len() as u64, false);
+        self.builder.build_call(
+            write_fn,
+            &[
+                stderr_fd.into(),
+                suffix_global.as_pointer_value().into(),
+                suffix_len.into(),
+            ],
+            "",
+        )?;
+
+        // Call abort()
+        self.builder.build_call(abort_fn, &[], "")?;
+
+        // Generate unreachable
+        self.builder.build_unreachable()?;
+
+        Ok(())
     }
 
     fn build_closure(&mut self, node: &Closure, ty: &Rc<Ty>) -> anyhow::Result<Value<'ctx>> {
@@ -426,11 +507,22 @@ impl<'ctx> CodeGenerator<'ctx> {
         self.tcx.push_symbol_table(SymbolTable::new());
 
         for stmt in block.body.iter() {
+            // If there's already a terminator (from panic, return, break, etc.),
+            // don't generate any more code in this block
+            if !self.no_terminator() {
+                self.tcx.pop_symbol_table();
+                return Ok(None);
+            }
             self.build_statement(stmt)?;
         }
 
         let value = if let Some(last_expr) = &block.last_expr {
-            self.build_expr(last_expr)?
+            // Only build last expression if there's no terminator yet
+            if self.no_terminator() {
+                self.build_expr(last_expr)?
+            } else {
+                None
+            }
         } else {
             None
         };
