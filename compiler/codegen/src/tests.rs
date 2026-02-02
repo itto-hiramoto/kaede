@@ -392,6 +392,23 @@ fn loop_() -> anyhow::Result<()> {
 }
 
 #[test]
+fn while_() -> anyhow::Result<()> {
+    let program = r"fn main(): i32 {
+        let mut n = 0
+
+        while n < 10 {
+            n = n + 1
+        }
+
+        return n
+    }";
+
+    assert_eq!(exec(program)?, 10);
+
+    Ok(())
+}
+
+#[test]
 fn break_() -> anyhow::Result<()> {
     let program = r"fn main(): i32 {
         loop {

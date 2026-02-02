@@ -56,6 +56,7 @@ impl SemanticAnalyzer {
             ExprKind::If(node) => self.analyze_if(node),
             ExprKind::Break(node) => self.analyze_break(node),
             ExprKind::Loop(node) => self.analyze_loop(node),
+            ExprKind::While(node) => self.analyze_while(node),
             ExprKind::Match(node) => self.analyze_match(node),
             ExprKind::StructLiteral(node) => self.analyze_struct_literal(node),
             ExprKind::TupleLiteral(node) => self.analyze_tuple_literal(node),
@@ -815,6 +816,72 @@ impl SemanticAnalyzer {
                 Ok(ir::expr::Expr {
                     kind: ir::expr::ExprKind::Loop(ir::expr::Loop {
                         body: block,
+                        span: node.span,
+                    }),
+                    ty: Rc::new(ir_type::Ty::new_unit()),
+                    span: node.span,
+                })
+            } else {
+                unreachable!()
+            }
+        })
+    }
+
+    fn analyze_while(&mut self, node: &ast::expr::While) -> anyhow::Result<ir::expr::Expr> {
+        let cond = self.analyze_expr(&node.cond)?;
+
+        self.with_inside_loop(|analyzer| {
+            let body = analyzer.analyze_block_expr(&node.body)?;
+
+            if let ir::expr::ExprKind::Block(mut body_block) = body.kind {
+                let negated_cond = ir::expr::Expr {
+                    kind: ir::expr::ExprKind::LogicalNot(ir::expr::LogicalNot {
+                        operand: Box::new(cond),
+                        span: node.cond.span,
+                    }),
+                    ty: Rc::new(make_fundamental_type(
+                        ir_type::FundamentalTypeKind::Bool,
+                        ir_type::Mutability::Not,
+                    )),
+                    span: node.cond.span,
+                };
+
+                let break_expr = ir::expr::Expr {
+                    kind: ir::expr::ExprKind::Break,
+                    ty: Rc::new(ir_type::Ty::new_never()),
+                    span: node.span,
+                };
+
+                let break_block = ir::stmt::Block {
+                    body: vec![ir::stmt::Stmt::Expr(Rc::new(break_expr))],
+                    last_expr: None,
+                    span: node.span,
+                };
+
+                let if_break = ir::expr::Expr {
+                    kind: ir::expr::ExprKind::If(ir::expr::If {
+                        cond: Box::new(negated_cond),
+                        then: Box::new(ir::expr::Expr {
+                            kind: ir::expr::ExprKind::Block(break_block),
+                            ty: Rc::new(ir_type::Ty::new_unit()),
+                            span: node.span,
+                        }),
+                        else_: None,
+                        enum_unpack: None,
+                        is_match: false,
+                        span: node.span,
+                    }),
+                    ty: Rc::new(ir_type::Ty::new_unit()),
+                    span: node.span,
+                };
+
+                body_block
+                    .body
+                    .insert(0, ir::stmt::Stmt::Expr(Rc::new(if_break)));
+
+                Ok(ir::expr::Expr {
+                    kind: ir::expr::ExprKind::Loop(ir::expr::Loop {
+                        body: body_block,
                         span: node.span,
                     }),
                     ty: Rc::new(ir_type::Ty::new_unit()),

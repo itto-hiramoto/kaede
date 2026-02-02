@@ -4,6 +4,7 @@ use kaede_ast::expr::{
     Args, ArrayLiteral, ArrayRepeat, Binary, BinaryKind, Break, ByteLiteral, ByteStringLiteral,
     CharLiteral, Closure, Else, Expr, ExprKind, FnCall, If, Indexing, Int, IntKind, LogicalNot,
     Loop, Match, MatchArm, Return, Slicing, Spawn, StringLiteral, StructLiteral, TupleLiteral,
+    While,
 };
 use kaede_ast_type::{GenericArgs, Ty, TyKind};
 use kaede_lex::token::TokenKind;
@@ -358,6 +359,10 @@ impl Parser {
 
         if self.check(&TokenKind::Loop) {
             return self.loop_();
+        }
+
+        if self.check(&TokenKind::While) {
+            return self.while_();
         }
 
         if self.check(&TokenKind::If) {
@@ -943,6 +948,25 @@ impl Parser {
 
         Ok(Expr {
             kind: ExprKind::Loop(Loop { span, body }),
+            span,
+        })
+    }
+
+    fn while_(&mut self) -> ParseResult<Expr> {
+        let start = self.consume(&TokenKind::While).unwrap().start;
+
+        let cond = self.cond_expr()?;
+
+        let body = self.block()?;
+
+        let span = self.new_span(start, body.span.finish);
+
+        Ok(Expr {
+            kind: ExprKind::While(While {
+                cond: Box::new(cond),
+                body,
+                span,
+            }),
             span,
         })
     }

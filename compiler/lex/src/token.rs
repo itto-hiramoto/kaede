@@ -108,6 +108,8 @@ pub enum TokenKind {
     Loop,
     /// "break"
     Break,
+    /// "while"
+    While,
     /// "struct"
     Struct,
     /// "import"
@@ -206,6 +208,7 @@ impl std::fmt::Display for TokenKind {
                 Else => "'else'",
                 Loop => "'loop'",
                 Break => "'break'",
+                While => "'while'",
                 Struct => "'struct'",
                 Import => "'import'",
                 Pub => "'pub'",
