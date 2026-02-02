@@ -892,6 +892,7 @@ impl TypeInferrer {
                 FundamentalTypeKind::U64,
                 Mutability::Not,
             ))),
+            BuiltinFnCallKind::Panic => Ok(Rc::new(Ty::new_never())),
         }
     }
 

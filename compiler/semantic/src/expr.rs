@@ -931,10 +931,24 @@ impl SemanticAnalyzer {
         };
 
         // Determine the if expression's type
-        // If there's an else branch, the type is the then branch's type (already unified)
+        // If there's an else branch, handle Never types appropriately
         // If there's no else branch, the type evaluates to unit
-        let if_ty = if else_.is_some() {
-            then.ty.clone()
+        let if_ty = if let Some(else_branch) = &else_ {
+            let else_ty = match else_branch.as_ref() {
+                ir::expr::Else::If(if_) => &if_.then.ty,
+                ir::expr::Else::Block(block) => &block.ty,
+            };
+
+            // If then branch is Never, use else branch type
+            if matches!(then.ty.kind.as_ref(), ir_type::TyKind::Never) {
+                else_ty.clone()
+            // If else branch is Never, use then branch type
+            } else if matches!(else_ty.kind.as_ref(), ir_type::TyKind::Never) {
+                then.ty.clone()
+            } else {
+                // Both branches have concrete types - use then type (will be unified by type inference)
+                then.ty.clone()
+            }
         } else {
             Rc::new(ir_type::Ty::new_unit())
         };
@@ -1207,6 +1221,23 @@ impl SemanticAnalyzer {
                             args: ir::expr::Args(args, node.span),
                             span: node.span,
                         }),
+                        span: node.span,
+                    }),
+            ),
+
+            "panic" => Some(
+                node.args
+                    .0
+                    .iter()
+                    .map(|arg| self.analyze_expr(arg))
+                    .collect::<anyhow::Result<Vec<_>>>()
+                    .map(|args| ir::expr::Expr {
+                        kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                            kind: ir::expr::BuiltinFnCallKind::Panic,
+                            args: ir::expr::Args(args, node.span),
+                            span: node.span,
+                        }),
+                        ty: Rc::new(ir_type::Ty::new_never()),
                         span: node.span,
                     }),
             ),

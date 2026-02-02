@@ -261,6 +261,7 @@ pub enum BuiltinFnCallKind {
     Str,
     PointerAdd,
     SizeOf,
+    Panic,
 }
 
 #[derive(Debug, Clone)]
