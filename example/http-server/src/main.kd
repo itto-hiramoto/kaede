@@ -1,0 +1,17 @@
+import std.http
+
+fn main() {
+    let mut app = std.http.App::new()
+
+    app.get("/", |req, res| {
+        res.send_string("Kaede!")
+    })
+    app.post("/echo", |req, res| {
+        res.send_bytes(req.body)
+    })
+    app.get("/status/notfound", |req, res| {
+        res.status(std.http.Status::NotFound).send_string("Not Found")
+    })
+
+    app.listen("0.0.0.0", 8080)
+}
