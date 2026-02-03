@@ -85,18 +85,11 @@ impl SemanticAnalyzer {
             }
         };
 
-        let returns_unit = match callee.return_ty.as_ref() {
-            None => true,
-            Some(ty) => matches!(ty.kind.as_ref(), ir_type::TyKind::Unit),
-        };
+        let returns_unit = matches!(callee.return_ty.kind.as_ref(), ir_type::TyKind::Unit);
 
         if !returns_unit {
             return Err(SemanticError::SpawnReturnTypeNotUnit {
-                ty: callee
-                    .return_ty
-                    .as_ref()
-                    .map(|ty| ty.kind.to_string())
-                    .unwrap_or_else(|| "()".to_string()),
+                ty: callee.return_ty.kind.to_string(),
                 span: node.span,
             }
             .into());
@@ -1061,10 +1054,7 @@ impl SemanticAnalyzer {
                 args: ir::expr::Args(args, node.span),
                 span: node.span,
             }),
-            ty: match callee_decl.return_ty.as_ref() {
-                Some(ty) => ty.clone(),
-                None => Rc::new(ir_type::Ty::new_unit()),
-            },
+            ty: callee_decl.return_ty.clone(),
             span: node.span,
         })
     }
@@ -1093,10 +1083,7 @@ impl SemanticAnalyzer {
         Rc::new(ir_type::Ty {
             kind: ir_type::TyKind::Closure(ir_type::ClosureType {
                 param_tys: decl.params.iter().map(|p| p.ty.clone()).collect(),
-                ret_ty: decl
-                    .return_ty
-                    .clone()
-                    .unwrap_or_else(|| Rc::new(ir_type::Ty::new_unit())),
+                ret_ty: decl.return_ty.clone(),
                 captures: Vec::new(),
             })
             .into(),
@@ -1125,7 +1112,7 @@ impl SemanticAnalyzer {
             name: QualifiedSymbol::new(self.current_module_path().clone(), name),
             params,
             is_c_variadic: false,
-            return_ty: Some(closure_ty.ret_ty.clone()),
+            return_ty: closure_ty.ret_ty.clone(),
         }
         .into()
     }
@@ -1277,10 +1264,7 @@ impl SemanticAnalyzer {
                 args: ir::expr::Args(args, node.span),
                 span: node.span,
             }),
-            ty: callee_decl
-                .return_ty
-                .clone()
-                .unwrap_or_else(|| Rc::new(ir_type::Ty::new_unit())),
+            ty: callee_decl.return_ty.clone(),
             span: node.span,
         };
 
@@ -1347,10 +1331,7 @@ impl SemanticAnalyzer {
                         args: ir::expr::Args(args, node.span),
                         span,
                     }),
-                    ty: match callee_decl.return_ty.as_ref() {
-                        Some(ty) => ty.clone(),
-                        None => Rc::new(ir_type::Ty::new_unit()),
-                    },
+                    ty: callee_decl.return_ty.clone(),
                     span,
                 })
             }
@@ -2151,10 +2132,7 @@ impl SemanticAnalyzer {
                 args: ir::expr::Args(args, call_node.span),
                 span: call_node.span,
             }),
-            ty: match method_decl.return_ty.as_ref() {
-                Some(ty) => ty.clone(),
-                None => Rc::new(ir_type::Ty::new_unit()),
-            },
+            ty: method_decl.return_ty.clone(),
             span: call_node.span,
         })
     }
@@ -2667,10 +2645,7 @@ impl SemanticAnalyzer {
         // For simplicity, we treat the method call as a function call.
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::FnCall(call_node),
-            ty: callee
-                .return_ty
-                .clone()
-                .unwrap_or_else(|| Rc::new(ir_type::Ty::new_unit())),
+            ty: callee.return_ty.clone(),
             span,
         })
     }

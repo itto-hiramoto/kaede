@@ -122,7 +122,7 @@ pub struct CodeGenerator<'ctx> {
     spawn_counter: usize,
     literal_counter: usize,
 
-    fn_return_ty_stack: Vec<Option<Rc<Ty>>>,
+    fn_return_ty_stack: Vec<Rc<Ty>>,
 }
 
 impl<'ctx> CodeGenerator<'ctx> {
@@ -199,14 +199,13 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     fn gc_init(&mut self) -> anyhow::Result<()> {
         // Declare GC_malloc in boehm-gc
-        let return_ty = Ty {
+        let return_ty = Rc::new(Ty {
             kind: TyKind::Reference(ReferenceType {
                 refee_ty: make_fundamental_type(FundamentalTypeKind::I8, Mutability::Mut).into(),
             })
             .into(),
             mutability: Mutability::Mut,
-        }
-        .into();
+        });
 
         let params = vec![Param {
             name: Symbol::from("size".to_owned()),
@@ -220,7 +219,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 link_once: false,
                 name: QualifiedSymbol::new(ModulePath::new(vec![]), self.cgcx.malloc_symbol),
                 is_c_variadic: false,
-                return_ty: Some(return_ty),
+                return_ty,
                 params,
             },
         )?;

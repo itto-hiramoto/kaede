@@ -861,10 +861,7 @@ impl TypeInferrer {
         }
 
         // Return the function's return type
-        Ok(decl
-            .return_ty
-            .clone()
-            .unwrap_or_else(|| Rc::new(Ty::new_unit())))
+        Ok(decl.return_ty.clone())
     }
 
     fn infer_spawn(&mut self, spawn: &Spawn) -> Result<Rc<Ty>, TypeInferError> {
@@ -1368,9 +1365,7 @@ impl TypeInferrer {
                 for param in applied_callee.params.iter_mut() {
                     param.ty = self.context.apply(&param.ty);
                 }
-                if let Some(ret) = applied_callee.return_ty.clone() {
-                    applied_callee.return_ty = Some(self.context.apply(&ret));
-                }
+                applied_callee.return_ty = self.context.apply(&applied_callee.return_ty);
                 fn_call.callee = applied_callee.into();
             }
             Spawn(spawn) => {
@@ -1382,9 +1377,7 @@ impl TypeInferrer {
                 for param in applied_callee.params.iter_mut() {
                     param.ty = self.context.apply(&param.ty);
                 }
-                if let Some(ret) = applied_callee.return_ty.clone() {
-                    applied_callee.return_ty = Some(self.context.apply(&ret));
-                }
+                applied_callee.return_ty = self.context.apply(&applied_callee.return_ty);
                 spawn.callee = applied_callee.into();
 
                 spawn.arg_types = spawn

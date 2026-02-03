@@ -319,34 +319,41 @@ impl Parser {
         //   ^~~
         let mut param_tys = Vec::new();
 
-        if !self.check(&TokenKind::CloseParen) {
+        let close_paren_finish = if !self.check(&TokenKind::CloseParen) {
             loop {
                 param_tys.push(self.ty()?.into());
 
-                if self.consume_b(&TokenKind::CloseParen) {
-                    break;
+                if let Ok(span) = self.consume(&TokenKind::CloseParen) {
+                    break span.finish;
                 }
 
                 self.consume(&TokenKind::Comma)?;
             }
         } else {
-            self.consume(&TokenKind::CloseParen)?;
-        }
+            self.consume(&TokenKind::CloseParen)?.finish
+        };
 
         // fn(i32) -> i32
-        //          ^^
-        self.consume(&TokenKind::Arrow)?;
-
-        // fn(i32) -> i32
-        //             ^~~
-        let ret_ty = self.ty()?;
-        let finish = ret_ty.span.finish;
+        //         ^^
+        // Optional: return type can be omitted (defaults to unit type)
+        let (ret_ty, finish) = if self.consume_b(&TokenKind::Arrow) {
+            // fn(i32) -> i32
+            //            ^~~
+            let ret_ty = self.ty()?;
+            let finish = ret_ty.span.finish;
+            (ret_ty.into(), finish)
+        } else {
+            // fn(i32)
+            // No return type specified, use unit type
+            let unit_span = self.new_span(close_paren_finish, close_paren_finish);
+            (Ty::new_unit(unit_span).into(), close_paren_finish)
+        };
 
         Ok(Ty {
             span: self.new_span(start, finish),
             kind: TyKind::Closure(ClosureType {
                 param_tys,
-                ret_ty: ret_ty.into(),
+                ret_ty,
                 captures: Vec::new(),
             })
             .into(),
