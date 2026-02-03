@@ -200,3 +200,38 @@ fn extern_() -> anyhow::Result<()> {
     )?;
     Ok(())
 }
+
+#[test]
+fn type_alias() -> anyhow::Result<()> {
+    // Type alias resolved and used in function signature
+    semantic_analyze(
+        "type MyInt = i32
+        fn foo(x: MyInt): i32 {
+            return x
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn type_alias_pub() -> anyhow::Result<()> {
+    semantic_analyze(
+        "pub type MyInt = i32
+        fn foo(x: MyInt): i32 {
+            return x
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn type_alias_struct() -> anyhow::Result<()> {
+    semantic_analyze(
+        "struct S { x: i32 }
+         type AliasS = S
+         fn foo(): S {
+            return AliasS { x: 1 }
+         }",
+    )?;
+    Ok(())
+}

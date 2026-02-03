@@ -2,7 +2,8 @@ use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::top::{
     Bridge, Enum, EnumVariant, Extern, Fn, FnDecl, GenericParams, Impl, Import, Param, Params,
-    Path, PathSegment, Struct, StructField, TopLevel, TopLevelKind, Use, VariadicKind, Visibility,
+    Path, PathSegment, Struct, StructField, TopLevel, TopLevelKind, TypeAlias, Use, VariadicKind,
+    Visibility,
 };
 use kaede_ast_type::Mutability;
 use kaede_common::LangLinkage;
@@ -61,6 +62,11 @@ impl Parser {
                 (kind.span, TopLevelKind::Bridge(kind))
             }
 
+            TokenKind::Type => {
+                let kind = self.type_alias(vis)?;
+                (kind.span, TopLevelKind::TypeAlias(kind))
+            }
+
             _ => unreachable!("{:?}", token.kind),
         };
 
@@ -96,6 +102,21 @@ impl Parser {
             lang,
             fn_decl,
             vis,
+        })
+    }
+
+    fn type_alias(&mut self, vis: Visibility) -> ParseResult<TypeAlias> {
+        let start = self.consume(&TokenKind::Type)?.start;
+        let name = self.ident()?;
+        self.consume(&TokenKind::Eq)?;
+        let aliased_type = self.ty()?;
+        let finish = aliased_type.span.finish;
+
+        Ok(TypeAlias {
+            vis,
+            name,
+            aliased_type,
+            span: self.new_span(start, finish),
         })
     }
 

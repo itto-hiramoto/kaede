@@ -45,6 +45,7 @@ impl SemanticAnalyzer {
             TopLevelKind::Import(node) => self.analyze_import(node),
             TopLevelKind::Use(node) => self.analyze_use(node),
             TopLevelKind::Bridge(node) => self.analyze_bridge(node),
+            TopLevelKind::TypeAlias(node) => self.analyze_type_alias(node),
         }
     }
 
@@ -217,7 +218,9 @@ impl SemanticAnalyzer {
                 parsed_module.top_levels.into_iter().partition(|top| {
                     matches!(
                         top.kind,
-                        ast::top::TopLevelKind::Struct(_) | ast::top::TopLevelKind::Enum(_)
+                        ast::top::TopLevelKind::Struct(_)
+                            | ast::top::TopLevelKind::Enum(_)
+                            | ast::top::TopLevelKind::TypeAlias(_)
                     )
                 });
 
@@ -761,5 +764,24 @@ impl SemanticAnalyzer {
         Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Enum(
             ir,
         )))
+    }
+
+    pub fn analyze_type_alias(
+        &mut self,
+        node: ast::top::TypeAlias,
+    ) -> anyhow::Result<TopLevelAnalysisResult> {
+        let name = node.name.symbol();
+        let span = node.span;
+
+        let resolved_ty = self.analyze_type(&node.aliased_type)?;
+
+        let symbol_table_value = SymbolTableValue::new(
+            SymbolTableValueKind::TypeAlias(resolved_ty),
+            self.current_module_path().clone(),
+        );
+
+        self.insert_symbol_to_root_scope(name, symbol_table_value, node.vis, span)?;
+
+        Ok(TopLevelAnalysisResult::Imported(vec![]))
     }
 }

@@ -846,7 +846,9 @@ impl SemanticAnalyzer {
             compile_unit.top_levels.into_iter().partition(|top| {
                 matches!(
                     top.kind,
-                    ast::top::TopLevelKind::Struct(_) | ast::top::TopLevelKind::Enum(_)
+                    ast::top::TopLevelKind::Struct(_)
+                        | ast::top::TopLevelKind::Enum(_)
+                        | ast::top::TopLevelKind::TypeAlias(_)
                 )
             });
 
@@ -896,7 +898,7 @@ impl SemanticAnalyzer {
                     top_level_irs.push(top_level);
                 }
                 TopLevelAnalysisResult::GenericTopLevel => {}
-                _ => unreachable!(),
+                TopLevelAnalysisResult::Imported(_) => {}
             }
         }
 

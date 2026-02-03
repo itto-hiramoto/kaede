@@ -175,6 +175,14 @@ pub struct Bridge {
     pub span: Span,
 }
 
+#[derive(Debug, Clone)]
+pub struct TypeAlias {
+    pub vis: Visibility,
+    pub name: Ident,
+    pub aliased_type: Ty,
+    pub span: Span,
+}
+
 #[derive(Debug)]
 pub struct TopLevel {
     pub kind: TopLevelKind,
@@ -191,4 +199,5 @@ pub enum TopLevelKind {
     Extern(Extern),
     Use(Use),
     Bridge(Bridge),
+    TypeAlias(TypeAlias),
 }
