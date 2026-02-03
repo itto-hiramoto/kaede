@@ -33,7 +33,7 @@ pub struct Response {
 
 impl Response {
     pub fn new(conn: Fd, close_conn: bool): mut Response {
-        return Response { conn: conn, close_conn: close_conn, status: Status::Ok }
+        return Response { conn, close_conn, status: Status::Ok }
     }
 
     pub fn status(mut self, code: Status): mut Response {
@@ -171,9 +171,7 @@ impl App {
     }
 
     fn add_route(mut self, method: str, path: str, handler: Handler) {
-        let m = String::from(method)
-        let p = String::from(path)
-        let route = Route { method: m, path: p, handler: handler }
+        let route = Route { method: String::from(method), path: String::from(path), handler }
         self.routes.push(route)
     }
 
@@ -237,9 +235,9 @@ fn handle_conn(conn: Fd, app: App) {
         let want_close = std.sys.header_has_connection_close(header, version.as_str())
 
         let mut req = Request {
-            method: method,
-            path: path,
-            version: version,
+            method,
+            path,
+            version,
             headers: header,
             body: body[0:body_len],
         }

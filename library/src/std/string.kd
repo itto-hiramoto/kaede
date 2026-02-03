@@ -22,7 +22,7 @@ impl String {
             i += 1
         }
 
-        return String { chars: chars }
+        return String { chars }
     }
 
     pub fn from_bytes(bytes: [u8]): String {
@@ -34,7 +34,7 @@ impl String {
             i += 1
         }
 
-        return String { chars: chars }
+        return String { chars }
     }
 
     pub fn as_ptr(self): *char {

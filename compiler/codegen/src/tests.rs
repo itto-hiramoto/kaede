@@ -1685,6 +1685,25 @@ fn return_struct() -> anyhow::Result<()> {
 }
 
 #[test]
+fn struct_literal_field_init_shorthand() -> anyhow::Result<()> {
+    let program = r#"struct Person {
+        age: i32,
+        stature: i32,
+    }
+
+    fn main(): i32 {
+        let age = 10
+        let stature = 48
+        let person = Person { age, stature }
+        return person.age + person.stature
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
 fn return_tuple() -> anyhow::Result<()> {
     let program = r#"fn f(): (i32, bool) {
         return (58, true)
