@@ -1,8 +1,52 @@
 import std.sys
+import std.string
+import std.collections
 
 use std.sys.Fd
+use std.string.String
+use std.collections.Vector
 
-// Minimal HTTP helpers for simple servers.
+// ====== Minimal HTTP request/response types ======
+
+pub struct Request {
+    method: String,
+    path: String,
+    version: String,
+    headers: [u8],
+    body: [u8],
+}
+
+pub struct Response {
+    conn: Fd,
+    close_conn: bool,
+}
+
+impl Response {
+    pub fn new(conn: Fd, close_conn: bool): mut Response {
+        return Response { conn: conn, close_conn: close_conn }
+    }
+
+    pub fn send_bytes(mut self, status: i32, body: [u8]) {
+        write_status_line(self.conn, status)
+        if self.close_conn {
+            std.sys.write(self.conn, b"Connection: close\r\n")
+        }
+        write_content_length(self.conn, body.len())
+        std.sys.write(self.conn, b"\r\n")
+        std.sys.write(self.conn, body)
+    }
+
+    pub fn send_string(mut self, status: i32, text: str) {
+        // Note: assumes ASCII
+        let mut bytes = [0; 2048]
+        let mut i = 0
+        while i < text.len() && i < bytes.len() {
+            bytes[i] = text[i] as u8
+            i += 1
+        }
+        self.send_bytes(status, bytes[0:i])
+    }
+}
 
 pub fn parse_content_length(header: [u8]): i32 {
     let key = b"Content-Length: "
@@ -86,4 +130,53 @@ pub fn write_text_response(conn: Fd, close_conn: bool, status: i32, body: [u8]) 
 
 pub fn write_bytes_response(conn: Fd, close_conn: bool, status: i32, body: [u8]) {
     write_text_response(conn, close_conn, status, body)
+}
+
+// ====== Routing ======
+
+pub type Handler = fn(mut Request, mut Response)
+
+struct Route {
+    method: String,
+    path: String,
+    handler: Handler,
+}
+
+pub struct App {
+    routes: Vector<Route>,
+}
+
+impl App {
+    pub fn new(): mut App {
+        return App { routes: Vector<Route>::new() }
+    }
+
+    pub fn get(mut self, path: str, handler: Handler) {
+        self.add_route("GET", path, handler)
+    }
+
+    pub fn post(mut self, path: str, handler: Handler) {
+        self.add_route("POST", path, handler)
+    }
+
+    fn add_route(mut self, method: str, path: str, handler: Handler) {
+        let m = String::from(method)
+        let p = String::from(path)
+        let route = Route { method: m, path: p, handler: handler }
+        self.routes.push(route)
+    }
+
+    pub fn dispatch(self, req: mut Request, res: mut Response): bool {
+        let mut i = 0
+        while i < self.routes.len() {
+            let r = self.routes.at(i).unwrap()
+            if r.method.as_str() == req.method.as_str() && r.path.as_str() == req.path.as_str() {
+                let h = r.handler
+                h(req, res)
+                return true
+            }
+            i += 1
+        }
+        return false
+    }
 }
