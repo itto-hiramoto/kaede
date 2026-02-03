@@ -32,7 +32,7 @@ pub struct FnDecl {
     pub name: QualifiedSymbol,
     pub params: Vec<Param>,
     pub is_c_variadic: bool,
-    pub return_ty: Option<Rc<Ty>>,
+    pub return_ty: Rc<Ty>,
 }
 
 #[derive(Debug)]

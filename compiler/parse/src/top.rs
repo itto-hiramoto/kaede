@@ -5,7 +5,7 @@ use kaede_ast::top::{
     Path, PathSegment, Struct, StructField, TopLevel, TopLevelKind, TypeAlias, Use, VariadicKind,
     Visibility,
 };
-use kaede_ast_type::Mutability;
+use kaede_ast_type::{Mutability, Ty};
 use kaede_common::LangLinkage;
 use kaede_lex::token::{Token, TokenKind};
 use kaede_span::Location;
@@ -308,9 +308,10 @@ impl Parser {
         };
 
         let (return_ty, finish) = if let Ok(span) = self.consume(&TokenKind::Colon) {
-            (Some(Rc::new(self.ty()?)), span.finish)
+            (Rc::new(self.ty()?), span.finish)
         } else {
-            (None, params.span.finish)
+            let unit_span = self.new_span(params.span.finish, params.span.finish);
+            (Rc::new(Ty::new_unit(unit_span)), params.span.finish)
         };
 
         // Pop generic param names.

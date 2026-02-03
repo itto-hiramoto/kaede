@@ -108,7 +108,7 @@ pub struct FnDecl {
     pub name: Ident,
     pub generic_params: Option<GenericParams>,
     pub params: Params,
-    pub return_ty: Option<Rc<Ty>>,
+    pub return_ty: Rc<Ty>,
     pub span: Span,
     // For generic functions
     pub link_once: bool,

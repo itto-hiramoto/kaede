@@ -10,7 +10,7 @@ use kaede_common::rust_function_prefix;
 use kaede_common::LangLinkage;
 use kaede_ir::{
     top::{Enum, EnumVariant, Fn, FnDecl, Impl, Param, Struct, StructField, TopLevel},
-    ty::Ty,
+    ty::{Ty, TyKind},
 };
 use kaede_symbol::Symbol;
 
@@ -41,11 +41,10 @@ impl<'ctx> CodeGenerator<'ctx> {
         self.create_struct_type(node.name.mangle(), &node.fields);
     }
 
-    // If return_ty is `None`, treat as void
     fn create_fn_type(
         &mut self,
         params: &[Rc<Ty>],
-        return_ty: &Option<Rc<Ty>>,
+        return_ty: &Rc<Ty>,
         is_var_args: bool,
     ) -> anyhow::Result<FunctionType<'ctx>> {
         let mut param_types = Vec::new();
@@ -53,15 +52,13 @@ impl<'ctx> CodeGenerator<'ctx> {
             param_types.push(self.conv_to_llvm_type(param).into());
         }
 
-        Ok(match return_ty {
-            Some(ty) => self
-                .conv_to_llvm_type(ty)
-                .fn_type(param_types.as_slice(), is_var_args),
-
-            None => self
-                .context()
+        Ok(if matches!(return_ty.kind.as_ref(), TyKind::Unit) {
+            self.context()
                 .void_type()
-                .fn_type(param_types.as_slice(), is_var_args),
+                .fn_type(param_types.as_slice(), is_var_args)
+        } else {
+            self.conv_to_llvm_type(return_ty)
+                .fn_type(param_types.as_slice(), is_var_args)
         })
     }
 

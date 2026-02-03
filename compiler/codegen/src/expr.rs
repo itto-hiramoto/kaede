@@ -332,8 +332,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         let entry_bb = self.context().append_basic_block(closure_fn, "entry");
         self.builder.position_at_end(entry_bb);
 
-        self.fn_return_ty_stack
-            .push(Some(closure_ty.ret_ty.clone()));
+        self.fn_return_ty_stack.push(closure_ty.ret_ty.clone());
 
         let mut symbol_table = SymbolTable::new();
 
@@ -549,9 +548,10 @@ impl<'ctx> CodeGenerator<'ctx> {
             Some(val) => {
                 let mut value = self.build_expr(val)?.unwrap();
 
-                if let Some(expected_ty) = self.fn_return_ty_stack.last().and_then(|ty| ty.clone())
-                {
-                    value = self.coerce_value_to_type(value, &val.ty, &expected_ty)?;
+                if let Some(expected_ty) = self.fn_return_ty_stack.last().cloned() {
+                    if !matches!(expected_ty.kind.as_ref(), TyKind::Unit) {
+                        value = self.coerce_value_to_type(value, &val.ty, &expected_ty)?;
+                    }
                 }
 
                 self.builder.build_return(Some(&value))?
@@ -1129,15 +1129,12 @@ impl<'ctx> CodeGenerator<'ctx> {
         let call = self.builder.build_call(callee_value, args.as_slice(), "")?;
 
         if node.is_main {
-            let exit_code = match node.callee.return_ty.as_ref() {
-                Some(ty) => match ty.kind.as_ref() {
-                    TyKind::Fundamental(fund) if fund.kind == FundamentalTypeKind::I32 => {
-                        call.try_as_basic_value().left().unwrap().into_int_value()
-                    }
-                    TyKind::Unit => self.context().i32_type().const_zero(),
-                    _ => self.context().i32_type().const_zero(),
-                },
-                None => self.context().i32_type().const_zero(),
+            let exit_code = match node.callee.return_ty.kind.as_ref() {
+                TyKind::Fundamental(fund) if fund.kind == FundamentalTypeKind::I32 => {
+                    call.try_as_basic_value().left().unwrap().into_int_value()
+                }
+                TyKind::Unit => self.context().i32_type().const_zero(),
+                _ => self.context().i32_type().const_zero(),
             };
 
             let set_exit_code = self.declare_runtime_fn(
@@ -1254,14 +1251,13 @@ impl<'ctx> CodeGenerator<'ctx> {
             call_param_types.push(self.conv_to_llvm_type(&param.ty).into());
         }
 
-        let closure_fn_ty = match &node.callee.return_ty {
-            Some(ret) => self
-                .conv_to_llvm_type(ret)
-                .fn_type(call_param_types.as_slice(), false),
-            None => self
-                .context()
+        let closure_fn_ty = if matches!(node.callee.return_ty.kind.as_ref(), TyKind::Unit) {
+            self.context()
                 .void_type()
-                .fn_type(call_param_types.as_slice(), false),
+                .fn_type(call_param_types.as_slice(), false)
+        } else {
+            self.conv_to_llvm_type(&node.callee.return_ty)
+                .fn_type(call_param_types.as_slice(), false)
         };
 
         #[allow(deprecated)]

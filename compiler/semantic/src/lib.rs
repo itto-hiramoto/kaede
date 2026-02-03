@@ -539,10 +539,7 @@ impl SemanticAnalyzer {
                 args: ir::expr::Args(vec![argc_expr, argv_expr], Span::dummy()),
                 span: Span::dummy(),
             }),
-            ty: prepare_command_line_arguments_decl
-                .return_ty
-                .clone()
-                .unwrap(),
+            ty: prepare_command_line_arguments_decl.return_ty.clone(),
             span: Span::dummy(),
         };
 
@@ -584,10 +581,10 @@ impl SemanticAnalyzer {
             name: QualifiedSymbol::new(ModulePath::new(vec![]), "main".to_owned().into()),
             params,
             is_c_variadic: false,
-            return_ty: Some(Rc::new(ir::ty::make_fundamental_type(
+            return_ty: Rc::new(ir::ty::make_fundamental_type(
                 ir::ty::FundamentalTypeKind::I32,
                 ir::ty::Mutability::Not,
-            ))),
+            )),
         };
 
         let runtime_init_decl = ir::top::FnDecl {
@@ -599,7 +596,7 @@ impl SemanticAnalyzer {
             ),
             params: vec![],
             is_c_variadic: false,
-            return_ty: None,
+            return_ty: Rc::new(ir::ty::Ty::new_unit()),
         };
 
         let runtime_run_decl = ir::top::FnDecl {
@@ -611,10 +608,10 @@ impl SemanticAnalyzer {
             ),
             params: vec![],
             is_c_variadic: false,
-            return_ty: Some(Rc::new(ir::ty::make_fundamental_type(
+            return_ty: Rc::new(ir::ty::make_fundamental_type(
                 ir::ty::FundamentalTypeKind::I32,
                 ir::ty::Mutability::Not,
-            ))),
+            )),
         };
 
         let runtime_shutdown_decl = ir::top::FnDecl {
@@ -626,7 +623,7 @@ impl SemanticAnalyzer {
             ),
             params: vec![],
             is_c_variadic: false,
-            return_ty: None,
+            return_ty: Rc::new(ir::ty::Ty::new_unit()),
         };
 
         top_level_irs.push(ir::top::TopLevel::Fn(Rc::new(ir::top::Fn {
@@ -717,14 +714,14 @@ impl SemanticAnalyzer {
                 args: ir::expr::Args(vec![], Span::dummy()),
                 span: Span::dummy(),
             }),
-            ty: runtime_run_decl.return_ty.clone().unwrap(),
+            ty: runtime_run_decl.return_ty.clone(),
             span: Span::dummy(),
         };
 
         body.push(ir::stmt::Stmt::Let(ir::stmt::Let {
             name: exit_code_symbol,
             init: Some(exit_code_expr),
-            ty: runtime_run_decl.return_ty.clone().unwrap(),
+            ty: runtime_run_decl.return_ty.clone(),
             span: Span::dummy(),
         }));
 
@@ -734,7 +731,7 @@ impl SemanticAnalyzer {
                 args: ir::expr::Args(vec![], Span::dummy()),
                 span: Span::dummy(),
             }),
-            ty: Rc::new(ir::ty::Ty::new_unit()),
+            ty: runtime_shutdown_decl.return_ty.clone(),
             span: Span::dummy(),
         };
         body.push(ir::stmt::Stmt::Expr(Rc::new(runtime_shutdown_expr)));
@@ -742,10 +739,10 @@ impl SemanticAnalyzer {
         let exit_code_var = ir::expr::Expr {
             kind: ir::expr::ExprKind::Variable(ir::expr::Variable {
                 name: exit_code_symbol,
-                ty: runtime_run_decl.return_ty.clone().unwrap(),
+                ty: runtime_run_decl.return_ty.clone(),
                 span: Span::dummy(),
             }),
-            ty: runtime_run_decl.return_ty.clone().unwrap(),
+            ty: runtime_run_decl.return_ty.clone(),
             span: Span::dummy(),
         };
 
@@ -791,12 +788,7 @@ impl SemanticAnalyzer {
         let symbol_table_view = ScopedSymbolTable::merge_for_inference(module.get_symbol_tables());
 
         // Create a type inferrer with the merged symbol table
-        let expected_return_ty = decl
-            .return_ty
-            .clone()
-            .unwrap_or_else(|| Rc::new(ir_type::Ty::new_unit()));
-
-        let mut inferrer = TypeInferrer::new(symbol_table_view, expected_return_ty);
+        let mut inferrer = TypeInferrer::new(symbol_table_view, decl.return_ty.clone());
 
         // Infer types for all statements in the block
         for stmt in &body.body {

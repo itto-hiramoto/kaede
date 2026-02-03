@@ -620,10 +620,7 @@ impl SemanticAnalyzer {
             name: qualified_name,
             is_c_variadic: matches!(node.params.variadic, ast::top::VariadicKind::C),
             params,
-            return_ty: match &node.return_ty {
-                None => None,
-                Some(ty) => Some(self.analyze_type(ty)?),
-            },
+            return_ty: self.analyze_type(&node.return_ty)?,
         };
 
         let symbol_table_value = SymbolTableValue::new(
