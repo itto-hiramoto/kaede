@@ -34,9 +34,6 @@ impl String {
             i += 1
         }
 
-        // Add null terminator
-        chars.push('\0')
-
         return String { chars: chars }
     }
 
@@ -45,14 +42,7 @@ impl String {
     }
 
     pub fn len(self): u32 {
-        let len = self.chars.len()
-
-        if len == 0 {
-            return 0
-        }
-
-        // Exclude the trailing null terminator
-        return len - 1
+        return self.chars.len()
     }
 
     pub fn as_str(self): str {
