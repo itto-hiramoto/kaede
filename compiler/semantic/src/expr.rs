@@ -60,7 +60,7 @@ impl SemanticAnalyzer {
             ExprKind::Match(node) => self.analyze_match(node),
             ExprKind::StructLiteral(node) => self.analyze_struct_literal(node),
             ExprKind::TupleLiteral(node) => self.analyze_tuple_literal(node),
-            ExprKind::Closure(node) => self.analyze_closure(node),
+            ExprKind::Closure(node) => self.analyze_closure(node, None),
             ExprKind::Spawn(node) => self.analyze_spawn(node),
 
             ExprKind::Ty(_) => todo!(),
@@ -1251,7 +1251,14 @@ impl SemanticAnalyzer {
             .args
             .0
             .iter()
-            .map(|arg| self.analyze_expr(arg))
+            .enumerate()
+            .map(|(i, arg)| {
+                callee_decl
+                    .params
+                    .get(i)
+                    .map(|param| self.analyze_expr_with_expected_type(arg, param.ty.clone()))
+                    .unwrap_or_else(|| self.analyze_expr(arg))
+            })
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         if !callee_decl.is_c_variadic {
@@ -1318,7 +1325,16 @@ impl SemanticAnalyzer {
                     .args
                     .0
                     .iter()
-                    .map(|arg| self.analyze_expr(arg))
+                    .enumerate()
+                    .map(|(i, arg)| {
+                        callee_decl
+                            .params
+                            .get(i)
+                            .map(|param| {
+                                self.analyze_expr_with_expected_type(arg, param.ty.clone())
+                            })
+                            .unwrap_or_else(|| self.analyze_expr(arg))
+                    })
                     .collect::<anyhow::Result<Vec<_>>>()?;
 
                 if !callee_decl.is_c_variadic {
@@ -1709,16 +1725,53 @@ impl SemanticAnalyzer {
         })
     }
 
-    fn analyze_closure(&mut self, node: &ast::expr::Closure) -> anyhow::Result<ir::expr::Expr> {
+    /// Analyze an expression with an optional expected type (e.g. from a function parameter).
+    /// When the expression is a closure and the expected type is a closure type with matching
+    /// param count, closure params are bound to the expected param types before analyzing the body.
+    fn analyze_expr_with_expected_type(
+        &mut self,
+        expr: &ast::expr::Expr,
+        expected_ty: Rc<ir_type::Ty>,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        if let ast::expr::ExprKind::Closure(node) = &expr.kind {
+            return self.analyze_closure(node, Some(expected_ty));
+        }
+        self.analyze_expr(expr)
+    }
+
+    fn analyze_closure(
+        &mut self,
+        node: &ast::expr::Closure,
+        expected_ty: Option<Rc<ir_type::Ty>>,
+    ) -> anyhow::Result<ir::expr::Expr> {
         let base_depth = self.symbol_table_depth();
         self.push_closure_capture(base_depth);
         self.push_scope(SymbolTable::new());
 
+        let expected_param_tys: Option<Vec<Rc<ir_type::Ty>>> =
+            expected_ty.as_ref().and_then(|ty| {
+                let unwrapped = match ty.kind.as_ref() {
+                    ir_type::TyKind::Reference(rty) => rty.refee_ty.clone(),
+                    _ => ty.clone(),
+                };
+                match unwrapped.kind.as_ref() {
+                    ir_type::TyKind::Closure(closure_ty)
+                        if closure_ty.param_tys.len() == node.params.len() =>
+                    {
+                        Some(closure_ty.param_tys.clone())
+                    }
+                    _ => None,
+                }
+            });
+
         let mut params = Vec::new();
         let mut param_tys = Vec::new();
 
-        for param in node.params.iter() {
-            let ty = self.infer_context.fresh();
+        for (i, param) in node.params.iter().enumerate() {
+            let ty = expected_param_tys
+                .as_ref()
+                .and_then(|tys| tys.get(i).cloned())
+                .unwrap_or_else(|| self.infer_context.fresh());
             self.insert_symbol_to_current_scope(
                 param.symbol(),
                 SymbolTableValue::new(
@@ -2116,15 +2169,19 @@ impl SemanticAnalyzer {
             _ => unreachable!(),
         };
 
-        let args = {
-            let mut args = Vec::new();
-
-            for arg in call_node.args.0.iter() {
-                args.push(self.analyze_expr(arg)?);
-            }
-
-            args
-        };
+        let args = call_node
+            .args
+            .0
+            .iter()
+            .enumerate()
+            .map(|(i, arg)| {
+                method_decl
+                    .params
+                    .get(i)
+                    .map(|param| self.analyze_expr_with_expected_type(arg, param.ty.clone()))
+                    .unwrap_or_else(|| self.analyze_expr(arg))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
@@ -2220,6 +2277,8 @@ impl SemanticAnalyzer {
             if let ir_type::TyKind::Fundamental(fty) = left_ty.kind.as_ref() {
                 self.analyze_fundamental_type_method_call(left, fty, call_node)
             } else if matches!(left_ty.kind.as_ref(), ir_type::TyKind::Var(_)) {
+                // Fallback for type variable receiver (e.g. let n = 3; n.abs() before inference).
+                // Closure args are bound from expected type before body analysis, so they won't hit this.
                 let fty = ir_type::FundamentalType {
                     kind: ir_type::FundamentalTypeKind::I32,
                 };
@@ -2622,14 +2681,15 @@ impl SemanticAnalyzer {
             }
         }
 
-        // Inject `this` to the front of the arguments
+        // Inject `this` to the front of the arguments; analyze each arg with expected type from callee param
         let args = std::iter::once(this)
             .chain(
                 call_node
                     .args
                     .0
                     .iter()
-                    .map(|arg| self.analyze_expr(arg))
+                    .zip(callee.params.iter().skip(1))
+                    .map(|(arg, param)| self.analyze_expr_with_expected_type(arg, param.ty.clone()))
                     .collect::<anyhow::Result<Vec<_>>>()?,
             )
             .collect::<Vec<_>>();
