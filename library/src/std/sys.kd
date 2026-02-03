@@ -44,6 +44,10 @@ pub fn listen(fd: Fd, backlog: i32) {
     }
 }
 
+pub fn somaxconn(): i32 {
+    return __sys_somaxconn()
+}
+
 pub fn accept(fd: Fd): Fd {
     let c = __sys_accept(fd.raw)
     if c < 0 {

@@ -83,3 +83,11 @@ int kaede_strcmp(const char *s1, size_t len1, const char *s2, size_t len2) {
 
   return memcmp(s1, s2, len1);
 }
+
+int kaede_sys_somaxconn(void) {
+#ifdef SOMAXCONN
+  return SOMAXCONN;
+#else
+  return 128;
+#endif
+}
