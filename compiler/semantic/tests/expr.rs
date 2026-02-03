@@ -268,6 +268,19 @@ fn struct_literal() -> anyhow::Result<()> {
 }
 
 #[test]
+fn struct_literal_field_init_shorthand() -> anyhow::Result<()> {
+    semantic_analyze(
+        "struct Foo { a: i32, b: bool }
+        fn f(): Foo {
+            let a = 42
+            let b = true
+            return Foo { a, b }
+        }",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn struct_access() -> anyhow::Result<()> {
     semantic_analyze(
         "struct Foo { a: i32 }

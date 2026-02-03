@@ -718,9 +718,14 @@ impl Parser {
 
             let name = self.ident()?;
 
-            self.consume(&TokenKind::Colon)?;
-
-            let init = self.expr()?;
+            let init = if self.consume_b(&TokenKind::Colon) {
+                self.expr()?
+            } else {
+                Expr {
+                    kind: ExprKind::Ident(name),
+                    span: name.span(),
+                }
+            };
 
             inits.push((name, init));
 
