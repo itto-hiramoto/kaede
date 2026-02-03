@@ -15,6 +15,7 @@ int kaede_sys_bind_ipv4(sys_fd_t fd, const char *ip_or_null,
                         uint16_t port); // ip==NULL => 0.0.0.0
 int kaede_sys_listen(sys_fd_t fd, int backlog);
 sys_fd_t kaede_sys_accept(sys_fd_t listen_fd); // returns client fd, -1 on error
+int kaede_sys_somaxconn(void); // best-effort SOMAXCONN, falls back to 128
 
 /* --- I/O (EINTR hidden) --- */
 long kaede_sys_read(sys_fd_t fd, void *buf,

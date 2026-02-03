@@ -1,12 +1,21 @@
 import std.sys
 import std.string
 import std.collections
+import std.io
 
 use std.sys.Fd
 use std.string.String
 use std.collections.Vector
 
 // ====== Minimal HTTP request/response types ======
+
+pub enum Status {
+    Ok, // 200
+    NotFound, // 404
+    BadRequest, // 400
+    PayloadTooLarge, // 413
+    InternalServerError, // 500
+}
 
 pub struct Request {
     method: String,
@@ -19,15 +28,21 @@ pub struct Request {
 pub struct Response {
     conn: Fd,
     close_conn: bool,
+    status: Status,
 }
 
 impl Response {
     pub fn new(conn: Fd, close_conn: bool): mut Response {
-        return Response { conn: conn, close_conn: close_conn }
+        return Response { conn: conn, close_conn: close_conn, status: Status::Ok }
     }
 
-    pub fn send_bytes(mut self, status: i32, body: [u8]) {
-        write_status_line(self.conn, status)
+    pub fn status(mut self, code: Status): mut Response {
+        self.status = code
+        return self
+    }
+
+    pub fn send_bytes(mut self, body: [u8]) {
+        write_status_line(self.conn, self.status)
         if self.close_conn {
             std.sys.write(self.conn, b"Connection: close\r\n")
         }
@@ -36,7 +51,7 @@ impl Response {
         std.sys.write(self.conn, body)
     }
 
-    pub fn send_string(mut self, status: i32, text: str) {
+    pub fn send_string(mut self, text: str) {
         // Note: assumes ASCII
         let mut bytes = [0; 2048]
         let mut i = 0
@@ -44,7 +59,7 @@ impl Response {
             bytes[i] = text[i] as u8
             i += 1
         }
-        self.send_bytes(status, bytes[0:i])
+        self.send_bytes(bytes[0:i])
     }
 }
 
@@ -104,21 +119,17 @@ fn write_content_length(conn: Fd, len: u64) {
     std.sys.write(conn, b"\r\n")
 }
 
-pub fn write_status_line(conn: Fd, status: i32) {
-    if status == 200 {
-        std.sys.write(conn, b"HTTP/1.1 200 OK\r\n")
-    } else if status == 404 {
-        std.sys.write(conn, b"HTTP/1.1 404 Not Found\r\n")
-    } else if status == 400 {
-        std.sys.write(conn, b"HTTP/1.1 400 Bad Request\r\n")
-    } else if status == 413 {
-        std.sys.write(conn, b"HTTP/1.1 413 Payload Too Large\r\n")
-    } else {
-        std.sys.write(conn, b"HTTP/1.1 500 Internal Server Error\r\n")
+pub fn write_status_line(conn: Fd, status: Status) {
+    match status {
+        Status::Ok => std.sys.write(conn, b"HTTP/1.1 200 OK\r\n"),
+        Status::NotFound => std.sys.write(conn, b"HTTP/1.1 404 Not Found\r\n"),
+        Status::BadRequest => std.sys.write(conn, b"HTTP/1.1 400 Bad Request\r\n"),
+        Status::PayloadTooLarge => std.sys.write(conn, b"HTTP/1.1 413 Payload Too Large\r\n"),
+        Status::InternalServerError => std.sys.write(conn, b"HTTP/1.1 500 Internal Server Error\r\n"),
     }
 }
 
-pub fn write_text_response(conn: Fd, close_conn: bool, status: i32, body: [u8]) {
+pub fn write_text_response(conn: Fd, close_conn: bool, status: Status, body: [u8]) {
     write_status_line(conn, status)
     if close_conn {
         std.sys.write(conn, b"Connection: close\r\n")
@@ -128,7 +139,7 @@ pub fn write_text_response(conn: Fd, close_conn: bool, status: i32, body: [u8]) 
     std.sys.write(conn, body)
 }
 
-pub fn write_bytes_response(conn: Fd, close_conn: bool, status: i32, body: [u8]) {
+pub fn write_bytes_response(conn: Fd, close_conn: bool, status: Status, body: [u8]) {
     write_text_response(conn, close_conn, status, body)
 }
 
@@ -178,5 +189,83 @@ impl App {
             i += 1
         }
         return false
+    }
+
+    pub fn listen(self, ip: str, port: u16) {
+        serve_tcp4(self, ip, port)
+    }
+}
+
+// ====== Connection handling / server ======
+
+fn handle_conn(conn: Fd, app: App) {
+    loop {
+        let mut buf = [0; 8192]
+
+        let n = std.sys.read_until(conn, buf, b"\r\n\r\n")
+        if n == 0 {
+            break
+        }
+
+        let header_end = std.sys.find_subslice(buf[0:n], b"\r\n\r\n")
+        if header_end < 0 {
+            write_text_response(conn, true, Status::BadRequest, b"")
+            break
+        }
+
+        let header_len = header_end + 4
+        let header = buf[0:header_len]
+
+        let (method, path, version) = std.sys.parse_request_line(header)
+
+        let content_length = parse_content_length(header)
+        if content_length < 0 {
+            write_text_response(conn, true, Status::BadRequest, b"")
+            break
+        }
+
+        let mut body = [0; 4096]
+        let mut body_len = 0
+        if content_length > 0 {
+            if content_length as u64 > body.len() {
+                write_text_response(conn, true, Status::PayloadTooLarge, b"")
+                break
+            }
+            body_len = std.sys.read_exact(conn, body, content_length as u64)
+        }
+
+        let want_close = std.sys.header_has_connection_close(header, version.as_str())
+
+        let mut req = Request {
+            method: method,
+            path: path,
+            version: version,
+            headers: header,
+            body: body[0:body_len],
+        }
+        let mut res = Response::new(conn, want_close)
+
+        let handled = app.dispatch(req, res)
+        if !handled {
+            write_text_response(conn, want_close, Status::NotFound, b"")
+        }
+
+        if want_close {
+            break
+        }
+    }
+
+    std.sys.close(conn)
+}
+
+pub fn serve_tcp4(app: App, ip: str, port: u16) {
+    let backlog = std.sys.somaxconn()
+    let fd = std.sys.socket_tcp4()
+    std.sys.bind_ipv4(fd, ip, port)
+    std.sys.listen(fd, backlog)
+
+    loop {
+        let conn = std.sys.accept(fd)
+        spawn handle_conn(conn, app)
     }
 }
