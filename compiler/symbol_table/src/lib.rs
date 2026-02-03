@@ -123,6 +123,7 @@ pub enum SymbolTableValueKind {
     Variable(VariableInfo),
     Struct(Rc<ir::top::Struct>),
     Enum(Rc<ir::top::Enum>),
+    TypeAlias(Rc<ir_type::Ty>),
     Generic(Box<GenericInfo>),
     Placeholder(QualifiedSymbol),
 }

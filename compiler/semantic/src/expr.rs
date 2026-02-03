@@ -158,7 +158,7 @@ impl SemanticAnalyzer {
 
         let udt_ir = match struct_ty.kind.as_ref() {
             ir_type::TyKind::UserDefined(udt) => udt,
-            _ => unreachable!(),
+            _ => unreachable!("{:?}", struct_ty.kind),
         };
 
         let struct_ir = match &udt_ir.kind {

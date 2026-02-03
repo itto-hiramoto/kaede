@@ -430,6 +430,21 @@ impl SemanticAnalyzer {
         let borrowed_symbol = symbol.borrow();
 
         let udt_kind = match &borrowed_symbol.kind {
+            SymbolTableValueKind::TypeAlias(ty) => {
+                return Ok(ir_type::change_mutability_dup(
+                    match ty.kind.as_ref() {
+                        ir_type::TyKind::Reference(rty) => {
+                            match rty.get_base_type().kind.as_ref() {
+                                ir_type::TyKind::UserDefined(_) => rty.get_base_type(),
+                                _ => ty.clone(),
+                            }
+                        }
+                        _ => ty.clone(),
+                    },
+                    mutability,
+                ))
+            }
+
             SymbolTableValueKind::Struct(st) => ir_type::UserDefinedTypeKind::Struct(st.clone()),
             SymbolTableValueKind::Enum(en) => ir_type::UserDefinedTypeKind::Enum(en.clone()),
             SymbolTableValueKind::Placeholder(placeholder) => {
