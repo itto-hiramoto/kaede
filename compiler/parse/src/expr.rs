@@ -1,10 +1,10 @@
 use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::expr::{
-    Args, ArrayLiteral, ArrayRepeat, Binary, BinaryKind, Break, ByteLiteral, ByteStringLiteral,
-    CharLiteral, Closure, Else, Expr, ExprKind, FnCall, If, Indexing, Int, IntKind, LogicalNot,
-    Loop, Match, MatchArm, Return, Slicing, Spawn, StringLiteral, StructLiteral, TupleLiteral,
-    While,
+    Arg, Args, ArrayLiteral, ArrayRepeat, Binary, BinaryKind, Break, ByteLiteral,
+    ByteStringLiteral, CharLiteral, Closure, Else, Expr, ExprKind, FnCall, If, Indexing, Int,
+    IntKind, LogicalNot, Loop, Match, MatchArm, Return, Slicing, Spawn, StringLiteral,
+    StructLiteral, TupleLiteral, While,
 };
 use kaede_ast_type::{GenericArgs, Ty, TyKind};
 use kaede_lex::token::TokenKind;
@@ -855,11 +855,38 @@ impl Parser {
 
         if let Ok(span) = self.consume(&TokenKind::CloseParen) {
             // No arguments
-            return Ok(Args(args, self.new_span(start, span.finish)));
+            return Ok(Args {
+                args,
+                span: self.new_span(start, span.finish),
+            });
         }
 
         loop {
-            args.push_back(self.expr()?);
+            let arg_start = self.first().span.start;
+
+            let (name, value) = if let Some(token) = self.tokens.front() {
+                match token.kind {
+                    TokenKind::Ident(_) => {
+                        let is_keyword =
+                            matches!(self.tokens.get(1).map(|t| &t.kind), Some(TokenKind::Colon));
+
+                        if is_keyword {
+                            let name = self.ident()?;
+                            self.consume(&TokenKind::Colon)?;
+                            (Some(name), self.expr()?)
+                        } else {
+                            (None, self.expr()?)
+                        }
+                    }
+                    _ => (None, self.expr()?),
+                }
+            } else {
+                (None, self.expr()?)
+            };
+
+            let span = self.new_span(arg_start, value.span.finish);
+
+            args.push_back(Arg { name, value, span });
 
             if !self.consume_b(&TokenKind::Comma) {
                 break;
@@ -867,7 +894,10 @@ impl Parser {
         }
 
         let finish = self.consume(&TokenKind::CloseParen)?.finish;
-        Ok(Args(args, self.new_span(start, finish)))
+        Ok(Args {
+            args,
+            span: self.new_span(start, finish),
+        })
     }
 
     fn fn_call_from_expr(&mut self, callee: Expr) -> ParseResult<Expr> {
@@ -880,7 +910,7 @@ impl Parser {
         generic_args: Option<GenericArgs>,
     ) -> ParseResult<Expr> {
         let args = self.fn_call_args()?;
-        let span = self.new_span(callee.span.start, args.1.finish);
+        let span = self.new_span(callee.span.start, args.span.finish);
 
         Ok(Expr {
             kind: ExprKind::FnCall(FnCall {

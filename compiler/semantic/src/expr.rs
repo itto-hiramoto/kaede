@@ -507,8 +507,8 @@ impl SemanticAnalyzer {
                 kind: ir_type::UserDefinedTypeKind::Enum(enum_ir.clone()),
             };
 
-            let name = match params.0.front().unwrap().kind {
-                ast::expr::ExprKind::Ident(ident) => ident,
+            let name = match &params.args.front().unwrap().value.kind {
+                ast::expr::ExprKind::Ident(ident) => *ident,
                 _ => unreachable!(),
             }
             .symbol();
@@ -1006,44 +1006,71 @@ impl SemanticAnalyzer {
         info: &GenericInfo,
         node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
-        let mut args = Vec::new();
+        let func_info = match &info.kind {
+            GenericKind::Func(info) => info,
+            _ => unreachable!(),
+        };
 
-        for arg in node.args.0.iter() {
-            args.push(self.analyze_expr(arg)?);
+        let params = func_info
+            .ast
+            .decl
+            .params
+            .v
+            .iter()
+            .map(|param| ir::top::Param {
+                name: param.name.symbol(),
+                ty: Rc::new(ir_type::Ty::new_unit()),
+            })
+            .collect::<Vec<_>>();
+
+        let is_c_variadic = matches!(
+            func_info.ast.decl.params.variadic,
+            ast::top::VariadicKind::C
+        );
+
+        let (ordered_args, variadic_args) = self.resolve_call_arguments(
+            &params,
+            &node.args,
+            func_info.ast.decl.name.symbol(),
+            node.span,
+            is_c_variadic,
+        )?;
+
+        let mut args = Vec::with_capacity(ordered_args.len() + variadic_args.len());
+
+        for arg in ordered_args.iter().chain(variadic_args.iter()) {
+            args.push(self.analyze_expr(&arg.value)?);
         }
 
         // Generate the generic function
-        let callee_decl = match &info.kind {
-            GenericKind::Func(info) => {
-                let generic_args = if let Some(generic_args) = node.generic_args.as_ref() {
-                    generic_args
-                        .types
-                        .iter()
-                        .map(|arg| self.analyze_type(arg))
-                        .collect::<anyhow::Result<Vec<_>>>()?
-                } else {
-                    // Infer generic arguments from the function call arguments
-                    args.iter()
-                        .map(|arg| -> anyhow::Result<Rc<ir_type::Ty>> {
-                            Ok(match arg.ty.kind.as_ref() {
-                                ir_type::TyKind::Var(_) => match arg.kind {
-                                    ir::expr::ExprKind::Int(_) => {
-                                        Rc::new(ir_type::make_fundamental_type(
-                                            ir_type::FundamentalTypeKind::I32,
-                                            ir_type::Mutability::Not,
-                                        ))
-                                    }
-                                    _ => arg.ty.clone(),
-                                },
+        let callee_decl = {
+            let generic_args = if let Some(generic_args) = node.generic_args.as_ref() {
+                generic_args
+                    .types
+                    .iter()
+                    .map(|arg| self.analyze_type(arg))
+                    .collect::<anyhow::Result<Vec<_>>>()?
+            } else {
+                // Infer generic arguments from the function call arguments
+                args.iter()
+                    .map(|arg| -> anyhow::Result<Rc<ir_type::Ty>> {
+                        Ok(match arg.ty.kind.as_ref() {
+                            ir_type::TyKind::Var(_) => match arg.kind {
+                                ir::expr::ExprKind::Int(_) => {
+                                    Rc::new(ir_type::make_fundamental_type(
+                                        ir_type::FundamentalTypeKind::I32,
+                                        ir_type::Mutability::Not,
+                                    ))
+                                }
                                 _ => arg.ty.clone(),
-                            })
+                            },
+                            _ => arg.ty.clone(),
                         })
-                        .collect::<anyhow::Result<Vec<_>>>()?
-                };
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()?
+            };
 
-                self.generate_generic_fn(info, &generic_args)?
-            }
-            _ => unreachable!(),
+            self.generate_generic_fn(func_info, &generic_args)?
         };
 
         self.verify_fn_call_arguments(&callee_decl, &args, node.span)?;
@@ -1139,95 +1166,220 @@ impl SemanticAnalyzer {
         }
     }
 
+    /// Arrange positional/keyword call arguments to match parameter order.
+    ///
+    /// - Positional args fill parameters from the front until a keyword appears.
+    /// - Keyword args match by name; duplicates or unknown names are rejected.
+    /// - Positional arguments after a keyword are rejected.
+    /// - Extra args are allowed only when `is_c_variadic` is true.
+    /// Returns ordered arguments (one per param) and any variadic tail.
+    fn resolve_call_arguments<'a>(
+        &self,
+        params: &[ir::top::Param],
+        ast_args: &'a ast::expr::Args,
+        fn_name: Symbol,
+        call_span: Span,
+        is_c_variadic: bool,
+    ) -> anyhow::Result<(Vec<&'a ast::expr::Arg>, Vec<&'a ast::expr::Arg>)> {
+        let mut ordered_args: Vec<Option<&ast::expr::Arg>> = vec![None; params.len()];
+        let mut variadic_args = Vec::new();
+        let mut positional_index = 0usize;
+        let mut seen_keyword = false;
+
+        for arg in &ast_args.args {
+            match &arg.name {
+                Some(name) => {
+                    seen_keyword = true;
+
+                    let Some(param_index) =
+                        params.iter().position(|param| param.name == name.symbol())
+                    else {
+                        return Err(SemanticError::UnknownParameterName {
+                            name: name.symbol(),
+                            span: name.span(),
+                        }
+                        .into());
+                    };
+
+                    if ordered_args[param_index].is_some() {
+                        return Err(SemanticError::DuplicateArgument {
+                            name: name.symbol(),
+                            span: arg.span,
+                        }
+                        .into());
+                    }
+
+                    ordered_args[param_index] = Some(arg);
+                }
+
+                None => {
+                    if seen_keyword {
+                        return Err(SemanticError::PositionalArgumentAfterKeyword {
+                            span: arg.span,
+                        }
+                        .into());
+                    }
+
+                    if let Some(index) =
+                        (positional_index..params.len()).find(|i| ordered_args[*i].is_none())
+                    {
+                        ordered_args[index] = Some(arg);
+                        positional_index = index + 1;
+                    } else if is_c_variadic {
+                        variadic_args.push(arg);
+                    } else {
+                        return Err(SemanticError::TooManyArguments {
+                            name: fn_name,
+                            span: call_span,
+                        }
+                        .into());
+                    }
+                }
+            }
+        }
+
+        if ordered_args.iter().any(|arg| arg.is_none()) {
+            return Err(SemanticError::TooFewArguments {
+                name: fn_name,
+                span: call_span,
+            }
+            .into());
+        }
+
+        Ok((
+            ordered_args.into_iter().map(|arg| arg.unwrap()).collect(),
+            variadic_args,
+        ))
+    }
+
     fn analyze_builtin_fn_call(
         &mut self,
         node: &ast::expr::FnCall,
         callee: Ident,
     ) -> Option<anyhow::Result<ir::expr::Expr>> {
+        let keyword_arg = node.args.args.iter().find_map(|arg| arg.name.as_ref());
+        let keyword_error = |name: &Ident| {
+            Some(Err(SemanticError::UnknownParameterName {
+                name: name.symbol(),
+                span: name.span(),
+            }
+            .into()))
+        };
+
         match callee.symbol().as_str() {
-            "__unreachable" => Some(Ok(ir::expr::Expr {
-                kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
-                    kind: ir::expr::BuiltinFnCallKind::Unreachable,
-                    args: ir::expr::Args(vec![], node.span),
+            "__unreachable" => {
+                if let Some(name) = keyword_arg {
+                    return keyword_error(name);
+                }
+
+                Some(Ok(ir::expr::Expr {
+                    kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                        kind: ir::expr::BuiltinFnCallKind::Unreachable,
+                        args: ir::expr::Args(vec![], node.span),
+                        span: node.span,
+                    }),
+                    ty: Rc::new(ir_type::Ty::new_never()),
                     span: node.span,
-                }),
-                ty: Rc::new(ir_type::Ty::new_never()),
-                span: node.span,
-            })),
+                }))
+            }
 
-            "__str" => Some(
-                node.args
-                    .0
-                    .iter()
-                    .map(|arg| self.analyze_expr(arg))
-                    .collect::<anyhow::Result<Vec<_>>>()
-                    .map(|args| ir::expr::Expr {
-                        kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
-                            kind: ir::expr::BuiltinFnCallKind::Str,
-                            args: ir::expr::Args(args, node.span),
+            "__str" => {
+                if let Some(name) = keyword_arg {
+                    return keyword_error(name);
+                }
+
+                Some(
+                    node.args
+                        .args
+                        .iter()
+                        .map(|arg| self.analyze_expr(&arg.value))
+                        .collect::<anyhow::Result<Vec<_>>>()
+                        .map(|args| ir::expr::Expr {
+                            kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                                kind: ir::expr::BuiltinFnCallKind::Str,
+                                args: ir::expr::Args(args, node.span),
+                                span: node.span,
+                            }),
+                            ty: Rc::new(ir_type::wrap_in_ref(
+                                Rc::new(ir_type::Ty::new_str(ir_type::Mutability::Not)),
+                                ir_type::Mutability::Not,
+                            )),
                             span: node.span,
                         }),
-                        ty: Rc::new(ir_type::wrap_in_ref(
-                            Rc::new(ir_type::Ty::new_str(ir_type::Mutability::Not)),
-                            ir_type::Mutability::Not,
-                        )),
-                        span: node.span,
-                    }),
-            ),
+                )
+            }
 
-            "__ptr_add" => Some(
-                node.args
-                    .0
-                    .iter()
-                    .map(|arg| self.analyze_expr(arg))
-                    .collect::<anyhow::Result<Vec<_>>>()
-                    .map(|args| ir::expr::Expr {
-                        ty: args[0].ty.clone(),
-                        kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
-                            kind: ir::expr::BuiltinFnCallKind::PointerAdd,
-                            args: ir::expr::Args(args, node.span),
+            "__ptr_add" => {
+                if let Some(name) = keyword_arg {
+                    return keyword_error(name);
+                }
+
+                Some(
+                    node.args
+                        .args
+                        .iter()
+                        .map(|arg| self.analyze_expr(&arg.value))
+                        .collect::<anyhow::Result<Vec<_>>>()
+                        .map(|args| ir::expr::Expr {
+                            ty: args[0].ty.clone(),
+                            kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                                kind: ir::expr::BuiltinFnCallKind::PointerAdd,
+                                args: ir::expr::Args(args, node.span),
+                                span: node.span,
+                            }),
                             span: node.span,
                         }),
-                        span: node.span,
-                    }),
-            ),
+                )
+            }
 
-            "__sizeof" => Some(
-                node.args
-                    .0
-                    .iter()
-                    .map(|arg| self.analyze_expr(arg))
-                    .collect::<anyhow::Result<Vec<_>>>()
-                    .map(|args| ir::expr::Expr {
-                        ty: Rc::new(ir_type::make_fundamental_type(
-                            ir_type::FundamentalTypeKind::U64,
-                            ir_type::Mutability::Not,
-                        )),
-                        kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
-                            kind: ir::expr::BuiltinFnCallKind::SizeOf,
-                            args: ir::expr::Args(args, node.span),
+            "__sizeof" => {
+                if let Some(name) = keyword_arg {
+                    return keyword_error(name);
+                }
+
+                Some(
+                    node.args
+                        .args
+                        .iter()
+                        .map(|arg| self.analyze_expr(&arg.value))
+                        .collect::<anyhow::Result<Vec<_>>>()
+                        .map(|args| ir::expr::Expr {
+                            ty: Rc::new(ir_type::make_fundamental_type(
+                                ir_type::FundamentalTypeKind::U64,
+                                ir_type::Mutability::Not,
+                            )),
+                            kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                                kind: ir::expr::BuiltinFnCallKind::SizeOf,
+                                args: ir::expr::Args(args, node.span),
+                                span: node.span,
+                            }),
                             span: node.span,
                         }),
-                        span: node.span,
-                    }),
-            ),
+                )
+            }
 
-            "panic" => Some(
-                node.args
-                    .0
-                    .iter()
-                    .map(|arg| self.analyze_expr(arg))
-                    .collect::<anyhow::Result<Vec<_>>>()
-                    .map(|args| ir::expr::Expr {
-                        kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
-                            kind: ir::expr::BuiltinFnCallKind::Panic,
-                            args: ir::expr::Args(args, node.span),
+            "panic" => {
+                if let Some(name) = keyword_arg {
+                    return keyword_error(name);
+                }
+
+                Some(
+                    node.args
+                        .args
+                        .iter()
+                        .map(|arg| self.analyze_expr(&arg.value))
+                        .collect::<anyhow::Result<Vec<_>>>()
+                        .map(|args| ir::expr::Expr {
+                            kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                                kind: ir::expr::BuiltinFnCallKind::Panic,
+                                args: ir::expr::Args(args, node.span),
+                                span: node.span,
+                            }),
+                            ty: Rc::new(ir_type::Ty::new_never()),
                             span: node.span,
                         }),
-                        ty: Rc::new(ir_type::Ty::new_never()),
-                        span: node.span,
-                    }),
-            ),
+                )
+            }
 
             _ => None,
         }
@@ -1247,23 +1399,25 @@ impl SemanticAnalyzer {
                 span: node.span,
             })?;
 
-        let args = node
-            .args
-            .0
-            .iter()
-            .enumerate()
-            .map(|(i, arg)| {
-                callee_decl
-                    .params
-                    .get(i)
-                    .map(|param| self.analyze_expr_with_expected_type(arg, param.ty.clone()))
-                    .unwrap_or_else(|| self.analyze_expr(arg))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let (ordered_args, variadic_args) = self.resolve_call_arguments(
+            &callee_decl.params,
+            &node.args,
+            callee_decl.name.symbol(),
+            node.span,
+            callee_decl.is_c_variadic,
+        )?;
 
-        if !callee_decl.is_c_variadic {
-            self.verify_fn_call_arguments(&callee_decl, &args, node.span)?;
+        let mut args = Vec::with_capacity(ordered_args.len() + variadic_args.len());
+
+        for (arg, param) in ordered_args.iter().zip(callee_decl.params.iter()) {
+            args.push(self.analyze_expr_with_expected_type(&arg.value, param.ty.clone())?);
         }
+
+        for arg in variadic_args {
+            args.push(self.analyze_expr(&arg.value)?);
+        }
+
+        self.verify_fn_call_arguments(&callee_decl, &args, node.span)?;
 
         let call_expr = ir::expr::Expr {
             kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
@@ -1321,25 +1475,25 @@ impl SemanticAnalyzer {
                 let callee_decl = fn_decl.clone();
                 let span = Span::new(node.span.start, node.span.finish, node.span.file);
 
-                let args = node
-                    .args
-                    .0
-                    .iter()
-                    .enumerate()
-                    .map(|(i, arg)| {
-                        callee_decl
-                            .params
-                            .get(i)
-                            .map(|param| {
-                                self.analyze_expr_with_expected_type(arg, param.ty.clone())
-                            })
-                            .unwrap_or_else(|| self.analyze_expr(arg))
-                    })
-                    .collect::<anyhow::Result<Vec<_>>>()?;
+                let (ordered_args, variadic_args) = self.resolve_call_arguments(
+                    &callee_decl.params,
+                    &node.args,
+                    callee_decl.name.symbol(),
+                    node.span,
+                    callee_decl.is_c_variadic,
+                )?;
 
-                if !callee_decl.is_c_variadic {
-                    self.verify_fn_call_arguments(&callee_decl, &args, node.span)?;
+                let mut args = Vec::with_capacity(ordered_args.len() + variadic_args.len());
+
+                for (arg, param) in ordered_args.iter().zip(callee_decl.params.iter()) {
+                    args.push(self.analyze_expr_with_expected_type(&arg.value, param.ty.clone())?);
                 }
+
+                for arg in variadic_args {
+                    args.push(self.analyze_expr(&arg.value)?);
+                }
+
+                self.verify_fn_call_arguments(&callee_decl, &args, node.span)?;
 
                 Ok(ir::expr::Expr {
                     kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
@@ -2021,11 +2175,11 @@ impl SemanticAnalyzer {
         // Try to create new enum variant with value
         // If it fails, try to call static methods
         let result = if let ast::expr::ExprKind::FnCall(right) = &node.rhs.kind {
-            if right.args.0.len() != 1 {
+            if right.args.args.len() != 1 {
                 // Static methods
                 self.analyze_static_method_call(udt, right)
             } else if let Some(callee) = Self::callee_ident(right) {
-                let value = right.args.0.front().unwrap();
+                let value = &right.args.args.front().unwrap().value;
 
                 match self.analyze_enum_variant(udt, callee, Some(value), *left) {
                     Ok(val) => Ok(val),
@@ -2169,19 +2323,25 @@ impl SemanticAnalyzer {
             _ => unreachable!(),
         };
 
-        let args = call_node
-            .args
-            .0
-            .iter()
-            .enumerate()
-            .map(|(i, arg)| {
-                method_decl
-                    .params
-                    .get(i)
-                    .map(|param| self.analyze_expr_with_expected_type(arg, param.ty.clone()))
-                    .unwrap_or_else(|| self.analyze_expr(arg))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let (ordered_args, variadic_args) = self.resolve_call_arguments(
+            &method_decl.params,
+            &call_node.args,
+            method_decl.name.symbol(),
+            call_node.span,
+            method_decl.is_c_variadic,
+        )?;
+
+        let mut args = Vec::with_capacity(ordered_args.len() + variadic_args.len());
+
+        for (arg, param) in ordered_args.iter().zip(method_decl.params.iter()) {
+            args.push(self.analyze_expr_with_expected_type(&arg.value, param.ty.clone())?);
+        }
+
+        for arg in variadic_args {
+            args.push(self.analyze_expr(&arg.value)?);
+        }
+
+        self.verify_fn_call_arguments(&method_decl, &args, call_node.span)?;
 
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
@@ -2390,24 +2550,20 @@ impl SemanticAnalyzer {
         args: &[ir::expr::Expr],
         call_node_span: Span,
     ) -> anyhow::Result<()> {
-        match fn_decl.params.len().cmp(&args.len()) {
-            std::cmp::Ordering::Less => {
-                return Err(SemanticError::TooManyArguments {
-                    name: fn_decl.name.symbol(),
-                    span: call_node_span,
-                }
-                .into());
+        if args.len() < fn_decl.params.len() {
+            return Err(SemanticError::TooFewArguments {
+                name: fn_decl.name.symbol(),
+                span: call_node_span,
             }
+            .into());
+        }
 
-            std::cmp::Ordering::Greater => {
-                return Err(SemanticError::TooFewArguments {
-                    name: fn_decl.name.symbol(),
-                    span: call_node_span,
-                }
-                .into());
+        if !fn_decl.is_c_variadic && args.len() > fn_decl.params.len() {
+            return Err(SemanticError::TooManyArguments {
+                name: fn_decl.name.symbol(),
+                span: call_node_span,
             }
-
-            std::cmp::Ordering::Equal => {}
+            .into());
         }
 
         for (param, arg) in fn_decl.params.iter().zip(args.iter()) {
@@ -2681,18 +2837,30 @@ impl SemanticAnalyzer {
             }
         }
 
-        // Inject `this` to the front of the arguments; analyze each arg with expected type from callee param
-        let args = std::iter::once(this)
-            .chain(
-                call_node
-                    .args
-                    .0
-                    .iter()
-                    .zip(callee.params.iter().skip(1))
-                    .map(|(arg, param)| self.analyze_expr_with_expected_type(arg, param.ty.clone()))
-                    .collect::<anyhow::Result<Vec<_>>>()?,
-            )
-            .collect::<Vec<_>>();
+        let params_without_self = if callee.params.is_empty() {
+            &[][..]
+        } else {
+            &callee.params[1..]
+        };
+
+        let (ordered_args, variadic_args) = self.resolve_call_arguments(
+            params_without_self,
+            &call_node.args,
+            callee.name.symbol(),
+            call_node.span,
+            callee.is_c_variadic,
+        )?;
+
+        let mut args = Vec::with_capacity(1 + ordered_args.len() + variadic_args.len());
+        args.push(this);
+
+        for (arg, param) in ordered_args.iter().zip(params_without_self.iter()) {
+            args.push(self.analyze_expr_with_expected_type(&arg.value, param.ty.clone())?);
+        }
+
+        for arg in variadic_args {
+            args.push(self.analyze_expr(&arg.value)?);
+        }
 
         self.verify_fn_call_arguments(&callee, &args, call_node.span)?;
 

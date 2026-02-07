@@ -41,7 +41,18 @@ pub struct StructLiteral {
 }
 
 #[derive(Debug)]
-pub struct Args(pub VecDeque<Expr>, pub Span);
+pub struct Arg {
+    /// `None` for positional arguments, `Some(name)` for keyword arguments.
+    pub name: Option<Ident>,
+    pub value: Expr,
+    pub span: Span,
+}
+
+#[derive(Debug)]
+pub struct Args {
+    pub args: VecDeque<Arg>,
+    pub span: Span,
+}
 
 #[derive(Debug)]
 pub struct FnCall {
