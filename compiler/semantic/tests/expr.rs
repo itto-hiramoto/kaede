@@ -664,3 +664,32 @@ fn positional_after_keyword_is_error() -> anyhow::Result<()> {
         .contains("positional arguments cannot follow keyword arguments"));
     Ok(())
 }
+
+#[test]
+fn default_argument_used() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn greet(message: i32 = 7) { let _ = message }
+        fn main() { greet() }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn default_argument_with_keyword_override() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fn mix(a: i32, b: i32 = 2, c: i32 = 3): i32 { return a + b + c }
+        fn main(): i32 { return mix(1, c: 10) }",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn missing_required_argument_is_error() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error(
+        "fn f(a: i32, b: i32 = 1) { }
+        fn main() { f() }",
+    )?;
+
+    assert!(err.to_string().contains("too few arguments"));
+    Ok(())
+}

@@ -1011,16 +1011,13 @@ impl SemanticAnalyzer {
             _ => unreachable!(),
         };
 
-        let params = func_info
+        let param_info = func_info
             .ast
             .decl
             .params
             .v
             .iter()
-            .map(|param| ir::top::Param {
-                name: param.name.symbol(),
-                ty: Rc::new(ir_type::Ty::new_unit()),
-            })
+            .map(|param| (param.name.symbol(), param.default.is_some()))
             .collect::<Vec<_>>();
 
         let is_c_variadic = matches!(
@@ -1029,18 +1026,28 @@ impl SemanticAnalyzer {
         );
 
         let (ordered_args, variadic_args) = self.resolve_call_arguments(
-            &params,
+            &param_info,
             &node.args,
             func_info.ast.decl.name.symbol(),
             node.span,
             is_c_variadic,
         )?;
 
-        let mut args = Vec::with_capacity(ordered_args.len() + variadic_args.len());
+        let ordered_args = ordered_args
+            .into_iter()
+            .map(|arg| arg.map(|arg| self.analyze_expr(&arg.value)).transpose())
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
-        for arg in ordered_args.iter().chain(variadic_args.iter()) {
-            args.push(self.analyze_expr(&arg.value)?);
+        let mut analyzed_variadic = Vec::with_capacity(variadic_args.len());
+        for arg in &variadic_args {
+            analyzed_variadic.push(self.analyze_expr(&arg.value)?);
         }
+
+        let mut provided_args = Vec::new();
+        for arg in ordered_args.iter().filter_map(|arg| arg.as_ref()) {
+            provided_args.push(arg.clone());
+        }
+        provided_args.extend(analyzed_variadic.iter().cloned());
 
         // Generate the generic function
         let callee_decl = {
@@ -1052,7 +1059,8 @@ impl SemanticAnalyzer {
                     .collect::<anyhow::Result<Vec<_>>>()?
             } else {
                 // Infer generic arguments from the function call arguments
-                args.iter()
+                provided_args
+                    .iter()
                     .map(|arg| -> anyhow::Result<Rc<ir_type::Ty>> {
                         Ok(match arg.ty.kind.as_ref() {
                             ir_type::TyKind::Var(_) => match arg.kind {
@@ -1072,6 +1080,20 @@ impl SemanticAnalyzer {
 
             self.generate_generic_fn(func_info, &generic_args)?
         };
+
+        let mut args = Vec::with_capacity(callee_decl.params.len() + analyzed_variadic.len());
+
+        for (arg, param) in ordered_args.into_iter().zip(callee_decl.params.iter()) {
+            if let Some(arg) = arg {
+                args.push(arg);
+            } else if let Some(default) = &param.default {
+                args.push((**default).clone());
+            } else {
+                unreachable!();
+            }
+        }
+
+        args.extend(analyzed_variadic);
 
         self.verify_fn_call_arguments(&callee_decl, &args, node.span)?;
 
@@ -1130,6 +1152,7 @@ impl SemanticAnalyzer {
             .map(|(i, ty)| ir::top::Param {
                 name: Symbol::from(format!("arg{i}")),
                 ty: ty.clone(),
+                default: None,
             })
             .collect::<Vec<_>>();
 
@@ -1173,15 +1196,15 @@ impl SemanticAnalyzer {
     /// - Positional arguments after a keyword are rejected.
     /// - Extra args are allowed only when `is_c_variadic` is true.
     ///
-    /// Returns ordered arguments (one per param) and any variadic tail.
+    /// Returns ordered arguments (one per param, `None` when filled by default) and any variadic tail.
     fn resolve_call_arguments<'a>(
         &self,
-        params: &[ir::top::Param],
+        params: &[(Symbol, bool)],
         ast_args: &'a ast::expr::Args,
         fn_name: Symbol,
         call_span: Span,
         is_c_variadic: bool,
-    ) -> anyhow::Result<(Vec<&'a ast::expr::Arg>, Vec<&'a ast::expr::Arg>)> {
+    ) -> anyhow::Result<(Vec<Option<&'a ast::expr::Arg>>, Vec<&'a ast::expr::Arg>)> {
         let mut ordered_args: Vec<Option<&ast::expr::Arg>> = vec![None; params.len()];
         let mut variadic_args = Vec::new();
         let mut positional_index = 0usize;
@@ -1192,8 +1215,9 @@ impl SemanticAnalyzer {
                 Some(name) => {
                     seen_keyword = true;
 
-                    let Some(param_index) =
-                        params.iter().position(|param| param.name == name.symbol())
+                    let Some(param_index) = params
+                        .iter()
+                        .position(|(param_name, _)| *param_name == name.symbol())
                     else {
                         return Err(SemanticError::UnknownParameterName {
                             name: name.symbol(),
@@ -1239,18 +1263,17 @@ impl SemanticAnalyzer {
             }
         }
 
-        if ordered_args.iter().any(|arg| arg.is_none()) {
-            return Err(SemanticError::TooFewArguments {
-                name: fn_name,
-                span: call_span,
+        for (arg, (_, has_default)) in ordered_args.iter().zip(params.iter()) {
+            if arg.is_none() && !has_default {
+                return Err(SemanticError::TooFewArguments {
+                    name: fn_name,
+                    span: call_span,
+                }
+                .into());
             }
-            .into());
         }
 
-        Ok((
-            ordered_args.into_iter().map(|arg| arg.unwrap()).collect(),
-            variadic_args,
-        ))
+        Ok((ordered_args, variadic_args))
     }
 
     fn analyze_builtin_fn_call(
@@ -1401,7 +1424,11 @@ impl SemanticAnalyzer {
             })?;
 
         let (ordered_args, variadic_args) = self.resolve_call_arguments(
-            &callee_decl.params,
+            &callee_decl
+                .params
+                .iter()
+                .map(|param| (param.name, param.default.is_some()))
+                .collect::<Vec<_>>(),
             &node.args,
             callee_decl.name.symbol(),
             node.span,
@@ -1410,8 +1437,14 @@ impl SemanticAnalyzer {
 
         let mut args = Vec::with_capacity(ordered_args.len() + variadic_args.len());
 
-        for (arg, param) in ordered_args.iter().zip(callee_decl.params.iter()) {
-            args.push(self.analyze_expr_with_expected_type(&arg.value, param.ty.clone())?);
+        for (arg, param) in ordered_args.into_iter().zip(callee_decl.params.iter()) {
+            if let Some(arg) = arg {
+                args.push(self.analyze_expr_with_expected_type(&arg.value, param.ty.clone())?);
+            } else if let Some(default) = &param.default {
+                args.push((**default).clone());
+            } else {
+                unreachable!();
+            }
         }
 
         for arg in variadic_args {
@@ -1477,7 +1510,11 @@ impl SemanticAnalyzer {
                 let span = Span::new(node.span.start, node.span.finish, node.span.file);
 
                 let (ordered_args, variadic_args) = self.resolve_call_arguments(
-                    &callee_decl.params,
+                    &callee_decl
+                        .params
+                        .iter()
+                        .map(|param| (param.name, param.default.is_some()))
+                        .collect::<Vec<_>>(),
                     &node.args,
                     callee_decl.name.symbol(),
                     node.span,
@@ -1486,8 +1523,16 @@ impl SemanticAnalyzer {
 
                 let mut args = Vec::with_capacity(ordered_args.len() + variadic_args.len());
 
-                for (arg, param) in ordered_args.iter().zip(callee_decl.params.iter()) {
-                    args.push(self.analyze_expr_with_expected_type(&arg.value, param.ty.clone())?);
+                for (arg, param) in ordered_args.into_iter().zip(callee_decl.params.iter()) {
+                    if let Some(arg) = arg {
+                        args.push(
+                            self.analyze_expr_with_expected_type(&arg.value, param.ty.clone())?,
+                        );
+                    } else if let Some(default) = &param.default {
+                        args.push((**default).clone());
+                    } else {
+                        unreachable!();
+                    }
                 }
 
                 for arg in variadic_args {
@@ -1883,7 +1928,7 @@ impl SemanticAnalyzer {
     /// Analyze an expression with an optional expected type (e.g. from a function parameter).
     /// When the expression is a closure and the expected type is a closure type with matching
     /// param count, closure params are bound to the expected param types before analyzing the body.
-    fn analyze_expr_with_expected_type(
+    pub(super) fn analyze_expr_with_expected_type(
         &mut self,
         expr: &ast::expr::Expr,
         expected_ty: Rc<ir_type::Ty>,
@@ -2325,7 +2370,11 @@ impl SemanticAnalyzer {
         };
 
         let (ordered_args, variadic_args) = self.resolve_call_arguments(
-            &method_decl.params,
+            &method_decl
+                .params
+                .iter()
+                .map(|param| (param.name, param.default.is_some()))
+                .collect::<Vec<_>>(),
             &call_node.args,
             method_decl.name.symbol(),
             call_node.span,
@@ -2334,8 +2383,14 @@ impl SemanticAnalyzer {
 
         let mut args = Vec::with_capacity(ordered_args.len() + variadic_args.len());
 
-        for (arg, param) in ordered_args.iter().zip(method_decl.params.iter()) {
-            args.push(self.analyze_expr_with_expected_type(&arg.value, param.ty.clone())?);
+        for (arg, param) in ordered_args.into_iter().zip(method_decl.params.iter()) {
+            if let Some(arg) = arg {
+                args.push(self.analyze_expr_with_expected_type(&arg.value, param.ty.clone())?);
+            } else if let Some(default) = &param.default {
+                args.push((**default).clone());
+            } else {
+                unreachable!();
+            }
         }
 
         for arg in variadic_args {
@@ -2845,7 +2900,10 @@ impl SemanticAnalyzer {
         };
 
         let (ordered_args, variadic_args) = self.resolve_call_arguments(
-            params_without_self,
+            &params_without_self
+                .iter()
+                .map(|param| (param.name, param.default.is_some()))
+                .collect::<Vec<_>>(),
             &call_node.args,
             callee.name.symbol(),
             call_node.span,
@@ -2855,8 +2913,14 @@ impl SemanticAnalyzer {
         let mut args = Vec::with_capacity(1 + ordered_args.len() + variadic_args.len());
         args.push(this);
 
-        for (arg, param) in ordered_args.iter().zip(params_without_self.iter()) {
-            args.push(self.analyze_expr_with_expected_type(&arg.value, param.ty.clone())?);
+        for (arg, param) in ordered_args.into_iter().zip(params_without_self.iter()) {
+            if let Some(arg) = arg {
+                args.push(self.analyze_expr_with_expected_type(&arg.value, param.ty.clone())?);
+            } else if let Some(default) = &param.default {
+                args.push((**default).clone());
+            } else {
+                unreachable!();
+            }
         }
 
         for arg in variadic_args {

@@ -13,5 +13,5 @@ fn main() {
         res.status(std.http.Status::NotFound).send_string("Not Found")
     })
 
-    app.listen("0.0.0.0", 8080)
+    app.listen(port: 8080)
 }

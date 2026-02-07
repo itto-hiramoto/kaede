@@ -383,9 +383,16 @@ impl Parser {
 
         let ty = self.ty()?;
 
+        let default = if self.consume_b(&TokenKind::Eq) {
+            Some(Rc::new(self.expr()?))
+        } else {
+            None
+        };
+
         Ok(Param {
             name,
             ty: Rc::new(ty),
+            default,
         })
     }
 

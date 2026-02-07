@@ -1363,6 +1363,9 @@ impl TypeInferrer {
 
                 let mut applied_callee = (*fn_call.callee).clone();
                 for param in applied_callee.params.iter_mut() {
+                    if let Some(default) = &mut param.default {
+                        self.apply_expr(std::rc::Rc::make_mut(default))?;
+                    }
                     param.ty = self.context.apply(&param.ty);
                 }
                 applied_callee.return_ty = self.context.apply(&applied_callee.return_ty);
@@ -1375,6 +1378,9 @@ impl TypeInferrer {
 
                 let mut applied_callee = (*spawn.callee).clone();
                 for param in applied_callee.params.iter_mut() {
+                    if let Some(default) = &mut param.default {
+                        self.apply_expr(std::rc::Rc::make_mut(default))?;
+                    }
                     param.ty = self.context.apply(&param.ty);
                 }
                 applied_callee.return_ty = self.context.apply(&applied_callee.return_ty);

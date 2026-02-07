@@ -189,7 +189,7 @@ impl App {
         return false
     }
 
-    pub fn listen(self, ip: str, port: u16) {
+    pub fn listen(self, ip: str = "0.0.0.0", port: u16) {
         serve_tcp4(self, ip, port)
     }
 }

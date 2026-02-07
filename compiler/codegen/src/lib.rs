@@ -210,6 +210,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         let params = vec![Param {
             name: Symbol::from("size".to_owned()),
             ty: make_fundamental_type(FundamentalTypeKind::U64, Mutability::Not).into(),
+            default: None,
         }];
 
         self.declare_function(

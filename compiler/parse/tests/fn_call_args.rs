@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use kaede_ast::expr::ExprKind;
+use kaede_ast::{expr::ExprKind, top::TopLevelKind};
 use kaede_parse::Parser;
 use kaede_span::file::FilePath;
 use kaede_symbol::Symbol;
@@ -41,6 +41,29 @@ fn parse_positional_then_keyword_arguments() -> Result<()> {
     let second = iter.next().expect("second argument");
     let name = second.name.as_ref().expect("keyword argument name");
     assert_eq!(name.symbol(), Symbol::from("bar".to_string()));
+
+    Ok(())
+}
+
+#[test]
+fn parse_fn_param_default() -> Result<()> {
+    let mut parser = Parser::new(
+        "fn f(a: i32 = 1, b: i32) {}",
+        FilePath::from(PathBuf::from("test.kd")),
+    );
+    let compile_unit = parser.run()?;
+
+    let TopLevelKind::Fn(func) = &compile_unit.top_levels.front().unwrap().kind else {
+        panic!("expected fn top-level");
+    };
+
+    let params: Vec<_> = func.decl.params.v.iter().collect();
+    assert!(params[0].default.is_some());
+    assert!(params[1].default.is_none());
+    assert!(matches!(
+        params[0].default.as_ref().unwrap().as_ref().kind,
+        ExprKind::Int(_)
+    ));
 
     Ok(())
 }

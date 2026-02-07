@@ -3,7 +3,7 @@ use std::rc::Rc;
 use kaede_common::LangLinkage;
 use kaede_symbol::Symbol;
 
-use crate::{qualified_symbol::QualifiedSymbol, stmt::Block, ty::Ty};
+use crate::{expr, qualified_symbol::QualifiedSymbol, stmt::Block, ty::Ty};
 
 #[derive(Debug, Clone)]
 pub struct StructField {
@@ -18,11 +18,26 @@ pub struct Struct {
     pub fields: Vec<StructField>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct Param {
     pub name: Symbol,
     pub ty: Rc<Ty>,
+    pub default: Option<Rc<expr::Expr>>,
 }
+
+impl PartialEq for Param {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.ty == other.ty
+            && match (&self.default, &other.default) {
+                (None, None) => true,
+                (Some(lhs), Some(rhs)) => Rc::ptr_eq(lhs, rhs),
+                _ => false,
+            }
+    }
+}
+
+impl Eq for Param {}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FnDecl {

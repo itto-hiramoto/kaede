@@ -558,6 +558,7 @@ impl SemanticAnalyzer {
                     ir::ty::Mutability::Not,
                 )
                 .into(),
+                default: None,
             },
             ir::top::Param {
                 name: "argv".to_owned().into(),
@@ -572,6 +573,7 @@ impl SemanticAnalyzer {
                     .into(),
                 )
                 .into(),
+                default: None,
             },
         ];
 
