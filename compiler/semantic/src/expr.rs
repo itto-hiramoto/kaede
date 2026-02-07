@@ -1172,6 +1172,7 @@ impl SemanticAnalyzer {
     /// - Keyword args match by name; duplicates or unknown names are rejected.
     /// - Positional arguments after a keyword are rejected.
     /// - Extra args are allowed only when `is_c_variadic` is true.
+    ///
     /// Returns ordered arguments (one per param) and any variadic tail.
     fn resolve_call_arguments<'a>(
         &self,
