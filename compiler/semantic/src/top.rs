@@ -440,6 +440,7 @@ impl SemanticAnalyzer {
                 ast::top::Param {
                     name: Ident::new("self".to_owned().into(), node.span),
                     ty: ast_type::change_mutability_dup(ty.clone(), mutability),
+                    default: None,
                 },
             );
         }
@@ -607,9 +608,28 @@ impl SemanticAnalyzer {
             .v
             .into_iter()
             .map(|p| -> anyhow::Result<ir::top::Param> {
+                let ty = self.analyze_type(&p.ty)?;
+                let default = if let Some(default) = p.default {
+                    let analyzed_default =
+                        self.analyze_expr_with_expected_type(default.as_ref(), ty.clone())?;
+
+                    if !ir::ty::is_same_type(&ty, &analyzed_default.ty) {
+                        return Err(SemanticError::MismatchedTypes {
+                            types: (format!("{ty:?}"), format!("{:?}", analyzed_default.ty)),
+                            span: analyzed_default.span,
+                        }
+                        .into());
+                    }
+
+                    Some(Rc::new(analyzed_default))
+                } else {
+                    None
+                };
+
                 Ok(ir::top::Param {
                     name: p.name.symbol(),
-                    ty: self.analyze_type(&p.ty)?,
+                    ty,
+                    default,
                 })
             })
             .collect::<anyhow::Result<Vec<_>>>()?;

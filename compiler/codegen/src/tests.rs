@@ -425,7 +425,7 @@ fn function_call_with_keyword_args() -> anyhow::Result<()> {
 
     fn main(): i32 {
         // Reordered keyword arguments should map correctly.
-        return f(z: 8, x: 50, y: 0)
+        return f(z=8, x=50, y=0)
     }";
 
     assert_eq!(exec(program)?, 8);

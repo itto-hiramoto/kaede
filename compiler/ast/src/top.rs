@@ -5,7 +5,10 @@ use kaede_common::LangLinkage;
 use kaede_span::Span;
 use kaede_symbol::Ident;
 
-use crate::{expr::StringLiteral, stmt::Block};
+use crate::{
+    expr::{Expr, StringLiteral},
+    stmt::Block,
+};
 
 #[derive(Debug)]
 pub struct Path {
@@ -79,6 +82,7 @@ pub struct Struct {
 pub struct Param {
     pub name: Ident,
     pub ty: Rc<Ty>,
+    pub default: Option<Rc<Expr>>,
 }
 
 #[derive(Debug, Clone, Default)]
