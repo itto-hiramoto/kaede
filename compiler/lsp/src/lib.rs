@@ -238,6 +238,9 @@ fn semantic_error_span(err: &SemanticError) -> Option<Span> {
         | SemanticError::MatchCannotBeUsedWithValueOfType { span, .. }
         | SemanticError::TooFewArguments { span, .. }
         | SemanticError::TooManyArguments { span, .. }
+        | SemanticError::UnknownParameterName { span, .. }
+        | SemanticError::DuplicateArgument { span, .. }
+        | SemanticError::PositionalArgumentAfterKeyword { span }
         | SemanticError::AlreadyDeclared { span, .. }
         | SemanticError::VoidVariable { span, .. }
         | SemanticError::BreakOutsideOfLoop { span }

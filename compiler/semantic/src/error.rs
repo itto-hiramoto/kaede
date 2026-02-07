@@ -38,6 +38,15 @@ pub enum SemanticError {
     #[error("{}:{}:{} too many arguments to function `{}`", span.file, span.start.line, span.start.column, .name)]
     TooManyArguments { name: Symbol, span: Span },
 
+    #[error("{}:{}:{} unknown parameter `{}`", span.file, span.start.line, span.start.column, .name)]
+    UnknownParameterName { name: Symbol, span: Span },
+
+    #[error("{}:{}:{} argument for parameter `{}` specified multiple times", span.file, span.start.line, span.start.column, .name)]
+    DuplicateArgument { name: Symbol, span: Span },
+
+    #[error("{}:{}:{} positional arguments cannot follow keyword arguments", span.file, span.start.line, span.start.column)]
+    PositionalArgumentAfterKeyword { span: Span },
+
     #[error("{}:{}:{} `{}` is already declared", span.file, span.start.line, span.start.column, .name)]
     AlreadyDeclared { name: Symbol, span: Span },
 

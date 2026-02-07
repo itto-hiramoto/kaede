@@ -418,6 +418,22 @@ fn function_call_with_multi_args() -> anyhow::Result<()> {
 }
 
 #[test]
+fn function_call_with_keyword_args() -> anyhow::Result<()> {
+    let program = r"fn f(x: i32, y: i32, z: i32): i32 {
+        return x * y + z
+    }
+
+    fn main(): i32 {
+        // Reordered keyword arguments should map correctly.
+        return f(z: 8, x: 50, y: 0)
+    }";
+
+    assert_eq!(exec(program)?, 8);
+
+    Ok(())
+}
+
+#[test]
 fn simple_if() -> anyhow::Result<()> {
     let program = r"fn main(): i32 {
         if 58 == 58 {
