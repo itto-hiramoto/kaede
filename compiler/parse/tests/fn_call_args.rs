@@ -8,7 +8,7 @@ use kaede_symbol::Symbol;
 
 #[test]
 fn parse_keyword_argument() -> Result<()> {
-    let mut parser = Parser::new("foo(bar: 1)", FilePath::from(PathBuf::from("test.kd")));
+    let mut parser = Parser::new("foo(bar = 1)", FilePath::from(PathBuf::from("test.kd")));
     let expr = parser.expr()?;
 
     let call = match expr.kind {
@@ -26,7 +26,7 @@ fn parse_keyword_argument() -> Result<()> {
 
 #[test]
 fn parse_positional_then_keyword_arguments() -> Result<()> {
-    let mut parser = Parser::new("foo(1, bar: 2)", FilePath::from(PathBuf::from("test.kd")));
+    let mut parser = Parser::new("foo(1, bar = 2)", FilePath::from(PathBuf::from("test.kd")));
     let expr = parser.expr()?;
 
     let call = match expr.kind {

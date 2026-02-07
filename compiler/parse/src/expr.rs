@@ -868,11 +868,11 @@ impl Parser {
                 match token.kind {
                     TokenKind::Ident(_) => {
                         let is_keyword =
-                            matches!(self.tokens.get(1).map(|t| &t.kind), Some(TokenKind::Colon));
+                            matches!(self.tokens.get(1).map(|t| &t.kind), Some(TokenKind::Eq));
 
                         if is_keyword {
                             let name = self.ident()?;
-                            self.consume(&TokenKind::Colon)?;
+                            self.consume(&TokenKind::Eq)?;
                             (Some(name), self.expr()?)
                         } else {
                             (None, self.expr()?)

@@ -614,7 +614,7 @@ fn closure_captures_outer_variables() -> anyhow::Result<()> {
 fn keyword_arguments_reorder() -> anyhow::Result<()> {
     semantic_analyze(
         "fn add(a: i32, b: i32): i32 { return a + b }
-        fn main(): i32 { return add(b: 2, a: 1) }",
+        fn main(): i32 { return add(b = 2, a = 1) }",
     )?;
     Ok(())
 }
@@ -623,7 +623,7 @@ fn keyword_arguments_reorder() -> anyhow::Result<()> {
 fn keyword_arguments_mixed_with_positionals() -> anyhow::Result<()> {
     semantic_analyze(
         "fn mix(a: i32, b: i32, c: i32): i32 { return a + b + c }
-        fn main(): i32 { return mix(1, c: 3, b: 2) }",
+        fn main(): i32 { return mix(1, c = 3, b = 2) }",
     )?;
     Ok(())
 }
@@ -632,7 +632,7 @@ fn keyword_arguments_mixed_with_positionals() -> anyhow::Result<()> {
 fn keyword_argument_unknown_param() -> anyhow::Result<()> {
     let err = semantic_analyze_expect_error(
         "fn f(a: i32) { }
-        fn main() { f(b: 1) }",
+        fn main() { f(b = 1) }",
     )?;
 
     assert!(err.to_string().contains("unknown parameter `b`"));
@@ -643,7 +643,7 @@ fn keyword_argument_unknown_param() -> anyhow::Result<()> {
 fn keyword_argument_duplicate() -> anyhow::Result<()> {
     let err = semantic_analyze_expect_error(
         "fn f(a: i32) { }
-        fn main() { f(a: 1, a: 2) }",
+        fn main() { f(a = 1, a = 2) }",
     )?;
 
     assert!(err
@@ -656,7 +656,7 @@ fn keyword_argument_duplicate() -> anyhow::Result<()> {
 fn positional_after_keyword_is_error() -> anyhow::Result<()> {
     let err = semantic_analyze_expect_error(
         "fn f(a: i32, b: i32) { }
-        fn main() { f(a: 1, 2) }",
+        fn main() { f(a = 1, 2) }",
     )?;
 
     assert!(err
@@ -678,7 +678,7 @@ fn default_argument_used() -> anyhow::Result<()> {
 fn default_argument_with_keyword_override() -> anyhow::Result<()> {
     semantic_analyze(
         "fn mix(a: i32, b: i32 = 2, c: i32 = 3): i32 { return a + b + c }
-        fn main(): i32 { return mix(1, c: 10) }",
+        fn main(): i32 { return mix(1, c = 10) }",
     )?;
     Ok(())
 }
