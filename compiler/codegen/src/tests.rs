@@ -3164,7 +3164,7 @@ fn prelude() -> anyhow::Result<()> {
         fn main(): i32 {
             let mut v = Vector<i32>::new()
             v.push(58)
-            return match v.at(0 as u32) {
+            return match v.at(0) {
                 Option::Some(n) => n,
                 Option::None => 123,
             }
