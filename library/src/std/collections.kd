@@ -7,8 +7,8 @@ use std.ffi.mem.__mem_realloc
 
 pub struct Vector<T> {
     ptr: *T,
-    len: u32,
-    capacity: u32,
+    len: u64,
+    capacity: u64,
 }
 
 impl<T> Vector<T> {
@@ -20,18 +20,22 @@ impl<T> Vector<T> {
         return self.ptr
     }
 
-    pub fn len(self): u32 {
+    pub fn as_slice(self): [T] {
+        return __slice_from_raw_parts(self.ptr, self.len)
+    }
+
+    pub fn len(self): u64 {
         return self.len
     }
 
-    pub fn capacity(self): u32 {
+    pub fn capacity(self): u64 {
         return self.capacity
     }
 
     fn ensure_capacity(mut self, elem_size: u64) {
         if self.capacity == 0 {
             self.capacity = 4
-            let new_size = elem_size * (self.capacity as u64)
+            let new_size = elem_size * self.capacity
             self.ptr = __mem_alloc(new_size) as *T
             return
         }
@@ -41,7 +45,7 @@ impl<T> Vector<T> {
         }
 
         let new_capacity = self.capacity * 2
-        let new_size = elem_size * (new_capacity as u64)
+        let new_size = elem_size * new_capacity
         self.ptr = __mem_realloc(self.ptr as *i8, new_size) as *T
         self.capacity = new_capacity
     }
@@ -64,11 +68,21 @@ impl<T> Vector<T> {
         return Option<T>::Some(self.ptr[self.len])
     }
 
-    pub fn at(self, idx: u32): Option<T> {
+    pub fn at(self, idx: u64): Option<T> {
         if idx >= self.len {
             return Option<T>::None
         }
 
         return Option<T>::Some(self.ptr[idx])
+    }
+
+    pub fn from_slice(s: [T]): mut Vector<T> {
+        let mut v = Vector<T>::new()
+        let mut i = 0
+        while i < s.len() {
+            v.push(s[i])
+            i += 1
+        }
+        return v
     }
 }

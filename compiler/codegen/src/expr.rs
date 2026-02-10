@@ -187,6 +187,41 @@ impl<'ctx> CodeGenerator<'ctx> {
                 self.build_string_literal_internal(p, len.into_int_value())
             }
 
+            BuiltinFnCallKind::SliceFromRawParts => {
+                let data_ptr = self
+                    .build_expr(&node.args.0[0])?
+                    .unwrap()
+                    .into_pointer_value();
+                let len = self.build_expr(&node.args.0[1])?.unwrap().into_int_value();
+                let len_u64 = if len.get_type() == self.context().i64_type() {
+                    len
+                } else {
+                    self.builder
+                        .build_int_cast(len, self.context().i64_type(), "slice.len.cast")?
+                };
+
+                let elem_ty = match node.args.0[0].ty.kind.as_ref() {
+                    TyKind::Pointer(pty) => pty.pointee_ty.clone(),
+                    TyKind::Reference(rty) => match rty.get_base_type().kind.as_ref() {
+                        TyKind::Pointer(pty) => pty.pointee_ty.clone(),
+                        _ => return Err(CodegenError::ExpectedPointerType.into()),
+                    },
+                    _ => return Err(CodegenError::ExpectedPointerType.into()),
+                };
+
+                let slice_ty = Rc::new(Ty {
+                    kind: TyKind::Slice(elem_ty).into(),
+                    mutability: Mutability::Not,
+                });
+                let slice_llvm_ty = self.conv_to_llvm_type(&slice_ty);
+                let slice_ptr = self.create_gc_struct(
+                    slice_llvm_ty,
+                    &[data_ptr.into(), len_u64.as_basic_value_enum()],
+                )?;
+
+                Ok(Some(slice_ptr.into()))
+            }
+
             BuiltinFnCallKind::PointerAdd => {
                 let ptr = self
                     .build_expr(&node.args.0[0])?

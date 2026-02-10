@@ -259,6 +259,7 @@ pub struct Variable {
 pub enum BuiltinFnCallKind {
     Unreachable,
     Str,
+    SliceFromRawParts,
     PointerAdd,
     SizeOf,
     Panic,
