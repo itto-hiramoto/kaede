@@ -509,7 +509,7 @@ impl SemanticAnalyzer {
 
             let name = match &params.args.front().unwrap().value.kind {
                 ast::expr::ExprKind::Ident(ident) => *ident,
-                _ => unreachable!(),
+                param => unreachable!("{:?}", param),
             }
             .symbol();
 
@@ -1329,6 +1329,64 @@ impl SemanticAnalyzer {
                                 ir_type::Mutability::Not,
                             )),
                             span: node.span,
+                        }),
+                )
+            }
+
+            "__slice_from_raw_parts" => {
+                if let Some(name) = keyword_arg {
+                    return keyword_error(name);
+                }
+
+                Some(
+                    node.args
+                        .args
+                        .iter()
+                        .map(|arg| self.analyze_expr(&arg.value))
+                        .collect::<anyhow::Result<Vec<_>>>()
+                        .and_then(|args| {
+                            let elem_ty = match args[0].ty.kind.as_ref() {
+                                ir_type::TyKind::Pointer(pty) => pty.pointee_ty.clone(),
+                                ir_type::TyKind::Reference(rty) => match rty
+                                    .get_base_type()
+                                    .kind
+                                    .as_ref()
+                                {
+                                    ir_type::TyKind::Pointer(pty) => pty.pointee_ty.clone(),
+                                    _ => {
+                                        return Err(SemanticError::MismatchedTypes {
+                                            types: (args[0].ty.kind.to_string(), "*T".to_string()),
+                                            span: node.span,
+                                        }
+                                        .into())
+                                    }
+                                },
+                                _ => {
+                                    return Err(SemanticError::MismatchedTypes {
+                                        types: (args[0].ty.kind.to_string(), "*T".to_string()),
+                                        span: node.span,
+                                    }
+                                    .into())
+                                }
+                            };
+
+                            let slice_ty = Rc::new(ir_type::Ty {
+                                kind: ir_type::TyKind::Slice(elem_ty).into(),
+                                mutability: ir_type::Mutability::Not,
+                            });
+
+                            Ok(ir::expr::Expr {
+                                kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                                    kind: ir::expr::BuiltinFnCallKind::SliceFromRawParts,
+                                    args: ir::expr::Args(args, node.span),
+                                    span: node.span,
+                                }),
+                                ty: Rc::new(ir_type::wrap_in_ref(
+                                    slice_ty,
+                                    ir_type::Mutability::Not,
+                                )),
+                                span: node.span,
+                            })
                         }),
                 )
             }

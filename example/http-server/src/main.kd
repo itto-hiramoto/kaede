@@ -12,6 +12,13 @@ fn main() {
     app.get("/status/notfound", |req, res| {
         res.status(std.http.Status::NotFound).send_string("Not Found")
     })
+    app.get("/query", |req, res| {
+        let name = req.get_query_param("name")
+        res.send_string(match name {
+            Option::Some(name) => name.as_str(),
+            Option::None => "No name provided"
+        })
+    })
 
     app.listen(port=8080)
 }

@@ -34,14 +34,14 @@ use std::process::Command;
 const TEST_PROGRAM: &str = r#"extern "C" fn strcmp(s1: *i8, s2: *i8): i32
 
 fn main(args: Vector<str>): i32 {
-    let mut i = 0 as u32
+    let mut i = 0
 
     // Check if we have enough arguments (program name + at least 1 argument)
-    if args.len() < 2 as u32 {
+    if args.len() < 2 {
         return 125  // Special exit code for insufficient arguments
     }
 
-    let s = args.at(1 as u32).unwrap()
+    let s = args.at(1).unwrap()
 
     if strcmp(s.as_ptr(), "kaede".as_ptr()) == 0 {
         return 123

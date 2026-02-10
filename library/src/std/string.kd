@@ -41,7 +41,7 @@ impl String {
         return self.chars.as_ptr()
     }
 
-    pub fn len(self): u32 {
+    pub fn len(self): u64 {
         return self.chars.len()
     }
 
@@ -49,11 +49,25 @@ impl String {
         return __str(self.as_ptr(), self.len())
     }
 
-    pub fn at(self, idx: u32): Option<char> {
+    pub fn at(self, idx: u64): Option<char> {
         return self.chars.at(idx)
     }
 
     pub fn push(mut self, ch: char) {
         self.chars.push(ch)
+    }
+
+    // Returns substring from start (inclusive) to end (exclusive). Like [start:end] slice syntax.
+    // Returns empty string if start >= end or start >= len.
+    pub fn slice(self, start: u64, end: u64): String {
+        let chars = self.chars.as_slice()
+        let len = chars.len()
+        let safe_start = if start > len { len } else { start }
+        let safe_end = if end > len { len } else { end }
+        if safe_start >= safe_end {
+            return String::new()
+        }
+
+        return String { chars: Vector<char>::from_slice(chars[safe_start:safe_end]) }
     }
 }
