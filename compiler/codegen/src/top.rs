@@ -189,7 +189,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         let ty = self.context().opaque_struct_type(mangled_name.as_str());
 
-        ty.set_body(&field_tys, true);
+        ty.set_body(&field_tys, false);
 
         ty
     }
@@ -231,7 +231,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                             .array_type((size / 8) as u32)
                             .into(),
                     ],
-                    true,
+                    false,
                 );
 
                 ty
@@ -240,7 +240,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             None => {
                 let ty = self.context().opaque_struct_type(mangled_name.as_str());
 
-                ty.set_body(&[self.context().i32_type().into()], true);
+                ty.set_body(&[self.context().i32_type().into()], false);
 
                 ty
             }
