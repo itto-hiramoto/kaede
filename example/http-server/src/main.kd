@@ -13,10 +13,17 @@ fn main() {
         res.status(std.http.Status::NotFound).send_string("Not Found")
     })
     app.get("/query", |req, res| {
-        let name = req.get_query_param("name")
+        let name = req.query("name")
         res.send_string(match name {
             Option::Some(name) => name.as_str(),
             Option::None => "No name provided"
+        })
+    })
+    app.get("/users/:id", |req, res| {
+        let id = req.param("id")
+        res.send_string(match id {
+            Option::Some(id) => id.as_str(),
+            Option::None => "No id provided"
         })
     })
 

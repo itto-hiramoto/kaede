@@ -19,19 +19,30 @@ pub enum Status {
     InternalServerError, // 500
 }
 
+struct PathParam {
+    name: String,
+    value: String,
+}
+
 pub struct Request {
     method: String,
     path: String,
     query: String,
+    params: Vector<PathParam>,
     version: String,
     headers: [u8],
     body: [u8],
 }
 
 impl Request {
-    // Returns the value of the query parameter `name` (e.g. ?n=1000 -> get_query_param("n") -> Some("1000")).
-    pub fn get_query_param(self, name: str): Option<String> {
+    // Returns the value of the query parameter `name` (e.g. ?n=1000 -> query("n") -> Some("1000")).
+    pub fn query(self, name: str): Option<String> {
         return find_query_param_value(self.query, name)
+    }
+
+    // Returns the value of the path parameter `name` (e.g. "/users/:id" + "/users/42" -> param("id") -> Some("42")).
+    pub fn param(self, name: str): Option<String> {
+        return find_path_param_value(self.params, name)
     }
 }
 
@@ -150,6 +161,18 @@ fn find_query_param_value(query: String, name: str): Option<String> {
     return Option<String>::None
 }
 
+fn find_path_param_value(params_vec: Vector<PathParam>, name: str): Option<String> {
+    let mut i = 0
+    while i < params_vec.len() {
+        let p = params_vec.at(i).unwrap()
+        if p.name.as_str() == name {
+            return Option<String>::Some(p.value)
+        }
+        i += 1
+    }
+    return Option<String>::None
+}
+
 pub fn parse_content_length(header: [u8]): i32 {
     let key = b"Content-Length: "
     let idx = std.sys.find_subslice(header, key)
@@ -237,6 +260,8 @@ pub type Handler = fn(mut Request, mut Response)
 struct Route {
     method: String,
     path: String,
+    // true when route path contains at least one ":name" segment.
+    has_params: bool,
     handler: Handler,
 }
 
@@ -258,27 +283,127 @@ impl App {
     }
 
     fn add_route(mut self, method: str, path: str, handler: Handler) {
-        let route = Route { method: String::from(method), path: String::from(path), handler }
+        let route_path = String::from(path)
+        let has_params = has_path_params(route_path.as_str())
+        let route = Route {
+            method: String::from(method),
+            path: route_path,
+            has_params,
+            handler,
+        }
         self.routes.push(route)
     }
 
     pub fn dispatch(self, req: mut Request, res: mut Response): bool {
-        let mut i = 0
-        while i < self.routes.len() {
-            let r = self.routes.at(i).unwrap()
-            if r.method.as_str() == req.method.as_str() && r.path.as_str() == req.path.as_str() {
-                let h = r.handler
-                h(req, res)
-                return true
+        // Fast path: exact match routes first (no segment parsing / param extraction).
+        {
+            let mut i = 0
+            while i < self.routes.len() {
+                let r = self.routes.at(i).unwrap()
+                if !r.has_params && r.method.as_str() == req.method.as_str() && r.path.as_str() == req.path.as_str() {
+                    let h = r.handler
+                    h(req, res)
+                    return true
+                }
+                i += 1
             }
-            i += 1
         }
+
+        // Param path routes (e.g. "/users/:id"): collect params only when a route matches.
+        {
+            let mut i = 0
+            while i < self.routes.len() {
+                let r = self.routes.at(i).unwrap()
+                if r.has_params && r.method.as_str() == req.method.as_str() {
+                    let mut params = Vector<PathParam>::new()
+                    let matched = match_route_path(r.path, req.path, params)
+                    if matched {
+                        req.params = params
+                        let h = r.handler
+                        h(req, res)
+                        return true
+                    }
+                }
+                i += 1
+            }
+        }
+
         return false
     }
 
     pub fn listen(self, ip: str = "0.0.0.0", port: u16) {
         serve_tcp4(self, ip, port)
     }
+}
+
+fn is_path_param_segment(segment: String): bool {
+    if segment.len() == 0 {
+        return false
+    }
+
+    return match segment.at(0) {
+        Option::Some(ch) => ch == ':',
+        Option::None => false,
+    }
+}
+
+fn split_path_segments(path: String): Vector<String> {
+    let mut segments = Vector<String>::new()
+    let mut seg_start = 0
+    while seg_start <= path.len() {
+        let seg_end = find_char_from(path, seg_start, '/')
+        segments.push(path.slice(seg_start, seg_end))
+        if seg_end >= path.len() {
+            break
+        }
+        seg_start = seg_end + 1
+    }
+    return segments
+}
+
+// Returns true if the path has at least one ":name" segment.
+fn has_path_params(path: str): bool {
+    let path_segments = split_path_segments(String::from(path))
+
+    let mut i = 0
+    while i < path_segments.len() {
+        let seg = path_segments.at(i).unwrap()
+        if is_path_param_segment(seg) {
+            return true
+        }
+        i += 1
+    }
+
+    return false
+}
+
+// Matches route_path against path and fills `params` with extracted ":name" values.
+fn match_route_path(route_path: String, path: String, params: mut Vector<PathParam>): bool {
+    let route_segments = split_path_segments(route_path)
+    let req_segments = split_path_segments(path)
+    if route_segments.len() != req_segments.len() {
+        return false
+    }
+
+    let mut i = 0
+    while i < route_segments.len() {
+        let route_seg = route_segments.at(i).unwrap()
+        let req_seg = req_segments.at(i).unwrap()
+
+        if is_path_param_segment(route_seg) {
+            let name = route_seg.slice(1, route_seg.len())
+            if name.len() == 0 {
+                panic("path parameter name must not be empty")
+            }
+            params.push(PathParam { name, value: req_seg })
+        } else if route_seg.as_str() != req_seg.as_str() {
+            return false
+        }
+
+        i += 1
+    }
+
+    return true
 }
 
 // ====== Connection handling / server ======
@@ -302,7 +427,7 @@ fn handle_conn(conn: Fd, app: App) {
         let header = buf[0:header_len]
 
         let (method, target, version) = std.sys.parse_request_line(header)
-        // Split target into path (for routing) and query string (for get_query_param)
+        // Split target into path (for routing) and query string (for query method)
         let (path, query) = split_path_query(target)
 
         let content_length = parse_content_length(header)
@@ -327,6 +452,7 @@ fn handle_conn(conn: Fd, app: App) {
             method,
             path,
             query,
+            params: Vector<PathParam>::new(),
             version,
             headers: header,
             body: body[0:body_len],
