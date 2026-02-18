@@ -644,6 +644,18 @@ fn format_is_undeclared() {
 }
 
 #[test]
+fn interpolated_string() -> anyhow::Result<()> {
+    let program = r#"fn main(): i32 {
+        let name = "xy"
+        let s = $"a{name}b"
+        return s.len() as i32
+    }"#;
+
+    assert_eq!(exec(program)?, 4);
+    Ok(())
+}
+
+#[test]
 fn byte_string_literal() -> anyhow::Result<()> {
     let program = r#"fn main(): i32 {
         let bs = b"hi"

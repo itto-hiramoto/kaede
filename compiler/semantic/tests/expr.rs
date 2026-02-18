@@ -79,6 +79,12 @@ fn format_is_undeclared() -> anyhow::Result<()> {
 }
 
 #[test]
+fn interpolated_string() -> anyhow::Result<()> {
+    semantic_analyze("fn f() { let name = \"kaede\"; $\"hello {name}\" }")?;
+    Ok(())
+}
+
+#[test]
 fn arithmetic_binary() -> anyhow::Result<()> {
     semantic_analyze("fn f() { 1 + 2 }")?;
     semantic_analyze("fn f() { 1 - 2 }")?;
