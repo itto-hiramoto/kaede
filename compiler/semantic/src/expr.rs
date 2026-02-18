@@ -2200,10 +2200,28 @@ impl SemanticAnalyzer {
             capture_exprs.push(captured_expr);
         }
 
+        let ret_ty = expected_ty
+            .as_ref()
+            .and_then(|ty| {
+                let unwrapped = match ty.kind.as_ref() {
+                    ir_type::TyKind::Reference(rty) => rty.refee_ty.clone(),
+                    _ => ty.clone(),
+                };
+                match unwrapped.kind.as_ref() {
+                    ir_type::TyKind::Closure(closure_ty)
+                        if closure_ty.param_tys.len() == node.params.len() =>
+                    {
+                        Some(closure_ty.ret_ty.clone())
+                    }
+                    _ => None,
+                }
+            })
+            .unwrap_or_else(|| self.infer_context.fresh());
+
         let closure_ty = Rc::new(ir_type::Ty {
             kind: ir_type::TyKind::Closure(ir_type::ClosureType {
                 param_tys,
-                ret_ty: body.ty.clone(),
+                ret_ty,
                 captures: capture_tys,
             })
             .into(),

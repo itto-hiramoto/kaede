@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use kaede_ir::ty::{Mutability, PointerType, ReferenceType, Ty, TyKind, VarId};
 use kaede_span::Span;
@@ -6,15 +6,47 @@ use kaede_span::Span;
 use crate::error::TypeInferError;
 
 #[derive(Default)]
-pub struct InferContext {
+pub struct TypeVarAllocator {
     next_var: VarId,
+}
+
+impl TypeVarAllocator {
+    pub fn next_var(&self) -> VarId {
+        self.next_var
+    }
+
+    pub fn set_next_var(&mut self, next_var: VarId) {
+        self.next_var = next_var;
+    }
+
+    pub fn fresh_var_id(&mut self) -> VarId {
+        let id = self.next_var;
+        self.next_var += 1;
+        id
+    }
+}
+
+pub type SharedTypeVarAllocator = Rc<RefCell<TypeVarAllocator>>;
+
+fn new_shared_type_var_allocator() -> SharedTypeVarAllocator {
+    Rc::new(RefCell::new(TypeVarAllocator::default()))
+}
+
+pub struct InferContext {
+    pub type_var_allocator: SharedTypeVarAllocator,
     subst: HashMap<VarId, Rc<Ty>>,
 }
 
 impl InferContext {
+    pub fn new(type_var_allocator: SharedTypeVarAllocator) -> Self {
+        Self {
+            type_var_allocator,
+            subst: HashMap::new(),
+        }
+    }
+
     pub fn fresh(&mut self) -> Rc<Ty> {
-        let id = self.next_var;
-        self.next_var += 1;
+        let id = self.type_var_allocator.borrow_mut().fresh_var_id();
         self.new_var(id)
     }
 
@@ -240,5 +272,11 @@ impl InferContext {
                 span,
             }),
         }
+    }
+}
+
+impl Default for InferContext {
+    fn default() -> Self {
+        Self::new(new_shared_type_var_allocator())
     }
 }
