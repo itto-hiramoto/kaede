@@ -256,9 +256,16 @@ pub struct Variable {
 }
 
 #[derive(Debug, Clone)]
+pub enum FormatPart {
+    Literal(String),
+    Placeholder,
+}
+
+#[derive(Debug, Clone)]
 pub enum BuiltinFnCallKind {
     Unreachable,
     Str,
+    Format(Vec<FormatPart>),
     SliceFromRawParts,
     PointerAdd,
     SizeOf,

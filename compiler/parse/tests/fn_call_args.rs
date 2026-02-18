@@ -67,3 +67,54 @@ fn parse_fn_param_default() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn parse_interpolated_string_lowers_to_format_call() -> Result<()> {
+    let mut parser = Parser::new(
+        r#"$"hello {name}""#,
+        FilePath::from(PathBuf::from("test.kd")),
+    );
+    let expr = parser.expr()?;
+
+    let call = match expr.kind {
+        ExprKind::FnCall(call) => call,
+        other => panic!("expected fn call, got {other:?}"),
+    };
+
+    let callee = match call.callee.kind {
+        ExprKind::Ident(id) => id,
+        other => panic!("expected ident callee, got {other:?}"),
+    };
+    assert_eq!(callee.symbol(), Symbol::from("__format".to_string()));
+
+    assert_eq!(call.args.args.len(), 2);
+    let args: Vec<_> = call.args.args.into_iter().collect();
+    match &args[0].value.kind {
+        ExprKind::StringLiteral(s) => assert_eq!(s.syb, Symbol::from("hello {}".to_string())),
+        other => panic!("expected template string literal, got {other:?}"),
+    }
+    assert!(matches!(args[1].value.kind, ExprKind::Ident(_)));
+
+    Ok(())
+}
+
+#[test]
+fn parse_interpolated_string_escaped_braces() -> Result<()> {
+    let mut parser = Parser::new(
+        r#"$"{{x}} {name}""#,
+        FilePath::from(PathBuf::from("test.kd")),
+    );
+    let expr = parser.expr()?;
+
+    let call = match expr.kind {
+        ExprKind::FnCall(call) => call,
+        other => panic!("expected fn call, got {other:?}"),
+    };
+    let first = call.args.args.front().expect("template arg");
+    match &first.value.kind {
+        ExprKind::StringLiteral(s) => assert_eq!(s.syb, Symbol::from("{x} {}".to_string())),
+        other => panic!("expected string literal, got {other:?}"),
+    }
+
+    Ok(())
+}

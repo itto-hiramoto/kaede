@@ -42,6 +42,8 @@ pub enum TokenKind {
     DotDot,
     /// "..."
     DotDotDot,
+    /// "$"
+    Dollar,
     /// "->"
     Arrow,
 
@@ -178,6 +180,7 @@ impl std::fmt::Display for TokenKind {
                 Dot => "'.'",
                 DotDot => "'..'",
                 DotDotDot => "'...'",
+                Dollar => "'$'",
                 Arrow => "'->'",
 
                 Plus => "'+'",

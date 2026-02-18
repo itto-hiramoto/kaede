@@ -155,6 +155,14 @@ fn string_literal_escape_sequences() {
 }
 
 #[test]
+fn interpolated_string_prefix() {
+    lex_test(
+        r#"$"hello {name}""#,
+        vec![Dollar, StringLiteral("hello {name}".to_string()), Semi, Eoi],
+    );
+}
+
+#[test]
 fn char_literal_escape_sequences() {
     lex_test(r#"'\n'"#, vec![CharLiteral('\n'), Semi, Eoi]);
     lex_test(r#"'\r'"#, vec![CharLiteral('\r'), Semi, Eoi]);

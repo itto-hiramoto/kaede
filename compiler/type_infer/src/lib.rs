@@ -881,9 +881,10 @@ impl TypeInferrer {
             let _arg_ty = self.infer_expr(arg)?;
         }
 
-        match builtin_call.kind {
+        match &builtin_call.kind {
             BuiltinFnCallKind::Unreachable => Ok(Rc::new(Ty::new_never())),
             BuiltinFnCallKind::Str => Ok(Rc::new(Ty::new_str(Mutability::Not))),
+            BuiltinFnCallKind::Format(_) => Ok(Rc::new(Ty::new_str(Mutability::Not))),
             BuiltinFnCallKind::SliceFromRawParts => {
                 let elem_ty = match builtin_call.args.0[0].ty.kind.as_ref() {
                     TyKind::Pointer(pty) => pty.pointee_ty.clone(),

@@ -8,7 +8,7 @@ use kaede_ast::expr::{
 };
 use kaede_ast_type::{GenericArgs, Ty, TyKind};
 use kaede_lex::token::TokenKind;
-use kaede_span::Location;
+use kaede_span::{Location, Span};
 use kaede_symbol::{Ident, Symbol};
 
 use crate::{
@@ -390,6 +390,10 @@ impl Parser {
             return self.array_literal();
         }
 
+        if self.check(&TokenKind::Dollar) {
+            return self.interpolated_string_literal();
+        }
+
         if let Some(lit) = self.string_literal() {
             return Ok(lit);
         }
@@ -752,6 +756,178 @@ impl Parser {
         self.string_literal_internal().map(|s| Expr {
             span: s.span,
             kind: ExprKind::StringLiteral(s),
+        })
+    }
+
+    fn parse_interpolated_parts(
+        &mut self,
+        source: &str,
+        span: Span,
+    ) -> ParseResult<(String, Vec<Expr>)> {
+        let mut template = String::new();
+        let mut exprs = Vec::new();
+        let mut it = source.char_indices().peekable();
+
+        while let Some((_, ch)) = it.next() {
+            match ch {
+                '{' => {
+                    if matches!(it.peek(), Some((_, '{'))) {
+                        it.next();
+                        template.push('{');
+                        continue;
+                    }
+
+                    let expr_start = it.peek().map(|(idx, _)| *idx).unwrap_or(source.len());
+
+                    let mut paren_depth = 0usize;
+                    let mut bracket_depth = 0usize;
+                    let mut brace_depth = 0usize;
+                    let mut in_string: Option<char> = None;
+                    let mut escaped = false;
+                    let mut expr_end = None;
+
+                    for (idx, c) in it.by_ref() {
+                        if let Some(quote) = in_string {
+                            if escaped {
+                                escaped = false;
+                                continue;
+                            }
+                            if c == '\\' {
+                                escaped = true;
+                                continue;
+                            }
+                            if c == quote {
+                                in_string = None;
+                            }
+                            continue;
+                        }
+
+                        match c {
+                            '"' | '\'' => in_string = Some(c),
+                            '(' => paren_depth += 1,
+                            ')' => paren_depth = paren_depth.saturating_sub(1),
+                            '[' => bracket_depth += 1,
+                            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+                            '{' => brace_depth += 1,
+                            '}' => {
+                                if paren_depth == 0 && bracket_depth == 0 && brace_depth == 0 {
+                                    expr_end = Some(idx);
+                                    break;
+                                }
+                                brace_depth = brace_depth.saturating_sub(1);
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    let expr_end = expr_end.ok_or(ParseError::ExpectedError {
+                        expected: "'}'".to_string(),
+                        but: "end of interpolated string".to_string(),
+                        span,
+                    })?;
+
+                    let expr_src = source[expr_start..expr_end].trim();
+                    if expr_src.is_empty() {
+                        return Err(ParseError::ExpectedError {
+                            expected: "expression".to_string(),
+                            but: "empty interpolation".to_string(),
+                            span,
+                        }
+                        .into());
+                    }
+
+                    let mut parser = Parser::new(expr_src, self.file);
+                    let expr = parser.expr()?;
+                    if parser.check_semi() {
+                        let _ = parser.consume_semi()?;
+                    }
+                    if !parser.is_eof() {
+                        return Err(ParseError::ExpectedError {
+                            expected: "end of interpolation expression".to_string(),
+                            but: parser.first().kind.to_string(),
+                            span: parser.first().span,
+                        }
+                        .into());
+                    }
+
+                    exprs.push(expr);
+                    template.push_str("{}");
+                }
+                '}' => {
+                    if matches!(it.peek(), Some((_, '}'))) {
+                        it.next();
+                        template.push('}');
+                    } else {
+                        return Err(ParseError::ExpectedError {
+                            expected: "'}}'".to_string(),
+                            but: "'}'".to_string(),
+                            span,
+                        }
+                        .into());
+                    }
+                }
+                _ => template.push(ch),
+            }
+        }
+
+        Ok((template, exprs))
+    }
+
+    fn interpolated_string_literal(&mut self) -> ParseResult<Expr> {
+        let start = self.consume(&TokenKind::Dollar)?.start;
+        let lit = self
+            .string_literal_internal()
+            .ok_or(ParseError::ExpectedError {
+                expected: "string literal".to_string(),
+                but: self.first().kind.to_string(),
+                span: self.first().span,
+            })?;
+
+        let (template, exprs) = self.parse_interpolated_parts(lit.syb.as_str(), lit.span)?;
+
+        let template_expr = Expr {
+            span: lit.span,
+            kind: ExprKind::StringLiteral(StringLiteral {
+                syb: template.into(),
+                span: lit.span,
+            }),
+        };
+
+        let mut args = VecDeque::new();
+        args.push_back(Arg {
+            name: None,
+            span: template_expr.span,
+            value: template_expr,
+        });
+        for expr in exprs {
+            args.push_back(Arg {
+                name: None,
+                span: expr.span,
+                value: expr,
+            });
+        }
+
+        let args_span = self.new_span(
+            args.front().unwrap().span.start,
+            args.back().unwrap().span.finish,
+        );
+        let callee = Expr {
+            kind: ExprKind::Ident(Ident::new(Symbol::from("__format".to_string()), lit.span)),
+            span: lit.span,
+        };
+        let span = self.new_span(start, args_span.finish);
+
+        Ok(Expr {
+            kind: ExprKind::FnCall(FnCall {
+                callee: Box::new(callee),
+                generic_args: None,
+                args: Args {
+                    args,
+                    span: args_span,
+                },
+                span,
+            }),
+            span,
         })
     }
 
