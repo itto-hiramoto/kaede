@@ -229,7 +229,7 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     fn gc_malloc(&mut self, ty: BasicTypeEnum<'ctx>) -> anyhow::Result<PointerValue<'ctx>> {
-        let size = ty.size_of().unwrap().into();
+        let size = ty.size_of().unwrap();
         self.gc_malloc_with_size(size)
     }
 

@@ -786,7 +786,7 @@ impl Parser {
                     let mut escaped = false;
                     let mut expr_end = None;
 
-                    while let Some((idx, c)) = it.next() {
+                    for (idx, c) in it.by_ref() {
                         if let Some(quote) = in_string {
                             if escaped {
                                 escaped = false;
