@@ -118,3 +118,20 @@ fn parse_interpolated_string_escaped_braces() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn parse_match_arms_without_commas() -> Result<()> {
+    let mut parser = Parser::new(
+        "match x {\n  1 => 10\n  2 => 20\n}",
+        FilePath::from(PathBuf::from("test.kd")),
+    );
+    let expr = parser.expr()?;
+
+    let m = match expr.kind {
+        ExprKind::Match(m) => m,
+        other => panic!("expected match expr, got {other:?}"),
+    };
+
+    assert_eq!(m.arms.len(), 2);
+    Ok(())
+}
