@@ -177,12 +177,17 @@ impl<'ctx> CodeGenerator<'ctx> {
         } else {
             unreachable!();
         };
+        let element_ty = if let TyKind::Tuple(element_tys) = tuple_ty.kind.as_ref() {
+            element_tys[index as usize].clone()
+        } else {
+            unreachable!();
+        };
 
         let unpacked_value = self
             .build_indexing_common(
                 tuple.into_pointer_value(),
                 tuple_ref_ty.clone(),
-                tuple_ty.clone(),
+                element_ty,
                 &[
                     self.context().i32_type().const_zero(),
                     self.context().i32_type().const_int(index as u64, false),
