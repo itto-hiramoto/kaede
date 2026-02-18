@@ -575,11 +575,30 @@ impl Parser {
                 code: Rc::new(code),
             });
 
-            // Allow commas to be omitted only in the last arm.
-            if !self.consume_b(&TokenKind::Comma) {
-                self.consume_semi()?;
+            // Arm separators: comma or semicolon (inserted by newline).
+            // This allows:
+            // match x { A => 1, B => 2 }
+            // match x {
+            //   A => 1
+            //   B => 2
+            // }
+            if self.consume_b(&TokenKind::Comma) {
+                continue;
+            }
+            if self.check(&TokenKind::CloseBrace) {
                 break;
             }
+            if self.check_semi() {
+                self.consume_semi()?;
+                continue;
+            }
+
+            return Err(ParseError::ExpectedError {
+                expected: "',' or '}'".to_string(),
+                but: self.first().kind.to_string(),
+                span: self.first().span,
+            }
+            .into());
         }
 
         let finish = self.consume(&TokenKind::CloseBrace)?.finish;
