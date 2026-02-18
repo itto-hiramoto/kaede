@@ -1169,7 +1169,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             .iter()
             .map(|ty| self.conv_to_llvm_type(ty))
             .collect::<Vec<_>>();
-        self.context().struct_type(&fields, true)
+        self.context().struct_type(&fields, false)
     }
 
     fn build_spawn_args(
@@ -1362,7 +1362,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         let ptr_ty = self.context().ptr_type(inkwell::AddressSpace::default());
         let closure_struct_ty = self
             .context()
-            .struct_type(&[ptr_ty.into(), ptr_ty.into()], true);
+            .struct_type(&[ptr_ty.into(), ptr_ty.into()], false);
 
         let closure_ptr = self
             .builder

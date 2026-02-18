@@ -319,7 +319,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 .iter()
                 .map(|ty| self.conv_to_llvm_type(ty))
                 .collect::<Vec<_>>(),
-            true,
+            false,
         );
 
         let captures_ptr_ty = ptr_ty;
@@ -341,7 +341,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         let closure_struct_ty = self
             .context()
-            .struct_type(&[fn_ptr_ty.into(), captures_ptr_ty.into()], true);
+            .struct_type(&[fn_ptr_ty.into(), captures_ptr_ty.into()], false);
 
         (closure_struct_ty, fn_type, captures_tuple_ty)
     }
@@ -355,7 +355,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         let len_ty = context.i64_type();
         // { *T, i64 }
         context
-            .struct_type(&[ptr_ty.into(), len_ty.into()], true)
+            .struct_type(&[ptr_ty.into(), len_ty.into()], false)
             .into()
     }
 
@@ -399,7 +399,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 for ty in types {
                     llvm_types.push(self.conv_to_llvm_type(ty));
                 }
-                context.struct_type(llvm_types.as_slice(), true).into()
+                context.struct_type(llvm_types.as_slice(), false).into()
             }
 
             TyKind::Var(_) => self.context().i32_type().as_basic_type_enum(),
