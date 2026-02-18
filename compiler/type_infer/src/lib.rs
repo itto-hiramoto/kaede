@@ -1,5 +1,6 @@
 //! Bidirectional Type Inference
 
+use std::mem;
 use std::rc::Rc;
 
 use kaede_span::Span;
@@ -7,8 +8,8 @@ use kaede_symbol::Symbol;
 use kaede_symbol_table::{ScopedSymbolTable, SymbolTableValueKind};
 
 pub use crate::context::InferContext;
-use crate::env::Env;
 pub use crate::error::TypeInferError;
+use crate::{context::SharedTypeVarAllocator, env::Env};
 
 use kaede_ir::{
     expr::{
@@ -31,9 +32,14 @@ pub struct TypeInferrer {
 }
 
 impl TypeInferrer {
-    pub fn new(symbol_table_view: ScopedSymbolTable, function_return_ty: Rc<Ty>) -> Self {
+    pub fn new(
+        symbol_table_view: ScopedSymbolTable,
+        function_return_ty: Rc<Ty>,
+        type_var_allocator: SharedTypeVarAllocator,
+    ) -> Self {
+        let context = InferContext::new(type_var_allocator.clone());
         Self {
-            context: InferContext::default(),
+            context,
             symbol_table_view,
             env: Env::new(),
             function_return_ty,
@@ -47,6 +53,17 @@ impl TypeInferrer {
         self.env.push_scope();
         let result = f(self);
         self.env.pop_scope();
+        result
+    }
+
+    fn with_return_ty<R>(
+        &mut self,
+        return_ty: Rc<Ty>,
+        f: impl FnOnce(&mut Self) -> Result<R, TypeInferError>,
+    ) -> Result<R, TypeInferError> {
+        let prev = mem::replace(&mut self.function_return_ty, return_ty);
+        let result = f(self);
+        self.function_return_ty = prev;
         result
     }
 
@@ -156,11 +173,18 @@ impl TypeInferrer {
                         {
                             this.register_variable(*param, param_ty.clone());
                         }
+
+                        this.with_return_ty(closure_ty.ret_ty.clone(), |this| {
+                            this.infer_expr(&closure.body)
+                        })
+                    } else {
+                        this.infer_expr(&closure.body)
                     }
-                    this.infer_expr(&closure.body)
                 })?;
 
-                if let TyKind::Closure(closure_ty) = expr_ty.kind.as_ref() {
+                if let TyKind::Closure(closure_ty) = expr_ty.kind.as_ref()
+                    && !matches!(body_ty.kind.as_ref(), TyKind::Never)
+                {
                     self.context
                         .unify(&body_ty, &closure_ty.ret_ty, closure.span)?;
                 }
@@ -203,6 +227,9 @@ impl TypeInferrer {
             // For other expressions, fall back to inference + unification
             _ => {
                 let inferred_ty = self.infer_expr(expr)?;
+                if matches!(inferred_ty.kind.as_ref(), TyKind::Never) {
+                    return Ok(inferred_ty);
+                }
                 self.context.unify(&inferred_ty, expected_ty, expr.span)?;
                 Ok(self.context.apply(expected_ty))
             }
@@ -249,10 +276,14 @@ impl TypeInferrer {
             }
 
             // Check body against expected return type
-            let body_ty = this.check_expr(&closure.body, &expected_closure.ret_ty)?;
-            // Body result must match the expected return type
-            this.context
-                .unify(&body_ty, &expected_closure.ret_ty, closure.span)?;
+            let body_ty = this.with_return_ty(expected_closure.ret_ty.clone(), |this| {
+                this.check_expr(&closure.body, &expected_closure.ret_ty)
+            })?;
+            // Body result must match the expected return type unless body never returns
+            if !matches!(body_ty.kind.as_ref(), TyKind::Never) {
+                this.context
+                    .unify(&body_ty, &expected_closure.ret_ty, closure.span)?;
+            }
 
             Ok(())
         })?;

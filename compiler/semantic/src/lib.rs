@@ -790,7 +790,11 @@ impl SemanticAnalyzer {
         let symbol_table_view = ScopedSymbolTable::merge_for_inference(module.get_symbol_tables());
 
         // Create a type inferrer with the merged symbol table
-        let mut inferrer = TypeInferrer::new(symbol_table_view, decl.return_ty.clone());
+        let mut inferrer = TypeInferrer::new(
+            symbol_table_view,
+            decl.return_ty.clone(),
+            self.infer_context.type_var_allocator.clone(),
+        );
 
         // Infer types for all statements in the block
         for stmt in &body.body {

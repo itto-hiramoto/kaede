@@ -3584,6 +3584,38 @@ fn closure_with_block_body() -> anyhow::Result<()> {
 }
 
 #[test]
+fn closure_with_explicit_return_value() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let add = |a, b| {
+                return a + b
+            }
+            return add(48, 10)
+        }
+    "#;
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn unit_closure_with_empty_return() -> anyhow::Result<()> {
+    let program = r#"
+        fn call(f: fn()): i32 {
+            f()
+            return 58
+        }
+
+        fn main(): i32 {
+            return call(|| {
+                return
+            })
+        }
+    "#;
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
 fn closure_type_as_function_param() -> anyhow::Result<()> {
     let program = r#"
         fn apply(f: fn(i32) -> i32, x: i32): i32 {
