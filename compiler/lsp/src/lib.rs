@@ -273,7 +273,11 @@ fn semantic_error_span(err: &SemanticError) -> Option<Span> {
         | SemanticError::ExpectedTypeInCast { span }
         | SemanticError::SpawnTargetNotCall { span }
         | SemanticError::SpawnReturnTypeNotUnit { span, .. }
-        | SemanticError::UnsupportedLanguageLinkage { span, .. } => Some(*span),
+        | SemanticError::UnsupportedLanguageLinkage { span, .. }
+        | SemanticError::FormatTemplateMustBeStringLiteral { span }
+        | SemanticError::FormatArgumentMustBeStr { span, .. }
+        | SemanticError::InvalidFormatTemplate { span, .. }
+        | SemanticError::FormatPlaceholderCountMismatch { span, .. } => Some(*span),
         SemanticError::MainNotFound
         | SemanticError::LLVMError { .. }
         | SemanticError::FailedToLookupTarget { .. }

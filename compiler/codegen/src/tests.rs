@@ -593,6 +593,57 @@ fn string_literal() -> anyhow::Result<()> {
 }
 
 #[test]
+fn builtin_format() -> anyhow::Result<()> {
+    let program = r#"fn main(): i32 {
+        let s = __format("a{}b{}", "x", "yz")
+        return s.len() as i32
+    }"#;
+
+    assert_eq!(exec(program)?, 5);
+    Ok(())
+}
+
+#[test]
+fn builtin_format_requires_literal_template() {
+    let program = r#"fn main(): i32 {
+        let t = "{}"
+        let _ = __format(t, "x")
+        return 0
+    }"#;
+
+    assert!(matches!(
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::FormatTemplateMustBeStringLiteral { .. }
+    ));
+}
+
+#[test]
+fn builtin_format_requires_matching_placeholder_count() {
+    let program = r#"fn main(): i32 {
+        let _ = __format("{} {}", "x")
+        return 0
+    }"#;
+
+    assert!(matches!(
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::FormatPlaceholderCountMismatch { .. }
+    ));
+}
+
+#[test]
+fn format_is_undeclared() {
+    let program = r#"fn main(): i32 {
+        let _ = format("{}", "x")
+        return 0
+    }"#;
+
+    assert!(matches!(
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::Undeclared { name, .. } if name.as_str() == "format"
+    ));
+}
+
+#[test]
 fn byte_string_literal() -> anyhow::Result<()> {
     let program = r#"fn main(): i32 {
         let bs = b"hi"

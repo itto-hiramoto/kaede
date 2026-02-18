@@ -18,8 +18,8 @@ use kaede_ir::{
     expr::{
         ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BuiltinFnCall, BuiltinFnCallKind,
         ByteLiteral, ByteStringLiteral, Cast, CharLiteral, Closure, Else, EnumUnpack, EnumVariant,
-        Expr, ExprKind, FieldAccess, FnCall, FnPointer, If, Indexing, Int, LogicalNot, Loop,
-        Slicing, Spawn, StringLiteral, StructLiteral, TupleIndexing, TupleLiteral, Variable,
+        Expr, ExprKind, FieldAccess, FnCall, FnPointer, FormatPart, If, Indexing, Int, LogicalNot,
+        Loop, Slicing, Spawn, StringLiteral, StructLiteral, TupleIndexing, TupleLiteral, Variable,
     },
     stmt::Block,
     ty::{
@@ -30,6 +30,12 @@ use kaede_ir::{
 use kaede_symbol::Symbol;
 
 pub type Value<'ctx> = Option<BasicValueEnum<'ctx>>;
+
+#[derive(Debug, Clone, Copy)]
+struct FormatArg<'ctx> {
+    ptr: PointerValue<'ctx>,
+    len: IntValue<'ctx>,
+}
 
 impl<'ctx> CodeGenerator<'ctx> {
     fn array_type_info(ty: &Rc<Ty>) -> Option<(Rc<Ty>, u32)> {
@@ -175,7 +181,7 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     fn build_builtin_fn_call(&mut self, node: &BuiltinFnCall) -> anyhow::Result<Value<'ctx>> {
-        match node.kind {
+        match &node.kind {
             BuiltinFnCallKind::Unreachable => {
                 self.builder.build_unreachable()?;
                 Ok(None)
@@ -186,6 +192,8 @@ impl<'ctx> CodeGenerator<'ctx> {
                 let len = self.build_expr(&node.args.0[1])?.unwrap();
                 self.build_string_literal_internal(p, len.into_int_value())
             }
+
+            BuiltinFnCallKind::Format(parts) => self.build_format(node, parts),
 
             BuiltinFnCallKind::SliceFromRawParts => {
                 let data_ptr = self
@@ -266,6 +274,114 @@ impl<'ctx> CodeGenerator<'ctx> {
                 Ok(None)
             }
         }
+    }
+
+    fn append_bytes_to_buffer(
+        &mut self,
+        dst_buf: PointerValue<'ctx>,
+        write_offset: IntValue<'ctx>,
+        src_ptr: PointerValue<'ctx>,
+        src_len: IntValue<'ctx>,
+    ) -> anyhow::Result<IntValue<'ctx>> {
+        let i8_ty = self.context().i8_type();
+        let dst_part = unsafe {
+            self.builder
+                .build_in_bounds_gep(i8_ty, dst_buf, &[write_offset], "format.gep")?
+        };
+        self.memcpy_bytes(dst_part, src_ptr, src_len)?;
+        Ok(self
+            .builder
+            .build_int_add(write_offset, src_len, "format.off.next")?)
+    }
+
+    fn collect_format_args(
+        &mut self,
+        node: &BuiltinFnCall,
+        str_llvm_ty: inkwell::types::StructType<'ctx>,
+        mut total_len: IntValue<'ctx>,
+    ) -> anyhow::Result<(Vec<FormatArg<'ctx>>, IntValue<'ctx>)> {
+        let mut args = Vec::with_capacity(node.args.0.len().saturating_sub(1));
+        for arg in node.args.0.iter().skip(1) {
+            let arg_val = self.build_expr(arg)?.unwrap();
+            let (arg_ptr, arg_len) = self.load_str_ptr_and_len(arg_val, str_llvm_ty)?;
+            total_len = self
+                .builder
+                .build_int_add(total_len, arg_len, "format.arg.sum")?;
+            args.push(FormatArg {
+                ptr: arg_ptr,
+                len: arg_len,
+            });
+        }
+        Ok((args, total_len))
+    }
+
+    fn build_format(
+        &mut self,
+        node: &BuiltinFnCall,
+        parts: &[FormatPart],
+    ) -> anyhow::Result<Value<'ctx>> {
+        let placeholders = parts
+            .iter()
+            .filter(|part| matches!(part, FormatPart::Placeholder))
+            .count();
+        if placeholders != node.args.0.len().saturating_sub(1) {
+            anyhow::bail!(
+                "format placeholder count mismatch: expected {}, got {}",
+                placeholders,
+                node.args.0.len().saturating_sub(1)
+            );
+        }
+
+        let i64_ty = self.context().i64_type();
+        let i8_ptr_ty = self.context().ptr_type(AddressSpace::default());
+        let str_llvm_ty = FundamentalType::create_llvm_str_type(self.context()).into_struct_type();
+
+        let mut total_len = i64_ty.const_zero();
+        for part in parts {
+            if let FormatPart::Literal(lit) = part {
+                let lit_len = i64_ty.const_int(lit.len() as u64, false);
+                total_len = self
+                    .builder
+                    .build_int_add(total_len, lit_len, "format.lit.sum")?;
+            }
+        }
+
+        let (format_args, total_len) = self.collect_format_args(node, str_llvm_ty, total_len)?;
+        let raw_buf = self.gc_malloc_with_size(total_len)?;
+        let dst_buf = self
+            .builder
+            .build_pointer_cast(raw_buf, i8_ptr_ty, "format.dst")?;
+
+        let mut write_offset = i64_ty.const_zero();
+        let mut arg_index = 0usize;
+
+        for part in parts {
+            match part {
+                FormatPart::Literal(lit) => {
+                    if lit.is_empty() {
+                        continue;
+                    }
+
+                    let lit_len = i64_ty.const_int(lit.len() as u64, false);
+                    let lit_global = self
+                        .builder
+                        .build_global_string_ptr(lit.as_str(), "format.lit")?;
+                    write_offset = self.append_bytes_to_buffer(
+                        dst_buf,
+                        write_offset,
+                        lit_global.as_pointer_value(),
+                        lit_len,
+                    )?;
+                }
+                FormatPart::Placeholder => {
+                    let FormatArg { ptr, len } = format_args[arg_index];
+                    arg_index += 1;
+                    write_offset = self.append_bytes_to_buffer(dst_buf, write_offset, ptr, len)?;
+                }
+            }
+        }
+
+        self.build_string_literal_internal(dst_buf.into(), total_len)
     }
 
     fn build_panic(&mut self, node: &BuiltinFnCall) -> anyhow::Result<()> {

@@ -6,10 +6,10 @@ use inkwell::{
     basic_block::BasicBlock,
     builder::Builder,
     context::Context,
-    module::Module,
+    module::{Linkage, Module},
     targets::{CodeModel, InitializationConfig, RelocMode, Target, TargetData, TargetMachine},
     types::{AnyType, BasicType, BasicTypeEnum, FunctionType, StructType},
-    values::{BasicValueEnum, FunctionValue, InstructionValue, PointerValue},
+    values::{BasicValueEnum, FunctionValue, InstructionValue, IntValue, PointerValue},
     AddressSpace, OptimizationLevel,
 };
 
@@ -229,21 +229,47 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     fn gc_malloc(&mut self, ty: BasicTypeEnum<'ctx>) -> anyhow::Result<PointerValue<'ctx>> {
+        let size = ty.size_of().unwrap().into();
+        self.gc_malloc_with_size(size)
+    }
+
+    fn gc_malloc_with_size(&mut self, size: IntValue<'ctx>) -> anyhow::Result<PointerValue<'ctx>> {
         let gc_mallocd = self
             .module
             .get_function(self.cgcx.malloc_symbol.as_str())
             .unwrap();
 
-        let size = ty.size_of().unwrap().into();
-
         let addr = self
             .builder
-            .build_call(gc_mallocd, &[size], "")?
+            .build_call(gc_mallocd, &[size.into()], "")?
             .try_as_basic_value()
             .left()
             .unwrap();
 
         Ok(addr.into_pointer_value())
+    }
+
+    fn memcpy_bytes(
+        &mut self,
+        dst: PointerValue<'ctx>,
+        src: PointerValue<'ctx>,
+        len: IntValue<'ctx>,
+    ) -> anyhow::Result<()> {
+        let i8_ptr_ty = self.context().ptr_type(AddressSpace::default());
+        let i64_ty = self.context().i64_type();
+        let memcpy_fn = match self.module.get_function("memcpy") {
+            Some(f) => f,
+            None => {
+                let memcpy_ty =
+                    i8_ptr_ty.fn_type(&[i8_ptr_ty.into(), i8_ptr_ty.into(), i64_ty.into()], false);
+                self.module
+                    .add_function("memcpy", memcpy_ty, Some(Linkage::External))
+            }
+        };
+
+        self.builder
+            .build_call(memcpy_fn, &[dst.into(), src.into(), len.into()], "")?;
+        Ok(())
     }
 
     fn get_current_fn(&self) -> FunctionValue<'ctx> {

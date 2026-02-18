@@ -1276,6 +1276,68 @@ impl SemanticAnalyzer {
         Ok((ordered_args, variadic_args))
     }
 
+    fn parse_format_parts(
+        &self,
+        template: &str,
+        span: Span,
+    ) -> anyhow::Result<Vec<ir::expr::FormatPart>> {
+        let mut chars = template.chars().peekable();
+        let mut current = String::new();
+        let mut parts = Vec::new();
+
+        while let Some(ch) = chars.next() {
+            match ch {
+                '{' => match chars.next() {
+                    Some('{') => current.push('{'),
+                    Some('}') => {
+                        if !current.is_empty() {
+                            parts.push(ir::expr::FormatPart::Literal(std::mem::take(&mut current)));
+                        }
+                        parts.push(ir::expr::FormatPart::Placeholder);
+                    }
+                    Some(other) => {
+                        return Err(SemanticError::InvalidFormatTemplate {
+                            reason: format!("unexpected character after '{{': '{other}'"),
+                            span,
+                        }
+                        .into());
+                    }
+                    None => {
+                        return Err(SemanticError::InvalidFormatTemplate {
+                            reason: "unclosed '{'".to_string(),
+                            span,
+                        }
+                        .into());
+                    }
+                },
+                '}' => match chars.next() {
+                    Some('}') => current.push('}'),
+                    Some(other) => {
+                        return Err(SemanticError::InvalidFormatTemplate {
+                            reason: format!("unexpected character after '}}': '{other}'"),
+                            span,
+                        }
+                        .into());
+                    }
+                    None => {
+                        return Err(SemanticError::InvalidFormatTemplate {
+                            reason: "unescaped '}'".to_string(),
+                            span,
+                        }
+                        .into());
+                    }
+                },
+                _ => current.push(ch),
+            }
+        }
+
+        if !current.is_empty() {
+            parts.push(ir::expr::FormatPart::Literal(current));
+        }
+
+        Ok(parts)
+    }
+
     fn analyze_builtin_fn_call(
         &mut self,
         node: &ast::expr::FnCall,
@@ -1331,6 +1393,78 @@ impl SemanticAnalyzer {
                             span: node.span,
                         }),
                 )
+            }
+
+            "__format" => {
+                if let Some(name) = keyword_arg {
+                    return keyword_error(name);
+                }
+
+                Some((|| -> anyhow::Result<ir::expr::Expr> {
+                    let first = node
+                        .args
+                        .args
+                        .front()
+                        .ok_or(SemanticError::TooFewArguments {
+                            name: callee.symbol(),
+                            span: node.span,
+                        })?;
+
+                    let template = match &first.value.kind {
+                        ast::expr::ExprKind::StringLiteral(lit) => lit.syb.as_str(),
+                        _ => {
+                            return Err(SemanticError::FormatTemplateMustBeStringLiteral {
+                                span: first.value.span,
+                            }
+                            .into());
+                        }
+                    };
+
+                    let format_parts = self.parse_format_parts(template, first.value.span)?;
+                    let placeholder_count = format_parts
+                        .iter()
+                        .filter(|part| matches!(part, ir::expr::FormatPart::Placeholder))
+                        .count();
+
+                    let mut args = Vec::with_capacity(node.args.args.len());
+                    args.push(self.analyze_expr(&first.value)?);
+
+                    for (i, arg) in node.args.args.iter().skip(1).enumerate() {
+                        let analyzed = self.analyze_expr(&arg.value)?;
+                        if !analyzed.ty.is_str() {
+                            return Err(SemanticError::FormatArgumentMustBeStr {
+                                index: i + 1,
+                                ty: analyzed.ty.kind.to_string(),
+                                span: arg.value.span,
+                            }
+                            .into());
+                        }
+                        args.push(analyzed);
+                    }
+
+                    let actual = node.args.args.len() - 1;
+                    if placeholder_count != actual {
+                        return Err(SemanticError::FormatPlaceholderCountMismatch {
+                            expected: placeholder_count,
+                            actual,
+                            span: node.span,
+                        }
+                        .into());
+                    }
+
+                    Ok(ir::expr::Expr {
+                        kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                            kind: ir::expr::BuiltinFnCallKind::Format(format_parts),
+                            args: ir::expr::Args(args, node.span),
+                            span: node.span,
+                        }),
+                        ty: Rc::new(ir_type::wrap_in_ref(
+                            Rc::new(ir_type::Ty::new_str(ir_type::Mutability::Not)),
+                            ir_type::Mutability::Not,
+                        )),
+                        span: node.span,
+                    })
+                })())
             }
 
             "__slice_from_raw_parts" => {

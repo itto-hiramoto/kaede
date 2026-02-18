@@ -38,6 +38,47 @@ fn string_literal() -> anyhow::Result<()> {
 }
 
 #[test]
+fn builtin_format() -> anyhow::Result<()> {
+    semantic_analyze("fn f() { __format(\"hello {}\", \"world\") }")?;
+    Ok(())
+}
+
+#[test]
+fn builtin_format_requires_literal_template() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error(
+        "fn f() {
+            let t = \"hello {}\"
+            __format(t, \"world\")
+        }",
+    )?;
+    assert!(err
+        .to_string()
+        .contains("template must be a string literal"));
+    Ok(())
+}
+
+#[test]
+fn builtin_format_requires_str_args() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error("fn f() { __format(\"n = {}\", 42) }")?;
+    assert!(err.to_string().contains("argument #1 must be `str`"));
+    Ok(())
+}
+
+#[test]
+fn builtin_format_requires_matching_placeholder_count() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error("fn f() { __format(\"{} {}\", \"x\") }")?;
+    assert!(err.to_string().contains("placeholder count mismatch"));
+    Ok(())
+}
+
+#[test]
+fn format_is_undeclared() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error("fn f() { format(\"{}\", \"x\") }")?;
+    assert!(err.to_string().contains("`format` was not declared"));
+    Ok(())
+}
+
+#[test]
 fn arithmetic_binary() -> anyhow::Result<()> {
     semantic_analyze("fn f() { 1 + 2 }")?;
     semantic_analyze("fn f() { 1 - 2 }")?;
