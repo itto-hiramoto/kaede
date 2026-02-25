@@ -126,6 +126,11 @@ pub enum BinaryKind {
 
     LogicalOr,
     LogicalAnd,
+    BitOr,
+    BitXor,
+    BitAnd,
+    Shl,
+    Shr,
 }
 
 #[derive(Debug, Clone)]
@@ -170,6 +175,12 @@ pub struct EnumVariant {
 
 #[derive(Debug, Clone)]
 pub struct LogicalNot {
+    pub operand: Box<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct BitNot {
     pub operand: Box<Expr>,
     pub span: Span,
 }
@@ -306,6 +317,7 @@ pub enum ExprKind {
     Indexing(Indexing),
     Slicing(Slicing),
     LogicalNot(LogicalNot),
+    BitNot(BitNot),
     FnCall(FnCall),
     Spawn(Spawn),
     FnPointer(FnPointer),

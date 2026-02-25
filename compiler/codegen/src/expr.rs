@@ -16,7 +16,7 @@ use inkwell::{
 use kaede_common::rust_function_prefix;
 use kaede_ir::{
     expr::{
-        ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BuiltinFnCall, BuiltinFnCallKind,
+        ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BitNot, BuiltinFnCall, BuiltinFnCallKind,
         ByteLiteral, ByteStringLiteral, Cast, CharLiteral, Closure, Else, EnumUnpack, EnumVariant,
         Expr, ExprKind, FieldAccess, FnCall, FnPointer, FormatPart, If, Indexing, Int, LogicalNot,
         Loop, Slicing, Spawn, StringLiteral, StructLiteral, TupleIndexing, TupleLiteral, Variable,
@@ -145,6 +145,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             ExprKind::CharLiteral(node) => self.build_char_literal(node)?,
 
             ExprKind::LogicalNot(node) => self.build_logical_not(node)?,
+            ExprKind::BitNot(node) => self.build_bit_not(node)?,
 
             ExprKind::Variable(node) => self.build_variable(node)?,
 
@@ -985,6 +986,11 @@ impl<'ctx> CodeGenerator<'ctx> {
                 )?
                 .into(),
         ))
+    }
+
+    fn build_bit_not(&mut self, node: &BitNot) -> anyhow::Result<Value<'ctx>> {
+        let operand = self.build_expr(&node.operand)?.unwrap().into_int_value();
+        Ok(Some(self.builder.build_not(operand, "")?.into()))
     }
 
     fn build_variable(&mut self, node: &Variable) -> anyhow::Result<Value<'ctx>> {
@@ -1861,7 +1867,10 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         // If operands are not int
         if !(left.is_int_value() && right.is_int_value()) {
-            todo!("Error");
+            anyhow::bail!(
+                "unsupported non-integer operands for binary operation: {:?}",
+                node.kind
+            );
         }
 
         let left_int = left.into_int_value();
@@ -1871,6 +1880,24 @@ impl<'ctx> CodeGenerator<'ctx> {
             LogicalOr => self.build_logical_or(left_int, right_int)?,
 
             LogicalAnd => self.build_logical_and(left_int, right_int)?,
+
+            BitAnd => Some(self.builder.build_and(left_int, right_int, "")?.into()),
+
+            BitOr => Some(self.builder.build_or(left_int, right_int, "")?.into()),
+
+            BitXor => Some(self.builder.build_xor(left_int, right_int, "")?.into()),
+
+            Shl => Some(
+                self.builder
+                    .build_left_shift(left_int, right_int, "")?
+                    .into(),
+            ),
+
+            Shr => Some(
+                self.builder
+                    .build_right_shift(left_int, right_int, left_ty.kind.is_signed(), "")?
+                    .into(),
+            ),
 
             Add => Some(self.builder.build_int_add(left_int, right_int, "")?.into()),
 

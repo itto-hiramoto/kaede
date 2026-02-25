@@ -136,6 +136,11 @@ pub enum BinaryKind {
 
     LogicalOr,
     LogicalAnd,
+    BitOr,
+    BitXor,
+    BitAnd,
+    Shl,
+    Shr,
 
     ScopeResolution,
 
@@ -157,6 +162,12 @@ impl Binary {
 
 #[derive(Debug)]
 pub struct LogicalNot {
+    pub operand: Box<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug)]
+pub struct BitNot {
     pub operand: Box<Expr>,
     pub span: Span,
 }
@@ -305,6 +316,7 @@ pub enum ExprKind {
     True,
     False,
     LogicalNot(LogicalNot),
+    BitNot(BitNot),
     ArrayLiteral(ArrayLiteral),
     ArrayRepeat(ArrayRepeat),
     Indexing(Indexing),

@@ -49,6 +49,7 @@ impl SemanticAnalyzer {
             ExprKind::Binary(node) => self.analyze_binary(node),
             ExprKind::Ident(node) => self.analyze_ident(node),
             ExprKind::LogicalNot(node) => self.analyze_logical_not(node),
+            ExprKind::BitNot(node) => self.analyze_bit_not(node),
             ExprKind::Return(node) => self.analyze_return(node),
             ExprKind::Indexing(node) => self.analyze_array_or_ptr_indexing(node),
             ExprKind::Slicing(node) => self.analyze_slicing(node),
@@ -2012,6 +2013,19 @@ impl SemanticAnalyzer {
         })
     }
 
+    fn analyze_bit_not(&mut self, node: &ast::expr::BitNot) -> anyhow::Result<ir::expr::Expr> {
+        let operand = self.analyze_expr(&node.operand)?;
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::BitNot(ir::expr::BitNot {
+                operand: Box::new(operand.clone()),
+                span: node.span,
+            }),
+            ty: operand.ty,
+            span: node.span,
+        })
+    }
+
     fn analyze_boolean_literal(&self, value: bool, span: Span) -> anyhow::Result<ir::expr::Expr> {
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::BooleanLiteral(value),
@@ -3254,6 +3268,11 @@ impl SemanticAnalyzer {
             Ge => to(ir::expr::BinaryKind::Ge, boolean_ty()),
             LogicalOr => to(ir::expr::BinaryKind::LogicalOr, boolean_ty()),
             LogicalAnd => to(ir::expr::BinaryKind::LogicalAnd, boolean_ty()),
+            BitOr => to(ir::expr::BinaryKind::BitOr, lhs.ty.clone()),
+            BitXor => to(ir::expr::BinaryKind::BitXor, lhs.ty.clone()),
+            BitAnd => to(ir::expr::BinaryKind::BitAnd, lhs.ty.clone()),
+            Shl => to(ir::expr::BinaryKind::Shl, lhs.ty.clone()),
+            Shr => to(ir::expr::BinaryKind::Shr, lhs.ty.clone()),
 
             _ => unreachable!(),
         })

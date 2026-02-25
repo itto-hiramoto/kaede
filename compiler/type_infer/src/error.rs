@@ -76,6 +76,12 @@ pub enum TypeInferError {
     #[error("{}:{}:{} integer literal cannot have type {:?}", span.file, span.start.line, span.start.column, ty)]
     InvalidIntegerLiteralType { ty: String, span: Span },
 
+    #[error("{}:{}:{} bitwise operators require integer operands, got {:?}", span.file, span.start.line, span.start.column, actual)]
+    ExpectedIntegerTypeForBitOp { actual: String, span: Span },
+
+    #[error("{}:{}:{} bitwise not requires an integer operand, got {:?}", span.file, span.start.line, span.start.column, actual)]
+    ExpectedIntegerTypeForBitNot { actual: String, span: Span },
+
     #[error("occurs check failed: α{} occurs in {:?}", var_id, ty)]
     OccursCheckFailed { var_id: usize, ty: String },
 

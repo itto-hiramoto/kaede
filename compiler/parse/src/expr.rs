@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::expr::{
-    Arg, Args, ArrayLiteral, ArrayRepeat, Binary, BinaryKind, Break, ByteLiteral,
+    Arg, Args, ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BitNot, Break, ByteLiteral,
     ByteStringLiteral, CharLiteral, Closure, Else, Expr, ExprKind, FnCall, If, Indexing, Int,
     IntKind, LogicalNot, Loop, Match, MatchArm, Return, Slicing, Spawn, StringLiteral,
     StructLiteral, TupleLiteral, While,
@@ -84,32 +84,138 @@ impl Parser {
     }
 
     fn lt_gt_le_ge(&mut self) -> ParseResult<Expr> {
-        let mut node = self.add_or_sub()?;
+        let mut node = self.bit_or()?;
 
         loop {
             if self.consume_b(&TokenKind::Lt) {
-                let right = self.add_or_sub()?;
+                let right = self.bit_or()?;
                 node = Expr {
                     span: self.new_span(node.span.start, right.span.finish),
                     kind: ExprKind::Binary(Binary::new(node.into(), BinaryKind::Lt, right.into())),
                 };
             } else if self.consume_b(&TokenKind::Le) {
-                let right = self.add_or_sub()?;
+                let right = self.bit_or()?;
                 node = Expr {
                     span: self.new_span(node.span.start, right.span.finish),
                     kind: ExprKind::Binary(Binary::new(node.into(), BinaryKind::Le, right.into())),
                 };
             } else if self.consume_b(&TokenKind::Gt) {
-                let right = self.add_or_sub()?;
+                let right = self.bit_or()?;
                 node = Expr {
                     span: self.new_span(node.span.start, right.span.finish),
                     kind: ExprKind::Binary(Binary::new(node.into(), BinaryKind::Gt, right.into())),
                 };
             } else if self.consume_b(&TokenKind::Ge) {
-                let right = self.add_or_sub()?;
+                let right = self.bit_or()?;
                 node = Expr {
                     span: self.new_span(node.span.start, right.span.finish),
                     kind: ExprKind::Binary(Binary::new(node.into(), BinaryKind::Ge, right.into())),
+                };
+            } else {
+                return Ok(node);
+            }
+        }
+    }
+
+    fn bit_or(&mut self) -> ParseResult<Expr> {
+        let mut node = self.bit_xor()?;
+
+        loop {
+            if self.consume_b(&TokenKind::Pipe) {
+                let right = self.bit_xor()?;
+                node = Expr {
+                    span: self.new_span(node.span.start, right.span.finish),
+                    kind: ExprKind::Binary(Binary::new(
+                        node.into(),
+                        BinaryKind::BitOr,
+                        right.into(),
+                    )),
+                };
+            } else {
+                return Ok(node);
+            }
+        }
+    }
+
+    fn bit_xor(&mut self) -> ParseResult<Expr> {
+        let mut node = self.bit_and()?;
+
+        loop {
+            if self.consume_b(&TokenKind::Caret) {
+                let right = self.bit_and()?;
+                node = Expr {
+                    span: self.new_span(node.span.start, right.span.finish),
+                    kind: ExprKind::Binary(Binary::new(
+                        node.into(),
+                        BinaryKind::BitXor,
+                        right.into(),
+                    )),
+                };
+            } else {
+                return Ok(node);
+            }
+        }
+    }
+
+    fn bit_and(&mut self) -> ParseResult<Expr> {
+        let mut node = self.shift()?;
+
+        loop {
+            if self.consume_b(&TokenKind::And) {
+                let right = self.shift()?;
+                node = Expr {
+                    span: self.new_span(node.span.start, right.span.finish),
+                    kind: ExprKind::Binary(Binary::new(
+                        node.into(),
+                        BinaryKind::BitAnd,
+                        right.into(),
+                    )),
+                };
+            } else {
+                return Ok(node);
+            }
+        }
+    }
+
+    fn is_shift_left(&self) -> bool {
+        matches!(
+            (
+                self.tokens.front().map(|t| &t.kind),
+                self.tokens.get(1).map(|t| &t.kind)
+            ),
+            (Some(TokenKind::Lt), Some(TokenKind::Lt))
+        )
+    }
+
+    fn is_shift_right(&self) -> bool {
+        matches!(
+            (
+                self.tokens.front().map(|t| &t.kind),
+                self.tokens.get(1).map(|t| &t.kind)
+            ),
+            (Some(TokenKind::Gt), Some(TokenKind::Gt))
+        )
+    }
+
+    fn shift(&mut self) -> ParseResult<Expr> {
+        let mut node = self.add_or_sub()?;
+
+        loop {
+            if self.is_shift_left() {
+                self.bump().unwrap();
+                self.bump().unwrap();
+                let right = self.add_or_sub()?;
+                node = Expr {
+                    span: self.new_span(node.span.start, right.span.finish),
+                    kind: ExprKind::Binary(Binary::new(node.into(), BinaryKind::Shl, right.into())),
+                };
+            } else if self.is_shift_right() {
+                self.bump().unwrap();
+                self.bump().unwrap();
+                let right = self.add_or_sub()?;
+                node = Expr {
+                    span: self.new_span(node.span.start, right.span.finish),
+                    kind: ExprKind::Binary(Binary::new(node.into(), BinaryKind::Shr, right.into())),
                 };
             } else {
                 return Ok(node);
@@ -198,6 +304,19 @@ impl Parser {
 
             return Ok(Expr {
                 kind: ExprKind::LogicalNot(LogicalNot {
+                    operand: Box::new(operand),
+                    span,
+                }),
+                span,
+            });
+        }
+
+        if let Ok(span) = self.consume(&TokenKind::Tilde) {
+            let operand = self.cast()?;
+            let span = self.new_span(span.start, operand.span.finish);
+
+            return Ok(Expr {
+                kind: ExprKind::BitNot(BitNot {
                     operand: Box::new(operand),
                     span,
                 }),
