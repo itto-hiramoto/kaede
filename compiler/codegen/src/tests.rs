@@ -3296,6 +3296,169 @@ fn prelude() -> anyhow::Result<()> {
 }
 
 #[test]
+fn hashmap_basic_crud() -> anyhow::Result<()> {
+    let program = r#"
+        import std.collections
+
+        use std.collections.hash_str
+
+        fn eq_str(a: str, b: str): bool {
+            return a == b
+        }
+
+        fn main(): i32 {
+            let mut m = HashMap<str, i32>::new(hash_str, eq_str)
+            if !m.is_empty() {
+                return 1
+            }
+            if m.len() != 0 {
+                return 2
+            }
+
+            let prev1 = m.insert("alpha", 10)
+            if match prev1 { Option::Some(_) => true, Option::None => false } {
+                return 3
+            }
+
+            let got = match m.get("alpha") {
+                Option::Some(v) => v,
+                Option::None => return 4,
+            }
+            if got != 10 {
+                return 5
+            }
+            if !m.contains("alpha") {
+                return 6
+            }
+
+            let removed = match m.remove("alpha") {
+                Option::Some(v) => v,
+                Option::None => return 7,
+            }
+            if removed != 10 {
+                return 8
+            }
+            if m.contains("alpha") {
+                return 9
+            }
+            if match m.get("alpha") { Option::Some(_) => true, Option::None => false } {
+                return 10
+            }
+            if match m.remove("alpha") { Option::Some(_) => true, Option::None => false } {
+                return 11
+            }
+
+            return 58
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn hashmap_overwrite_returns_old_value() -> anyhow::Result<()> {
+    let program = r#"
+        import std.collections
+
+        use std.collections.hash_str
+
+        fn eq_str(a: str, b: str): bool {
+            return a == b
+        }
+
+        fn main(): i32 {
+            let mut m = HashMap<str, i32>::new(hash_str, eq_str)
+
+            let r1 = m.insert("k", 11)
+            if match r1 { Option::Some(_) => true, Option::None => false } {
+                return 1
+            }
+
+            let r2 = m.insert("k", 22)
+            let old = match r2 {
+                Option::Some(v) => v,
+                Option::None => return 2,
+            }
+            if old != 11 {
+                return 3
+            }
+            if m.len() != 1 {
+                return 4
+            }
+
+            return match m.get("k") {
+                Option::Some(v) => v,
+                Option::None => 5,
+            }
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 22);
+    Ok(())
+}
+
+#[test]
+fn hashmap_collision_and_rehash() -> anyhow::Result<()> {
+    let program = r#"
+        import std.collections
+
+        fn hash_i32_const(n: i32): u64 {
+            if n == -2147483648 {
+                return 1
+            }
+            return 1
+        }
+
+        fn eq_i32(a: i32, b: i32): bool {
+            return a == b
+        }
+
+        fn main(): i32 {
+            let mut m = HashMap<i32, i32>::with_capacity(8, hash_i32_const, eq_i32)
+
+            let mut i = 0
+            while i < 20 {
+                m.insert(i, i + 100)
+                i += 1
+            }
+
+            let mut sum = 0
+            let mut j = 0
+            while j < 20 {
+                let v = match m.get(j) {
+                    Option::Some(x) => x,
+                    Option::None => return 1,
+                }
+                sum += v
+                j += 1
+            }
+
+            // 100 + ... + 119 = 2190
+            if sum != 2190 {
+                return 2
+            }
+
+            let r = match m.remove(5) {
+                Option::Some(x) => x,
+                Option::None => return 3,
+            }
+            if r != 105 {
+                return 4
+            }
+            if m.contains(5) {
+                return 5
+            }
+
+            return 58
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
 fn string_indexing() -> anyhow::Result<()> {
     let program = r#"
         fn main(): i32 {

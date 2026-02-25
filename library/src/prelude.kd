@@ -7,6 +7,7 @@ import std.string
 import std.ffi.args
 
 pub use std.collections.Vector
+pub use std.collections.HashMap
 pub use std.option.Option
 pub use std.string.String
 pub use std.ffi.args.__prepare_command_line_arguments
