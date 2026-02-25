@@ -12,6 +12,7 @@ use colored::Colorize;
 use inkwell::{context::Context, module::Module, OptimizationLevel};
 use kaede_codegen::{error::CodegenError, CodeGenerator, CodegenCtx};
 use kaede_common::{kaede_gc_lib_path, kaede_lib_path, kaede_runtime_lib_path};
+use kaede_monomorphize::Monomorphizer;
 use kaede_parse::Parser;
 use kaede_semantic::SemanticAnalyzer;
 use tempfile::{NamedTempFile, TempPath};
@@ -183,11 +184,12 @@ fn compile<'ctx>(
 
         let ast = Parser::new(&unit_info.program, file).run()?;
 
-        let ir = SemanticAnalyzer::new(file, root_dir.to_path_buf()).analyze(
+        let mut ir = SemanticAnalyzer::new(file, root_dir.to_path_buf()).analyze(
             ast,
             no_autoload,
             no_prelude,
         )?;
+        Monomorphizer::new().run(&mut ir);
 
         let code_generator = CodeGenerator::new(cgcx)?;
 

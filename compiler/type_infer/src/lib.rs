@@ -184,6 +184,7 @@ impl TypeInferrer {
 
             // Function calls
             FnCall(fn_call) => self.infer_fn_call(fn_call),
+            GenericFnCall(fn_call) => self.infer_generic_fn_call(fn_call),
             BuiltinFnCall(builtin_call) => self.infer_builtin_fn_call(builtin_call),
             FnPointer(_) => Ok(expr_ty.clone()),
             Spawn(spawn) => self.infer_spawn(spawn),
@@ -966,6 +967,34 @@ impl TypeInferrer {
         Ok(decl.return_ty.clone())
     }
 
+    fn infer_generic_fn_call(
+        &mut self,
+        fn_call: &kaede_ir::expr::GenericFnCall,
+    ) -> Result<Rc<Ty>, TypeInferError> {
+        let decl = &fn_call.callee;
+
+        if fn_call.args.0.len() != decl.params.len() && !decl.is_c_variadic {
+            return Err(TypeInferError::ArgumentCountMismatch {
+                fn_name: decl.name.clone(),
+                expected: decl.params.len(),
+                actual: fn_call.args.0.len(),
+                span: fn_call.span,
+            });
+        }
+
+        for (arg, param) in fn_call.args.0.iter().zip(decl.params.iter()) {
+            self.check_expr(arg, &param.ty)?;
+        }
+
+        if decl.is_c_variadic && fn_call.args.0.len() > decl.params.len() {
+            for arg in &fn_call.args.0[decl.params.len()..] {
+                self.infer_expr(arg)?;
+            }
+        }
+
+        Ok(decl.return_ty.clone())
+    }
+
     fn infer_spawn(&mut self, spawn: &Spawn) -> Result<Rc<Ty>, TypeInferError> {
         for arg in &spawn.args {
             self.infer_expr(arg)?;
@@ -1495,6 +1524,27 @@ impl TypeInferrer {
                 }
                 applied_callee.return_ty = self.context.apply(&applied_callee.return_ty);
                 fn_call.callee = applied_callee.into();
+            }
+            GenericFnCall(fn_call) => {
+                for arg in &mut fn_call.args.0 {
+                    self.apply_expr(arg)?;
+                }
+
+                let mut applied_callee = (*fn_call.callee).clone();
+                for param in applied_callee.params.iter_mut() {
+                    if let Some(default) = &mut param.default {
+                        self.apply_expr(std::rc::Rc::make_mut(default))?;
+                    }
+                    param.ty = self.context.apply(&param.ty);
+                }
+                applied_callee.return_ty = self.context.apply(&applied_callee.return_ty);
+                fn_call.callee = applied_callee.into();
+
+                fn_call.generic_args = fn_call
+                    .generic_args
+                    .iter()
+                    .map(|ty| self.context.apply(ty))
+                    .collect();
             }
             Spawn(spawn) => {
                 for arg in &mut spawn.args {

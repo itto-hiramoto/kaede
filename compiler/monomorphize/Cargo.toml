@@ -1,0 +1,10 @@
+[package]
+name = "kaede_monomorphize"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+kaede_common = { path = "../common" }
+kaede_ir = { path = "../ir" }
+kaede_span = { path = "../span" }
+kaede_symbol = { path = "../symbol" }

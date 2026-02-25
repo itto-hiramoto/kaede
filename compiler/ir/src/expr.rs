@@ -51,6 +51,14 @@ pub struct FnCall {
 }
 
 #[derive(Debug, Clone)]
+pub struct GenericFnCall {
+    pub callee: Rc<FnDecl>,
+    pub generic_args: Vec<Rc<Ty>>,
+    pub args: Args,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub struct Spawn {
     pub callee: Rc<FnDecl>,
     pub args: Vec<Expr>,
@@ -319,6 +327,7 @@ pub enum ExprKind {
     LogicalNot(LogicalNot),
     BitNot(BitNot),
     FnCall(FnCall),
+    GenericFnCall(GenericFnCall),
     Spawn(Spawn),
     FnPointer(FnPointer),
     Closure(Closure),
