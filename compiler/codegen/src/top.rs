@@ -194,42 +194,44 @@ impl<'ctx> CodeGenerator<'ctx> {
         ty
     }
 
-    /// Return None if type is not specified for all (like C's enum)
-    /// The size is returned in bits
+    /// Return None if type is not specified for all (like C's enum).
+    /// The size is returned in bits.
     fn get_largest_type_size_of_enum(&mut self, enum_items: &[EnumVariant]) -> Option<u64> {
-        let mut largest = 0;
+        let mut largest_bits = 0;
 
         for item in enum_items.iter() {
             if let Some(ty) = &item.ty {
                 let llvm_ty = self.conv_to_llvm_type(ty);
-                let size = self.get_size_in_bits(&llvm_ty);
-                largest = std::cmp::max(size, largest);
+                let size_bits = self.get_size_in_bits(&llvm_ty);
+                largest_bits = std::cmp::max(size_bits, largest_bits);
             }
         }
 
-        match largest {
+        match largest_bits {
             0 => None,
-            _ => Some(largest),
+            _ => Some(largest_bits),
         }
     }
 
     fn create_enum_type(&mut self, node: &Enum, mangled_name: Symbol) -> StructType<'ctx> {
         let largest_type_size = self.get_largest_type_size_of_enum(&node.variants);
 
-        // If there is an item with a specified type
-        // Specified: { i32, [i8; LARGEST_TYPE_SIZE_IN_BYTES] }
-        // Not specified: { i32 }
+        // If there is an item with a specified type:
+        // - Specified: { i32, [i64; WORDS] }
+        // - Not specified: { i32 }
+        //
+        // We intentionally keep payload 8-byte aligned. Using `[i8; N]` places the payload
+        // immediately after tag (`i32`) and can make pointer payloads unaligned, which causes
+        // UB in generated loads/stores and makes conservative GC pointer discovery unreliable.
         let ty = match largest_type_size {
-            Some(size) => {
+            Some(size_bits) => {
                 let ty = self.context().opaque_struct_type(mangled_name.as_str());
+                let words = size_bits.div_ceil(64) as u32;
 
                 ty.set_body(
                     &[
                         self.context().i32_type().into(),
-                        self.context()
-                            .i8_type()
-                            .array_type((size / 8) as u32)
-                            .into(),
+                        self.context().i64_type().array_type(words).into(),
                     ],
                     false,
                 );

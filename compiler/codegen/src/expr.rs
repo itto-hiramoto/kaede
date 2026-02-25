@@ -1865,6 +1865,25 @@ impl<'ctx> CodeGenerator<'ctx> {
             };
         }
 
+        if left_ty.is_enum() && right_ty.is_enum() {
+            let left_tag = self.load_enum_discriminant(left, &left_ty)?;
+            let right_tag = self.load_enum_discriminant(right, &right_ty)?;
+
+            return Ok(match node.kind {
+                Eq => Some(
+                    self.builder
+                        .build_int_compare(IntPredicate::EQ, left_tag, right_tag, "")?
+                        .into(),
+                ),
+                Ne => Some(
+                    self.builder
+                        .build_int_compare(IntPredicate::NE, left_tag, right_tag, "")?
+                        .into(),
+                ),
+                _ => anyhow::bail!("unsupported enum operation: {:?}", node.kind),
+            });
+        }
+
         // If operands are not int
         if !(left.is_int_value() && right.is_int_value()) {
             anyhow::bail!(
@@ -2009,6 +2028,41 @@ impl<'ctx> CodeGenerator<'ctx> {
                 }
             }
         })
+    }
+
+    fn load_enum_discriminant(
+        &mut self,
+        enum_value: BasicValueEnum<'ctx>,
+        enum_ty: &Rc<Ty>,
+    ) -> anyhow::Result<IntValue<'ctx>> {
+        if !enum_value.is_pointer_value() {
+            anyhow::bail!("expected enum value to be a pointer");
+        }
+
+        let enum_base_ty = match enum_ty.kind.as_ref() {
+            TyKind::Reference(rty) => rty.get_base_type(),
+            _ => enum_ty.clone(),
+        };
+        let enum_struct_ty = self.conv_to_llvm_type(&enum_base_ty).into_struct_type();
+        let enum_ptr = enum_value.into_pointer_value();
+
+        let tag_gep = unsafe {
+            self.builder.build_in_bounds_gep(
+                enum_struct_ty,
+                enum_ptr,
+                &[
+                    self.context().i32_type().const_zero(),
+                    self.context().i32_type().const_zero(),
+                ],
+                "",
+            )?
+        };
+
+        let tag = self
+            .builder
+            .build_load(self.context().i32_type(), tag_gep, "")?;
+
+        Ok(tag.into_int_value())
     }
 
     fn build_str_equal(

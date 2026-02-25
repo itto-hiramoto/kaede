@@ -76,6 +76,25 @@ impl<T> Vector<T> {
         return Option<T>::Some(self.ptr[idx])
     }
 
+    pub fn set(mut self, idx: u64, value: T): bool {
+        if idx >= self.len {
+            return false
+        }
+
+        self.ptr[idx] = value
+        return true
+    }
+
+    pub fn replace(mut self, idx: u64, value: T): Option<T> {
+        if idx >= self.len {
+            return Option<T>::None
+        }
+
+        let old = self.ptr[idx]
+        self.ptr[idx] = value
+        return Option<T>::Some(old)
+    }
+
     pub fn from_slice(s: [T]): mut Vector<T> {
         let mut v = Vector<T>::new()
         let mut i = 0
@@ -85,4 +104,245 @@ impl<T> Vector<T> {
         }
         return v
     }
+}
+
+pub enum HashSlotState {
+    Empty,
+    Filled,
+    Deleted,
+}
+
+pub struct HashMap<K, V> {
+    keys: Vector<Option<K>>,
+    values: Vector<Option<V>>,
+    states: Vector<HashSlotState>,
+    len: u64,
+    used: u64,
+    capacity: u64,
+    hash: fn(K) -> u64,
+    equals: fn(K, K) -> bool,
+}
+
+impl<K, V> HashMap<K, V> {
+    fn normalize_capacity(capacity: u64): u64 {
+        let want = if capacity < 8 { 8 } else { capacity }
+
+        let mut n = 8
+        while n < want {
+            n *= 2
+        }
+
+        return n
+    }
+
+    fn init_storage(mut self, capacity: u64) {
+        self.capacity = capacity
+        self.len = 0
+        self.used = 0
+
+        let mut i = 0
+        while i < capacity {
+            self.keys.push(Option<K>::None)
+            self.values.push(Option<V>::None)
+            self.states.push(HashSlotState::Empty)
+            i += 1
+        }
+    }
+
+    fn should_grow(self): bool {
+        return (self.used * 100) >= (self.capacity * 70)
+    }
+
+    fn find_slot(self, key: K): (bool, u64) {
+        let h = self.hash
+        let equals = self.equals
+
+        let start = h(key) % self.capacity
+        let mut first_deleted = self.capacity
+        let mut i = 0
+
+        while i < self.capacity {
+            let idx = (start + i) % self.capacity
+            let state = self.states.at(idx).unwrap()
+
+            if state == HashSlotState::Empty {
+                if first_deleted != self.capacity {
+                    return (false, first_deleted)
+                }
+                return (false, idx)
+            }
+
+            if state == HashSlotState::Deleted {
+                if first_deleted == self.capacity {
+                    first_deleted = idx
+                }
+            } else {
+                let existing_key = match self.keys.at(idx).unwrap() {
+                    Option::Some(k) => k,
+                    Option::None => panic("corrupted hashmap key slot"),
+                }
+
+                if equals(existing_key, key) {
+                    return (true, idx)
+                }
+            }
+
+            i += 1
+        }
+
+        if first_deleted != self.capacity {
+            return (false, first_deleted)
+        }
+
+        panic("HashMap is full")
+    }
+
+    fn insert_without_grow(mut self, key: K, value: V): Option<V> {
+        let (found, idx) = self.find_slot(key)
+        let state = self.states.at(idx).unwrap()
+
+        if found {
+            let old_value = match self.values.at(idx).unwrap() {
+                Option::Some(v) => Option<V>::Some(v),
+                Option::None => Option<V>::None,
+            }
+            self.keys.set(idx, Option<K>::Some(key))
+            self.values.set(idx, Option<V>::Some(value))
+            return old_value
+        }
+
+        self.keys.set(idx, Option<K>::Some(key))
+        self.values.set(idx, Option<V>::Some(value))
+        self.states.set(idx, HashSlotState::Filled)
+
+        self.len += 1
+        if state == HashSlotState::Empty {
+            self.used += 1
+        }
+
+        return Option<V>::None
+    }
+
+    fn rehash(mut self, new_capacity: u64) {
+        let capacity = HashMap<K, V>::normalize_capacity(new_capacity)
+
+        let old_keys = self.keys
+        let old_values = self.values
+        let old_states = self.states
+        let old_capacity = self.capacity
+
+        self.keys = Vector<Option<K>>::new()
+        self.values = Vector<Option<V>>::new()
+        self.states = Vector<HashSlotState>::new()
+        self.capacity = 0
+        self.len = 0
+        self.used = 0
+        self.init_storage(capacity)
+
+        let mut i = 0
+        while i < old_capacity {
+            if old_states.at(i).unwrap() == HashSlotState::Filled {
+                let key = match old_keys.at(i).unwrap() {
+                    Option::Some(k) => k,
+                    Option::None => panic("corrupted hashmap key slot"),
+                }
+                let value = match old_values.at(i).unwrap() {
+                    Option::Some(v) => v,
+                    Option::None => panic("corrupted hashmap value slot"),
+                }
+                self.insert_without_grow(key, value)
+            }
+            i += 1
+        }
+    }
+
+    pub fn with_capacity(capacity: u64, hash: fn(K) -> u64, equals: fn(K, K) -> bool): mut HashMap<K, V> {
+        let normalized_capacity = HashMap<K, V>::normalize_capacity(capacity)
+
+        let mut map = HashMap<K, V> {
+            keys: Vector<Option<K>>::new(),
+            values: Vector<Option<V>>::new(),
+            states: Vector<HashSlotState>::new(),
+            len: 0,
+            used: 0,
+            capacity: 0,
+            hash,
+            equals,
+        }
+
+        map.init_storage(normalized_capacity)
+        return map
+    }
+
+    pub fn new(hash: fn(K) -> u64, equals: fn(K, K) -> bool): mut HashMap<K, V> {
+        return HashMap<K, V>::with_capacity(8, hash, equals)
+    }
+
+    pub fn len(self): u64 {
+        return self.len
+    }
+
+    pub fn is_empty(self): bool {
+        return self.len == 0
+    }
+
+    pub fn insert(mut self, key: K, value: V): Option<V> {
+        if self.should_grow() {
+            self.rehash(self.capacity * 2)
+        }
+
+        return self.insert_without_grow(key, value)
+    }
+
+    pub fn get(self, key: K): Option<V> {
+        if self.capacity == 0 {
+            return Option<V>::None
+        }
+
+        let (found, idx) = self.find_slot(key)
+        if !found {
+            return Option<V>::None
+        }
+
+        return self.values.at(idx).unwrap()
+    }
+
+    pub fn contains(self, key: K): bool {
+        return match self.get(key) {
+            Option::Some(_) => true,
+            Option::None => false,
+        }
+    }
+
+    pub fn remove(mut self, key: K): Option<V> {
+        if self.capacity == 0 {
+            return Option<V>::None
+        }
+
+        let (found, idx) = self.find_slot(key)
+        if !found {
+            return Option<V>::None
+        }
+
+        self.keys.set(idx, Option<K>::None)
+        let old_value = self.values.replace(idx, Option<V>::None).unwrap()
+        self.states.set(idx, HashSlotState::Deleted)
+        self.len -= 1
+
+        return old_value
+    }
+}
+
+pub fn hash_str(s: str): u64 {
+    let mut h: u64 = 14695981039346656037
+    let prime: u64 = 1099511628211
+
+    let mut i = 0
+    while i < s.len() {
+        h = h ^ (s[i] as u64)
+        h = h * prime
+        i += 1
+    }
+
+    return h
 }

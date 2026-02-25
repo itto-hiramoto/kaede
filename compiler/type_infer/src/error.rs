@@ -82,6 +82,9 @@ pub enum TypeInferError {
     #[error("{}:{}:{} bitwise not requires an integer operand, got {:?}", span.file, span.start.line, span.start.column, actual)]
     ExpectedIntegerTypeForBitNot { actual: String, span: Span },
 
+    #[error("{}:{}:{} enum `{}` can be compared only when all variants are unit variants", span.file, span.start.line, span.start.column, enum_name)]
+    EnumEqRequiresUnitVariants { enum_name: Symbol, span: Span },
+
     #[error("occurs check failed: α{} occurs in {:?}", var_id, ty)]
     OccursCheckFailed { var_id: usize, ty: String },
 

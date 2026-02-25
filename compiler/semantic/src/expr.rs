@@ -660,7 +660,7 @@ impl SemanticAnalyzer {
 
         self.check_exhaustiveness_for_match_on_enum(node, &enum_ir)?;
 
-        let target = Rc::new(self.analyze_expr(&node.value)?);
+        let target = Rc::new(value.clone());
 
         let if_ = self.conv_match_arms_on_enum_to_if(
             enum_ir.clone(),
@@ -768,7 +768,21 @@ impl SemanticAnalyzer {
     }
 
     fn analyze_match(&mut self, node: &ast::expr::Match) -> anyhow::Result<ir::expr::Expr> {
-        let value = Rc::new(self.analyze_expr(&node.value)?);
+        // Evaluate the match target exactly once, then reuse the temporary
+        // variable in all desugared if-conditions and enum-unpack paths.
+        let evaluated_value = self.analyze_expr(&node.value)?;
+        let value_ty = evaluated_value.ty.clone();
+        let target_symbol = self.fresh_temp_symbol("__match_target");
+
+        let value = Rc::new(ir::expr::Expr {
+            kind: ir::expr::ExprKind::Variable(ir::expr::Variable {
+                name: target_symbol,
+                ty: value_ty.clone(),
+                span: node.value.span,
+            }),
+            ty: value_ty.clone(),
+            span: node.value.span,
+        });
 
         // Add a symbol table for the match
         self.push_scope(SymbolTable::new());
@@ -799,7 +813,20 @@ impl SemanticAnalyzer {
 
         self.pop_scope();
 
-        Ok(result)
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::Block(ir::stmt::Block {
+                body: vec![ir::stmt::Stmt::Let(ir::stmt::Let {
+                    name: target_symbol,
+                    init: Some(evaluated_value),
+                    ty: value_ty,
+                    span: node.value.span,
+                })],
+                last_expr: Some(Box::new(result.clone())),
+                span: node.span,
+            }),
+            ty: result.ty.clone(),
+            span: node.span,
+        })
     }
 
     fn analyze_loop(&mut self, node: &ast::expr::Loop) -> anyhow::Result<ir::expr::Expr> {
