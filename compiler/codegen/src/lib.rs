@@ -229,7 +229,14 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     fn gc_malloc(&mut self, ty: BasicTypeEnum<'ctx>) -> anyhow::Result<PointerValue<'ctx>> {
-        let size = ty.size_of().unwrap();
+        // NOTE:
+        // `BasicTypeEnum::size_of()` can under-estimate required bytes for some aggregates
+        // (notably enum-like layouts), because it does not always reflect ABI/store size
+        // including backend-inserted padding.
+        // Use TargetData-based bit size and convert to bytes to allocate enough memory.
+        let size_bits = self.get_size_in_bits(&ty.as_any_type_enum());
+        let size_bytes = size_bits.div_ceil(8);
+        let size = self.context().i64_type().const_int(size_bytes, false);
         self.gc_malloc_with_size(size)
     }
 
