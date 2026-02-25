@@ -2200,6 +2200,31 @@ fn create_simple_enum() -> anyhow::Result<()> {
 }
 
 #[test]
+fn eq_ne_on_unit_enum_variants() -> anyhow::Result<()> {
+    let program = r#"enum E {
+        A,
+        B,
+        C,
+    }
+
+    fn main(): i32 {
+        let a = E::A
+        let b = E::B
+        let a2 = E::A
+
+        if a == a2 && a != b && b != E::C {
+            return 58
+        }
+
+        return 123
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
 fn create_tagged_enum() -> anyhow::Result<()> {
     let program = r#"struct Fruits {
         apple: i32,
@@ -2218,6 +2243,28 @@ fn create_tagged_enum() -> anyhow::Result<()> {
     }"#;
 
     assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn eq_on_tagged_enum_is_rejected() -> anyhow::Result<()> {
+    let program = r#"enum E {
+        A(i32),
+        B(i32),
+    }
+
+    fn main(): i32 {
+        let a = E::A(1)
+        let b = E::B(2)
+        if a == b {
+            return 1
+        }
+        return 0
+    }"#;
+
+    let err = exec(program).unwrap_err().to_string();
+    assert!(err.contains("can be compared only when all variants are unit variants"));
 
     Ok(())
 }
