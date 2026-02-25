@@ -91,6 +91,29 @@ impl TypeInferrer {
         }
     }
 
+    fn ensure_enum_eq_supported(ty: &Rc<Ty>, span: Span) -> Result<(), TypeInferError> {
+        let unwrapped = Self::unwrap_reference(ty);
+
+        let enum_info = match unwrapped.kind.as_ref() {
+            TyKind::UserDefined(udt) => match &udt.kind {
+                kaede_ir::ty::UserDefinedTypeKind::Enum(e) => Some(e),
+                _ => None,
+            },
+            _ => None,
+        };
+
+        if let Some(enum_info) = enum_info
+            && enum_info.variants.iter().any(|v| v.ty.is_some())
+        {
+            return Err(TypeInferError::EnumEqRequiresUnitVariants {
+                enum_name: enum_info.name.symbol(),
+                span,
+            });
+        }
+
+        Ok(())
+    }
+
     pub fn infer_expr(&mut self, expr: &Expr) -> Result<Rc<Ty>, TypeInferError> {
         use ExprKind::*;
 
@@ -627,6 +650,10 @@ impl TypeInferrer {
             | BinaryKind::Gt
             | BinaryKind::Ge => {
                 self.context.unify(&lhs_ty, &rhs_ty, bin.span)?;
+                if matches!(bin.kind, BinaryKind::Eq | BinaryKind::Ne) {
+                    let applied = self.context.apply(&lhs_ty);
+                    Self::ensure_enum_eq_supported(&applied, bin.span)?;
+                }
                 Ok(Rc::new(make_fundamental_type(
                     FundamentalTypeKind::Bool,
                     Mutability::Not,
