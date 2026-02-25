@@ -91,6 +91,11 @@ fn arithmetic_binary() -> anyhow::Result<()> {
     semantic_analyze("fn f() { 1 * 2 }")?;
     semantic_analyze("fn f() { 1 / 2 }")?;
     semantic_analyze("fn f() { 1 % 2 }")?;
+    semantic_analyze("fn f() { 1 & 2 }")?;
+    semantic_analyze("fn f() { 1 | 2 }")?;
+    semantic_analyze("fn f() { 1 ^ 2 }")?;
+    semantic_analyze("fn f() { 1 << 2 }")?;
+    semantic_analyze("fn f() { 8 >> 1 }")?;
     semantic_analyze("fn f() { 1 < 2 }")?;
     semantic_analyze("fn f() { 1 <= 2 }")?;
     semantic_analyze("fn f() { 1 > 2 }")?;
@@ -110,6 +115,12 @@ fn logical_binary() -> anyhow::Result<()> {
 #[test]
 fn logical_not() -> anyhow::Result<()> {
     semantic_analyze("fn f() { !true }")?;
+    Ok(())
+}
+
+#[test]
+fn bit_not() -> anyhow::Result<()> {
+    semantic_analyze("fn f() { ~1 }")?;
     Ok(())
 }
 

@@ -303,6 +303,8 @@ fn type_infer_error_span(err: &TypeInferError) -> Option<Span> {
         | TypeInferError::CannotInferType { span }
         | TypeInferError::CannotInferVariableType { span }
         | TypeInferError::InvalidIntegerLiteralType { span, .. }
+        | TypeInferError::ExpectedIntegerTypeForBitOp { span, .. }
+        | TypeInferError::ExpectedIntegerTypeForBitNot { span, .. }
         | TypeInferError::CannotUnify { span, .. } => Some(*span),
         TypeInferError::OccursCheckFailed { .. }
         | TypeInferError::TupleArityMismatchInUnify { .. } => None,

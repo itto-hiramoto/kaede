@@ -302,6 +302,8 @@ impl Cursor<'_> {
                     self.create_token(TokenKind::Pipe)
                 }
             }
+            '^' => self.create_token(TokenKind::Caret),
+            '~' => self.create_token(TokenKind::Tilde),
             '<' => {
                 if self.first() == '=' {
                     // <=

@@ -940,6 +940,62 @@ fn remainder() -> anyhow::Result<()> {
 }
 
 #[test]
+fn bit_and_or_xor() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let a = 5 & 3
+            let b = 5 | 2
+            let c = 5 ^ 1
+            return a + b + c
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 12);
+    Ok(())
+}
+
+#[test]
+fn bit_shift() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let a = 3 << 2
+            let b = 16 >> 2
+            return a + b
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 16);
+    Ok(())
+}
+
+#[test]
+fn bit_not() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            return ~0
+        }
+    "#;
+
+    assert_eq!(exec(program)?, -1);
+    Ok(())
+}
+
+#[test]
+fn bit_operator_precedence() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let a = 1 + 2 << 3
+            let b = 8 >> 1 & 3
+            let c = 1 | 2 ^ 3 & 4
+            return a + b + c
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 27);
+    Ok(())
+}
+
+#[test]
 fn logical_or() -> anyhow::Result<()> {
     let program = r"fn main(): i32 {
         if false || false {

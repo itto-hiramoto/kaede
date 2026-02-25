@@ -13,9 +13,9 @@ use crate::{context::SharedTypeVarAllocator, env::Env};
 
 use kaede_ir::{
     expr::{
-        Binary, BinaryKind, BuiltinFnCall, BuiltinFnCallKind, Cast, EnumVariant, Expr, ExprKind,
-        FieldAccess, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Slicing, Spawn,
-        TupleIndexing,
+        Binary, BinaryKind, BitNot, BuiltinFnCall, BuiltinFnCallKind, Cast, EnumVariant, Expr,
+        ExprKind, FieldAccess, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Slicing,
+        Spawn, TupleIndexing,
     },
     stmt::{Assign, Block, Let, Stmt, TupleUnpack},
     ty::{FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind, make_fundamental_type},
@@ -82,6 +82,15 @@ impl TypeInferrer {
         }
     }
 
+    fn is_integer_ty(ty: &Rc<Ty>) -> bool {
+        let unwrapped = Self::unwrap_reference(ty);
+
+        match unwrapped.kind.as_ref() {
+            TyKind::Fundamental(fty) => fty.kind.is_int(),
+            _ => false,
+        }
+    }
+
     pub fn infer_expr(&mut self, expr: &Expr) -> Result<Rc<Ty>, TypeInferError> {
         use ExprKind::*;
 
@@ -138,6 +147,7 @@ impl TypeInferrer {
 
             // Unary operations
             LogicalNot(not) => self.infer_logical_not(not),
+            BitNot(not) => self.infer_bit_not(not),
             Cast(cast) => self.infer_cast(cast),
 
             // Field and index access
@@ -633,6 +643,26 @@ impl TypeInferrer {
                 self.context.unify(&rhs_ty, &bool_ty, bin.span)?;
                 Ok(bool_ty)
             }
+
+            BinaryKind::BitAnd
+            | BinaryKind::BitOr
+            | BinaryKind::BitXor
+            | BinaryKind::Shl
+            | BinaryKind::Shr => {
+                self.context.unify(&lhs_ty, &rhs_ty, bin.span)?;
+
+                let applied = self.context.apply(&lhs_ty);
+                if !matches!(applied.kind.as_ref(), TyKind::Var(_))
+                    && !Self::is_integer_ty(&applied)
+                {
+                    return Err(TypeInferError::ExpectedIntegerTypeForBitOp {
+                        actual: applied.kind.to_string(),
+                        span: bin.span,
+                    });
+                }
+
+                Ok(applied)
+            }
         }
     }
 
@@ -644,6 +674,20 @@ impl TypeInferrer {
         ));
         self.context.unify(&operand_ty, &bool_ty, not.span)?;
         Ok(bool_ty)
+    }
+
+    fn infer_bit_not(&mut self, not: &BitNot) -> Result<Rc<Ty>, TypeInferError> {
+        let operand_ty = self.infer_expr(&not.operand)?;
+        let applied = self.context.apply(&operand_ty);
+
+        if !matches!(applied.kind.as_ref(), TyKind::Var(_)) && !Self::is_integer_ty(&applied) {
+            return Err(TypeInferError::ExpectedIntegerTypeForBitNot {
+                actual: applied.kind.to_string(),
+                span: not.span,
+            });
+        }
+
+        Ok(applied)
     }
 
     fn infer_cast(&mut self, cast: &Cast) -> Result<Rc<Ty>, TypeInferError> {
@@ -1324,6 +1368,9 @@ impl TypeInferrer {
 
             // Unary operations
             LogicalNot(not) => {
+                self.apply_expr(&mut not.operand)?;
+            }
+            BitNot(not) => {
                 self.apply_expr(&mut not.operand)?;
             }
             Cast(cast) => {
