@@ -32,24 +32,6 @@ impl<T> Vector<T> {
         return self.capacity
     }
 
-    fn ensure_capacity(mut self, elem_size: u64) {
-        if self.capacity == 0 {
-            self.capacity = 4
-            let new_size = elem_size * self.capacity
-            self.ptr = __mem_alloc(new_size) as *T
-            return
-        }
-
-        if self.len < self.capacity {
-            return
-        }
-
-        let new_capacity = self.capacity * 2
-        let new_size = elem_size * new_capacity
-        self.ptr = __mem_realloc(self.ptr as *i8, new_size) as *T
-        self.capacity = new_capacity
-    }
-
     pub fn push(mut self, elem: T) {
         let elem_size = __sizeof(elem)
 
@@ -104,6 +86,24 @@ impl<T> Vector<T> {
         }
         return v
     }
+
+    fn ensure_capacity(mut self, elem_size: u64) {
+        if self.capacity == 0 {
+            self.capacity = 4
+            let new_size = elem_size * self.capacity
+            self.ptr = __mem_alloc(new_size) as *T
+            return
+        }
+
+        if self.len < self.capacity {
+            return
+        }
+
+        let new_capacity = self.capacity * 2
+        let new_size = elem_size * new_capacity
+        self.ptr = __mem_realloc(self.ptr as *i8, new_size) as *T
+        self.capacity = new_capacity
+    }
 }
 
 pub enum HashSlotState {
@@ -124,6 +124,82 @@ pub struct HashMap<K, V> {
 }
 
 impl<K, V> HashMap<K, V> {
+    pub fn new(hash: fn(K) -> u64, equals: fn(K, K) -> bool): mut HashMap<K, V> {
+        return HashMap<K, V>::with_capacity(8, hash, equals)
+    }
+
+    pub fn with_capacity(capacity: u64, hash: fn(K) -> u64, equals: fn(K, K) -> bool): mut HashMap<K, V> {
+        let normalized_capacity = HashMap<K, V>::normalize_capacity(capacity)
+
+        let mut map = HashMap<K, V> {
+            keys: Vector<Option<K>>::new(),
+            values: Vector<Option<V>>::new(),
+            states: Vector<HashSlotState>::new(),
+            len: 0,
+            used: 0,
+            capacity: 0,
+            hash,
+            equals,
+        }
+
+        map.init_storage(normalized_capacity)
+        return map
+    }
+
+    pub fn len(self): u64 {
+        return self.len
+    }
+
+    pub fn is_empty(self): bool {
+        return self.len == 0
+    }
+
+    pub fn insert(mut self, key: K, value: V): Option<V> {
+        if self.should_grow() {
+            self.rehash(self.capacity * 2)
+        }
+
+        return self.insert_without_grow(key, value)
+    }
+
+    pub fn get(self, key: K): Option<V> {
+        if self.capacity == 0 {
+            return Option<V>::None
+        }
+
+        let (found, idx) = self.find_slot(key)
+        if !found {
+            return Option<V>::None
+        }
+
+        return self.values.at(idx).unwrap()
+    }
+
+    pub fn contains(self, key: K): bool {
+        return match self.get(key) {
+            Option::Some(_) => true,
+            Option::None => false,
+        }
+    }
+
+    pub fn remove(mut self, key: K): Option<V> {
+        if self.capacity == 0 {
+            return Option<V>::None
+        }
+
+        let (found, idx) = self.find_slot(key)
+        if !found {
+            return Option<V>::None
+        }
+
+        self.keys.set(idx, Option<K>::None)
+        let old_value = self.values.replace(idx, Option<V>::None).unwrap()
+        self.states.set(idx, HashSlotState::Deleted)
+        self.len -= 1
+
+        return old_value
+    }
+
     fn normalize_capacity(capacity: u64): u64 {
         let want = if capacity < 8 { 8 } else { capacity }
 
@@ -254,82 +330,6 @@ impl<K, V> HashMap<K, V> {
             }
             i += 1
         }
-    }
-
-    pub fn with_capacity(capacity: u64, hash: fn(K) -> u64, equals: fn(K, K) -> bool): mut HashMap<K, V> {
-        let normalized_capacity = HashMap<K, V>::normalize_capacity(capacity)
-
-        let mut map = HashMap<K, V> {
-            keys: Vector<Option<K>>::new(),
-            values: Vector<Option<V>>::new(),
-            states: Vector<HashSlotState>::new(),
-            len: 0,
-            used: 0,
-            capacity: 0,
-            hash,
-            equals,
-        }
-
-        map.init_storage(normalized_capacity)
-        return map
-    }
-
-    pub fn new(hash: fn(K) -> u64, equals: fn(K, K) -> bool): mut HashMap<K, V> {
-        return HashMap<K, V>::with_capacity(8, hash, equals)
-    }
-
-    pub fn len(self): u64 {
-        return self.len
-    }
-
-    pub fn is_empty(self): bool {
-        return self.len == 0
-    }
-
-    pub fn insert(mut self, key: K, value: V): Option<V> {
-        if self.should_grow() {
-            self.rehash(self.capacity * 2)
-        }
-
-        return self.insert_without_grow(key, value)
-    }
-
-    pub fn get(self, key: K): Option<V> {
-        if self.capacity == 0 {
-            return Option<V>::None
-        }
-
-        let (found, idx) = self.find_slot(key)
-        if !found {
-            return Option<V>::None
-        }
-
-        return self.values.at(idx).unwrap()
-    }
-
-    pub fn contains(self, key: K): bool {
-        return match self.get(key) {
-            Option::Some(_) => true,
-            Option::None => false,
-        }
-    }
-
-    pub fn remove(mut self, key: K): Option<V> {
-        if self.capacity == 0 {
-            return Option<V>::None
-        }
-
-        let (found, idx) = self.find_slot(key)
-        if !found {
-            return Option<V>::None
-        }
-
-        self.keys.set(idx, Option<K>::None)
-        let old_value = self.values.replace(idx, Option<V>::None).unwrap()
-        self.states.set(idx, HashSlotState::Deleted)
-        self.len -= 1
-
-        return old_value
     }
 }
 

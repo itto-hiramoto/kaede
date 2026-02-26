@@ -282,18 +282,6 @@ impl App {
         self.add_route("POST", path, handler)
     }
 
-    fn add_route(mut self, method: str, path: str, handler: Handler) {
-        let route_path = String::from(path)
-        let has_params = has_path_params(route_path.as_str())
-        let route = Route {
-            method: String::from(method),
-            path: route_path,
-            has_params,
-            handler,
-        }
-        self.routes.push(route)
-    }
-
     pub fn dispatch(self, req: mut Request, res: mut Response): bool {
         // Fast path: exact match routes first (no segment parsing / param extraction).
         {
@@ -333,6 +321,18 @@ impl App {
 
     pub fn listen(self, ip: str = "0.0.0.0", port: u16) {
         serve_tcp4(self, ip, port)
+    }
+
+    fn add_route(mut self, method: str, path: str, handler: Handler) {
+        let route_path = String::from(path)
+        let has_params = has_path_params(route_path.as_str())
+        let route = Route {
+            method: String::from(method),
+            path: route_path,
+            has_params,
+            handler,
+        }
+        self.routes.push(route)
     }
 }
 
