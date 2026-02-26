@@ -1,5 +1,6 @@
 //! Bidirectional Type Inference
 
+use std::collections::HashMap;
 use std::mem;
 use std::rc::Rc;
 
@@ -18,7 +19,9 @@ use kaede_ir::{
         Spawn, TupleIndexing,
     },
     stmt::{Assign, Block, Let, Stmt, TupleUnpack},
-    ty::{FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind, make_fundamental_type},
+    ty::{
+        FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind, VarId, make_fundamental_type,
+    },
 };
 mod context;
 mod env;
@@ -29,6 +32,8 @@ pub struct TypeInferrer {
     symbol_table_view: ScopedSymbolTable,
     env: Env,
     function_return_ty: Rc<Ty>,
+    generic_fn_substitutions:
+        HashMap<kaede_ir::qualified_symbol::QualifiedSymbol, HashMap<VarId, Rc<Ty>>>,
 }
 
 impl TypeInferrer {
@@ -43,6 +48,52 @@ impl TypeInferrer {
             symbol_table_view,
             env: Env::new(),
             function_return_ty,
+            generic_fn_substitutions: HashMap::new(),
+        }
+    }
+
+    pub fn take_generic_fn_substitutions(
+        &mut self,
+    ) -> HashMap<kaede_ir::qualified_symbol::QualifiedSymbol, HashMap<VarId, Rc<Ty>>> {
+        std::mem::take(&mut self.generic_fn_substitutions)
+    }
+
+    fn collect_type_var_bindings(
+        pattern: &Rc<Ty>,
+        resolved: &Rc<Ty>,
+        out: &mut HashMap<VarId, Rc<Ty>>,
+    ) {
+        match (pattern.kind.as_ref(), resolved.kind.as_ref()) {
+            (TyKind::Var(id), _) => {
+                out.insert(*id, resolved.clone());
+            }
+            (TyKind::Pointer(p1), TyKind::Pointer(p2)) => {
+                Self::collect_type_var_bindings(&p1.pointee_ty, &p2.pointee_ty, out);
+            }
+            (TyKind::Reference(r1), TyKind::Reference(r2)) => {
+                Self::collect_type_var_bindings(&r1.refee_ty, &r2.refee_ty, out);
+            }
+            (TyKind::Slice(e1), TyKind::Slice(e2)) => {
+                Self::collect_type_var_bindings(e1, e2, out);
+            }
+            (TyKind::Array((e1, _)), TyKind::Array((e2, _))) => {
+                Self::collect_type_var_bindings(e1, e2, out);
+            }
+            (TyKind::Tuple(ts1), TyKind::Tuple(ts2)) => {
+                for (t1, t2) in ts1.iter().zip(ts2.iter()) {
+                    Self::collect_type_var_bindings(t1, t2, out);
+                }
+            }
+            (TyKind::Closure(c1), TyKind::Closure(c2)) => {
+                for (p1, p2) in c1.param_tys.iter().zip(c2.param_tys.iter()) {
+                    Self::collect_type_var_bindings(p1, p2, out);
+                }
+                Self::collect_type_var_bindings(&c1.ret_ty, &c2.ret_ty, out);
+                for (cap1, cap2) in c1.captures.iter().zip(c2.captures.iter()) {
+                    Self::collect_type_var_bindings(cap1, cap2, out);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1530,6 +1581,7 @@ impl TypeInferrer {
                     self.apply_expr(arg)?;
                 }
 
+                let original_generic_args = fn_call.generic_args.clone();
                 let mut applied_callee = (*fn_call.callee).clone();
                 for param in applied_callee.params.iter_mut() {
                     if let Some(default) = &mut param.default {
@@ -1545,6 +1597,31 @@ impl TypeInferrer {
                     .iter()
                     .map(|ty| self.context.apply(ty))
                     .collect();
+
+                let mut bindings = HashMap::new();
+                for (pattern, resolved) in original_generic_args
+                    .iter()
+                    .zip(fn_call.generic_args.iter())
+                {
+                    Self::collect_type_var_bindings(pattern, resolved, &mut bindings);
+                }
+                if !bindings.is_empty() {
+                    self.generic_fn_substitutions
+                        .entry(fn_call.callee.name.clone())
+                        .or_default()
+                        .extend(bindings);
+                }
+
+                if fn_call
+                    .generic_args
+                    .iter()
+                    .any(kaede_ir::ty::contains_type_var)
+                {
+                    return Err(TypeInferError::CannotInferGenericArguments {
+                        fn_name: fn_call.callee.name.clone(),
+                        span: fn_call.span,
+                    });
+                }
             }
             Spawn(spawn) => {
                 for arg in &mut spawn.args {
@@ -1686,5 +1763,102 @@ impl TypeInferrer {
             self.apply_expr(last_expr)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{cell::RefCell, rc::Rc};
+
+    use kaede_common::LangLinkage;
+    use kaede_ir::{
+        expr::{Args, Expr, ExprKind, GenericFnCall},
+        module_path::ModulePath,
+        qualified_symbol::QualifiedSymbol,
+        top::FnDecl,
+        ty::{FundamentalTypeKind, Mutability, Ty, TyKind, make_fundamental_type},
+    };
+    use kaede_span::Span;
+    use kaede_symbol::Symbol;
+    use kaede_symbol_table::{ScopedSymbolTable, SymbolTable};
+
+    use super::{TypeInferError, TypeInferrer};
+    use crate::context::TypeVarAllocator;
+
+    fn var_ty(id: usize) -> Rc<Ty> {
+        Rc::new(Ty {
+            kind: TyKind::Var(id).into(),
+            mutability: Mutability::Not,
+        })
+    }
+
+    fn i32_ty() -> Rc<Ty> {
+        Rc::new(make_fundamental_type(
+            FundamentalTypeKind::I32,
+            Mutability::Not,
+        ))
+    }
+
+    fn make_inferrer() -> TypeInferrer {
+        let tables = vec![SymbolTable::new()];
+        TypeInferrer::new(
+            ScopedSymbolTable::merge_for_inference(&tables),
+            i32_ty(),
+            Rc::new(RefCell::new(TypeVarAllocator::default())),
+        )
+    }
+
+    fn generic_call_expr(return_ty: Rc<Ty>, generic_arg: Rc<Ty>) -> Expr {
+        let callee = Rc::new(FnDecl {
+            lang_linkage: LangLinkage::Default,
+            link_once: true,
+            name: QualifiedSymbol::new(ModulePath::new(vec![]), Symbol::from("id".to_owned())),
+            params: vec![],
+            is_c_variadic: false,
+            return_ty: return_ty.clone(),
+        });
+
+        Expr {
+            kind: ExprKind::GenericFnCall(GenericFnCall {
+                callee,
+                generic_args: vec![generic_arg],
+                args: Args(vec![], Span::dummy()),
+                span: Span::dummy(),
+            }),
+            ty: return_ty,
+            span: Span::dummy(),
+        }
+    }
+
+    #[test]
+    fn generic_call_unifies_from_expected_type_before_final_check() {
+        let mut inferrer = make_inferrer();
+        let mut expr = generic_call_expr(var_ty(0), var_ty(0));
+
+        let ty = inferrer.check_expr(&expr, &i32_ty()).unwrap();
+        assert!(matches!(
+            ty.kind.as_ref(),
+            TyKind::Fundamental(fty) if fty.kind == FundamentalTypeKind::I32
+        ));
+
+        inferrer.apply_expr(&mut expr).unwrap();
+
+        let ExprKind::GenericFnCall(call) = &expr.kind else {
+            panic!("expected generic function call");
+        };
+        assert!(!kaede_ir::ty::contains_type_var(&call.generic_args[0]));
+    }
+
+    #[test]
+    fn generic_call_with_unresolved_args_errors_on_apply() {
+        let mut inferrer = make_inferrer();
+        let mut expr = generic_call_expr(var_ty(0), var_ty(0));
+
+        inferrer.infer_expr(&expr).unwrap();
+        let err = inferrer.apply_expr(&mut expr).unwrap_err();
+        assert!(matches!(
+            err,
+            TypeInferError::CannotInferGenericArguments { .. }
+        ));
     }
 }

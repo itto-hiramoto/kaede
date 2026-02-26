@@ -189,7 +189,7 @@ fn compile<'ctx>(
             no_autoload,
             no_prelude,
         )?;
-        Monomorphizer::new().run(&mut ir);
+        Monomorphizer::new().run(&mut ir)?;
 
         let code_generator = CodeGenerator::new(cgcx)?;
 

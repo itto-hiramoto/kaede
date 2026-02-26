@@ -65,6 +65,23 @@ pub fn is_same_type(t1: &Ty, t2: &Ty) -> bool {
     false
 }
 
+pub fn contains_type_var(ty: &Rc<Ty>) -> bool {
+    match ty.kind.as_ref() {
+        TyKind::Var(_) => true,
+        TyKind::Pointer(pty) => contains_type_var(&pty.pointee_ty),
+        TyKind::Reference(rty) => contains_type_var(&rty.refee_ty),
+        TyKind::Slice(elem) => contains_type_var(elem),
+        TyKind::Array((elem, _)) => contains_type_var(elem),
+        TyKind::Tuple(elems) => elems.iter().any(contains_type_var),
+        TyKind::Closure(closure) => {
+            closure.param_tys.iter().any(contains_type_var)
+                || contains_type_var(&closure.ret_ty)
+                || closure.captures.iter().any(contains_type_var)
+        }
+        TyKind::Fundamental(_) | TyKind::UserDefined(_) | TyKind::Unit | TyKind::Never => false,
+    }
+}
+
 #[derive(Debug, Eq, Clone)]
 pub struct Ty {
     pub kind: Rc<TyKind>,

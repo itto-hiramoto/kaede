@@ -737,6 +737,7 @@ dependencies = [
 name = "kaede_monomorphize"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "kaede_common",
  "kaede_ir",
  "kaede_span",
@@ -810,6 +811,7 @@ name = "kaede_type_infer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "kaede_common",
  "kaede_ir",
  "kaede_span",
  "kaede_symbol",

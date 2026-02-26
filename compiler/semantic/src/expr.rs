@@ -1100,8 +1100,7 @@ impl SemanticAnalyzer {
                 .map(|arg| self.analyze_type(arg))
                 .collect::<anyhow::Result<Vec<_>>>()?
         } else {
-            // Infer generic arguments from the function call arguments
-            provided_args
+            let mut inferred_args = provided_args
                 .iter()
                 .map(|arg| -> anyhow::Result<Rc<ir_type::Ty>> {
                     Ok(match arg.ty.kind.as_ref() {
@@ -1115,7 +1114,20 @@ impl SemanticAnalyzer {
                         _ => arg.ty.clone(),
                     })
                 })
-                .collect::<anyhow::Result<Vec<_>>>()?
+                .collect::<anyhow::Result<Vec<_>>>()?;
+
+            let param_len = func_info
+                .ast
+                .decl
+                .generic_params
+                .as_ref()
+                .map_or(0, |params| params.names.len());
+            if inferred_args.len() < param_len {
+                inferred_args.extend(
+                    (0..(param_len - inferred_args.len())).map(|_| self.infer_context.fresh()),
+                );
+            }
+            inferred_args
         };
 
         // Generate the generic function immediately; a later monomorphize pass rewrites

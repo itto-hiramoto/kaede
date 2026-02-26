@@ -1,6 +1,7 @@
 mod common;
 
 use common::semantic_analyze;
+use kaede_ir::{top::TopLevel, ty::contains_type_var};
 
 use crate::common::semantic_analyze_expect_error;
 
@@ -72,6 +73,16 @@ fn function_with_generic_params() -> anyhow::Result<()> {
     }
     fn f() {
         foo<123>(1, 2)
+    }",
+    )?;
+
+    // Generic function arguments should be inferred from call arguments.
+    semantic_analyze(
+        "fn foo<T, U>(a: T, b: U): T {
+        return a + b
+    }
+    fn f(): i32 {
+        return foo(1, 2)
     }",
     )?;
 
@@ -221,6 +232,48 @@ fn type_alias_pub() -> anyhow::Result<()> {
             return x
         }",
     )?;
+    Ok(())
+}
+
+#[test]
+fn generated_generic_function_has_concrete_types_after_inference() -> anyhow::Result<()> {
+    let ir = semantic_analyze(
+        r#"
+        fn __test_id<T>(x: T): T {
+            return x
+        }
+
+        fn main(): i32 {
+            let n: i32 = __test_id(1)
+            return 58
+        }
+        "#,
+    )?;
+
+    let generated_fn = ir
+        .top_levels
+        .iter()
+        .find_map(|top| match top {
+            TopLevel::Fn(fn_)
+                if fn_.decl.link_once
+                    && fn_
+                        .decl
+                        .name
+                        .symbol()
+                        .as_str()
+                        .starts_with("__test_id") =>
+            {
+                Some(fn_)
+            }
+            _ => None,
+        })
+        .expect("expected generated generic function");
+
+    assert!(
+        !contains_type_var(&generated_fn.decl.return_ty),
+        "generated function return type should be concrete after inference"
+    );
+
     Ok(())
 }
 
