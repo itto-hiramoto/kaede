@@ -22,7 +22,9 @@ fn find_generic_callee_in_expr(expr: &Expr) -> Option<kaede_ir::qualified_symbol
                 None
             }
         }
-        ExprKind::Return(ret) => ret.as_ref().and_then(|inner| find_generic_callee_in_expr(inner)),
+        ExprKind::Return(ret) => ret
+            .as_ref()
+            .and_then(|inner| find_generic_callee_in_expr(inner)),
         ExprKind::Block(block) => find_generic_callee_in_block(block),
         _ => None,
     }
@@ -332,9 +334,7 @@ fn generated_generic_function_has_concrete_types_after_inference() -> anyhow::Re
         .top_levels
         .iter()
         .find_map(|top| match top {
-            TopLevel::Fn(fn_) if fn_.decl.name == generated_name => {
-                Some(fn_)
-            }
+            TopLevel::Fn(fn_) if fn_.decl.name == generated_name => Some(fn_),
             _ => None,
         })
         .expect("expected generated generic function");
@@ -373,7 +373,10 @@ fn generated_generic_impl_method_has_concrete_types_after_inference() -> anyhow:
         .top_levels
         .iter()
         .find_map(|top| match top {
-            TopLevel::Impl(impl_) => impl_.methods.iter().find(|method| method.decl.name == generated_name),
+            TopLevel::Impl(impl_) => impl_
+                .methods
+                .iter()
+                .find(|method| method.decl.name == generated_name),
             _ => None,
         })
         .expect("expected generated generic impl method");
