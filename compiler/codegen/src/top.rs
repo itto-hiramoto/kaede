@@ -253,6 +253,10 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     fn build_impl(&mut self, node: &Impl) -> anyhow::Result<()> {
         for method in node.methods.iter() {
+            self.build_function(method, true)?;
+        }
+
+        for method in node.methods.iter() {
             self.build_function(method, false)?;
         }
 
