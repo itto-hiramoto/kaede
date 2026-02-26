@@ -363,16 +363,24 @@ impl SemanticAnalyzer {
                     // To avoid borrow checker error
                     drop(borrowed_mut_symbol);
 
-                    let impl_ir = analyzer.with_generic_arguments(
-                        &generic_params,
-                        &generic_args,
-                        |analyzer| analyzer.analyze_impl(impl_),
-                    )?;
+                    analyzer.with_generic_arguments(&generic_params, &generic_args, |analyzer| {
+                        analyzer.with_analyze_command(AnalyzeCommand::OnlyFnDeclare, |analyzer| {
+                            analyzer.analyze_impl(impl_.clone())?;
+                            Ok::<(), anyhow::Error>(())
+                        })?;
 
-                    if let TopLevelAnalysisResult::TopLevel(top_level) = impl_ir {
-                        assert!(matches!(top_level, ir::top::TopLevel::Impl(_)));
-                        analyzer.generated_generics.push(top_level);
-                    }
+                        let impl_ir = analyzer.with_analyze_command(
+                            AnalyzeCommand::WithoutFnDeclare,
+                            |analyzer| analyzer.analyze_impl(impl_),
+                        )?;
+
+                        if let TopLevelAnalysisResult::TopLevel(top_level) = impl_ir {
+                            assert!(matches!(top_level, ir::top::TopLevel::Impl(_)));
+                            analyzer.generated_generics.push(top_level);
+                        }
+
+                        Ok::<(), anyhow::Error>(())
+                    })?;
                 }
             }
 

@@ -2919,6 +2919,31 @@ fn method_for_i32() -> anyhow::Result<()> {
 }
 
 #[test]
+fn method_forward_reference_in_same_impl() -> anyhow::Result<()> {
+    let program = r#"struct Counter {
+        value: i32,
+    }
+
+    impl Counter {
+        fn value_plus_one(self): i32 {
+            return self.plus(1)
+        }
+
+        fn plus(self, add: i32): i32 {
+            return self.value + add
+        }
+    }
+
+    fn main(): i32 {
+        return Counter { value: 57 }.value_plus_one()
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
 fn cast_integer() -> anyhow::Result<()> {
     let program = r#"fn f(): i64 {
         let n = 58
@@ -3198,6 +3223,32 @@ fn generic_method() -> anyhow::Result<()> {
             return a.get_value()
         }
         return 123
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn generic_method_forward_reference_in_same_impl() -> anyhow::Result<()> {
+    let program = r#"struct Box<T> {
+        value: T,
+    }
+    impl<T> Box<T> {
+        fn new(value: T): Box<T> {
+            return Box<T> { value: value }
+        }
+        fn value_plus(self, add: i32): i32 {
+            return self.plus(add)
+        }
+        fn plus(self, add: i32): i32 {
+            return self.value + add
+        }
+    }
+    fn main(): i32 {
+        let b = Box<i32>::new(48)
+        return b.value_plus(10)
     }"#;
 
     assert_eq!(exec(program)?, 58);
