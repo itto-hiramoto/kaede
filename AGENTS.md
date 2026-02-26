@@ -28,5 +28,9 @@
 ## Commit & Pull Request Guidelines
 - Follow conventional commits seen in history (`feat:`, `fix:`, `refactor:`, `chore:`, etc.).
 - Each PR should describe behavior changes, linked issues, and how to verify (commands run, sample input/output). Add screenshots only if UI output is relevant.
+- If any Rust files are changed, run `cargo fmt --all` before committing.
+- If any Rust files are changed, run `cargo clippy -- -D warnings` before committing.
+- If formatting cannot be run or fails, report it explicitly and do not claim formatting was completed.
+- If clippy cannot be run or reports warnings/errors, report it explicitly and do not claim lint checks passed.
 - Ensure CI parity locally (`cargo fmt`, `cargo clippy`, `cargo test --release`); mention deviations or flaky areas in the PR.
 - Prefer small, reviewable commits; keep generated artifacts (e.g., `target/`, build outputs) out of git.
