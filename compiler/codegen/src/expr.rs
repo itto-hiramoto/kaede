@@ -132,7 +132,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
             ExprKind::Loop(loop_) => self.build_loop(loop_)?,
 
-            ExprKind::Int(int) => self.build_int(int)?,
+            ExprKind::Int(int) => self.build_int(int, &node.ty)?,
 
             ExprKind::If(node) => self.build_if(node)?,
 
@@ -616,7 +616,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         self.create_gc_struct(captures_tuple_ty.as_basic_type_enum(), &capture_values)
     }
 
-    fn build_int(&self, int: &Int) -> anyhow::Result<Value<'ctx>> {
+    fn build_int(&self, int: &Int, ty: &Rc<Ty>) -> anyhow::Result<Value<'ctx>> {
         use kaede_ir::expr::IntKind::*;
 
         match int.kind {
@@ -650,7 +650,60 @@ impl<'ctx> CodeGenerator<'ctx> {
 
             U64(n) => Ok(Some(self.context().i64_type().const_int(n, false).into())),
 
-            Infer(_) => Err(CodegenError::UnresolvedInferInt.into()),
+            Infer(n) => match ty.kind.as_ref() {
+                TyKind::Fundamental(fty) => match fty.kind {
+                    FundamentalTypeKind::I8 => Ok(Some(
+                        self.context()
+                            .i8_type()
+                            .const_int(n as i8 as u64, true)
+                            .into(),
+                    )),
+                    FundamentalTypeKind::U8 => Ok(Some(
+                        self.context()
+                            .i8_type()
+                            .const_int(n as u8 as u64, false)
+                            .into(),
+                    )),
+                    FundamentalTypeKind::I16 => Ok(Some(
+                        self.context()
+                            .i16_type()
+                            .const_int(n as i16 as u64, true)
+                            .into(),
+                    )),
+                    FundamentalTypeKind::U16 => Ok(Some(
+                        self.context()
+                            .i16_type()
+                            .const_int(n as u16 as u64, false)
+                            .into(),
+                    )),
+                    FundamentalTypeKind::I32 => Ok(Some(
+                        self.context()
+                            .i32_type()
+                            .const_int(n as i32 as u64, true)
+                            .into(),
+                    )),
+                    FundamentalTypeKind::U32 => Ok(Some(
+                        self.context()
+                            .i32_type()
+                            .const_int(n as u32 as u64, false)
+                            .into(),
+                    )),
+                    FundamentalTypeKind::I64 => Ok(Some(
+                        self.context().i64_type().const_int(n as u64, true).into(),
+                    )),
+                    FundamentalTypeKind::U64 => Ok(Some(
+                        self.context().i64_type().const_int(n as u64, false).into(),
+                    )),
+                    _ => Err(CodegenError::UnresolvedInferInt.into()),
+                },
+                TyKind::Var(_) => Ok(Some(
+                    self.context()
+                        .i32_type()
+                        .const_int(n as i32 as u64, true)
+                        .into(),
+                )),
+                _ => Err(CodegenError::UnresolvedInferInt.into()),
+            },
         }
     }
 
