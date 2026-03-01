@@ -73,6 +73,12 @@ pub enum TypeInferError {
     #[error("{}:{}:{} cannot infer type for variable. Please add a type annotation.", span.file, span.start.line, span.start.column)]
     CannotInferVariableType { span: Span },
 
+    #[error("{}:{}:{} cannot infer generic arguments for call to {:?}. Please add explicit generic arguments.", span.file, span.start.line, span.start.column, fn_name)]
+    CannotInferGenericArguments {
+        fn_name: QualifiedSymbol,
+        span: Span,
+    },
+
     #[error("{}:{}:{} integer literal cannot have type {:?}", span.file, span.start.line, span.start.column, ty)]
     InvalidIntegerLiteralType { ty: String, span: Span },
 

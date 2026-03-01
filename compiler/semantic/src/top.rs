@@ -30,6 +30,11 @@ pub enum TopLevelAnalysisResult {
 }
 
 impl SemanticAnalyzer {
+    fn fn_decl_contains_type_var(decl: &ir::top::FnDecl) -> bool {
+        decl.params.iter().any(|p| ir::ty::contains_type_var(&p.ty))
+            || ir::ty::contains_type_var(&decl.return_ty)
+    }
+
     pub fn analyze_top_level(
         &mut self,
         top_level: ast::top::TopLevel,
@@ -578,8 +583,12 @@ impl SemanticAnalyzer {
 
         let mut fn_body = self.analyze_block(&node.body)?;
 
-        // Run type inference on the function body while the scope is still active
-        self.infer_function_body_inline(&mut fn_body, &fn_decl)?;
+        // Delay inference for generated generic functions that still carry unresolved
+        // type variables in their signatures. These are resolved from call-site
+        // constraints later in type inference.
+        if !Self::fn_decl_contains_type_var(&fn_decl) {
+            self.infer_function_body_inline(&mut fn_body, &fn_decl)?;
+        }
 
         let fn_ = Rc::new(ir::top::Fn {
             decl: fn_decl,

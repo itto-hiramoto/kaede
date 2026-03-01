@@ -302,6 +302,7 @@ fn type_infer_error_span(err: &TypeInferError) -> Option<Span> {
         | TypeInferError::ExpectedTupleForUnpack { span }
         | TypeInferError::CannotInferType { span }
         | TypeInferError::CannotInferVariableType { span }
+        | TypeInferError::CannotInferGenericArguments { span, .. }
         | TypeInferError::InvalidIntegerLiteralType { span, .. }
         | TypeInferError::ExpectedIntegerTypeForBitOp { span, .. }
         | TypeInferError::ExpectedIntegerTypeForBitNot { span, .. }

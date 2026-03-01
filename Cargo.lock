@@ -693,6 +693,7 @@ dependencies = [
  "kaede_codegen",
  "kaede_common",
  "kaede_lsp",
+ "kaede_monomorphize",
  "kaede_parse",
  "kaede_semantic",
  "predicates",
@@ -730,6 +731,17 @@ dependencies = [
  "kaede_type_infer",
  "tokio",
  "tower-lsp",
+]
+
+[[package]]
+name = "kaede_monomorphize"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "kaede_common",
+ "kaede_ir",
+ "kaede_span",
+ "kaede_symbol",
 ]
 
 [[package]]
@@ -799,6 +811,7 @@ name = "kaede_type_infer"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "kaede_common",
  "kaede_ir",
  "kaede_span",
  "kaede_symbol",

@@ -152,6 +152,11 @@ impl<'ctx> CodeGenerator<'ctx> {
             ExprKind::BooleanLiteral(node) => self.build_boolean_literal(*node),
 
             ExprKind::FnCall(node) => self.build_fn_call(node)?,
+            ExprKind::GenericFnCall(node) => self.build_fn_call(&FnCall {
+                callee: node.callee.clone(),
+                args: node.args.clone(),
+                span: node.span,
+            })?,
 
             ExprKind::FnPointer(fn_ptr) => self.build_fn_pointer(fn_ptr, &node.ty)?,
 

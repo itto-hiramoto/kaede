@@ -18,6 +18,7 @@ kaede_codegen = { path = "../codegen" }
 kaede_parse = { path = "../parse" }
 kaede_common = { path = "../common" }
 kaede_semantic = { path = "../semantic" }
+kaede_monomorphize = { path = "../monomorphize" }
 kaede_lsp = { path = "../lsp" }
 
 [dev-dependencies]

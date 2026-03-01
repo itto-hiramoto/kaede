@@ -2683,6 +2683,21 @@ fn generic_function_param_inference() -> anyhow::Result<()> {
 }
 
 #[test]
+fn generic_function_identity_param_inference() -> anyhow::Result<()> {
+    let program = r#"fn id<T>(x: T): T {
+        return x
+    }
+
+    fn main(): i32 {
+        return id(58)
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
 fn generic_function_with_struct_type() -> anyhow::Result<()> {
     let program = r#"struct Sample {
         n: i32,

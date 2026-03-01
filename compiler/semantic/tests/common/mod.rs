@@ -14,12 +14,7 @@ fn semantic_analyze_internal(program: &str) -> anyhow::Result<ir::CompileUnit> {
 
 #[allow(dead_code)]
 pub fn semantic_analyze(program: &str) -> anyhow::Result<ir::CompileUnit> {
-    let result = semantic_analyze_internal(program)?;
-
-    // If you want to see the result, you can put --nocapture to the test command.
-    eprintln!("{result:?}");
-
-    Ok(result)
+    semantic_analyze_internal(program)
 }
 
 fn to_display<T: Display + 'static>(err: T) -> Box<dyn Display> {
@@ -29,9 +24,6 @@ fn to_display<T: Display + 'static>(err: T) -> Box<dyn Display> {
 #[allow(dead_code)]
 pub fn semantic_analyze_expect_error(program: &str) -> anyhow::Result<Box<dyn Display>> {
     let result = semantic_analyze_internal(program).expect_err("Expected error");
-
-    // If you want to see the result, you can put --nocapture to the test command.
-    eprintln!("{result:?}");
 
     // Try to downcast to SemanticError first, then TypeInferError
     match result.downcast::<SemanticError>() {

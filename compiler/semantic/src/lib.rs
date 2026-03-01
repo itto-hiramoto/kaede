@@ -54,6 +54,7 @@ pub struct SemanticAnalyzer {
     infer_context: InferContext,
     closure_capture_stack: Vec<ClosureCapture>,
     temp_symbol_counter: usize,
+    generic_fn_substitutions: HashMap<QualifiedSymbol, HashMap<ir_type::VarId, Rc<ir_type::Ty>>>,
 }
 
 impl SemanticAnalyzer {
@@ -104,6 +105,7 @@ impl SemanticAnalyzer {
             infer_context: InferContext::default(),
             closure_capture_stack: Vec::new(),
             temp_symbol_counter: 0,
+            generic_fn_substitutions: HashMap::new(),
         }
     }
 
@@ -127,6 +129,7 @@ impl SemanticAnalyzer {
             infer_context: InferContext::default(),
             closure_capture_stack: Vec::new(),
             temp_symbol_counter: 0,
+            generic_fn_substitutions: HashMap::new(),
         }
     }
 
@@ -297,7 +300,10 @@ impl SemanticAnalyzer {
             "{}_{}",
             name,
             args.iter()
-                .map(|ty| ty.kind.to_string())
+                .map(|ty| match ty.kind.as_ref() {
+                    ir_type::TyKind::Var(id) => format!("var{id}"),
+                    _ => ty.kind.to_string(),
+                })
                 .collect::<Vec<_>>()
                 .join("_")
         )
@@ -381,6 +387,326 @@ impl SemanticAnalyzer {
         }
 
         compile_unit
+    }
+
+    fn merge_generic_fn_substitutions(
+        &mut self,
+        substitutions: HashMap<QualifiedSymbol, HashMap<ir_type::VarId, Rc<ir_type::Ty>>>,
+    ) {
+        for (name, subst) in substitutions {
+            self.generic_fn_substitutions
+                .entry(name)
+                .or_default()
+                .extend(subst);
+        }
+    }
+
+    fn apply_var_subst_to_ty(
+        ty: &Rc<ir_type::Ty>,
+        subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
+    ) -> Rc<ir_type::Ty> {
+        match ty.kind.as_ref() {
+            ir_type::TyKind::Var(id) => subst.get(id).cloned().unwrap_or_else(|| ty.clone()),
+            ir_type::TyKind::Pointer(pty) => Rc::new(ir_type::Ty {
+                kind: ir_type::TyKind::Pointer(ir_type::PointerType {
+                    pointee_ty: Self::apply_var_subst_to_ty(&pty.pointee_ty, subst),
+                })
+                .into(),
+                mutability: ty.mutability,
+            }),
+            ir_type::TyKind::Reference(rty) => Rc::new(ir_type::Ty {
+                kind: ir_type::TyKind::Reference(ir_type::ReferenceType {
+                    refee_ty: Self::apply_var_subst_to_ty(&rty.refee_ty, subst),
+                })
+                .into(),
+                mutability: ty.mutability,
+            }),
+            ir_type::TyKind::Slice(elem) => Rc::new(ir_type::Ty {
+                kind: ir_type::TyKind::Slice(Self::apply_var_subst_to_ty(elem, subst)).into(),
+                mutability: ty.mutability,
+            }),
+            ir_type::TyKind::Array((elem, size)) => Rc::new(ir_type::Ty {
+                kind: ir_type::TyKind::Array((Self::apply_var_subst_to_ty(elem, subst), *size))
+                    .into(),
+                mutability: ty.mutability,
+            }),
+            ir_type::TyKind::Tuple(elems) => Rc::new(ir_type::Ty {
+                kind: ir_type::TyKind::Tuple(
+                    elems
+                        .iter()
+                        .map(|t| Self::apply_var_subst_to_ty(t, subst))
+                        .collect(),
+                )
+                .into(),
+                mutability: ty.mutability,
+            }),
+            ir_type::TyKind::Closure(closure) => Rc::new(ir_type::Ty {
+                kind: ir_type::TyKind::Closure(ir_type::ClosureType {
+                    param_tys: closure
+                        .param_tys
+                        .iter()
+                        .map(|t| Self::apply_var_subst_to_ty(t, subst))
+                        .collect(),
+                    ret_ty: Self::apply_var_subst_to_ty(&closure.ret_ty, subst),
+                    captures: closure
+                        .captures
+                        .iter()
+                        .map(|t| Self::apply_var_subst_to_ty(t, subst))
+                        .collect(),
+                })
+                .into(),
+                mutability: ty.mutability,
+            }),
+            ir_type::TyKind::Fundamental(_)
+            | ir_type::TyKind::UserDefined(_)
+            | ir_type::TyKind::Unit
+            | ir_type::TyKind::Never => ty.clone(),
+        }
+    }
+
+    fn apply_var_subst_to_fn_decl(
+        decl: &mut ir::top::FnDecl,
+        subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
+    ) {
+        for param in &mut decl.params {
+            param.ty = Self::apply_var_subst_to_ty(&param.ty, subst);
+            if let Some(default) = &mut param.default {
+                Self::apply_var_subst_to_expr(Rc::make_mut(default), subst);
+            }
+        }
+        decl.return_ty = Self::apply_var_subst_to_ty(&decl.return_ty, subst);
+    }
+
+    fn apply_var_subst_to_stmt(
+        stmt: &mut ir::stmt::Stmt,
+        subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
+    ) {
+        match stmt {
+            ir::stmt::Stmt::Expr(expr) => Self::apply_var_subst_to_expr(Rc::make_mut(expr), subst),
+            ir::stmt::Stmt::Let(let_stmt) => {
+                let_stmt.ty = Self::apply_var_subst_to_ty(&let_stmt.ty, subst);
+                if let Some(init) = &mut let_stmt.init {
+                    Self::apply_var_subst_to_expr(init, subst);
+                }
+            }
+            ir::stmt::Stmt::TupleUnpack(tuple_unpack) => {
+                Self::apply_var_subst_to_expr(&mut tuple_unpack.init, subst);
+            }
+            ir::stmt::Stmt::Assign(assign) => {
+                Self::apply_var_subst_to_expr(&mut assign.assignee, subst);
+                Self::apply_var_subst_to_expr(&mut assign.value, subst);
+            }
+        }
+    }
+
+    fn apply_var_subst_to_block(
+        block: &mut ir::stmt::Block,
+        subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
+    ) {
+        for stmt in &mut block.body {
+            Self::apply_var_subst_to_stmt(stmt, subst);
+        }
+        if let Some(last_expr) = &mut block.last_expr {
+            Self::apply_var_subst_to_expr(last_expr, subst);
+        }
+    }
+
+    fn apply_var_subst_to_expr(
+        expr: &mut ir::expr::Expr,
+        subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
+    ) {
+        expr.ty = Self::apply_var_subst_to_ty(&expr.ty, subst);
+
+        match &mut expr.kind {
+            ir::expr::ExprKind::Variable(var) => {
+                var.ty = Self::apply_var_subst_to_ty(&var.ty, subst);
+            }
+            ir::expr::ExprKind::ArrayLiteral(arr) => {
+                for elem in &mut arr.elements {
+                    Self::apply_var_subst_to_expr(elem, subst);
+                }
+            }
+            ir::expr::ExprKind::ArrayRepeat(rep) => {
+                Self::apply_var_subst_to_expr(&mut rep.value, subst);
+            }
+            ir::expr::ExprKind::TupleLiteral(tuple) => {
+                for elem in &mut tuple.elements {
+                    Self::apply_var_subst_to_expr(elem, subst);
+                }
+            }
+            ir::expr::ExprKind::StructLiteral(lit) => {
+                for (_, value) in &mut lit.values {
+                    Self::apply_var_subst_to_expr(value, subst);
+                }
+            }
+            ir::expr::ExprKind::Binary(bin) => {
+                Self::apply_var_subst_to_expr(Rc::make_mut(&mut bin.lhs), subst);
+                Self::apply_var_subst_to_expr(Rc::make_mut(&mut bin.rhs), subst);
+            }
+            ir::expr::ExprKind::Cast(cast) => {
+                Self::apply_var_subst_to_expr(&mut cast.operand, subst);
+                cast.target_ty = Self::apply_var_subst_to_ty(&cast.target_ty, subst);
+            }
+            ir::expr::ExprKind::FieldAccess(field) => {
+                Self::apply_var_subst_to_expr(&mut field.operand, subst);
+            }
+            ir::expr::ExprKind::TupleIndexing(tuple_idx) => {
+                Self::apply_var_subst_to_expr(Rc::make_mut(&mut tuple_idx.tuple), subst);
+                tuple_idx.element_ty = Self::apply_var_subst_to_ty(&tuple_idx.element_ty, subst);
+            }
+            ir::expr::ExprKind::EnumVariant(enum_var) => {
+                if let Some(value) = &mut enum_var.value {
+                    Self::apply_var_subst_to_expr(value, subst);
+                }
+            }
+            ir::expr::ExprKind::Indexing(idx) => {
+                Self::apply_var_subst_to_expr(Rc::make_mut(&mut idx.operand), subst);
+                Self::apply_var_subst_to_expr(&mut idx.index, subst);
+            }
+            ir::expr::ExprKind::Slicing(slicing) => {
+                Self::apply_var_subst_to_expr(Rc::make_mut(&mut slicing.operand), subst);
+                Self::apply_var_subst_to_expr(&mut slicing.start, subst);
+                Self::apply_var_subst_to_expr(&mut slicing.end, subst);
+                slicing.elem_ty = Self::apply_var_subst_to_ty(&slicing.elem_ty, subst);
+            }
+            ir::expr::ExprKind::LogicalNot(not) => {
+                Self::apply_var_subst_to_expr(&mut not.operand, subst);
+            }
+            ir::expr::ExprKind::BitNot(not) => {
+                Self::apply_var_subst_to_expr(&mut not.operand, subst);
+            }
+            ir::expr::ExprKind::FnCall(call) => {
+                for arg in &mut call.args.0 {
+                    Self::apply_var_subst_to_expr(arg, subst);
+                }
+                let mut callee = (*call.callee).clone();
+                Self::apply_var_subst_to_fn_decl(&mut callee, subst);
+                call.callee = Rc::new(callee);
+            }
+            ir::expr::ExprKind::GenericFnCall(call) => {
+                for arg in &mut call.args.0 {
+                    Self::apply_var_subst_to_expr(arg, subst);
+                }
+                let mut callee = (*call.callee).clone();
+                Self::apply_var_subst_to_fn_decl(&mut callee, subst);
+                call.callee = Rc::new(callee);
+                call.generic_args = call
+                    .generic_args
+                    .iter()
+                    .map(|arg| Self::apply_var_subst_to_ty(arg, subst))
+                    .collect();
+            }
+            ir::expr::ExprKind::Spawn(spawn) => {
+                for arg in &mut spawn.args {
+                    Self::apply_var_subst_to_expr(arg, subst);
+                }
+                let mut callee = (*spawn.callee).clone();
+                Self::apply_var_subst_to_fn_decl(&mut callee, subst);
+                spawn.callee = Rc::new(callee);
+                spawn.arg_types = spawn
+                    .arg_types
+                    .iter()
+                    .map(|ty| Self::apply_var_subst_to_ty(ty, subst))
+                    .collect();
+            }
+            ir::expr::ExprKind::FnPointer(fn_ptr) => {
+                let mut decl = (*fn_ptr.decl).clone();
+                Self::apply_var_subst_to_fn_decl(&mut decl, subst);
+                fn_ptr.decl = Rc::new(decl);
+            }
+            ir::expr::ExprKind::Closure(closure) => {
+                for capture in &mut closure.captures {
+                    Self::apply_var_subst_to_expr(capture, subst);
+                }
+                Self::apply_var_subst_to_expr(&mut closure.body, subst);
+            }
+            ir::expr::ExprKind::Return(ret) => {
+                if let Some(value) = ret {
+                    Self::apply_var_subst_to_expr(value, subst);
+                }
+            }
+            ir::expr::ExprKind::If(if_expr) => {
+                Self::apply_var_subst_to_expr(&mut if_expr.cond, subst);
+                Self::apply_var_subst_to_expr(&mut if_expr.then, subst);
+                if let Some(else_) = &mut if_expr.else_ {
+                    match else_.as_mut() {
+                        ir::expr::Else::If(if_) => {
+                            let mut wrapped = ir::expr::Expr {
+                                kind: ir::expr::ExprKind::If(if_.clone()),
+                                ty: if_.then.ty.clone(),
+                                span: if_.span,
+                            };
+                            Self::apply_var_subst_to_expr(&mut wrapped, subst);
+                            if let ir::expr::ExprKind::If(updated_if) = wrapped.kind {
+                                *if_ = updated_if;
+                            } else {
+                                unreachable!()
+                            }
+                        }
+                        ir::expr::Else::Block(block) => {
+                            Self::apply_var_subst_to_expr(block, subst);
+                        }
+                    }
+                }
+                if let Some(enum_unpack) = &mut if_expr.enum_unpack {
+                    Self::apply_var_subst_to_expr(Rc::make_mut(&mut enum_unpack.enum_value), subst);
+                    enum_unpack.variant_ty =
+                        Self::apply_var_subst_to_ty(&enum_unpack.variant_ty, subst);
+                }
+            }
+            ir::expr::ExprKind::Loop(loop_expr) => {
+                Self::apply_var_subst_to_block(&mut loop_expr.body, subst);
+            }
+            ir::expr::ExprKind::Block(block) => {
+                Self::apply_var_subst_to_block(block, subst);
+            }
+            ir::expr::ExprKind::BuiltinFnCall(call) => {
+                for arg in &mut call.args.0 {
+                    Self::apply_var_subst_to_expr(arg, subst);
+                }
+            }
+            ir::expr::ExprKind::Int(_)
+            | ir::expr::ExprKind::StringLiteral(_)
+            | ir::expr::ExprKind::ByteStringLiteral(_)
+            | ir::expr::ExprKind::ByteLiteral(_)
+            | ir::expr::ExprKind::CharLiteral(_)
+            | ir::expr::ExprKind::BooleanLiteral(_)
+            | ir::expr::ExprKind::Break => {}
+        }
+    }
+
+    fn apply_substitutions_to_generated_generic_functions(&mut self) {
+        if self.generic_fn_substitutions.is_empty() {
+            return;
+        }
+
+        for top_level in &mut self.generated_generics {
+            match top_level {
+                ir::top::TopLevel::Fn(fn_) => {
+                    let fn_ = Rc::get_mut(fn_).expect("generated function must be uniquely owned");
+                    if let Some(subst) = self.generic_fn_substitutions.get(&fn_.decl.name) {
+                        Self::apply_var_subst_to_fn_decl(&mut fn_.decl, subst);
+                        if let Some(body) = &mut fn_.body {
+                            Self::apply_var_subst_to_block(body, subst);
+                        }
+                    }
+                }
+                ir::top::TopLevel::Impl(impl_) => {
+                    let impl_ = Rc::get_mut(impl_).expect("generated impl must be uniquely owned");
+                    for method in &mut impl_.methods {
+                        let method = Rc::get_mut(method)
+                            .expect("generated impl method must be uniquely owned");
+                        if let Some(subst) = self.generic_fn_substitutions.get(&method.decl.name) {
+                            Self::apply_var_subst_to_fn_decl(&mut method.decl, subst);
+                            if let Some(body) = &mut method.body {
+                                Self::apply_var_subst_to_block(body, subst);
+                            }
+                        }
+                    }
+                }
+                ir::top::TopLevel::Struct(_) | ir::top::TopLevel::Enum(_) => {}
+            }
+        }
     }
 
     fn analyze_prelude(
@@ -808,6 +1134,7 @@ impl SemanticAnalyzer {
 
         // Apply inferred types back to the IR
         inferrer.apply_block(body)?;
+        self.merge_generic_fn_substitutions(inferrer.into_generic_fn_substitutions());
 
         Ok(())
     }
@@ -939,6 +1266,8 @@ impl SemanticAnalyzer {
         if self.lookup_symbol("main".to_owned().into()).is_some() {
             self.build_main_function(&mut top_level_irs)?;
         }
+
+        self.apply_substitutions_to_generated_generic_functions();
 
         Ok(
             self.inject_generated_generics_to_compile_unit(ir::CompileUnit {

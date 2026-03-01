@@ -81,6 +81,7 @@ impl SemanticAnalyzer {
 
         let (callee, args) = match call_expr.kind {
             ir::expr::ExprKind::FnCall(call) => (call.callee, call.args.0),
+            ir::expr::ExprKind::GenericFnCall(call) => (call.callee, call.args.0),
             _ => {
                 return Err(SemanticError::SpawnTargetNotCall { span: node.span }.into());
             }
@@ -1038,6 +1039,17 @@ impl SemanticAnalyzer {
             GenericKind::Func(info) => info,
             _ => unreachable!(),
         };
+        self.analyze_generic_func_call_core(func_info, node, None, node.span)
+    }
+
+    fn analyze_generic_func_call_core(
+        &mut self,
+        func_info: &GenericFuncInfo,
+        node: &ast::expr::FnCall,
+        this_arg: Option<ir::expr::Expr>,
+        span: Span,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let has_this = this_arg.is_some();
 
         let param_info = func_info
             .ast
@@ -1045,6 +1057,7 @@ impl SemanticAnalyzer {
             .params
             .v
             .iter()
+            .skip(if has_this { 1 } else { 0 })
             .map(|param| (param.name.symbol(), param.default.is_some()))
             .collect::<Vec<_>>();
 
@@ -1072,46 +1085,67 @@ impl SemanticAnalyzer {
         }
 
         let mut provided_args = Vec::new();
+        if let Some(this_arg) = this_arg.as_ref() {
+            provided_args.push(this_arg.clone());
+        }
         for arg in ordered_args.iter().filter_map(|arg| arg.as_ref()) {
             provided_args.push(arg.clone());
         }
         provided_args.extend(analyzed_variadic.iter().cloned());
 
-        // Generate the generic function
-        let callee_decl = {
-            let generic_args = if let Some(generic_args) = node.generic_args.as_ref() {
-                generic_args
-                    .types
-                    .iter()
-                    .map(|arg| self.analyze_type(arg))
-                    .collect::<anyhow::Result<Vec<_>>>()?
-            } else {
-                // Infer generic arguments from the function call arguments
-                provided_args
-                    .iter()
-                    .map(|arg| -> anyhow::Result<Rc<ir_type::Ty>> {
-                        Ok(match arg.ty.kind.as_ref() {
-                            ir_type::TyKind::Var(_) => match arg.kind {
-                                ir::expr::ExprKind::Int(_) => {
-                                    Rc::new(ir_type::make_fundamental_type(
-                                        ir_type::FundamentalTypeKind::I32,
-                                        ir_type::Mutability::Not,
-                                    ))
-                                }
-                                _ => arg.ty.clone(),
-                            },
+        let generic_args = if let Some(generic_args) = node.generic_args.as_ref() {
+            generic_args
+                .types
+                .iter()
+                .map(|arg| self.analyze_type(arg))
+                .collect::<anyhow::Result<Vec<_>>>()?
+        } else {
+            let mut inferred_args = provided_args
+                .iter()
+                .map(|arg| -> anyhow::Result<Rc<ir_type::Ty>> {
+                    Ok(match arg.ty.kind.as_ref() {
+                        ir_type::TyKind::Var(_) => match arg.kind {
+                            ir::expr::ExprKind::Int(_) => Rc::new(ir_type::make_fundamental_type(
+                                ir_type::FundamentalTypeKind::I32,
+                                ir_type::Mutability::Not,
+                            )),
                             _ => arg.ty.clone(),
-                        })
+                        },
+                        _ => arg.ty.clone(),
                     })
-                    .collect::<anyhow::Result<Vec<_>>>()?
-            };
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
 
-            self.generate_generic_fn(func_info, &generic_args)?
+            let param_len = func_info
+                .ast
+                .decl
+                .generic_params
+                .as_ref()
+                .map_or(0, |params| params.names.len());
+            if inferred_args.len() < param_len {
+                inferred_args.extend(
+                    (0..(param_len - inferred_args.len())).map(|_| self.infer_context.fresh()),
+                );
+            }
+            inferred_args
+        };
+
+        // Generate the generic function immediately; a later monomorphize pass rewrites
+        // GenericFnCall into a regular FnCall for codegen.
+        let callee_decl = self.generate_generic_fn(func_info, &generic_args)?;
+
+        let params_without_self = if has_this {
+            &callee_decl.params[1..]
+        } else {
+            &callee_decl.params[..]
         };
 
         let mut args = Vec::with_capacity(callee_decl.params.len() + analyzed_variadic.len());
+        if let Some(this_arg) = this_arg {
+            args.push(this_arg);
+        }
 
-        for (arg, param) in ordered_args.into_iter().zip(callee_decl.params.iter()) {
+        for (arg, param) in ordered_args.into_iter().zip(params_without_self.iter()) {
             if let Some(arg) = arg {
                 args.push(arg);
             } else if let Some(default) = &param.default {
@@ -1126,13 +1160,14 @@ impl SemanticAnalyzer {
         self.verify_fn_call_arguments(&callee_decl, &args, node.span)?;
 
         Ok(ir::expr::Expr {
-            kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
+            kind: ir::expr::ExprKind::GenericFnCall(ir::expr::GenericFnCall {
                 callee: callee_decl.clone(),
-                args: ir::expr::Args(args, node.span),
-                span: node.span,
+                generic_args,
+                args: ir::expr::Args(args, span),
+                span,
             }),
             ty: callee_decl.return_ty.clone(),
-            span: node.span,
+            span,
         })
     }
 
@@ -2615,7 +2650,16 @@ impl SemanticAnalyzer {
                     span: call_node.span,
                 })?;
 
-        let method_decl = match &method_decl.borrow().kind {
+        let borrowed = method_decl.borrow();
+        if let SymbolTableValueKind::Generic(info) = &borrowed.kind {
+            let func_info = match &info.kind {
+                GenericKind::Func(func_info) => func_info,
+                _ => unreachable!(),
+            };
+            return self.analyze_generic_func_call_core(func_info, call_node, None, call_node.span);
+        }
+
+        let method_decl = match &borrowed.kind {
             SymbolTableValueKind::Function(fn_) => fn_.clone(),
             _ => unreachable!(),
         };
@@ -3123,10 +3167,23 @@ impl SemanticAnalyzer {
                 Some(value) => {
                     let value = value.borrow();
 
-                    if let SymbolTableValueKind::Function(fn_) = &value.kind {
-                        fn_.clone()
-                    } else {
-                        return Err(no_method_err().into());
+                    match &value.kind {
+                        SymbolTableValueKind::Function(fn_) => fn_.clone(),
+                        SymbolTableValueKind::Generic(info) => {
+                            let func_info = match &info.kind {
+                                GenericKind::Func(func_info) => func_info,
+                                _ => return Err(no_method_err().into()),
+                            };
+                            return self.analyze_generic_func_call_core(
+                                func_info,
+                                call_node,
+                                Some(this),
+                                span,
+                            );
+                        }
+                        _ => {
+                            return Err(no_method_err().into());
+                        }
                     }
                 }
 

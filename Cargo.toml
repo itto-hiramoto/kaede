@@ -12,6 +12,7 @@ members = [
   "compiler/ir",
   "compiler/lsp",
   "compiler/semantic",
+  "compiler/monomorphize",
   "compiler/type_infer",
   "compiler/symbol_table",
 ]
