@@ -1566,6 +1566,13 @@ impl TypeInferrer {
                     self.apply_expr(arg)?;
                 }
 
+                let original_param_tys = fn_call
+                    .callee
+                    .params
+                    .iter()
+                    .map(|p| p.ty.clone())
+                    .collect::<Vec<_>>();
+                let original_ret_ty = fn_call.callee.return_ty.clone();
                 let mut applied_callee = (*fn_call.callee).clone();
                 for param in applied_callee.params.iter_mut() {
                     if let Some(default) = &mut param.default {
@@ -1575,6 +1582,25 @@ impl TypeInferrer {
                 }
                 applied_callee.return_ty = self.context.apply(&applied_callee.return_ty);
                 fn_call.callee = applied_callee.into();
+
+                let mut bindings = HashMap::new();
+                for (pattern, resolved) in original_param_tys
+                    .iter()
+                    .zip(fn_call.callee.params.iter().map(|p| &p.ty))
+                {
+                    Self::collect_type_var_bindings(pattern, resolved, &mut bindings);
+                }
+                Self::collect_type_var_bindings(
+                    &original_ret_ty,
+                    &fn_call.callee.return_ty,
+                    &mut bindings,
+                );
+                if !bindings.is_empty() {
+                    self.generic_fn_substitutions
+                        .entry(fn_call.callee.name.clone())
+                        .or_default()
+                        .extend(bindings);
+                }
             }
             GenericFnCall(fn_call) => {
                 for arg in &mut fn_call.args.0 {

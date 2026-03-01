@@ -149,7 +149,7 @@ impl SemanticAnalyzer {
         node: &ast::expr::StructLiteral,
     ) -> anyhow::Result<ir::expr::Expr> {
         let struct_ty =
-            self.analyze_user_defined_type(&node.struct_ty, ir_type::Mutability::Not)?;
+            self.analyze_user_defined_type_for_expr(&node.struct_ty, ir_type::Mutability::Not)?;
 
         let udt_ir = match struct_ty.kind.as_ref() {
             ir_type::TyKind::UserDefined(udt) => udt,
@@ -2496,7 +2496,7 @@ impl SemanticAnalyzer {
             name: *left,
             generic_args: generic_args.clone(),
         };
-        let udt = self.analyze_user_defined_type(&udt, ir_type::Mutability::Not)?;
+        let udt = self.analyze_user_defined_type_for_expr(&udt, ir_type::Mutability::Not)?;
 
         // Expect the type to be a user defined type
         let udt = match udt.kind.as_ref() {

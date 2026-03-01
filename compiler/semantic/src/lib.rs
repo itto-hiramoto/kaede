@@ -477,6 +477,26 @@ impl SemanticAnalyzer {
         decl.return_ty = Self::apply_var_subst_to_ty(&decl.return_ty, subst);
     }
 
+    fn apply_var_subst_to_struct(
+        struct_: &mut ir::top::Struct,
+        subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
+    ) {
+        for field in &mut struct_.fields {
+            field.ty = Self::apply_var_subst_to_ty(&field.ty, subst);
+        }
+    }
+
+    fn apply_var_subst_to_enum(
+        enum_: &mut ir::top::Enum,
+        subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
+    ) {
+        for variant in &mut enum_.variants {
+            if let Some(ty) = &variant.ty {
+                variant.ty = Some(Self::apply_var_subst_to_ty(ty, subst));
+            }
+        }
+    }
+
     fn apply_var_subst_to_stmt(
         stmt: &mut ir::stmt::Stmt,
         subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
@@ -680,10 +700,23 @@ impl SemanticAnalyzer {
             return;
         }
 
+        let global_subst = self
+            .generic_fn_substitutions
+            .values()
+            .flat_map(|m| m.iter())
+            .map(|(k, v)| (*k, v.clone()))
+            .collect::<HashMap<_, _>>();
+
         for top_level in &mut self.generated_generics {
             match top_level {
                 ir::top::TopLevel::Fn(fn_) => {
                     let fn_ = Rc::get_mut(fn_).expect("generated function must be uniquely owned");
+                    if !global_subst.is_empty() {
+                        Self::apply_var_subst_to_fn_decl(&mut fn_.decl, &global_subst);
+                        if let Some(body) = &mut fn_.body {
+                            Self::apply_var_subst_to_block(body, &global_subst);
+                        }
+                    }
                     if let Some(subst) = self.generic_fn_substitutions.get(&fn_.decl.name) {
                         Self::apply_var_subst_to_fn_decl(&mut fn_.decl, subst);
                         if let Some(body) = &mut fn_.body {
@@ -691,11 +724,31 @@ impl SemanticAnalyzer {
                         }
                     }
                 }
+                ir::top::TopLevel::Struct(struct_) => {
+                    if !global_subst.is_empty() {
+                        let mut new_struct = (**struct_).clone();
+                        Self::apply_var_subst_to_struct(&mut new_struct, &global_subst);
+                        *struct_ = Rc::new(new_struct);
+                    }
+                }
+                ir::top::TopLevel::Enum(enum_) => {
+                    if !global_subst.is_empty() {
+                        let mut new_enum = (**enum_).clone();
+                        Self::apply_var_subst_to_enum(&mut new_enum, &global_subst);
+                        *enum_ = Rc::new(new_enum);
+                    }
+                }
                 ir::top::TopLevel::Impl(impl_) => {
                     let impl_ = Rc::get_mut(impl_).expect("generated impl must be uniquely owned");
                     for method in &mut impl_.methods {
                         let method = Rc::get_mut(method)
                             .expect("generated impl method must be uniquely owned");
+                        if !global_subst.is_empty() {
+                            Self::apply_var_subst_to_fn_decl(&mut method.decl, &global_subst);
+                            if let Some(body) = &mut method.body {
+                                Self::apply_var_subst_to_block(body, &global_subst);
+                            }
+                        }
                         if let Some(subst) = self.generic_fn_substitutions.get(&method.decl.name) {
                             Self::apply_var_subst_to_fn_decl(&mut method.decl, subst);
                             if let Some(body) = &mut method.body {
@@ -704,7 +757,6 @@ impl SemanticAnalyzer {
                         }
                     }
                 }
-                ir::top::TopLevel::Struct(_) | ir::top::TopLevel::Enum(_) => {}
             }
         }
     }
@@ -1139,6 +1191,78 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
+    fn fn_decl_has_unresolved_types(decl: &ir::top::FnDecl) -> bool {
+        decl.params.iter().any(|p| ir::ty::contains_type_var(&p.ty))
+            || ir::ty::contains_type_var(&decl.return_ty)
+    }
+
+    fn infer_function_body_with_decl(
+        &mut self,
+        body: &mut kaede_ir::stmt::Block,
+        decl: &ir::top::FnDecl,
+    ) -> anyhow::Result<()> {
+        use kaede_type_infer::TypeInferrer;
+
+        let tables = vec![SymbolTable::new()];
+        let symbol_table_view = ScopedSymbolTable::merge_for_inference(&tables);
+
+        let mut inferrer = TypeInferrer::new(
+            symbol_table_view,
+            decl.return_ty.clone(),
+            self.infer_context.type_var_allocator.clone(),
+        );
+
+        for param in &decl.params {
+            inferrer.register_variable(param.name, param.ty.clone());
+        }
+
+        for stmt in &body.body {
+            inferrer.infer_stmt(stmt)?;
+        }
+
+        if let Some(last_expr) = &body.last_expr {
+            inferrer.infer_expr(last_expr)?;
+        }
+
+        inferrer.apply_block(body)?;
+        self.merge_generic_fn_substitutions(inferrer.into_generic_fn_substitutions());
+
+        Ok(())
+    }
+
+    fn infer_generated_generic_bodies_after_substitution(&mut self) -> anyhow::Result<()> {
+        for i in 0..self.generated_generics.len() {
+            let mut top_level = self.generated_generics[i].clone();
+
+            match &mut top_level {
+                ir::top::TopLevel::Fn(fn_) => {
+                    let fn_ = Rc::make_mut(fn_);
+                    if !Self::fn_decl_has_unresolved_types(&fn_.decl) {
+                        if let Some(body) = &mut fn_.body {
+                            self.infer_function_body_with_decl(body, &fn_.decl)?;
+                        }
+                    }
+                }
+                ir::top::TopLevel::Impl(impl_) => {
+                    let impl_ = Rc::make_mut(impl_);
+                    for method in &mut impl_.methods {
+                        let method = Rc::make_mut(method);
+                        if !Self::fn_decl_has_unresolved_types(&method.decl) {
+                            if let Some(body) = &mut method.body {
+                                self.infer_function_body_with_decl(body, &method.decl)?;
+                            }
+                        }
+                    }
+                }
+                ir::top::TopLevel::Struct(_) | ir::top::TopLevel::Enum(_) => {}
+            }
+
+            self.generated_generics[i] = top_level;
+        }
+
+        Ok(())
+    }
+
     pub fn analyze(
         &mut self,
         compile_unit: ast::CompileUnit,
@@ -1268,6 +1392,7 @@ impl SemanticAnalyzer {
         }
 
         self.apply_substitutions_to_generated_generic_functions();
+        self.infer_generated_generic_bodies_after_substitution()?;
 
         Ok(
             self.inject_generated_generics_to_compile_unit(ir::CompileUnit {
