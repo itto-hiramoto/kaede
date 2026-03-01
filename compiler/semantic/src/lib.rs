@@ -1134,7 +1134,7 @@ impl SemanticAnalyzer {
 
         // Apply inferred types back to the IR
         inferrer.apply_block(body)?;
-        self.merge_generic_fn_substitutions(inferrer.take_generic_fn_substitutions());
+        self.merge_generic_fn_substitutions(inferrer.into_generic_fn_substitutions());
 
         Ok(())
     }

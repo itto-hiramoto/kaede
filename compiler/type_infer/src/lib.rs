@@ -52,10 +52,10 @@ impl TypeInferrer {
         }
     }
 
-    pub fn take_generic_fn_substitutions(
-        &mut self,
+    pub fn into_generic_fn_substitutions(
+        self,
     ) -> HashMap<kaede_ir::qualified_symbol::QualifiedSymbol, HashMap<VarId, Rc<Ty>>> {
-        std::mem::take(&mut self.generic_fn_substitutions)
+        self.generic_fn_substitutions
     }
 
     fn collect_type_var_bindings(
