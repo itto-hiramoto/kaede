@@ -270,11 +270,19 @@ impl SemanticAnalyzer {
             .map(|ty| self.analyze_type(ty))
             .collect::<anyhow::Result<Vec<_>>>()?;
 
+        self.create_generic_type_with_args(udt.name, generic_args)
+    }
+
+    fn create_generic_type_with_args(
+        &mut self,
+        name: Ident,
+        generic_args: Vec<Rc<ir_type::Ty>>,
+    ) -> anyhow::Result<Rc<ir_type::Ty>> {
         let symbol = self
-            .lookup_symbol(udt.name.symbol())
+            .lookup_symbol(name.symbol())
             .ok_or(SemanticError::Undeclared {
-                name: udt.name.symbol(),
-                span: udt.name.span(),
+                name: name.symbol(),
+                span: name.span(),
             })?;
 
         let borrowed_symbol = symbol.borrow();
@@ -319,8 +327,24 @@ impl SemanticAnalyzer {
                     _ => unreachable!(),
                 };
 
-                // Check if the impl have already been generated
-                if !impl_info.generateds.contains(&generic_args) {
+                // Check if the impl has already been generated for the exact generic arguments.
+                // `Ty` equality treats type vars as wildcards, so we need a stricter comparison here.
+                let already_generated = impl_info.generateds.iter().any(|args| {
+                    args.len() == generic_args.len()
+                        && args.iter().zip(&generic_args).all(|(a, b)| {
+                            match (a.kind.as_ref(), b.kind.as_ref()) {
+                                (ir_type::TyKind::Var(aid), ir_type::TyKind::Var(bid)) => {
+                                    aid == bid
+                                }
+                                (ir_type::TyKind::Var(_), _) | (_, ir_type::TyKind::Var(_)) => {
+                                    false
+                                }
+                                _ => a.kind == b.kind,
+                            }
+                        })
+                });
+
+                if !already_generated {
                     impl_info.generateds.push(generic_args.clone());
 
                     let generic_params = impl_info.impl_.generic_params.as_ref().unwrap().clone();
@@ -483,6 +507,49 @@ impl SemanticAnalyzer {
             kind: ir_type::TyKind::UserDefined(ir_type::UserDefinedType::new(udt_kind)).into(),
             mutability,
         }))
+    }
+
+    pub fn analyze_user_defined_type_for_expr(
+        &mut self,
+        udt: &ast_type::UserDefinedType,
+        mutability: ir_type::Mutability,
+    ) -> anyhow::Result<Rc<ir_type::Ty>> {
+        if udt.generic_args.is_some() {
+            return self.analyze_user_defined_type(udt, mutability);
+        }
+
+        if let Some(generic_arg) = self.lookup_generic_argument(udt.name.symbol()) {
+            return Ok(generic_arg);
+        }
+
+        let symbol = self
+            .lookup_symbol(udt.name.symbol())
+            .ok_or(SemanticError::Undeclared {
+                name: udt.name.symbol(),
+                span: udt.name.span(),
+            })?;
+
+        let generic_arg_len = {
+            let borrowed = symbol.borrow();
+            match &borrowed.kind {
+                SymbolTableValueKind::Generic(generic_info) => {
+                    Some(generic_info.get_generic_argument_length())
+                }
+                _ => None,
+            }
+        };
+
+        if let Some(len) = generic_arg_len {
+            let generic_args = (0..len).map(|_| self.infer_context.fresh()).collect();
+
+            let generated = self.with_analyze_command(AnalyzeCommand::NoCommand, |analyzer| {
+                analyzer.create_generic_type_with_args(udt.name, generic_args)
+            })?;
+
+            return Ok(ir_type::change_mutability_dup(generated, mutability));
+        }
+
+        self.analyze_user_defined_type(udt, mutability)
     }
 
     fn analyze_reference_type(
