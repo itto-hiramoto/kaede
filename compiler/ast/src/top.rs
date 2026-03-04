@@ -127,8 +127,14 @@ pub struct Fn {
 
 #[derive(Debug)]
 pub struct Import {
-    pub module_path: Path,
+    pub kind: ImportKind,
     pub span: Span,
+}
+
+#[derive(Debug)]
+pub enum ImportKind {
+    Kaede(Path),
+    Foreign { lang: Ident, crate_name: Ident },
 }
 
 #[derive(Debug, Clone)]
@@ -171,14 +177,6 @@ pub struct Use {
     pub span: Span,
 }
 
-#[derive(Debug)]
-pub struct Bridge {
-    pub vis: Visibility,
-    pub lang: StringLiteral,
-    pub fn_decl: FnDecl,
-    pub span: Span,
-}
-
 #[derive(Debug, Clone)]
 pub struct TypeAlias {
     pub vis: Visibility,
@@ -202,6 +200,5 @@ pub enum TopLevelKind {
     Enum(Enum),
     Extern(Extern),
     Use(Use),
-    Bridge(Bridge),
     TypeAlias(TypeAlias),
 }

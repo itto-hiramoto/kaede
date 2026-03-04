@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     context::{AnalyzeCommand, ModuleContext},
-    SemanticAnalyzer, SemanticError,
+    rust_import, SemanticAnalyzer, SemanticError,
 };
 use kaede_symbol_table::{
     GenericEnumInfo, GenericFuncInfo, GenericImplInfo, GenericInfo, GenericKind, GenericStructInfo,
@@ -52,7 +52,6 @@ impl SemanticAnalyzer {
             TopLevelKind::Extern(node) => self.analyze_extern(node),
             TopLevelKind::Import(node) => self.analyze_import(node),
             TopLevelKind::Use(node) => self.analyze_use(node),
-            TopLevelKind::Bridge(node) => self.analyze_bridge(node),
             TopLevelKind::TypeAlias(node) => self.analyze_type_alias(node),
         }
     }
@@ -176,8 +175,23 @@ impl SemanticAnalyzer {
         &mut self,
         node: ast::top::Import,
     ) -> anyhow::Result<TopLevelAnalysisResult> {
+        match node.kind {
+            ast::top::ImportKind::Kaede(module_path) => {
+                self.analyze_kaede_import(module_path, node.span)
+            }
+            ast::top::ImportKind::Foreign { lang, crate_name } => {
+                self.analyze_foreign_import(lang.symbol(), crate_name.symbol(), node.span)
+            }
+        }
+    }
+
+    fn analyze_kaede_import(
+        &mut self,
+        module_path_ast: ast::top::Path,
+        span: Span,
+    ) -> anyhow::Result<TopLevelAnalysisResult> {
         let (path, module_path) = self.create_module_path_from_access_chain(
-            node.module_path
+            module_path_ast
                 .segments
                 .iter()
                 .map(|s| match s {
@@ -186,7 +200,7 @@ impl SemanticAnalyzer {
                 })
                 .collect::<Vec<_>>()
                 .as_slice(),
-            node.span,
+            span,
         )?;
 
         // Prevent duplicate imports
@@ -310,23 +324,87 @@ impl SemanticAnalyzer {
         Ok(TopLevelAnalysisResult::Imported(top_level_irs))
     }
 
-    pub fn analyze_bridge(
+    fn analyze_foreign_import(
         &mut self,
-        node: ast::top::Bridge,
+        lang: Symbol,
+        crate_name: Symbol,
+        span: Span,
     ) -> anyhow::Result<TopLevelAnalysisResult> {
-        let mut fn_decl = self.analyze_fn_decl(node.fn_decl)?;
+        if lang.as_str() != "rust" {
+            return Err(SemanticError::UnsupportedLanguageLinkage {
+                lang_linkage: lang,
+                span,
+            }
+            .into());
+        }
 
-        fn_decl.lang_linkage = match node.lang.syb.as_str() {
-            "Rust" => kaede_common::LangLinkage::Rust,
-            _ => unreachable!(),
-        };
+        if self.imported_rust_crates.contains(&crate_name) {
+            return Ok(TopLevelAnalysisResult::Imported(vec![]));
+        }
+        self.imported_rust_crates.insert(crate_name);
 
-        Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Fn(
-            Rc::new(ir::top::Fn {
-                decl: fn_decl,
+        let resolved = rust_import::resolve_rust_import(&self.root_dir, crate_name.as_str())?;
+
+        if let Some(lib) = &resolved.dylib_path {
+            if !self.additional_native_libs.contains(lib) {
+                self.additional_native_libs.push(lib.clone());
+            }
+        }
+
+        let module_path = resolved.module_path.clone();
+        if !self.modules.contains_key(&module_path) {
+            let mut module_context = ModuleContext::new(FilePath::dummy());
+            module_context.push_scope(SymbolTable::new());
+            self.modules.insert(module_path.clone(), module_context);
+        }
+
+        let mut imported_irs = Vec::new();
+        for skipped in resolved.skipped {
+            eprintln!(
+                "warning: skipped rust function in `{}`: {}",
+                crate_name, skipped
+            );
+        }
+
+        for func in resolved.functions {
+            let decl = ir::top::FnDecl {
+                lang_linkage: kaede_common::LangLinkage::C,
+                link_once: false,
+                name: QualifiedSymbol::new(module_path.clone(), func.export_name),
+                params: func
+                    .params
+                    .iter()
+                    .map(|(name, ty)| ir::top::Param {
+                        name: *name,
+                        ty: ty.clone(),
+                        default: None,
+                    })
+                    .collect(),
+                is_c_variadic: false,
+                return_ty: func.return_ty.clone(),
+            };
+
+            let symbol_value = SymbolTableValue::new(
+                SymbolTableValueKind::Function(Rc::new(decl.clone())),
+                module_path.clone(),
+            );
+            self.modules
+                .get_mut(&module_path)
+                .unwrap()
+                .insert_symbol_to_root_scope(
+                    func.kaede_name,
+                    symbol_value,
+                    ast::top::Visibility::Public,
+                    span,
+                )?;
+
+            imported_irs.push(ir::top::TopLevel::Fn(Rc::new(ir::top::Fn {
+                decl,
                 body: None,
-            }),
-        )))
+            })));
+        }
+
+        Ok(TopLevelAnalysisResult::Imported(imported_irs))
     }
 
     pub fn analyze_extern(

@@ -24,6 +24,7 @@ use kaede_symbol_table::{
 mod context;
 mod error;
 mod expr;
+mod rust_import;
 mod stmt;
 mod symbol_table;
 mod top;
@@ -49,6 +50,8 @@ pub struct SemanticAnalyzer {
     generated_generics: Vec<ir::top::TopLevel>,
     generating_generics: HashSet<Symbol>,
     imported_module_paths: HashSet<PathBuf>,
+    imported_rust_crates: HashSet<Symbol>,
+    additional_native_libs: Vec<PathBuf>,
     root_dir: PathBuf,
     autoloads_imported: bool,
     infer_context: InferContext,
@@ -100,6 +103,8 @@ impl SemanticAnalyzer {
             generated_generics: Vec::new(),
             generating_generics: HashSet::new(),
             imported_module_paths: HashSet::new(),
+            imported_rust_crates: HashSet::new(),
+            additional_native_libs: Vec::new(),
             root_dir,
             autoloads_imported: false,
             infer_context: InferContext::default(),
@@ -124,6 +129,8 @@ impl SemanticAnalyzer {
             generated_generics: Vec::new(),
             generating_generics: HashSet::new(),
             imported_module_paths: HashSet::new(),
+            imported_rust_crates: HashSet::new(),
+            additional_native_libs: Vec::new(),
             root_dir: PathBuf::from("."),
             autoloads_imported: false,
             infer_context: InferContext::default(),
@@ -166,6 +173,10 @@ impl SemanticAnalyzer {
         let name = format!("{prefix}{}", self.temp_symbol_counter);
         self.temp_symbol_counter += 1;
         Symbol::from(name)
+    }
+
+    pub fn take_additional_native_libs(&mut self) -> Vec<PathBuf> {
+        std::mem::take(&mut self.additional_native_libs)
     }
 
     fn create_module_path_from_file_path(
@@ -786,10 +797,10 @@ impl SemanticAnalyzer {
 
                 let import_ast = ast::top::TopLevel {
                     kind: ast::top::TopLevelKind::Import(ast::top::Import {
-                        module_path: ast::top::Path {
+                        kind: ast::top::ImportKind::Kaede(ast::top::Path {
                             segments,
                             span: Span::dummy(),
-                        },
+                        }),
                         span: Span::dummy(),
                     }),
                     span: Span::dummy(),

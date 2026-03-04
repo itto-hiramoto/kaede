@@ -240,15 +240,15 @@ impl Monomorphizer {
     fn rewrite_top_level(&mut self, top: &mut TopLevel) -> anyhow::Result<()> {
         match top {
             TopLevel::Fn(fn_) => {
-                let fn_ = Rc::get_mut(fn_).expect("TopLevel::Fn must be uniquely owned");
+                let fn_ = Rc::make_mut(fn_);
                 if let Some(body) = &mut fn_.body {
                     self.rewrite_block(body)?;
                 }
             }
             TopLevel::Impl(impl_) => {
-                let impl_ = Rc::get_mut(impl_).expect("TopLevel::Impl must be uniquely owned");
+                let impl_ = Rc::make_mut(impl_);
                 for method in &mut impl_.methods {
-                    let method = Rc::get_mut(method).expect("Impl method must be uniquely owned");
+                    let method = Rc::make_mut(method);
                     if let Some(body) = &mut method.body {
                         self.rewrite_block(body)?;
                     }

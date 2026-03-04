@@ -34,17 +34,8 @@ pub fn kaede_autoload_dir() -> PathBuf {
     kaede_lib_src_dir().join("autoload")
 }
 
-pub fn rust_function_prefix() -> &'static str {
-    "kaede_rust_bridge_"
-}
-
-pub fn kaede_rust_bridge_codegen_path() -> PathBuf {
-    kaede_dir().join("kaede-rust-bridge-codegen")
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LangLinkage {
     Default,
     C,
-    Rust,
 }

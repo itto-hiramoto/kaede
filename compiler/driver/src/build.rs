@@ -1,12 +1,10 @@
 use std::{
     fs,
     path::{Path, PathBuf},
-    process::Command,
 };
 
-use anyhow::{anyhow, Context as _};
+use anyhow::Context as _;
 use inkwell::OptimizationLevel;
-use kaede_common::lib_extension;
 
 use crate::{compile_and_link, CompileOption, CompileUnitInfo};
 
@@ -26,58 +24,6 @@ fn ensure_kaede_project_root() -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-fn build_rust_library_if_present() -> anyhow::Result<Vec<PathBuf>> {
-    let mut additional_libs = Vec::new();
-
-    if Path::new("rust").exists() {
-        if !Path::new("rust/Cargo.toml").exists() {
-            anyhow::bail!(
-                "rust/Cargo.toml not found. Make sure you're in a Kaede Rust bridge project directory.\n\
-                 Current directory: {}",
-                std::env::current_dir()
-                    .unwrap_or_else(|_| PathBuf::from("unknown"))
-                    .display()
-            );
-        }
-
-        println!("🔨 Building Rust library...");
-        let status = Command::new("cargo")
-            .args(["build"])
-            .current_dir("rust")
-            .status()
-            .context("Failed to run 'cargo build'")?;
-
-        if !status.success() {
-            anyhow::bail!("Failed to build Rust library");
-        }
-
-        let cargo_toml_content =
-            fs::read_to_string("rust/Cargo.toml").context("Failed to read rust/Cargo.toml")?;
-
-        let package_name = cargo_toml_content
-            .lines()
-            .find(|line| line.starts_with("name = "))
-            .and_then(|line| line.split('"').nth(1))
-            .ok_or_else(|| anyhow!("Could not find package name in rust/Cargo.toml"))?;
-
-        let rust_lib_path = format!(
-            "rust/target/debug/lib{}.{}",
-            package_name.replace('-', "_"),
-            lib_extension()
-        );
-        if !Path::new(&rust_lib_path).exists() {
-            anyhow::bail!(
-                "Rust library not found at: {}. Make sure cargo build succeeded.",
-                rust_lib_path
-            );
-        }
-
-        additional_libs.push(PathBuf::from(rust_lib_path));
-    }
-
-    Ok(additional_libs)
 }
 
 fn find_kd_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
@@ -121,8 +67,6 @@ fn collect_kaede_unit_infos(src_root: &Path) -> anyhow::Result<Vec<CompileUnitIn
 pub(crate) fn build_project() -> anyhow::Result<()> {
     ensure_kaede_project_root()?;
 
-    let additional_libs = build_rust_library_if_present()?;
-
     fs::create_dir_all("build").context("Failed to create build directory")?;
 
     let src_root = PathBuf::from("src");
@@ -136,14 +80,10 @@ pub(crate) fn build_project() -> anyhow::Result<()> {
         no_autoload: false,
         no_prelude: false,
         no_gc: false,
-        additional_libs,
+        additional_libs: Vec::new(),
     };
 
-    if option.additional_libs.is_empty() {
-        println!("🔗 Linking Kaede executable...");
-    } else {
-        println!("🔗 Linking with Rust library...");
-    }
+    println!("🔗 Linking Kaede executable...");
     compile_and_link(unit_infos, option)?;
 
     println!("✅ Build completed successfully!");

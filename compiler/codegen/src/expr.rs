@@ -13,7 +13,6 @@ use inkwell::{
     AddressSpace, IntPredicate,
 };
 
-use kaede_common::rust_function_prefix;
 use kaede_ir::{
     expr::{
         ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BitNot, BuiltinFnCall, BuiltinFnCallKind,
@@ -1395,9 +1394,6 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         let mut names = match callee.lang_linkage {
             LangLinkage::Default => vec![callee.name.mangle()],
-            LangLinkage::Rust => {
-                vec![format!("{}{}", rust_function_prefix(), callee.name.symbol()).into()]
-            }
             LangLinkage::C => vec![callee.name.symbol()],
         };
 
