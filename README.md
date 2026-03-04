@@ -8,7 +8,7 @@
 - **Go-style green threads** — Lightweight concurrent tasks with multi-core scheduling
 - **Rust-like syntax** — Modern, expressive syntax with static typing
 - **Bidirectional type inference** — Minimal type annotations with full type safety
-- **Seamless Rust interop** — Auto-generated bindings to call Rust functions directly
+- **Seamless Rust interop** — Import Rust crates directly from Kaede
 - **Garbage collection** — Automatic memory management without ownership complexity
 
 ## Installation

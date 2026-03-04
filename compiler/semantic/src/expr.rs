@@ -2481,6 +2481,41 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<ir::expr::Expr> {
         assert!(matches!(node.kind, ast::expr::BinaryKind::ScopeResolution));
 
+        let try_module_access = |analyzer: &mut Self| -> anyhow::Result<Option<ir::expr::Expr>> {
+            let mut modules = Vec::new();
+            node.lhs.collect_scope_resolution_chain(&mut modules);
+            if modules.is_empty() {
+                return Ok(None);
+            }
+
+            let module_path = if modules[0].as_str() == "rust" {
+                ModulePath::new(modules.iter().map(|m| m.symbol()).collect())
+            } else if let Ok((_, module_path)) = analyzer.create_module_path_from_access_chain(
+                modules
+                    .iter()
+                    .map(|i| i.symbol())
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+                node.lhs.span,
+            ) {
+                module_path
+            } else {
+                return Ok(None);
+            };
+
+            if analyzer.modules.contains_key(&module_path) {
+                let expr = analyzer
+                    .with_module(module_path, |analyzer| analyzer.analyze_expr(&node.rhs))?;
+                return Ok(Some(expr));
+            }
+
+            Ok(None)
+        };
+
+        if let Some(expr) = try_module_access(self)? {
+            return Ok(expr);
+        }
+
         let (left, generic_args) = match &node.lhs.kind {
             // Foo::Bar
             ast::expr::ExprKind::Ident(id) => (id, None),

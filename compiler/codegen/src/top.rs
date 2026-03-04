@@ -6,7 +6,6 @@ use inkwell::{
     values::FunctionValue,
 };
 
-use kaede_common::rust_function_prefix;
 use kaede_common::LangLinkage;
 use kaede_ir::{
     top::{Enum, EnumVariant, Fn, FnDecl, Impl, Param, Struct, StructField, TopLevel},
@@ -66,10 +65,6 @@ impl<'ctx> CodeGenerator<'ctx> {
         let mangled_name = match node.decl.lang_linkage {
             // C functions are not mangled
             LangLinkage::C => node.decl.name.symbol(),
-
-            LangLinkage::Rust => {
-                format!("{}{}", rust_function_prefix(), node.decl.name.symbol()).into()
-            }
 
             LangLinkage::Default => node.decl.name.mangle(),
         };

@@ -72,14 +72,14 @@ struct Args {
 
 #[derive(clap::Subcommand, Debug)]
 enum Commands {
-    /// Create a new Kaede project (optionally with Rust bridge)
+    /// Create a new Kaede project (optionally with Rust interop scaffold)
     New {
         /// Name of the project to create
         project_name: String,
-        #[arg(long, action, help = "Generate Rust bridge scaffolding")]
+        #[arg(long, action, help = "Generate Rust interop scaffolding")]
         rust: bool,
     },
-    /// Build a Kaede Rust bridge project
+    /// Build a Kaede project
     Build,
     /// Run Kaede Language Server
     Lsp {
@@ -176,19 +176,22 @@ fn compile<'ctx>(
     root_dir: &'ctx Path,
     no_autoload: bool,
     no_prelude: bool,
-) -> anyhow::Result<Module<'ctx>> {
+) -> anyhow::Result<(Module<'ctx>, Vec<PathBuf>)> {
     let mut compiled_modules = Vec::new();
+    let mut additional_native_libs = Vec::new();
 
     for unit_info in unit_infos {
         let file = unit_info.file_path.into();
 
         let ast = Parser::new(&unit_info.program, file).run()?;
 
-        let mut ir = SemanticAnalyzer::new(file, root_dir.to_path_buf()).analyze(
-            ast,
-            no_autoload,
-            no_prelude,
-        )?;
+        let mut analyzer = SemanticAnalyzer::new(file, root_dir.to_path_buf());
+        let mut ir = analyzer.analyze(ast, no_autoload, no_prelude)?;
+        for lib in analyzer.take_additional_native_libs() {
+            if !additional_native_libs.contains(&lib) {
+                additional_native_libs.push(lib);
+            }
+        }
         Monomorphizer::new().run(&mut ir)?;
 
         let code_generator = CodeGenerator::new(cgcx)?;
@@ -207,7 +210,7 @@ fn compile<'ctx>(
             .map_err(|e| anyhow!(e.to_string()))?;
     }
 
-    Ok(module)
+    Ok((module, additional_native_libs))
 }
 
 fn display_optimized_llvm_ir(opt_level: OptimizationLevel, module: &Module) -> anyhow::Result<()> {
@@ -272,7 +275,7 @@ pub(crate) fn compile_and_output_obj(
 
     let root_dir = option.root_dir.unwrap_or(PathBuf::from("."));
 
-    let module = compile(
+    let (module, _) = compile(
         &cgcx,
         unit_infos,
         &root_dir,
@@ -301,7 +304,7 @@ pub(crate) fn compile_and_link(
 
     let root_dir = option.root_dir.unwrap_or(PathBuf::from("."));
 
-    let module = compile(
+    let (module, mut generated_libs) = compile(
         &cgcx,
         unit_infos,
         &root_dir,
@@ -319,7 +322,13 @@ pub(crate) fn compile_and_link(
     } else {
         let obj_path = emit_optimized_object_file_to_tempfile(option.opt_level, &module)?;
 
-        emit_exe_file(&obj_path, &option.output_file_path, &option.additional_libs)?;
+        for lib in &option.additional_libs {
+            if !generated_libs.contains(lib) {
+                generated_libs.push(lib.clone());
+            }
+        }
+
+        emit_exe_file(&obj_path, &option.output_file_path, &generated_libs)?;
     }
 
     Ok(())

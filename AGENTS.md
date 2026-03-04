@@ -3,11 +3,11 @@
 ## Project Structure & Module Organization
 - Rust workspace in `Cargo.toml` with compiler crates in `compiler/` (lex/parse/ast/semantic/type_infer/codegen/driver/lsp/etc.).
 - CLI entrypoint in `compiler/driver` (`kaede` binary); shared utilities in `compiler/common`, source locations (`span`), and symbol handling (`symbol`, `symbol_table`).
-- Standard library lives in `library/src/std/`, C FFI implementations in `library/ffi/`, and Rust bridge codegen in `library/kaede-rust-bridge-codegen/`; samples in `example/`.
+- Standard library lives in `library/src/std/`, C FFI implementations in `library/ffi/`; samples in `example/`.
 - Build artifacts land in `target/`; keep working tree clean before commits.
 
 ## Build, Test, and Development Commands
-- Install prerequisites once: `./install.py` (sets up standard library/bridge code). On macOS add `export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"` to load LLVM.
+- Install prerequisites once: `./install.py` (sets up standard library/runtime). On macOS add `export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"` to load LLVM.
 - Format check: `cargo fmt --all -- --check`.
 - Lint: `cargo clippy -- -D warnings`.
 - Tests: `cargo test --release --no-fail-fast`.
