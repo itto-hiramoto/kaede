@@ -173,6 +173,12 @@ impl<'ctx> CodeGenerator<'ctx> {
             ExprKind::Binary(node) => self.build_arithmetic_binary(node)?,
 
             ExprKind::FieldAccess(node) => self.build_field_access(node)?,
+            ExprKind::UnresolvedFieldAccess(node) => {
+                anyhow::bail!(
+                    "internal error: unresolved field access reached codegen: {}",
+                    node.field_name
+                )
+            }
 
             ExprKind::TupleIndexing(node) => self.build_tuple_indexing(node)?,
 

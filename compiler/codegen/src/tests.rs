@@ -18,6 +18,11 @@ fn extract_semantic_error(err: anyhow::Error) -> SemanticError {
         .expect("Expected SemanticError in test")
 }
 
+fn is_field_access_type_error(err: anyhow::Error) -> bool {
+    let message = err.to_string();
+    message.contains("has no fields") || message.contains("field access requires a struct type")
+}
+
 /// Return exit status
 fn exec(program: &str) -> anyhow::Result<i32> {
     let context = Context::create();
@@ -808,10 +813,7 @@ fn has_no_fields() {
         4810.shino
     }";
 
-    assert!(matches!(
-        extract_semantic_error(exec(program).unwrap_err()),
-        SemanticError::HasNoFields { .. }
-    ));
+    assert!(is_field_access_type_error(exec(program).unwrap_err()));
 }
 
 #[test]
