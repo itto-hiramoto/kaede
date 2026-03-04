@@ -32,6 +32,9 @@ pub enum TypeInferError {
     #[error("{}:{}:{} field {} not found in struct", span.file, span.start.line, span.start.column, field_name)]
     FieldNotFound { field_name: Symbol, span: Span },
 
+    #[error("{}:{}:{} field access requires a struct type, got {}", span.file, span.start.line, span.start.column, actual)]
+    FieldAccessOnNonStruct { actual: String, span: Span },
+
     #[error("{}:{}:{} expected tuple type for tuple indexing at index {}, got: {:?} (unwrapped: {:?})", span.file, span.start.line, span.start.column, index, ty, unwrapped_ty)]
     NotATuple {
         index: u32,

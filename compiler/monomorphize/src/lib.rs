@@ -77,6 +77,7 @@ mod tests {
             }
             ExprKind::Cast(cast) => contains_generic_call(&cast.operand),
             ExprKind::FieldAccess(field) => contains_generic_call(&field.operand),
+            ExprKind::UnresolvedFieldAccess(field) => contains_generic_call(&field.operand),
             ExprKind::TupleIndexing(tuple_idx) => contains_generic_call(&tuple_idx.tuple),
             ExprKind::EnumVariant(enum_var) => {
                 enum_var.value.iter().any(|e| contains_generic_call(e))
@@ -352,6 +353,13 @@ impl Monomorphizer {
             }
             ExprKind::Cast(cast) => self.rewrite_expr(&mut cast.operand)?,
             ExprKind::FieldAccess(field) => self.rewrite_expr(&mut field.operand)?,
+            ExprKind::UnresolvedFieldAccess(field) => {
+                self.rewrite_expr(&mut field.operand)?;
+                return Err(anyhow!(
+                    "unresolved field access reached monomorphize: {}",
+                    field.field_name
+                ));
+            }
             ExprKind::TupleIndexing(tuple_idx) => {
                 self.rewrite_expr(Rc::make_mut(&mut tuple_idx.tuple))?;
             }

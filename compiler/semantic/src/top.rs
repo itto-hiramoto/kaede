@@ -33,6 +33,9 @@ impl SemanticAnalyzer {
     fn fn_decl_contains_type_var(decl: &ir::top::FnDecl) -> bool {
         decl.params.iter().any(|p| ir::ty::contains_type_var(&p.ty))
             || ir::ty::contains_type_var(&decl.return_ty)
+            // Generated generic symbols can carry unresolved type variables in the instantiated
+            // user-defined types even when the function signature itself has no direct TyKind::Var.
+            || (decl.link_once && decl.name.symbol().as_str().contains("_var"))
     }
 
     pub fn analyze_top_level(

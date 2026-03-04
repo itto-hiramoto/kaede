@@ -398,6 +398,81 @@ fn generated_generic_impl_method_has_concrete_types_after_inference() -> anyhow:
 }
 
 #[test]
+fn static_method_on_generic_type_allows_omitted_type_args() -> anyhow::Result<()> {
+    semantic_analyze(
+        r#"
+        fn main(): i32 {
+            let mut v = Vector::new()
+            v.push(58)
+            return match v.at(0) {
+                Option::Some(n) => n,
+                Option::None => 0,
+            }
+        }
+        "#,
+    )?;
+
+    Ok(())
+}
+
+#[test]
+fn option_some_allows_omitted_type_args() -> anyhow::Result<()> {
+    semantic_analyze(
+        r#"
+        fn main(): i32 {
+            let opt = Option::Some(58)
+            return match opt {
+                Option::Some(n) => n,
+                Option::None => 0,
+            }
+        }
+        "#,
+    )?;
+
+    Ok(())
+}
+
+#[test]
+fn vector_new_infers_struct_type_from_push() -> anyhow::Result<()> {
+    semantic_analyze(
+        r#"
+        struct S {
+            x: i32,
+        }
+
+        fn main(): i32 {
+            let mut v = Vector::new()
+            v.push(S { x: 123 })
+            return 0
+        }
+        "#,
+    )?;
+
+    Ok(())
+}
+
+#[test]
+fn option_some_struct_payload_without_explicit_args() -> anyhow::Result<()> {
+    semantic_analyze(
+        r#"
+        struct S {
+            n: i32,
+        }
+
+        fn main(): i32 {
+            let opt = Option::Some(S { n: 58 })
+            return match opt {
+                Option::Some(v) => v.n,
+                Option::None => 0,
+            }
+        }
+        "#,
+    )?;
+
+    Ok(())
+}
+
+#[test]
 fn type_alias_struct() -> anyhow::Result<()> {
     semantic_analyze(
         "struct S { x: i32 }

@@ -12,7 +12,7 @@ pub struct StructField {
     pub offset: u64,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Struct {
     pub name: QualifiedSymbol,
     pub fields: Vec<StructField>,
@@ -50,7 +50,7 @@ pub struct FnDecl {
     pub return_ty: Rc<Ty>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Fn {
     pub decl: FnDecl,
     // If the function is a declaration, the body is None.
@@ -65,14 +65,14 @@ impl PartialEq for Fn {
 
 impl Eq for Fn {}
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct EnumVariant {
     pub name: Symbol,
     pub ty: Option<Rc<Ty>>,
     pub offset: u32,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Enum {
     pub name: QualifiedSymbol,
     pub variants: Vec<EnumVariant>,

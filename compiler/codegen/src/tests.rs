@@ -18,6 +18,11 @@ fn extract_semantic_error(err: anyhow::Error) -> SemanticError {
         .expect("Expected SemanticError in test")
 }
 
+fn is_field_access_type_error(err: anyhow::Error) -> bool {
+    let message = err.to_string();
+    message.contains("has no fields") || message.contains("field access requires a struct type")
+}
+
 /// Return exit status
 fn exec(program: &str) -> anyhow::Result<i32> {
     let context = Context::create();
@@ -808,10 +813,7 @@ fn has_no_fields() {
         4810.shino
     }";
 
-    assert!(matches!(
-        extract_semantic_error(exec(program).unwrap_err()),
-        SemanticError::HasNoFields { .. }
-    ));
+    assert!(is_field_access_type_error(exec(program).unwrap_err()));
 }
 
 #[test]
@@ -3399,6 +3401,81 @@ fn prelude() -> anyhow::Result<()> {
             return match v.at(0) {
                 Option::Some(n) => n,
                 Option::None => 123,
+            }
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn prelude_vector_new_infers_type_from_push() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let mut v = Vector::new()
+            v.push(58)
+            return match v.at(0) {
+                Option::Some(n) => n,
+                Option::None => 123,
+            }
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn option_some_infers_type_without_explicit_args() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let opt = Option::Some(58)
+            return match opt {
+                Option::Some(n) => n,
+                Option::None => 123,
+            }
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn vector_new_infers_struct_from_push() -> anyhow::Result<()> {
+    let program = r#"
+        struct S {
+            x: i32,
+        }
+
+        fn main(): i32 {
+            let mut v = Vector::new()
+            v.push(S { x: 123 })
+            return 58
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn option_some_infers_struct_without_explicit_args() -> anyhow::Result<()> {
+    let program = r#"
+        struct S {
+            n: i32,
+        }
+
+        fn main(): i32 {
+            let opt = Option::Some(S { n: 58 })
+            return match opt {
+                Option::Some(v) => v.n,
+                Option::None => 0,
             }
         }
     "#;

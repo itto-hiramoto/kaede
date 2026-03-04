@@ -16,11 +16,12 @@ use kaede_ir::{
     expr::{
         Binary, BinaryKind, BitNot, BuiltinFnCall, BuiltinFnCallKind, Cast, EnumVariant, Expr,
         ExprKind, FieldAccess, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Slicing,
-        Spawn, TupleIndexing,
+        Spawn, TupleIndexing, UnresolvedFieldAccess,
     },
     stmt::{Assign, Block, Let, Stmt, TupleUnpack},
     ty::{
-        FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind, VarId, make_fundamental_type,
+        FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind, VarId,
+        collect_type_var_bindings, make_fundamental_type,
     },
 };
 mod context;
@@ -56,45 +57,6 @@ impl TypeInferrer {
         self,
     ) -> HashMap<kaede_ir::qualified_symbol::QualifiedSymbol, HashMap<VarId, Rc<Ty>>> {
         self.generic_fn_substitutions
-    }
-
-    fn collect_type_var_bindings(
-        pattern: &Rc<Ty>,
-        resolved: &Rc<Ty>,
-        out: &mut HashMap<VarId, Rc<Ty>>,
-    ) {
-        match (pattern.kind.as_ref(), resolved.kind.as_ref()) {
-            (TyKind::Var(id), _) => {
-                out.insert(*id, resolved.clone());
-            }
-            (TyKind::Pointer(p1), TyKind::Pointer(p2)) => {
-                Self::collect_type_var_bindings(&p1.pointee_ty, &p2.pointee_ty, out);
-            }
-            (TyKind::Reference(r1), TyKind::Reference(r2)) => {
-                Self::collect_type_var_bindings(&r1.refee_ty, &r2.refee_ty, out);
-            }
-            (TyKind::Slice(e1), TyKind::Slice(e2)) => {
-                Self::collect_type_var_bindings(e1, e2, out);
-            }
-            (TyKind::Array((e1, _)), TyKind::Array((e2, _))) => {
-                Self::collect_type_var_bindings(e1, e2, out);
-            }
-            (TyKind::Tuple(ts1), TyKind::Tuple(ts2)) => {
-                for (t1, t2) in ts1.iter().zip(ts2.iter()) {
-                    Self::collect_type_var_bindings(t1, t2, out);
-                }
-            }
-            (TyKind::Closure(c1), TyKind::Closure(c2)) => {
-                for (p1, p2) in c1.param_tys.iter().zip(c2.param_tys.iter()) {
-                    Self::collect_type_var_bindings(p1, p2, out);
-                }
-                Self::collect_type_var_bindings(&c1.ret_ty, &c2.ret_ty, out);
-                for (cap1, cap2) in c1.captures.iter().zip(c2.captures.iter()) {
-                    Self::collect_type_var_bindings(cap1, cap2, out);
-                }
-            }
-            _ => {}
-        }
     }
 
     fn with_new_scope<R>(
@@ -139,6 +101,66 @@ impl TypeInferrer {
         match unwrapped.kind.as_ref() {
             TyKind::Fundamental(fty) => fty.kind.is_int(),
             _ => false,
+        }
+    }
+
+    fn resolve_struct_info_from_ty(
+        &self,
+        ty: &Rc<Ty>,
+        span: Span,
+    ) -> Result<Rc<kaede_ir::top::Struct>, TypeInferError> {
+        // `UnresolvedFieldAccess` may still carry placeholder UDTs, so resolve to concrete
+        // struct metadata via symbol tables before turning it into `FieldAccess`.
+        let unwrapped = Self::unwrap_reference(ty);
+        let udt = match unwrapped.kind.as_ref() {
+            TyKind::UserDefined(udt) => udt,
+            _ => {
+                return Err(TypeInferError::FieldAccessOnNonStruct {
+                    actual: unwrapped.kind.to_string(),
+                    span,
+                });
+            }
+        };
+
+        match &udt.kind {
+            kaede_ir::ty::UserDefinedTypeKind::Struct(info) => Ok(info.clone()),
+            kaede_ir::ty::UserDefinedTypeKind::Placeholder(qsym) => {
+                let Some(value) = self.symbol_table_view.lookup(&qsym.symbol()) else {
+                    return Err(TypeInferError::FieldAccessOnNonStruct {
+                        actual: unwrapped.kind.to_string(),
+                        span,
+                    });
+                };
+
+                let borrowed = value.borrow();
+                match &borrowed.kind {
+                    SymbolTableValueKind::Struct(info) => Ok(info.clone()),
+                    SymbolTableValueKind::Placeholder(qualified) => {
+                        let Some(next) = self.symbol_table_view.lookup(&qualified.symbol()) else {
+                            return Err(TypeInferError::FieldAccessOnNonStruct {
+                                actual: unwrapped.kind.to_string(),
+                                span,
+                            });
+                        };
+                        let next_borrowed = next.borrow();
+                        match &next_borrowed.kind {
+                            SymbolTableValueKind::Struct(info) => Ok(info.clone()),
+                            _ => Err(TypeInferError::FieldAccessOnNonStruct {
+                                actual: unwrapped.kind.to_string(),
+                                span,
+                            }),
+                        }
+                    }
+                    _ => Err(TypeInferError::FieldAccessOnNonStruct {
+                        actual: unwrapped.kind.to_string(),
+                        span,
+                    }),
+                }
+            }
+            _ => Err(TypeInferError::FieldAccessOnNonStruct {
+                actual: unwrapped.kind.to_string(),
+                span,
+            }),
         }
     }
 
@@ -226,6 +248,7 @@ impl TypeInferrer {
 
             // Field and index access
             FieldAccess(field) => self.infer_field_access(field),
+            UnresolvedFieldAccess(field) => self.infer_unresolved_field_access(field),
             TupleIndexing(tuple_idx) => self.infer_tuple_indexing(tuple_idx),
             Indexing(idx) => self.infer_indexing(idx),
             Slicing(slicing) => self.infer_slicing(slicing),
@@ -814,6 +837,14 @@ impl TypeInferrer {
         }
     }
 
+    fn infer_unresolved_field_access(
+        &mut self,
+        field: &UnresolvedFieldAccess,
+    ) -> Result<Rc<Ty>, TypeInferError> {
+        let _ = self.infer_expr(&field.operand)?;
+        Ok(self.context.fresh())
+    }
+
     fn infer_tuple_indexing(
         &mut self,
         tuple_idx: &TupleIndexing,
@@ -976,12 +1007,32 @@ impl TypeInferrer {
 
     fn infer_enum_variant(&mut self, enum_var: &EnumVariant) -> Result<Rc<Ty>, TypeInferError> {
         if let Some(value_expr) = &enum_var.value {
-            let _value_ty = self.infer_expr(value_expr)?;
+            let value_ty = self.infer_expr(value_expr)?;
+            if let Some(pattern_ty) = enum_var
+                .enum_info
+                .variants
+                .iter()
+                .find(|variant| variant.offset == enum_var.variant_offset)
+                .and_then(|variant| variant.ty.clone())
+            {
+                // Feed payload constraints (e.g. `Some(S)` => `T = S`) into unification.
+                self.context.unify(&value_ty, &pattern_ty, enum_var.span)?;
+            }
+        }
+
+        // Keep enum payload metadata in sync with current substitutions so match-unpack
+        // variables receive concrete types in the apply phase.
+        let mut enum_info = enum_var.enum_info.clone();
+        let enum_mut = Rc::make_mut(&mut enum_info);
+        for variant in &mut enum_mut.variants {
+            if let Some(ty) = &variant.ty {
+                variant.ty = Some(self.context.apply(ty));
+            }
         }
 
         Ok(Rc::new(Ty {
             kind: TyKind::UserDefined(kaede_ir::ty::UserDefinedType::new(
-                kaede_ir::ty::UserDefinedTypeKind::Enum(enum_var.enum_info.clone()),
+                kaede_ir::ty::UserDefinedTypeKind::Enum(enum_info),
             ))
             .into(),
             mutability: Mutability::Not,
@@ -1489,6 +1540,32 @@ impl TypeInferrer {
             FieldAccess(field) => {
                 self.apply_expr(&mut field.operand)?;
             }
+            UnresolvedFieldAccess(field) => {
+                self.apply_expr(&mut field.operand)?;
+                // Late-bind field access once operand type variables are solved.
+                let operand_ty = self.context.apply(&field.operand.ty);
+                let struct_info = self.resolve_struct_info_from_ty(&operand_ty, field.span)?;
+                let field_def = struct_info
+                    .fields
+                    .iter()
+                    .find(|def| def.name == field.field_name)
+                    .ok_or(TypeInferError::FieldNotFound {
+                        field_name: field.field_name,
+                        span: field.span,
+                    })?
+                    .clone();
+
+                expr.ty = field_def.ty.clone();
+                // This is where `UnresolvedFieldAccess` is eliminated from IR.
+                // Backends only see the resolved `FieldAccess` form.
+                expr.kind = ExprKind::FieldAccess(kaede_ir::expr::FieldAccess {
+                    struct_info,
+                    operand: field.operand.clone(),
+                    field_name: field.field_name,
+                    field_offset: field_def.offset,
+                    span: field.span,
+                });
+            }
             TupleIndexing(tuple_idx) => {
                 self.apply_expr(std::rc::Rc::make_mut(&mut tuple_idx.tuple))?;
                 tuple_idx.element_ty = self.context.apply(&tuple_idx.element_ty);
@@ -1558,6 +1635,12 @@ impl TypeInferrer {
                 if let Some(value_expr) = &mut enum_var.value {
                     self.apply_expr(value_expr)?;
                 }
+                let enum_info = Rc::make_mut(&mut enum_var.enum_info);
+                for variant in &mut enum_info.variants {
+                    if let Some(ty) = &variant.ty {
+                        variant.ty = Some(self.context.apply(ty));
+                    }
+                }
             }
 
             // Function calls
@@ -1566,6 +1649,13 @@ impl TypeInferrer {
                     self.apply_expr(arg)?;
                 }
 
+                let original_param_tys = fn_call
+                    .callee
+                    .params
+                    .iter()
+                    .map(|p| p.ty.clone())
+                    .collect::<Vec<_>>();
+                let original_ret_ty = fn_call.callee.return_ty.clone();
                 let mut applied_callee = (*fn_call.callee).clone();
                 for param in applied_callee.params.iter_mut() {
                     if let Some(default) = &mut param.default {
@@ -1575,6 +1665,25 @@ impl TypeInferrer {
                 }
                 applied_callee.return_ty = self.context.apply(&applied_callee.return_ty);
                 fn_call.callee = applied_callee.into();
+
+                let mut bindings = HashMap::new();
+                for (pattern, resolved) in original_param_tys
+                    .iter()
+                    .zip(fn_call.callee.params.iter().map(|p| &p.ty))
+                {
+                    collect_type_var_bindings(pattern, resolved, &mut bindings);
+                }
+                collect_type_var_bindings(
+                    &original_ret_ty,
+                    &fn_call.callee.return_ty,
+                    &mut bindings,
+                );
+                if !bindings.is_empty() {
+                    self.generic_fn_substitutions
+                        .entry(fn_call.callee.name.clone())
+                        .or_default()
+                        .extend(bindings);
+                }
             }
             GenericFnCall(fn_call) => {
                 for arg in &mut fn_call.args.0 {
@@ -1603,7 +1712,7 @@ impl TypeInferrer {
                     .iter()
                     .zip(fn_call.generic_args.iter())
                 {
-                    Self::collect_type_var_bindings(pattern, resolved, &mut bindings);
+                    collect_type_var_bindings(pattern, resolved, &mut bindings);
                 }
                 if !bindings.is_empty() {
                     self.generic_fn_substitutions
@@ -1772,11 +1881,14 @@ mod tests {
 
     use kaede_common::LangLinkage;
     use kaede_ir::{
-        expr::{Args, Expr, ExprKind, GenericFnCall},
+        expr::{Args, Expr, ExprKind, GenericFnCall, UnresolvedFieldAccess, Variable},
         module_path::ModulePath,
         qualified_symbol::QualifiedSymbol,
-        top::FnDecl,
-        ty::{FundamentalTypeKind, Mutability, Ty, TyKind, make_fundamental_type},
+        top::{FnDecl, Struct, StructField},
+        ty::{
+            FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind, UserDefinedType,
+            UserDefinedTypeKind, make_fundamental_type,
+        },
     };
     use kaede_span::Span;
     use kaede_symbol::Symbol;
@@ -1859,6 +1971,61 @@ mod tests {
         assert!(matches!(
             err,
             TypeInferError::CannotInferGenericArguments { .. }
+        ));
+    }
+
+    #[test]
+    fn unresolved_field_access_resolves_to_field_access_on_apply() {
+        let mut inferrer = make_inferrer();
+        let field_ty = i32_ty();
+        let struct_info = Rc::new(Struct {
+            name: QualifiedSymbol::new(ModulePath::new(vec![]), Symbol::from("S".to_owned())),
+            fields: vec![StructField {
+                name: Symbol::from("n".to_owned()),
+                ty: field_ty.clone(),
+                offset: 0,
+            }],
+        });
+        let operand_ty = Rc::new(Ty {
+            kind: TyKind::Reference(ReferenceType {
+                refee_ty: Rc::new(Ty {
+                    kind: TyKind::UserDefined(UserDefinedType {
+                        kind: UserDefinedTypeKind::Struct(struct_info),
+                    })
+                    .into(),
+                    mutability: Mutability::Not,
+                }),
+            })
+            .into(),
+            mutability: Mutability::Not,
+        });
+        inferrer.register_variable(Symbol::from("v".to_owned()), operand_ty.clone());
+
+        let mut expr = Expr {
+            kind: ExprKind::UnresolvedFieldAccess(UnresolvedFieldAccess {
+                operand: Box::new(Expr {
+                    kind: ExprKind::Variable(Variable {
+                        name: Symbol::from("v".to_owned()),
+                        ty: operand_ty,
+                        span: Span::dummy(),
+                    }),
+                    ty: var_ty(100),
+                    span: Span::dummy(),
+                }),
+                field_name: Symbol::from("n".to_owned()),
+                span: Span::dummy(),
+            }),
+            ty: var_ty(101),
+            span: Span::dummy(),
+        };
+
+        inferrer.infer_expr(&expr).unwrap();
+        inferrer.apply_expr(&mut expr).unwrap();
+
+        assert!(matches!(expr.kind, ExprKind::FieldAccess(_)));
+        assert!(matches!(
+            expr.ty.kind.as_ref(),
+            TyKind::Fundamental(fty) if fty.kind == FundamentalTypeKind::I32
         ));
     }
 }
