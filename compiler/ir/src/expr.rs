@@ -173,6 +173,15 @@ pub struct FieldAccess {
     pub span: Span,
 }
 
+// Temporary node emitted by semantic when receiver type is still unknown.
+// Must be rewritten to `FieldAccess` during type inference before monomorphize/codegen.
+#[derive(Debug, Clone)]
+pub struct UnresolvedFieldAccess {
+    pub operand: Box<Expr>,
+    pub field_name: Symbol,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone)]
 pub struct EnumVariant {
     pub enum_info: Rc<Enum>,
@@ -320,6 +329,7 @@ pub enum ExprKind {
     Binary(Binary),
     Cast(Cast),
     FieldAccess(FieldAccess),
+    UnresolvedFieldAccess(UnresolvedFieldAccess),
     TupleIndexing(TupleIndexing),
     EnumVariant(EnumVariant),
     Indexing(Indexing),

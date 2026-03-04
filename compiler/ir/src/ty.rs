@@ -1,4 +1,4 @@
-use std::{fmt::Display, rc::Rc};
+use std::{collections::HashMap, fmt::Display, rc::Rc};
 
 use inkwell::{
     context::Context,
@@ -79,6 +79,103 @@ pub fn contains_type_var(ty: &Rc<Ty>) -> bool {
                 || closure.captures.iter().any(contains_type_var)
         }
         TyKind::Fundamental(_) | TyKind::UserDefined(_) | TyKind::Unit | TyKind::Never => false,
+    }
+}
+
+pub fn collect_type_var_bindings(
+    pattern: &Rc<Ty>,
+    resolved: &Rc<Ty>,
+    out: &mut HashMap<VarId, Rc<Ty>>,
+) {
+    match (pattern.kind.as_ref(), resolved.kind.as_ref()) {
+        (TyKind::Var(id), _) => {
+            out.insert(*id, resolved.clone());
+        }
+        (TyKind::Pointer(p1), TyKind::Pointer(p2)) => {
+            collect_type_var_bindings(&p1.pointee_ty, &p2.pointee_ty, out);
+        }
+        (TyKind::Reference(r1), TyKind::Reference(r2)) => {
+            collect_type_var_bindings(&r1.refee_ty, &r2.refee_ty, out);
+        }
+        (TyKind::Slice(e1), TyKind::Slice(e2)) => {
+            collect_type_var_bindings(e1, e2, out);
+        }
+        (TyKind::Array((e1, _)), TyKind::Array((e2, _))) => {
+            collect_type_var_bindings(e1, e2, out);
+        }
+        (TyKind::Tuple(ts1), TyKind::Tuple(ts2)) => {
+            for (t1, t2) in ts1.iter().zip(ts2.iter()) {
+                collect_type_var_bindings(t1, t2, out);
+            }
+        }
+        (TyKind::Closure(c1), TyKind::Closure(c2)) => {
+            for (p1, p2) in c1.param_tys.iter().zip(c2.param_tys.iter()) {
+                collect_type_var_bindings(p1, p2, out);
+            }
+            collect_type_var_bindings(&c1.ret_ty, &c2.ret_ty, out);
+            for (cap1, cap2) in c1.captures.iter().zip(c2.captures.iter()) {
+                collect_type_var_bindings(cap1, cap2, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+pub fn apply_type_var_bindings(ty: &Rc<Ty>, bindings: &HashMap<VarId, Rc<Ty>>) -> Rc<Ty> {
+    match ty.kind.as_ref() {
+        TyKind::Var(id) => bindings.get(id).cloned().unwrap_or_else(|| ty.clone()),
+        TyKind::Pointer(pty) => Rc::new(Ty {
+            kind: TyKind::Pointer(PointerType {
+                pointee_ty: apply_type_var_bindings(&pty.pointee_ty, bindings),
+            })
+            .into(),
+            mutability: ty.mutability,
+        }),
+        TyKind::Reference(rty) => Rc::new(Ty {
+            kind: TyKind::Reference(ReferenceType {
+                refee_ty: apply_type_var_bindings(&rty.refee_ty, bindings),
+            })
+            .into(),
+            mutability: ty.mutability,
+        }),
+        TyKind::Slice(elem) => Rc::new(Ty {
+            kind: TyKind::Slice(apply_type_var_bindings(elem, bindings)).into(),
+            mutability: ty.mutability,
+        }),
+        TyKind::Array((elem, size)) => Rc::new(Ty {
+            kind: TyKind::Array((apply_type_var_bindings(elem, bindings), *size)).into(),
+            mutability: ty.mutability,
+        }),
+        TyKind::Tuple(elems) => Rc::new(Ty {
+            kind: TyKind::Tuple(
+                elems
+                    .iter()
+                    .map(|t| apply_type_var_bindings(t, bindings))
+                    .collect(),
+            )
+            .into(),
+            mutability: ty.mutability,
+        }),
+        TyKind::Closure(closure) => Rc::new(Ty {
+            kind: TyKind::Closure(ClosureType {
+                param_tys: closure
+                    .param_tys
+                    .iter()
+                    .map(|t| apply_type_var_bindings(t, bindings))
+                    .collect(),
+                ret_ty: apply_type_var_bindings(&closure.ret_ty, bindings),
+                captures: closure
+                    .captures
+                    .iter()
+                    .map(|t| apply_type_var_bindings(t, bindings))
+                    .collect(),
+            })
+            .into(),
+            mutability: ty.mutability,
+        }),
+        TyKind::Fundamental(_) | TyKind::UserDefined(_) | TyKind::Unit | TyKind::Never => {
+            ty.clone()
+        }
     }
 }
 
