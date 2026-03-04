@@ -405,63 +405,7 @@ impl SemanticAnalyzer {
         ty: &Rc<ir_type::Ty>,
         subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
     ) -> Rc<ir_type::Ty> {
-        match ty.kind.as_ref() {
-            ir_type::TyKind::Var(id) => subst.get(id).cloned().unwrap_or_else(|| ty.clone()),
-            ir_type::TyKind::Pointer(pty) => Rc::new(ir_type::Ty {
-                kind: ir_type::TyKind::Pointer(ir_type::PointerType {
-                    pointee_ty: Self::apply_var_subst_to_ty(&pty.pointee_ty, subst),
-                })
-                .into(),
-                mutability: ty.mutability,
-            }),
-            ir_type::TyKind::Reference(rty) => Rc::new(ir_type::Ty {
-                kind: ir_type::TyKind::Reference(ir_type::ReferenceType {
-                    refee_ty: Self::apply_var_subst_to_ty(&rty.refee_ty, subst),
-                })
-                .into(),
-                mutability: ty.mutability,
-            }),
-            ir_type::TyKind::Slice(elem) => Rc::new(ir_type::Ty {
-                kind: ir_type::TyKind::Slice(Self::apply_var_subst_to_ty(elem, subst)).into(),
-                mutability: ty.mutability,
-            }),
-            ir_type::TyKind::Array((elem, size)) => Rc::new(ir_type::Ty {
-                kind: ir_type::TyKind::Array((Self::apply_var_subst_to_ty(elem, subst), *size))
-                    .into(),
-                mutability: ty.mutability,
-            }),
-            ir_type::TyKind::Tuple(elems) => Rc::new(ir_type::Ty {
-                kind: ir_type::TyKind::Tuple(
-                    elems
-                        .iter()
-                        .map(|t| Self::apply_var_subst_to_ty(t, subst))
-                        .collect(),
-                )
-                .into(),
-                mutability: ty.mutability,
-            }),
-            ir_type::TyKind::Closure(closure) => Rc::new(ir_type::Ty {
-                kind: ir_type::TyKind::Closure(ir_type::ClosureType {
-                    param_tys: closure
-                        .param_tys
-                        .iter()
-                        .map(|t| Self::apply_var_subst_to_ty(t, subst))
-                        .collect(),
-                    ret_ty: Self::apply_var_subst_to_ty(&closure.ret_ty, subst),
-                    captures: closure
-                        .captures
-                        .iter()
-                        .map(|t| Self::apply_var_subst_to_ty(t, subst))
-                        .collect(),
-                })
-                .into(),
-                mutability: ty.mutability,
-            }),
-            ir_type::TyKind::Fundamental(_)
-            | ir_type::TyKind::UserDefined(_)
-            | ir_type::TyKind::Unit
-            | ir_type::TyKind::Never => ty.clone(),
-        }
+        ir_type::apply_type_var_bindings(ty, subst)
     }
 
     fn apply_var_subst_to_fn_decl(
@@ -568,6 +512,9 @@ impl SemanticAnalyzer {
                 cast.target_ty = Self::apply_var_subst_to_ty(&cast.target_ty, subst);
             }
             ir::expr::ExprKind::FieldAccess(field) => {
+                Self::apply_var_subst_to_expr(&mut field.operand, subst);
+            }
+            ir::expr::ExprKind::UnresolvedFieldAccess(field) => {
                 Self::apply_var_subst_to_expr(&mut field.operand, subst);
             }
             ir::expr::ExprKind::TupleIndexing(tuple_idx) => {

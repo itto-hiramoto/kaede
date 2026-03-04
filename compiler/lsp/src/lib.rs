@@ -293,6 +293,7 @@ fn type_infer_error_span(err: &TypeInferError) -> Option<Span> {
         | TypeInferError::ExpectedTupleType { span, .. }
         | TypeInferError::UndefinedVariable { span, .. }
         | TypeInferError::FieldNotFound { span, .. }
+        | TypeInferError::FieldAccessOnNonStruct { span, .. }
         | TypeInferError::NotATuple { span, .. }
         | TypeInferError::TupleIndexOutOfBounds { span, .. }
         | TypeInferError::StrIndexOutOfBounds { span }

@@ -2581,10 +2581,10 @@ impl SemanticAnalyzer {
             }
         };
 
-        let variant_info = enum_ir
+        let variant_index = enum_ir
             .variants
             .iter()
-            .find(|v| v.name == variant_name.symbol())
+            .position(|v| v.name == variant_name.symbol())
             .ok_or(SemanticError::NoVariant {
                 variant_name: variant_name.symbol(),
                 parent_name: udt.name(),
@@ -2596,7 +2596,7 @@ impl SemanticAnalyzer {
             None => None,
         };
 
-        if value.is_some() && variant_info.ty.is_none() {
+        if value.is_some() && enum_ir.variants[variant_index].ty.is_none() {
             // No type is specified for the variant, but a value is provided.
             return Err(SemanticError::CannotAssignValueToVariant {
                 variant_name: variant_name.symbol(),
@@ -2615,7 +2615,7 @@ impl SemanticAnalyzer {
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::EnumVariant(ir::expr::EnumVariant {
                 enum_info: enum_ir.clone(),
-                variant_offset: variant_info.offset,
+                variant_offset: enum_ir.variants[variant_index].offset,
                 value: value.map(Box::new),
                 span,
             }),
@@ -2774,6 +2774,23 @@ impl SemanticAnalyzer {
                 .into())
             }
         } else {
+            if matches!(left_ty.kind.as_ref(), ir_type::TyKind::Var(_)) {
+                if let ast::expr::ExprKind::Ident(field_name) = &node.rhs.kind {
+                    let span = Span::new(left.span.start, node.rhs.span.finish, left.span.file);
+                    return Ok(ir::expr::Expr {
+                        kind: ir::expr::ExprKind::UnresolvedFieldAccess(
+                            ir::expr::UnresolvedFieldAccess {
+                                operand: Box::new(left),
+                                field_name: field_name.symbol(),
+                                span,
+                            },
+                        ),
+                        ty: self.infer_context.fresh(),
+                        span,
+                    });
+                }
+            }
+
             // Fundamental type method calling
             let call_node = match &node.rhs.kind {
                 kaede_ast::expr::ExprKind::FnCall(call_node) => call_node,
