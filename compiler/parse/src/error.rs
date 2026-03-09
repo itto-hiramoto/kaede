@@ -16,13 +16,6 @@ pub enum ParseError {
     #[error("{}:{}:{} Out of range for 'u32'", .0.file, .0.start.line, .0.start.column)]
     OutOfRangeForU32(Span),
 
-    #[error("{}:{}:{} deprecated syntax `{}` (use `{}`)", span.file, span.start.line, span.start.column, feature, replacement)]
-    DeprecatedSyntax {
-        feature: String,
-        replacement: String,
-        span: Span,
-    },
-
     #[error("{}:{}:{} `use rust::<crate>::...` is not supported yet", span.file, span.start.line, span.start.column)]
     UnsupportedForeignUse { span: Span },
 }

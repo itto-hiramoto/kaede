@@ -161,7 +161,7 @@ fn parse_foreign_rust_import() -> Result<()> {
 }
 
 #[test]
-fn parse_bridge_is_deprecated_error() -> Result<()> {
+fn parse_bridge_is_plain_parse_error() -> Result<()> {
     let mut parser = Parser::new(
         r#"pub bridge "Rust" fn hello()"#,
         FilePath::from(PathBuf::from("test.kd")),
@@ -170,7 +170,7 @@ fn parse_bridge_is_deprecated_error() -> Result<()> {
     let err = parser.run().expect_err("bridge syntax must fail");
     let parse_err = err.downcast::<ParseError>().expect("expected parse error");
 
-    assert!(matches!(parse_err, ParseError::DeprecatedSyntax { .. }));
+    assert!(matches!(parse_err, ParseError::ExpectedError { .. }));
 
     Ok(())
 }

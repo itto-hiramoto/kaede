@@ -170,6 +170,10 @@ fn emit_exe_file(
     Ok(())
 }
 
+/// Compiles Kaede units and returns:
+/// - the merged LLVM module
+/// - additional native libraries discovered during semantic analysis
+///   (for example, generated Rust shim dylibs for `import rust::<crate>`)
 fn compile<'ctx>(
     cgcx: &'ctx CodegenCtx<'_>,
     unit_infos: Vec<CompileUnitInfo>,

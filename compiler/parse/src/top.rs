@@ -57,21 +57,19 @@ impl Parser {
                 (kind.span, TopLevelKind::Use(kind))
             }
 
-            TokenKind::Bridge => {
-                return Err(ParseError::DeprecatedSyntax {
-                    feature: "bridge \"Rust\"".to_string(),
-                    replacement: "import rust::<crate>".to_string(),
-                    span: token.span,
-                }
-                .into());
-            }
-
             TokenKind::Type => {
                 let kind = self.type_alias(vis)?;
                 (kind.span, TopLevelKind::TypeAlias(kind))
             }
 
-            _ => unreachable!("{:?}", token.kind),
+            _ => {
+                return Err(ParseError::ExpectedError {
+                    expected: "top-level declaration".to_string(),
+                    but: token.kind.to_string(),
+                    span: token.span,
+                }
+                .into())
+            }
         };
 
         self.consume_semi()?;

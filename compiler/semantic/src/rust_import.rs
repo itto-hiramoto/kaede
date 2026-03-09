@@ -28,6 +28,12 @@ pub struct RustImportOutput {
     pub skipped: Vec<String>,
 }
 
+/// Converts arbitrary names from rustdoc/Cargo metadata into Rust identifier-safe text.
+///
+/// Cargo package names may contain `-` (e.g. `my-crate`), and rustdoc can also surface names
+/// that are not directly usable as Rust identifiers in generated shim code.
+/// The shim uses these names for generated Rust function/parameter symbols, so we normalize
+/// non `[A-Za-z0-9_]` characters to `_`.
 fn sanitize_symbol(name: &str) -> String {
     let mut out = String::with_capacity(name.len());
     for ch in name.chars() {
@@ -177,27 +183,34 @@ fn rustdoc_json_path(rust_dir: &Path, crate_name: &str) -> anyhow::Result<PathBu
         .ok_or_else(|| anyhow!("rustdoc JSON not found in {}", doc_dir.display()))
 }
 
-fn parse_root_public_functions(
-    rustdoc_json: &Path,
+fn infer_root_id(
+    index: &serde_json::Map<String, Value>,
     crate_name: &str,
-) -> anyhow::Result<(Vec<RustImportedFn>, Vec<String>)> {
-    let content = fs::read_to_string(rustdoc_json)
-        .with_context(|| format!("failed to read rustdoc json: {}", rustdoc_json.display()))?;
-    let v: Value = serde_json::from_str(&content)
-        .with_context(|| format!("failed to parse rustdoc json: {}", rustdoc_json.display()))?;
+) -> anyhow::Result<String> {
+    index
+        .iter()
+        .find_map(|(id, item)| {
+            let is_module = item
+                .get("kind")
+                .and_then(Value::as_str)
+                .is_some_and(|k| k == "module");
+            let is_local_crate = item
+                .get("crate_id")
+                .and_then(Value::as_u64)
+                .is_some_and(|cid| cid == 0);
+            let is_named_like_crate = item
+                .get("name")
+                .and_then(Value::as_str)
+                .is_some_and(|name| name == crate_name || name == crate_name.replace('-', "_"));
 
-    let index = v
-        .get("index")
-        .and_then(Value::as_object)
-        .ok_or_else(|| anyhow!("missing index in rustdoc json"))?;
-
-    let root_id = if let Some(root) = v.get("root").and_then(json_id_to_string) {
-        root
-    } else {
-        // Fallback for rustdoc JSON schema drift: infer crate root module from index.
-        index
-            .iter()
-            .find_map(|(id, item)| {
+            if is_module && is_local_crate && is_named_like_crate {
+                Some(id.clone())
+            } else {
+                None
+            }
+        })
+        .or_else(|| {
+            index.iter().find_map(|(id, item)| {
                 let is_module = item
                     .get("kind")
                     .and_then(Value::as_str)
@@ -206,50 +219,29 @@ fn parse_root_public_functions(
                     .get("crate_id")
                     .and_then(Value::as_u64)
                     .is_some_and(|cid| cid == 0);
-                let is_named_like_crate = item
-                    .get("name")
-                    .and_then(Value::as_str)
-                    .is_some_and(|name| name == crate_name || name == crate_name.replace('-', "_"));
-
-                if is_module && is_local_crate && is_named_like_crate {
+                if is_module && is_local_crate {
                     Some(id.clone())
                 } else {
                     None
                 }
             })
-            .or_else(|| {
-                index.iter().find_map(|(id, item)| {
-                    let is_module = item
-                        .get("kind")
-                        .and_then(Value::as_str)
-                        .is_some_and(|k| k == "module");
-                    let is_local_crate = item
-                        .get("crate_id")
-                        .and_then(Value::as_u64)
-                        .is_some_and(|cid| cid == 0);
-                    if is_module && is_local_crate {
-                        Some(id.clone())
-                    } else {
-                        None
-                    }
-                })
-            })
-            .ok_or_else(|| anyhow!("missing root id in rustdoc json and failed to infer it"))?
-    };
+        })
+        .ok_or_else(|| anyhow!("missing root id in rustdoc json and failed to infer it"))
+}
 
-    let root_item = index
-        .get(&root_id)
-        .ok_or_else(|| anyhow!("root item not found in rustdoc index"))?;
-    let item_ids = root_item
+fn collect_candidate_ids(root_item: &Value, rustdoc: &Value, crate_name: &str) -> Vec<String> {
+    let root_item_ids = root_item
         .get("inner")
         .and_then(|v| v.get("module"))
         .and_then(|v| v.get("items"))
         .and_then(Value::as_array)
         .cloned()
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|v| json_id_to_string(&v))
+        .collect::<Vec<_>>();
 
-    // Prefer `paths` table when available to avoid schema changes around root/module.
-    let candidate_ids = if let Some(paths) = v.get("paths").and_then(Value::as_object) {
+    if let Some(paths) = rustdoc.get("paths").and_then(Value::as_object) {
         let mut ids = paths
             .iter()
             .filter_map(|(id, entry)| {
@@ -271,16 +263,122 @@ fn parse_root_public_functions(
                 }
             })
             .collect::<Vec<_>>();
-        if ids.is_empty() {
-            item_ids.iter().filter_map(json_id_to_string).collect()
-        } else {
+        if !ids.is_empty() {
             ids.sort();
             ids.dedup();
-            ids
+            return ids;
         }
-    } else {
-        item_ids.iter().filter_map(json_id_to_string).collect()
+    }
+
+    root_item_ids
+}
+
+fn parse_supported_params(inputs: &[Value]) -> Result<Vec<(Symbol, Rc<ir_type::Ty>)>, String> {
+    let mut params = Vec::with_capacity(inputs.len());
+
+    for (idx, input) in inputs.iter().enumerate() {
+        let Some(input_pair) = input.as_array() else {
+            return Err(format!("parameter #{idx} format is unsupported"));
+        };
+        if input_pair.len() != 2 {
+            return Err(format!("parameter #{idx} format is unsupported"));
+        }
+        let param_name = input_pair[0]
+            .as_str()
+            .map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("arg{idx}"));
+        let param_name = {
+            let sanitized = sanitize_symbol(&param_name);
+            if sanitized.is_empty() {
+                format!("arg{idx}")
+            } else {
+                sanitized
+            }
+        };
+        let Some(param_ty) = parse_supported_ty(&input_pair[1]) else {
+            return Err(format!("unsupported parameter type at #{idx}"));
+        };
+        params.push((Symbol::from(param_name), param_ty));
+    }
+
+    Ok(params)
+}
+
+fn parse_public_function_item(
+    item: &Value,
+    crate_sanitized: &str,
+) -> Option<Result<RustImportedFn, String>> {
+    if !is_public_visibility(item) {
+        return None;
+    }
+
+    let is_function = item
+        .get("kind")
+        .and_then(Value::as_str)
+        .is_some_and(|v| v == "function")
+        || item.get("inner").and_then(|v| v.get("function")).is_some();
+    if !is_function {
+        return None;
+    }
+
+    let name = item.get("name").and_then(Value::as_str)?;
+    let function_node = match item.get("inner").and_then(|v| v.get("function")) {
+        Some(node) => node,
+        None => return Some(Err(format!("{name}: failed to read function signature"))),
     };
+    let (inputs, output) = match extract_fn_io(function_node) {
+        Some(io) => io,
+        None => return Some(Err(format!("{name}: failed to read function signature"))),
+    };
+
+    let inputs = match inputs.as_array() {
+        Some(inputs) => inputs,
+        None => return Some(Err(format!("{name}: failed to read input types"))),
+    };
+    let params = match parse_supported_params(inputs) {
+        Ok(params) => params,
+        Err(reason) => return Some(Err(format!("{name}: {reason}"))),
+    };
+    let return_ty = match parse_supported_ty(output) {
+        Some(ty) => ty,
+        None => return Some(Err(format!("{name}: unsupported return type"))),
+    };
+
+    Some(Ok(RustImportedFn {
+        kaede_name: Symbol::from(name.to_string()),
+        export_name: Symbol::from(format!(
+            "kaede_rust_shim_{}_{}",
+            crate_sanitized,
+            sanitize_symbol(name)
+        )),
+        params,
+        return_ty,
+    }))
+}
+
+fn parse_root_public_functions(
+    rustdoc_json: &Path,
+    crate_name: &str,
+) -> anyhow::Result<(Vec<RustImportedFn>, Vec<String>)> {
+    let content = fs::read_to_string(rustdoc_json)
+        .with_context(|| format!("failed to read rustdoc json: {}", rustdoc_json.display()))?;
+    let v: Value = serde_json::from_str(&content)
+        .with_context(|| format!("failed to parse rustdoc json: {}", rustdoc_json.display()))?;
+
+    let index = v
+        .get("index")
+        .and_then(Value::as_object)
+        .ok_or_else(|| anyhow!("missing index in rustdoc json"))?;
+
+    let root_id = match v.get("root").and_then(json_id_to_string) {
+        Some(root) => root,
+        None => infer_root_id(index, crate_name)?,
+    };
+
+    let root_item = index
+        .get(&root_id)
+        .ok_or_else(|| anyhow!("root item not found in rustdoc index"))?;
+    let candidate_ids = collect_candidate_ids(root_item, &v, crate_name);
 
     let mut functions = Vec::new();
     let mut skipped = Vec::new();
@@ -291,88 +389,24 @@ fn parse_root_public_functions(
             continue;
         };
 
-        let is_public = is_public_visibility(item);
-        let is_function = item
-            .get("kind")
-            .and_then(Value::as_str)
-            .is_some_and(|v| v == "function")
-            || item.get("inner").and_then(|v| v.get("function")).is_some();
-        if !is_public || !is_function {
-            continue;
+        match parse_public_function_item(item, &crate_sanitized) {
+            Some(Ok(parsed)) => functions.push(parsed),
+            Some(Err(reason)) => skipped.push(reason),
+            None => {}
         }
-
-        let Some(name) = item.get("name").and_then(Value::as_str) else {
-            continue;
-        };
-
-        let Some(function_node) = item.get("inner").and_then(|v| v.get("function")) else {
-            skipped.push(format!("{name}: failed to read function signature"));
-            continue;
-        };
-        let Some((inputs, output)) = extract_fn_io(function_node) else {
-            skipped.push(format!("{name}: failed to read function signature"));
-            continue;
-        };
-
-        let Some(inputs) = inputs.as_array() else {
-            skipped.push(format!("{name}: failed to read input types"));
-            continue;
-        };
-        let mut params = Vec::with_capacity(inputs.len());
-        let mut unsupported = None;
-
-        for (idx, input) in inputs.iter().enumerate() {
-            let Some(input_pair) = input.as_array() else {
-                unsupported = Some(format!("parameter #{idx} format is unsupported"));
-                break;
-            };
-            if input_pair.len() != 2 {
-                unsupported = Some(format!("parameter #{idx} format is unsupported"));
-                break;
-            }
-            let param_name = input_pair[0]
-                .as_str()
-                .map(ToOwned::to_owned)
-                .unwrap_or_else(|| format!("arg{idx}"));
-            let param_name = {
-                let sanitized = sanitize_symbol(&param_name);
-                if sanitized.is_empty() {
-                    format!("arg{idx}")
-                } else {
-                    sanitized
-                }
-            };
-            let Some(param_ty) = parse_supported_ty(&input_pair[1]) else {
-                unsupported = Some(format!("unsupported parameter type at #{idx}"));
-                break;
-            };
-            params.push((Symbol::from(param_name), param_ty));
-        }
-
-        let Some(output_ty) = parse_supported_ty(output) else {
-            skipped.push(format!("{name}: unsupported return type"));
-            continue;
-        };
-
-        if let Some(reason) = unsupported {
-            skipped.push(format!("{name}: {reason}"));
-            continue;
-        }
-
-        let export_name = Symbol::from(format!(
-            "kaede_rust_shim_{}_{}",
-            crate_sanitized,
-            sanitize_symbol(name)
-        ));
-        functions.push(RustImportedFn {
-            kaede_name: Symbol::from(name.to_string()),
-            export_name,
-            params,
-            return_ty: output_ty,
-        });
     }
 
     Ok((functions, skipped))
+}
+
+fn rust_ty_to_shim_rs(ty: &ir_type::Ty) -> anyhow::Result<&'static str> {
+    match ty.kind.as_ref() {
+        ir_type::TyKind::Fundamental(fty) if fty.kind == ir_type::FundamentalTypeKind::I32 => {
+            Ok("i32")
+        }
+        ir_type::TyKind::Unit => Ok("()"),
+        _ => Err(anyhow!("unsupported shim type: {}", ty.kind)),
+    }
 }
 
 fn generate_shim_crate(
@@ -410,12 +444,19 @@ fn generate_shim_crate(
 
     let mut lib_rs = String::new();
     for func in functions {
-        let params = func
+        let param_decls = func
             .params
             .iter()
-            .map(|(name, _)| format!("{}: i32", sanitize_symbol(name.as_str())))
-            .collect::<Vec<_>>()
+            .map(|(name, ty)| {
+                Ok(format!(
+                    "{}: {}",
+                    sanitize_symbol(name.as_str()),
+                    rust_ty_to_shim_rs(ty)?
+                ))
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
             .join(", ");
+        let return_ty = rust_ty_to_shim_rs(&func.return_ty)?;
         let args = func
             .params
             .iter()
@@ -424,23 +465,20 @@ fn generate_shim_crate(
             .join(", ");
 
         lib_rs.push_str("#[unsafe(no_mangle)]\n");
-        let returns_i32 = matches!(
-            func.return_ty.kind.as_ref(),
-            ir_type::TyKind::Fundamental(fty) if fty.kind == ir_type::FundamentalTypeKind::I32
-        );
-        if returns_i32 {
+        if return_ty == "()" {
             lib_rs.push_str(&format!(
-                "pub extern \"C\" fn {}({}) -> i32 {{\n    kaede_user_crate::{}({})\n}}\n\n",
+                "pub extern \"C\" fn {}({}) {{\n    kaede_user_crate::{}({});\n}}\n\n",
                 func.export_name.as_str(),
-                params,
+                param_decls,
                 func.kaede_name.as_str(),
                 args
             ));
         } else {
             lib_rs.push_str(&format!(
-                "pub extern \"C\" fn {}({}) {{\n    kaede_user_crate::{}({});\n}}\n\n",
+                "pub extern \"C\" fn {}({}) -> {} {{\n    kaede_user_crate::{}({})\n}}\n\n",
                 func.export_name.as_str(),
-                params,
+                param_decls,
+                return_ty,
                 func.kaede_name.as_str(),
                 args
             ));

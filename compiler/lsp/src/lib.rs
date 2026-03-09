@@ -223,7 +223,6 @@ fn parse_error_span(err: &ParseError) -> Option<Span> {
         ParseError::ExpectedError { span, .. }
         | ParseError::OutOfRangeForI32(span)
         | ParseError::OutOfRangeForU32(span)
-        | ParseError::DeprecatedSyntax { span, .. }
         | ParseError::UnsupportedForeignUse { span } => Some(*span),
     }
 }
