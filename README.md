@@ -5,11 +5,11 @@
 
 **Kaede** is an experimental systems programming language that combines:
 
+- **Seamless Rust interop** — Import Rust crates directly from Kaede
 - **Go-style green threads** — Lightweight concurrent tasks with multi-core scheduling
 - **Rust-like syntax** — Modern, expressive syntax with static typing
-- **Bidirectional type inference** — Minimal type annotations with full type safety
-- **Seamless Rust interop** — Import Rust crates directly from Kaede
 - **Garbage collection** — Automatic memory management without ownership complexity
+- **Bidirectional type inference** — Minimal type annotations with full type safety
 
 ## Installation
 
