@@ -16,6 +16,8 @@
 ### Prerequisites
 
 - LLVM 17
+- Rust toolchain (`rustc` and `cargo`)
+- (Optional, for Rust interop) Cargo nightly (`cargo +nightly`)
 - Python 3
 - CMake
 - C compiler (gcc or clang)
@@ -48,8 +50,8 @@ $ kaede -h
 $ kaede new myproject
 $ cd myproject
 
-# Build the project
-$ kaede build
+# Run the project
+$ kaede run
 ```
 
 ## Editor Support
