@@ -1,11 +1,12 @@
 import ast
 import tokenize
+import std.io
 
 use ast.*
 use tokenize.Token
 
 pub struct Parser {
-    current_idx: u32,
+    current_idx: u64,
     tokens: Vector<Token>,
 }
 
