@@ -43,20 +43,6 @@ def install_bdwgc(third_party_dir):
     return install_dir
 
 
-def install_kaede_rust_bridge_codegen(kaede_dir):
-    print("Installing kaede-rust-bridge-codegen...")
-
-    codegen_src_dir = os.path.join(this_dir, "kaede-rust-bridge-codegen")
-    codegen_dst_dir = os.path.join(kaede_dir, "kaede-rust-bridge-codegen")
-
-    # Copy the codegen crate
-    if os.path.exists(codegen_dst_dir):
-        shutil.rmtree(codegen_dst_dir)
-    shutil.copytree(codegen_src_dir, codegen_dst_dir)
-
-    print("Done!")
-
-
 def install_standard_library(
     kaede_lib_dir,
     bdwgc_lib_path,
@@ -193,7 +179,6 @@ def install(kaede_dir):
         kaede_lib_path,
         runtime_lib_path,
     )
-    install_kaede_rust_bridge_codegen(kaede_dir)
 
     # Create a symbolic link to easily link with GC from compiler side
     kaede_libgc_path = os.path.join(kaede_lib_dir, f"libkgc.{lib_extension}")

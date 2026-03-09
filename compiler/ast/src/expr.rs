@@ -299,6 +299,29 @@ impl Expr {
             _ => {}
         }
     }
+
+    pub fn collect_scope_resolution_chain(&self, out: &mut Vec<Ident>) {
+        use BinaryKind;
+        use ExprKind;
+
+        match &self.kind {
+            ExprKind::Binary(Binary {
+                kind: BinaryKind::ScopeResolution,
+                lhs,
+                rhs,
+                ..
+            }) => {
+                lhs.collect_scope_resolution_chain(out);
+                if let ExprKind::Ident(ident) = &rhs.kind {
+                    out.push(*ident);
+                }
+            }
+
+            ExprKind::Ident(ident) => out.push(*ident),
+
+            _ => {}
+        }
+    }
 }
 
 #[derive(Debug)]

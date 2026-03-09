@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use kaede_ast::{expr::ExprKind, top::TopLevelKind};
-use kaede_parse::Parser;
+use kaede_parse::{ParseError, Parser};
 use kaede_span::file::FilePath;
 use kaede_symbol::Symbol;
 
@@ -133,5 +133,44 @@ fn parse_match_arms_without_commas() -> Result<()> {
     };
 
     assert_eq!(m.arms.len(), 2);
+    Ok(())
+}
+
+#[test]
+fn parse_foreign_rust_import() -> Result<()> {
+    let mut parser = Parser::new(
+        "import rust::example_crate",
+        FilePath::from(PathBuf::from("test.kd")),
+    );
+    let unit = parser.run()?;
+    let top = unit.top_levels.front().expect("top level");
+
+    let TopLevelKind::Import(import) = &top.kind else {
+        panic!("expected import top-level");
+    };
+
+    match &import.kind {
+        kaede_ast::top::ImportKind::Foreign { lang, crate_name } => {
+            assert_eq!(lang.as_str(), "rust");
+            assert_eq!(crate_name.as_str(), "example_crate");
+        }
+        other => panic!("expected foreign import, got {other:?}"),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn parse_bridge_is_plain_parse_error() -> Result<()> {
+    let mut parser = Parser::new(
+        r#"pub bridge "Rust" fn hello()"#,
+        FilePath::from(PathBuf::from("test.kd")),
+    );
+
+    let err = parser.run().expect_err("bridge syntax must fail");
+    let parse_err = err.downcast::<ParseError>().expect("expected parse error");
+
+    assert!(matches!(parse_err, ParseError::ExpectedError { .. }));
+
     Ok(())
 }

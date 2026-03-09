@@ -1,7 +1,7 @@
 use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::top::{
-    Bridge, Enum, EnumVariant, Extern, Fn, FnDecl, GenericParams, Impl, Import, Param, Params,
+    Enum, EnumVariant, Extern, Fn, FnDecl, GenericParams, Impl, Import, ImportKind, Param, Params,
     Path, PathSegment, Struct, StructField, TopLevel, TopLevelKind, TypeAlias, Use, VariadicKind,
     Visibility,
 };
@@ -57,52 +57,24 @@ impl Parser {
                 (kind.span, TopLevelKind::Use(kind))
             }
 
-            TokenKind::Bridge => {
-                let kind = self.bridge(vis)?;
-                (kind.span, TopLevelKind::Bridge(kind))
-            }
-
             TokenKind::Type => {
                 let kind = self.type_alias(vis)?;
                 (kind.span, TopLevelKind::TypeAlias(kind))
             }
 
-            _ => unreachable!("{:?}", token.kind),
-        };
-
-        self.consume_semi()?;
-
-        Ok(TopLevel { kind, span })
-    }
-
-    fn bridge(&mut self, vis: Visibility) -> ParseResult<Bridge> {
-        let start = self.consume(&TokenKind::Bridge).unwrap().start;
-
-        let lang = match self.string_literal_internal() {
-            Some(lang) => lang,
-            None => {
+            _ => {
                 return Err(ParseError::ExpectedError {
-                    expected: "bridging language name".to_string(),
-                    but: self.first().kind.to_string(),
-                    span: self.first().span,
+                    expected: "top-level declaration".to_string(),
+                    but: token.kind.to_string(),
+                    span: token.span,
                 }
                 .into())
             }
         };
 
-        let mut fn_decl = self.fn_decl(vis)?;
+        self.consume_semi()?;
 
-        fn_decl.lang_linkage = match lang.syb.as_str() {
-            "Rust" => LangLinkage::Rust,
-            _ => unreachable!(),
-        };
-
-        Ok(Bridge {
-            span: self.new_span(start, fn_decl.span.finish),
-            lang,
-            fn_decl,
-            vis,
-        })
+        Ok(TopLevel { kind, span })
     }
 
     fn type_alias(&mut self, vis: Visibility) -> ParseResult<TypeAlias> {
@@ -238,6 +210,20 @@ impl Parser {
     fn use_(&mut self, vis: Visibility) -> ParseResult<Use> {
         let start = self.consume(&TokenKind::Use).unwrap().start;
 
+        if let TokenKind::Ident(name) = &self.first().kind {
+            if name == "rust"
+                && matches!(
+                    self.tokens.get(1).map(|t| &t.kind),
+                    Some(TokenKind::DoubleColon)
+                )
+            {
+                return Err(ParseError::UnsupportedForeignUse {
+                    span: self.first().span,
+                }
+                .into());
+            }
+        }
+
         let path = self.path()?;
 
         let span = self.new_span(start, path.span.finish);
@@ -248,20 +234,68 @@ impl Parser {
     fn import(&mut self) -> ParseResult<Import> {
         let start = self.consume(&TokenKind::Import).unwrap().start;
 
-        let module_path = self.path()?;
+        let first = self.ident()?;
 
-        let last = match module_path.segments.last().unwrap() {
-            PathSegment::Segment(ident) => ident.symbol(),
-            PathSegment::Star => todo!(),
-        };
+        let (kind, finish, last) =
+            if first.as_str() == "rust" && self.consume_b(&TokenKind::DoubleColon) {
+                let crate_name = self.ident()?;
+                let crate_name_finish = crate_name.span().finish;
+                let crate_symbol = crate_name.symbol();
+
+                if self.check(&TokenKind::DoubleColon) || self.check(&TokenKind::Dot) {
+                    return Err(ParseError::ExpectedError {
+                        expected: "crate name".to_string(),
+                        but: self.first().kind.to_string(),
+                        span: self.first().span,
+                    }
+                    .into());
+                }
+
+                (
+                    ImportKind::Foreign {
+                        lang: first,
+                        crate_name,
+                    },
+                    crate_name_finish,
+                    crate_symbol,
+                )
+            } else {
+                let mut segments = vec![PathSegment::Segment(first)];
+
+                while self.consume_b(&TokenKind::Dot) {
+                    if let Ok(span) = self.consume(&TokenKind::Asterisk) {
+                        segments.push(PathSegment::Star);
+                        self.tokens.push_front(Token {
+                            kind: TokenKind::Semi,
+                            span,
+                        });
+                        break;
+                    }
+
+                    segments.push(PathSegment::Segment(self.ident()?));
+                }
+
+                let path_finish = self.first().span.finish;
+                let path = Path {
+                    segments,
+                    span: self.new_span(start, path_finish),
+                };
+
+                let last = match path.segments.last().unwrap() {
+                    PathSegment::Segment(ident) => ident.symbol(),
+                    PathSegment::Star => todo!(),
+                };
+
+                (ImportKind::Kaede(path), self.first().span.finish, last)
+            };
 
         if !self.imported_modules.contains(&last) {
             self.imported_modules.push(last);
         }
 
-        let span = self.new_span(start, module_path.span.finish);
+        let span = self.new_span(start, finish);
 
-        Ok(Import { module_path, span })
+        Ok(Import { kind, span })
     }
 
     fn fn_decl(&mut self, vis: Visibility) -> ParseResult<FnDecl> {
