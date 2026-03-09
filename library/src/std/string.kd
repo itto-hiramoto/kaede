@@ -71,3 +71,147 @@ impl String {
         return String { chars: Vector<char>::from_slice(chars[safe_start:safe_end]) }
     }
 }
+
+fn parse_u64_from_str(s: str): Option<u64> {
+    if s.len() == 0 {
+        return Option<u64>::None
+    }
+
+    let max = ~(0 as u64)
+    let div10 = max / 10
+    let mod10 = max % 10
+
+    let mut i = 0
+    let mut val: u64 = 0
+    while i < s.len() {
+        let ch = s[i]
+        if ch < '0' || ch > '9' {
+            return Option<u64>::None
+        }
+
+        let digit = (ch - '0') as u64
+        if val > div10 || (val == div10 && digit > mod10) {
+            return Option<u64>::None
+        }
+
+        val = (val * 10) + digit
+        i += 1
+    }
+
+    return Option<u64>::Some(val)
+}
+
+fn parse_i64_from_str(s: str): Option<i64> {
+    if s.len() == 0 {
+        return Option<i64>::None
+    }
+
+    let i64_max = (~(0 as u64)) >> 1
+    let i64_min_abs = i64_max + 1
+
+    let mut i = 0
+    let mut neg = false
+    if s[0] == '-' {
+        neg = true
+        i = 1
+        if i >= s.len() {
+            return Option<i64>::None
+        }
+    }
+
+    let limit = if neg { i64_min_abs } else { i64_max }
+    let div10 = limit / 10
+    let mod10 = limit % 10
+
+    let mut val: u64 = 0
+    while i < s.len() {
+        let ch = s[i]
+        if ch < '0' || ch > '9' {
+            return Option<i64>::None
+        }
+
+        let digit = (ch - '0') as u64
+        if val > div10 || (val == div10 && digit > mod10) {
+            return Option<i64>::None
+        }
+
+        val = (val * 10) + digit
+        i += 1
+    }
+
+    if neg {
+        if val == i64_min_abs {
+            return Option<i64>::Some((-9223372036854775807) - 1)
+        }
+        return Option<i64>::Some(0 - (val as i64))
+    }
+
+    return Option<i64>::Some(val as i64)
+}
+
+fn u64_to_string(n: u64): String {
+    let mut x = n
+    if x == 0 {
+        let mut out = String::new()
+        out.push('0')
+        return out
+    }
+
+    let mut rev = String::new()
+    while x > 0 {
+        let d = x % 10
+        rev.push(d as char + '0')
+        x = x / 10
+    }
+
+    let mut out = String::new()
+    let mut i = rev.len()
+    loop {
+        if i == 0 {
+            break
+        }
+        i -= 1
+        out.push(rev.as_str()[i])
+    }
+    return out
+}
+
+fn i64_to_string(n: i64): String {
+    if n < 0 {
+        let mut out = String::new()
+        out.push('-')
+        let abs = (0 as u64) - (n as u64)
+
+        let digits = u64_to_string(abs)
+        let mut i = 0
+        while i < digits.len() {
+            out.push(digits.as_str()[i])
+            i += 1
+        }
+        return out
+    }
+
+    return u64_to_string(n as u64)
+}
+
+impl str {
+    pub fn parse_u64(self): std.option.Option<u64> {
+        return parse_u64_from_str(self)
+    }
+
+    pub fn parse_i64(self): std.option.Option<i64> {
+        return parse_i64_from_str(self)
+    }
+}
+
+impl u64 {
+    pub fn to_string(self): String {
+        return u64_to_string(self)
+    }
+}
+
+impl i64 {
+    pub fn to_string(self): String {
+        return i64_to_string(self)
+    }
+}

@@ -81,6 +81,35 @@ fn import_i32_methods() -> anyhow::Result<()> {
 }
 
 #[test]
+fn import_i32_method_returning_imported_struct() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+
+    let module = tempdir.child("m.kd");
+    module.write_str(
+        r#"pub struct Wrap {
+            value: i32,
+        }
+
+        impl i32 {
+            pub fn to_wrap(self): Wrap {
+                return Wrap { value: self }
+            }
+        }"#,
+    )?;
+
+    let main = tempdir.child("main.kd");
+    main.write_str(
+        r#"import m
+        fn main(): i32 {
+            let w = 58.to_wrap()
+            return w.value
+        }"#,
+    )?;
+
+    test(58, &[module.path(), main.path()], &tempdir)
+}
+
+#[test]
 fn import_struct_methods() -> anyhow::Result<()> {
     let tempdir = assert_fs::TempDir::new()?;
 

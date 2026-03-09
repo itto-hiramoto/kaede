@@ -245,16 +245,27 @@ impl SemanticAnalyzer {
             )
         };
 
-        self.modules
+        if let Some(value) = self
+            .modules
             .get(self.current_module_path())
             .unwrap_or_else(panic)
             .lookup_symbol(&symbol)
-            .or_else(|| {
-                self.modules
-                    .get(self.module_path())
-                    .unwrap_or_else(panic)
-                    .lookup_symbol(&symbol)
-            })
+        {
+            return Some(value);
+        }
+
+        if let Some(fallback_module_path) = self.fallback_lookup_module_path() {
+            if let Some(module) = self.modules.get(fallback_module_path) {
+                if let Some(value) = module.lookup_symbol(&symbol) {
+                    return Some(value);
+                }
+            }
+        }
+
+        self.modules
+            .get(self.module_path())
+            .unwrap_or_else(panic)
+            .lookup_symbol(&symbol)
     }
 
     pub fn lookup_qualified_symbol(
