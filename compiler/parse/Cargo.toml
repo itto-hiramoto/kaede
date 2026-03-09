@@ -5,6 +5,7 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+license = "MIT OR Apache-2.0"
 [dependencies]
 anyhow = "1.0.68"
 thiserror = "1.0.38"
