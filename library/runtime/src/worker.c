@@ -178,8 +178,8 @@ bool worker_spawn(TaskFn fn, void *arg, size_t arg_size, bool is_main) {
         return false;
     }
 
-    // Stack top is just below the guard page (stack grows downward)
-    // Guard page starts at stack + STACK_SIZE
+    // Stack grows downward, and create_stack() places a guard page below the
+    // returned stack base.
     uint64_t stack_top = (uint64_t)stack + STACK_SIZE;
     void *arg_on_stack = NULL;
 
