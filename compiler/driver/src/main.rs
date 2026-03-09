@@ -19,9 +19,11 @@ use tempfile::{NamedTempFile, TempPath};
 
 mod build;
 mod new;
+mod run;
 
 use build::build_project;
 use new::create_new_project;
+use run::run_project;
 
 #[derive(clap::Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -81,6 +83,11 @@ enum Commands {
     },
     /// Build a Kaede project
     Build,
+    /// Build and run a Kaede project
+    Run {
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Run Kaede Language Server
     Lsp {
         #[arg(long, action, hide = true)]
@@ -363,6 +370,10 @@ fn main() -> anyhow::Result<()> {
             }
             Commands::Build => {
                 build_project()?;
+                return Ok(());
+            }
+            Commands::Run { args } => {
+                run_project(args)?;
                 return Ok(());
             }
             Commands::Lsp { stdio: _ } => {
