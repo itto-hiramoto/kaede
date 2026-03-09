@@ -154,6 +154,37 @@ fn import_struct_and_impl() -> anyhow::Result<()> {
 }
 
 #[test]
+fn import_builtin_method_returning_imported_struct() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "builtin_method_returning_imported_struct",
+        modules: HashMap::from([(
+            "m",
+            r#"
+                pub struct Wrap {
+                    value: i32
+                }
+
+                impl i32 {
+                    pub fn to_wrap(self): Wrap {
+                        return Wrap { value: self }
+                    }
+                }
+            "#,
+        )]),
+        main_content: r#"
+            import m
+            fn main(): i32 {
+                let w = 58.to_wrap()
+                return w.value
+            }
+        "#,
+        expected_min_top_levels: 3,
+        should_fail: false,
+    }
+    .run()
+}
+
+#[test]
 fn import_nested_module() -> anyhow::Result<()> {
     ImportTestCase {
         name: "nested_module",

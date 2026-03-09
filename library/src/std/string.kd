@@ -149,6 +149,51 @@ fn parse_i64_from_str(s: str): Option<i64> {
     return Option<i64>::Some(val as i64)
 }
 
+fn u64_to_string(n: u64): String {
+    let mut x = n
+    if x == 0 {
+        let mut out = String::new()
+        out.push('0')
+        return out
+    }
+
+    let mut rev = String::new()
+    while x > 0 {
+        let d = x % 10
+        rev.push(d as char + '0')
+        x = x / 10
+    }
+
+    let mut out = String::new()
+    let mut i = rev.len()
+    loop {
+        if i == 0 {
+            break
+        }
+        i -= 1
+        out.push(rev.as_str()[i])
+    }
+    return out
+}
+
+fn i64_to_string(n: i64): String {
+    if n < 0 {
+        let mut out = String::new()
+        out.push('-')
+        let abs = (0 as u64) - (n as u64)
+
+        let digits = u64_to_string(abs)
+        let mut i = 0
+        while i < digits.len() {
+            out.push(digits.as_str()[i])
+            i += 1
+        }
+        return out
+    }
+
+    return u64_to_string(n as u64)
+}
+
 impl str {
     pub fn parse_u64(self): std.option.Option<u64> {
         return parse_u64_from_str(self)
@@ -156,5 +201,17 @@ impl str {
 
     pub fn parse_i64(self): std.option.Option<i64> {
         return parse_i64_from_str(self)
+    }
+}
+
+impl u64 {
+    pub fn to_string(self): String {
+        return u64_to_string(self)
+    }
+}
+
+impl i64 {
+    pub fn to_string(self): String {
+        return i64_to_string(self)
     }
 }

@@ -22,6 +22,7 @@ pub struct AnalysisContext {
     current_module_path: ModulePath,
     // std.io.puts(s) in test.kd -> [test]
     module_path: ModulePath,
+    fallback_lookup_module_path: Option<ModulePath>,
 
     is_inside_loop: bool,
     current_function: Vec<Option<Rc<ir::top::FnDecl>>>,
@@ -34,6 +35,7 @@ impl AnalysisContext {
         Self {
             current_module_path: ModulePath::new(vec![]),
             module_path,
+            fallback_lookup_module_path: None,
             is_inside_loop: false,
             current_function: vec![None],
             no_prelude: false,
@@ -79,6 +81,10 @@ impl SemanticAnalyzer {
         &self.context.module_path
     }
 
+    pub fn fallback_lookup_module_path(&self) -> Option<&ModulePath> {
+        self.context.fallback_lookup_module_path.as_ref()
+    }
+
     // Temporarily changes the current context, executes the provided closure.
     pub fn with_context<F, R>(&mut self, context: AnalysisContext, f: F) -> R
     where
@@ -105,6 +111,16 @@ impl SemanticAnalyzer {
         F: FnOnce(&mut Self) -> R,
     {
         self.with_module(ModulePath::new(vec![]), f)
+    }
+
+    // Temporarily changes the fallback module path used for symbol lookup.
+    pub fn with_lookup_fallback_module<F, R>(&mut self, path: ModulePath, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        let mut new_context = self.context.clone();
+        new_context.fallback_lookup_module_path = Some(path);
+        self.with_context(new_context, f)
     }
 
     // Temporarily sets the context to be inside a loop, executes the provided closure.

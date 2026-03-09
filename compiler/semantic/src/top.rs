@@ -564,7 +564,10 @@ impl SemanticAnalyzer {
         node.decl.self_ = None;
 
         if is_builtin {
-            self.with_root_module(|analyzer| analyzer.analyze_fn_internal(node))
+            let source_module_path = self.current_module_path().clone();
+            self.with_lookup_fallback_module(source_module_path, |analyzer| {
+                analyzer.with_root_module(|analyzer| analyzer.analyze_fn_internal(node))
+            })
         } else {
             self.analyze_fn_internal(node)
         }
