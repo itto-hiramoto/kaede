@@ -1,0 +1,349 @@
+import std.http
+import std.string
+import std.collections
+import std.sync
+import std.option
+
+use std.http.Status
+use std.string.String
+use std.collections.Vector
+use std.collections.HashMap
+use std.collections.hash_str
+use std.sync.Mutex
+use std.option.Option
+
+struct PubMessage {
+    id: u64,
+    message: String,
+}
+
+struct Counter {
+    value: u64,
+}
+
+impl Counter {
+    fn new(start: u64): mut Counter {
+        return Counter { value: start }
+    }
+
+    fn next(mut self): u64 {
+        let id = self.value
+        self.value = id + 1
+        return id
+    }
+}
+
+fn main() {
+    let mut app = std.http.App::new()
+
+    let mut lock = Mutex::new()
+    let mut kvs = HashMap<String, String>::new(hash_string, eq_string)
+    let mut list_entries = HashMap<String, Vector<String>>::new(hash_string, eq_string)
+    let mut pub_entries = HashMap<String, Vector<PubMessage>>::new(hash_string, eq_string)
+    let mut next_pub_id = Counter::new(1)
+
+    app.get("/health", |req, res| {
+        res.send_string("OK")
+    })
+
+    app.post("/kv/:key", |req, res| {
+        let key = match req.param("key") {
+            Option::Some(v) => v,
+            Option::None => {
+                res.status(Status::BadRequest).send_string("missing path parameter")
+                return
+            }
+        }
+        let value = match req.query("value") {
+            Option::Some(v) => v,
+            Option::None => {
+                res.status(Status::BadRequest).send_string("missing query parameter")
+                return
+            }
+        }
+
+        lock.lock()
+        kvs.insert(clone_string(key), clone_string(value))
+        lock.unlock()
+
+        res.send_string("OK")
+    })
+
+    app.get("/kv/:key", |req, res| {
+        let key = match req.param("key") {
+            Option::Some(v) => v,
+            Option::None => {
+                res.status(Status::BadRequest).send_string("missing path parameter")
+                return
+            }
+        }
+
+        lock.lock()
+        let found = kvs.get(clone_string(key))
+        lock.unlock()
+
+        match found {
+            Option::Some(v) => {
+                res.send_string(v.as_str())
+            }
+            Option::None => {
+                res.status(Status::NotFound).send_string("(nil)")
+            },
+        }
+    })
+
+    app.post("/kv/:key/del", |req, res| {
+        let key = match req.param("key") {
+            Option::Some(v) => v,
+            Option::None => {
+                res.status(Status::BadRequest).send_string("missing path parameter")
+                return
+            }
+        }
+
+        lock.lock()
+        let removed = match kvs.remove(clone_string(key)) {
+            Option::Some(_) => true,
+            Option::None => false,
+        }
+        lock.unlock()
+
+        if removed {
+            res.send_string("1")
+        } else {
+            res.send_string("0")
+        }
+    })
+
+    app.post("/kv/:key/incr", |req, res| {
+        let key = match req.param("key") {
+            Option::Some(v) => v,
+            Option::None => {
+                res.status(Status::BadRequest).send_string("missing path parameter")
+                return
+            }
+        }
+
+        lock.lock()
+        let mut current: i64 = 0
+        match kvs.get(clone_string(key)) {
+            Option::Some(v) => {
+                match v.as_str().parse_i64() {
+                    Option::Some(parsed) => {
+                        current = parsed
+                    }
+                    Option::None => {
+                        lock.unlock()
+                        res.status(Status::BadRequest).send_string("value is not integer")
+                        return
+                    }
+                }
+            },
+            Option::None => {},
+        }
+
+        let next = current + 1
+        let out = next.to_string()
+        kvs.insert(clone_string(key), String::from(out.as_str()))
+        lock.unlock()
+
+        res.send_string(out.as_str())
+    })
+
+    app.post("/list/:key/lpush", |req, res| {
+        let key = match req.param("key") {
+            Option::Some(v) => v,
+            Option::None => { res.status(Status::BadRequest).send_string("missing path parameter")
+                return },
+        }
+        let value = match req.query("value") {
+            Option::Some(v) => v,
+            Option::None => {
+                res.status(Status::BadRequest).send_string("missing query parameter")
+                return
+            }
+        }
+
+        lock.lock()
+        let values_imm = match list_entries.get(clone_string(key)) {
+            Option::Some(v) => v,
+            Option::None => Vector<String>::new(),
+        }
+        let mut values = Vector<String>::from_slice(values_imm.as_slice())
+        values.push(clone_string(value))
+        let len = values.len()
+        list_entries.insert(clone_string(key), values)
+        lock.unlock()
+
+        let out = len.to_string()
+        res.send_string(out.as_str())
+    })
+
+    app.get("/list/:key/range", |req, res| {
+        let key = match req.param("key") {
+            Option::Some(v) => v,
+            Option::None => {
+                res.status(Status::BadRequest).send_string("missing path parameter")
+                return
+            }
+        }
+        let start_text = match req.query("start") {
+            Option::Some(v) => v,
+            Option::None => {
+                res.status(Status::BadRequest).send_string("missing query parameter")
+                return
+            }
+        }
+        let stop_text = match req.query("stop") {
+            Option::Some(v) => v,
+            Option::None => {
+                res.status(Status::BadRequest).send_string("missing query parameter")
+                return
+            }
+        }
+
+        let start = match start_text.as_str().parse_u64() {
+            Option::Some(v) => v,
+            Option::None => {
+                res.status(Status::BadRequest).send_string("start/stop must be u64")
+                return
+            }
+        }
+        let stop = match stop_text.as_str().parse_u64() {
+            Option::Some(v) => v,
+            Option::None => {
+                res.status(Status::BadRequest).send_string("start/stop must be u64")
+                return
+            }
+        }
+
+        lock.lock()
+        let matched = match list_entries.get(clone_string(key)) {
+            Option::Some(v) => v,
+            Option::None => Vector<String>::new(),
+        }
+        lock.unlock()
+
+        let mut out = String::new()
+        if start <= stop && start < matched.len() {
+            // Keep old behavior: return newest-first.
+            let mut rev_start = start
+            let mut rev_end = stop
+            if rev_end >= matched.len() {
+                rev_end = matched.len() - 1
+            }
+
+            let mut idx = rev_start
+            loop {
+                let rev_idx = matched.len() - 1 - idx
+                append_string(out, matched.at(rev_idx).unwrap())
+                if idx == rev_end {
+                    break
+                }
+                out.push('\n')
+                idx += 1
+            }
+        }
+
+        res.send_string(out.as_str())
+    })
+
+    app.post("/pub/:channel", |req, res| {
+        let channel = match req.param("channel") {
+            Option::Some(v) => v,
+            Option::None => {
+                res.status(Status::BadRequest).send_string("missing path parameter")
+                return
+            }
+        }
+        let message = match req.query("message") {
+            Option::Some(v) => v,
+            Option::None => {
+                res.status(Status::BadRequest).send_string("missing query parameter")
+                return
+            }
+        }
+
+        lock.lock()
+        let id = next_pub_id.next()
+
+        let entries_imm = match pub_entries.get(clone_string(channel)) {
+            Option::Some(v) => v,
+            Option::None => Vector<PubMessage>::new(),
+        }
+        let mut entries = Vector<PubMessage>::from_slice(entries_imm.as_slice())
+        entries.push(PubMessage { id, message: clone_string(message) })
+        pub_entries.insert(clone_string(channel), entries)
+        lock.unlock()
+
+        let out = id.to_string()
+        res.send_string(out.as_str())
+    })
+
+    app.get("/pub/:channel/subscribe", |req, res| {
+        let channel = match req.param("channel") {
+            Option::Some(v) => v,
+            Option::None => { res.status(Status::BadRequest).send_string("missing path parameter")
+                return },
+        }
+
+        let mut since = 0
+        match req.query("since") {
+            Option::Some(v) => {
+                match v.as_str().parse_u64() {
+                    Option::Some(parsed) => {
+                        since = parsed
+                    }
+                    Option::None => {
+                        res.status(Status::BadRequest).send_string("since must be u64")
+                        return
+                    }
+                }
+            },
+            Option::None => {},
+        }
+
+        lock.lock()
+        let entries = match pub_entries.get(clone_string(channel)) {
+            Option::Some(v) => v,
+            Option::None => Vector<PubMessage>::new(),
+        }
+        let mut out = String::new()
+        let mut i = 0
+        while i < entries.len() {
+            let e = entries.at(i).unwrap()
+            if e.id > since {
+                append_string(out, e.id.to_string())
+                out.push(' ')
+                append_string(out, e.message)
+                out.push('\n')
+            }
+            i += 1
+        }
+        lock.unlock()
+
+        res.send_string(out.as_str())
+    })
+
+    app.listen(port=8080)
+}
+
+fn append_string(out: mut String, s: String) {
+    let mut i = 0
+    while i < s.len() {
+        out.push(s.as_str()[i])
+        i += 1
+    }
+}
+
+fn hash_string(s: String): u64 {
+    return hash_str(s.as_str())
+}
+
+fn eq_string(a: String, b: String): bool {
+    return a.as_str() == b.as_str()
+}
+
+fn clone_string(s: String): String {
+    return String::from(s.as_str())
+}
