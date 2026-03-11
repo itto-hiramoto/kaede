@@ -747,6 +747,7 @@ name = "kaede_lsp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "kaede_ast",
  "kaede_parse",
  "kaede_semantic",
  "kaede_span",

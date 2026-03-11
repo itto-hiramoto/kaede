@@ -112,11 +112,8 @@ pub(crate) struct CompileUnitInfo {
     pub is_entry_unit: bool,
 }
 
-fn is_direct_entry_candidate(unit_info: &CompileUnitInfo) -> anyhow::Result<bool> {
-    let file = unit_info.file_path.clone().into();
-    let ast = Parser::new(&unit_info.program, file).run()?;
-
-    Ok(ast.items.iter().any(|item| match item {
+fn ast_has_entry_candidate(ast: &kaede_ast::CompileUnit) -> bool {
+    ast.items.iter().any(|item| match item {
         ModuleItem::Stmt(_) => true,
         ModuleItem::Decl(top_level) => {
             matches!(
@@ -124,7 +121,49 @@ fn is_direct_entry_candidate(unit_info: &CompileUnitInfo) -> anyhow::Result<bool
                 TopLevelKind::Fn(fn_) if fn_.decl.name.symbol().as_str() == "main"
             )
         }
-    }))
+    })
+}
+
+fn is_entry_candidate(unit_info: &CompileUnitInfo) -> anyhow::Result<bool> {
+    let file = unit_info.file_path.clone().into();
+    let ast = Parser::new(&unit_info.program, file).run()?;
+
+    Ok(ast_has_entry_candidate(&ast))
+}
+
+pub(crate) fn select_entry_unit(unit_infos: &mut [CompileUnitInfo]) -> anyhow::Result<()> {
+    unit_infos
+        .iter_mut()
+        .for_each(|unit| unit.is_entry_unit = false);
+
+    let candidate_indices = unit_infos
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, unit)| match is_entry_candidate(unit) {
+            Ok(true) => Some(Ok(idx)),
+            Ok(false) => None,
+            Err(err) => Some(Err(err)),
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    match candidate_indices.as_slice() {
+        [] => Ok(()),
+        [idx] => {
+            unit_infos[*idx].is_entry_unit = true;
+            Ok(())
+        }
+        _ => {
+            let candidates = candidate_indices
+                .iter()
+                .map(|idx| unit_infos[*idx].file_path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            anyhow::bail!(
+                "Entry unit is ambiguous. Exactly one compile unit may contain top-level statements or `fn main`: {}",
+                candidates
+            )
+        }
+    }
 }
 
 fn emit_bitcode_to_tempfile(module: &Module) -> anyhow::Result<TempPath> {
@@ -433,14 +472,13 @@ fn main() -> anyhow::Result<()> {
     };
 
     if let Some(program) = args.program {
-        compile_and_link(
-            vec![CompileUnitInfo {
-                file_path: PathBuf::from("<commandline>"),
-                program,
-                is_entry_unit: true,
-            }],
-            option,
-        )?;
+        let mut unit_infos = vec![CompileUnitInfo {
+            file_path: PathBuf::from("<commandline>"),
+            program,
+            is_entry_unit: false,
+        }];
+        select_entry_unit(&mut unit_infos)?;
+        compile_and_link(unit_infos, option)?;
 
         return Ok(());
     }
@@ -461,31 +499,7 @@ fn main() -> anyhow::Result<()> {
         });
     }
 
-    if let Some(entry_idx) = programs.iter().position(|unit| {
-        unit.file_path
-            .file_name()
-            .is_some_and(|name| name == OsStr::new("main.kd"))
-    }) {
-        programs[entry_idx].is_entry_unit = true;
-    } else {
-        let candidate_indices = programs
-            .iter()
-            .enumerate()
-            .filter_map(|(idx, unit)| match is_direct_entry_candidate(unit) {
-                Ok(true) => Some(Ok(idx)),
-                Ok(false) => None,
-                Err(err) => Some(Err(err)),
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-
-        let entry_idx = if candidate_indices.len() == 1 {
-            candidate_indices[0]
-        } else {
-            0
-        };
-
-        programs[entry_idx].is_entry_unit = true;
-    }
+    select_entry_unit(&mut programs)?;
 
     if args.c {
         // Emit object files

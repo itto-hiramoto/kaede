@@ -1,6 +1,5 @@
 use std::{
     collections::HashMap,
-    ffi::OsStr,
     path::{Path, PathBuf},
 };
 
@@ -18,6 +17,16 @@ use tower_lsp::{
     },
     Client, LanguageServer, LspService, Server,
 };
+
+fn ast_has_entry_candidate(ast: &kaede_ast::CompileUnit) -> bool {
+    ast.items.iter().any(|item| match item {
+        kaede_ast::ModuleItem::Stmt(_) => true,
+        kaede_ast::ModuleItem::Decl(top_level) => matches!(
+            &top_level.kind,
+            kaede_ast::top::TopLevelKind::Fn(fn_) if fn_.decl.name.symbol().as_str() == "main"
+        ),
+    })
+}
 
 #[derive(Debug)]
 pub struct Backend {
@@ -62,9 +71,7 @@ impl Backend {
             };
 
             let mut analyzer = SemanticAnalyzer::new(file, root_dir);
-            let is_entry_unit = file_path
-                .file_name()
-                .is_some_and(|name| name == OsStr::new("main.kd"));
+            let is_entry_unit = ast_has_entry_candidate(&ast);
             match analyzer.analyze(
                 ast,
                 AnalyzeOptions {

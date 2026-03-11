@@ -6,7 +6,7 @@ use std::{
 use anyhow::Context as _;
 use inkwell::OptimizationLevel;
 
-use crate::{compile_and_link, CompileOption, CompileUnitInfo};
+use crate::{compile_and_link, select_entry_unit, CompileOption, CompileUnitInfo};
 
 fn ensure_kaede_project_root() -> anyhow::Result<()> {
     if !Path::new("src").exists() {
@@ -54,15 +54,16 @@ fn collect_kaede_unit_infos(src_root: &Path) -> anyhow::Result<Vec<CompileUnitIn
 
     println!("🔨 Compiling Kaede files...");
     let mut unit_infos = Vec::new();
-    let entry_path = src_root.join("main.kd");
     for file_path in &file_paths {
         unit_infos.push(CompileUnitInfo {
             program: fs::read_to_string(file_path)
                 .with_context(|| format!("Failed to read file: {}", file_path.display()))?,
             file_path: file_path.clone(),
-            is_entry_unit: file_path == &entry_path,
+            is_entry_unit: false,
         });
     }
+
+    select_entry_unit(&mut unit_infos)?;
 
     Ok(unit_infos)
 }
