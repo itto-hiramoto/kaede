@@ -3,33 +3,67 @@
 use assert_cmd::prelude::*;
 use assert_fs::prelude::*;
 use predicates::prelude::*;
-use std::{path::Path, process::Command};
+use std::{fs, path::Path, process::Command};
 
-fn test(expect: i32, file_paths: &[&Path], root_dir: &Path) -> anyhow::Result<()> {
-    let exe = assert_fs::NamedTempFile::new("a.out")?;
-
+fn compile(
+    file_paths: &[&Path],
+    root_dir: &Path,
+    output_path: &Path,
+) -> anyhow::Result<std::process::Output> {
     let mut args = file_paths
         .iter()
         .map(|p| p.to_string_lossy().to_string())
         .collect::<Vec<String>>();
 
     args.push("-o".to_string());
-    args.push(exe.path().to_string_lossy().to_string());
+    args.push(output_path.to_string_lossy().to_string());
 
     args.push("--root-dir".to_string());
     args.push(root_dir.to_string_lossy().to_string());
 
-    let compile_output = Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+    Ok(Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
         .args(args)
-        .assert()
-        .success();
+        .output()?)
+}
 
-    let llvm_ir = assert_fs::NamedTempFile::new("ir")?;
-    llvm_ir.write_binary(&compile_output.get_output().stdout)?;
+fn compile_project(
+    file_paths: &[&Path],
+    root_dir: &Path,
+) -> anyhow::Result<(assert_fs::NamedTempFile, std::process::Output)> {
+    let exe = assert_fs::NamedTempFile::new("a.out")?;
+    let output = compile(file_paths, root_dir, exe.path())?;
 
-    Command::new(format!("{}", exe.path().to_string_lossy()))
-        .assert()
-        .code(predicate::eq(expect));
+    assert!(
+        output.status.success(),
+        "kaede compile failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    Ok((exe, output))
+}
+
+fn run_compiled_binary(expect: i32, exe_path: &Path) -> anyhow::Result<()> {
+    Command::new(exe_path).assert().code(predicate::eq(expect));
+    Ok(())
+}
+
+fn test(expect: i32, file_paths: &[&Path], root_dir: &Path) -> anyhow::Result<()> {
+    let (exe, _) = compile_project(file_paths, root_dir)?;
+
+    run_compiled_binary(expect, exe.path())?;
+
+    Ok(())
+}
+
+fn write_rust_import_crate(root_dir: &Path, crate_name: &str, lib_src: &str) -> anyhow::Result<()> {
+    let rust_dir = root_dir.join("rust");
+    fs::create_dir_all(rust_dir.join("src"))?;
+    fs::write(
+        rust_dir.join("Cargo.toml"),
+        format!("[package]\nname = \"{crate_name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+    )?;
+    fs::write(rust_dir.join("src").join("lib.rs"), lib_src)?;
 
     Ok(())
 }
@@ -1270,4 +1304,102 @@ fn call_imported_function_with_local_variable() -> anyhow::Result<()> {
     )?;
 
     test(10, &[module.path(), main.path()], &tempdir)
+}
+
+#[test]
+fn import_rust_functions_with_primitive_params_and_returns() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+    let crate_name = "primitive_probe";
+
+    write_rust_import_crate(
+        tempdir.path(),
+        crate_name,
+        r#"pub fn add_i8(a: i8, b: i8) -> i8 { a + b }
+pub fn add_u8(a: u8, b: u8) -> u8 { a + b }
+pub fn add_i16(a: i16, b: i16) -> i16 { a + b }
+pub fn add_u16(a: u16, b: u16) -> u16 { a + b }
+pub fn add_i32(a: i32, b: i32) -> i32 { a + b }
+pub fn add_u32(a: u32, b: u32) -> u32 { a + b }
+pub fn add_i64(a: i64, b: i64) -> i64 { a + b }
+pub fn add_u64(a: u64, b: u64) -> u64 { a + b }
+pub fn invert(v: bool) -> bool { !v }
+pub fn touch() {}"#,
+    )?;
+
+    let main = tempdir.child("main.kd");
+    main.write_str(
+        r#"import rust::primitive_probe
+
+        fn main(): i32 {
+            rust::primitive_probe::touch()
+
+            if rust::primitive_probe::add_i8(20 as i8, 22 as i8) != (42 as i8) {
+                return 1
+            }
+            if rust::primitive_probe::add_u8(20 as u8, 22 as u8) != (42 as u8) {
+                return 2
+            }
+            if rust::primitive_probe::add_i16(20 as i16, 22 as i16) != (42 as i16) {
+                return 3
+            }
+            if rust::primitive_probe::add_u16(20 as u16, 22 as u16) != (42 as u16) {
+                return 4
+            }
+            if rust::primitive_probe::add_i32(20, 22) != 42 {
+                return 5
+            }
+            if rust::primitive_probe::add_u32(20 as u32, 22 as u32) != (42 as u32) {
+                return 6
+            }
+            if rust::primitive_probe::add_i64(20 as i64, 22 as i64) != (42 as i64) {
+                return 7
+            }
+            if rust::primitive_probe::add_u64(20 as u64, 22 as u64) != (42 as u64) {
+                return 8
+            }
+            if !rust::primitive_probe::invert(false) {
+                return 9
+            }
+
+            return 58
+        }"#,
+    )?;
+
+    test(58, &[main.path()], &tempdir)
+}
+
+#[test]
+fn import_rust_skips_unsupported_functions_but_keeps_supported_ones() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+    let crate_name = "skip_probe";
+
+    write_rust_import_crate(
+        tempdir.path(),
+        crate_name,
+        r#"pub fn ok_i64(v: i64) -> i64 { v }
+pub fn ng_char(v: char) -> char { v }
+pub fn ng_str(v: &str) -> &str { v }
+pub fn ng_ptr(v: *const i8) -> *const i8 { v }"#,
+    )?;
+
+    let main = tempdir.child("main.kd");
+    main.write_str(
+        r#"import rust::skip_probe
+
+        fn main(): i32 {
+            return rust::skip_probe::ok_i64(58 as i64) as i32
+        }"#,
+    )?;
+
+    let (exe, output) = compile_project(&[main.path()], tempdir.path())?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(stderr.contains("warning: skipped rust function in `skip_probe`: ng_char"));
+    assert!(stderr.contains("unsupported primitive type `char`"));
+    assert!(stderr.contains("warning: skipped rust function in `skip_probe`: ng_str"));
+    assert!(stderr.contains("unsupported borrowed reference type `&str`"));
+    assert!(stderr.contains("warning: skipped rust function in `skip_probe`: ng_ptr"));
+    assert!(stderr.contains("unsupported raw pointer type `*const i8`"));
+
+    run_compiled_binary(58, exe.path())
 }

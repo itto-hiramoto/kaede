@@ -54,17 +54,24 @@ fn json_id_to_string(value: &Value) -> Option<String> {
     }
 }
 
-fn parse_supported_ty(value: &Value) -> Option<Rc<ir_type::Ty>> {
-    if value.is_null() {
-        return Some(Rc::new(ir_type::Ty::new_unit()));
+fn fundamental_kind_from_rustdoc_primitive(name: &str) -> Option<ir_type::FundamentalTypeKind> {
+    match name {
+        "i8" => Some(ir_type::FundamentalTypeKind::I8),
+        "u8" => Some(ir_type::FundamentalTypeKind::U8),
+        "i16" => Some(ir_type::FundamentalTypeKind::I16),
+        "u16" => Some(ir_type::FundamentalTypeKind::U16),
+        "i32" => Some(ir_type::FundamentalTypeKind::I32),
+        "u32" => Some(ir_type::FundamentalTypeKind::U32),
+        "i64" => Some(ir_type::FundamentalTypeKind::I64),
+        "u64" => Some(ir_type::FundamentalTypeKind::U64),
+        "bool" => Some(ir_type::FundamentalTypeKind::Bool),
+        _ => None,
     }
+}
 
-    let primitive = value.get("primitive").and_then(Value::as_str);
-    if primitive == Some("i32") {
-        return Some(Rc::new(ir_type::make_fundamental_type(
-            ir_type::FundamentalTypeKind::I32,
-            ir_type::Mutability::Not,
-        )));
+fn rustdoc_ty_description(value: &Value) -> String {
+    if value.is_null() {
+        return "()".to_string();
     }
 
     if value
@@ -72,10 +79,117 @@ fn parse_supported_ty(value: &Value) -> Option<Rc<ir_type::Ty>> {
         .and_then(Value::as_array)
         .is_some_and(|arr| arr.is_empty())
     {
-        return Some(Rc::new(ir_type::Ty::new_unit()));
+        return "()".to_string();
     }
 
-    None
+    if let Some(primitive) = value.get("primitive").and_then(Value::as_str) {
+        return primitive.to_string();
+    }
+
+    if let Some(borrowed_ref) = value.get("borrowed_ref") {
+        let is_mutable = borrowed_ref
+            .get("is_mutable")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let prefix = if is_mutable { "&mut " } else { "&" };
+        let inner = borrowed_ref
+            .get("type")
+            .map(rustdoc_ty_description)
+            .unwrap_or_else(|| "?".to_string());
+        return format!("{prefix}{inner}");
+    }
+
+    if let Some(raw_pointer) = value.get("raw_pointer") {
+        let is_mutable = raw_pointer
+            .get("is_mutable")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        let prefix = if is_mutable { "*mut " } else { "*const " };
+        let inner = raw_pointer
+            .get("type")
+            .map(rustdoc_ty_description)
+            .unwrap_or_else(|| "?".to_string());
+        return format!("{prefix}{inner}");
+    }
+
+    if value.get("slice").is_some() {
+        return "[_]".to_string();
+    }
+
+    if let Some(array) = value.get("array") {
+        let inner = array
+            .get("type")
+            .map(rustdoc_ty_description)
+            .unwrap_or_else(|| "?".to_string());
+        let len = array
+            .get("len")
+            .map(|len| len.to_string())
+            .unwrap_or_else(|| "?".to_string());
+        return format!("[{inner}; {len}]");
+    }
+
+    if value.get("tuple").is_some() {
+        return "tuple".to_string();
+    }
+
+    if let Some(path) = value.get("resolved_path") {
+        if let Some(name) = path.get("name").and_then(Value::as_str) {
+            return name.to_string();
+        }
+    }
+
+    "unknown".to_string()
+}
+
+fn parse_supported_ty(value: &Value) -> Result<Rc<ir_type::Ty>, String> {
+    if value.is_null() {
+        return Ok(Rc::new(ir_type::Ty::new_unit()));
+    }
+
+    if let Some(primitive) = value.get("primitive").and_then(Value::as_str) {
+        if primitive == "char" {
+            return Err(
+                "unsupported primitive type `char` (Kaede `char` is not ABI-compatible with Rust `char`)"
+                    .to_string(),
+            );
+        }
+
+        if let Some(kind) = fundamental_kind_from_rustdoc_primitive(primitive) {
+            return Ok(Rc::new(ir_type::make_fundamental_type(
+                kind,
+                ir_type::Mutability::Not,
+            )));
+        }
+
+        return Err(format!("unsupported primitive type `{primitive}`"));
+    }
+
+    if value
+        .get("tuple")
+        .and_then(Value::as_array)
+        .is_some_and(|arr| arr.is_empty())
+    {
+        return Ok(Rc::new(ir_type::Ty::new_unit()));
+    }
+
+    if value.get("borrowed_ref").is_some() {
+        return Err(format!(
+            "unsupported borrowed reference type `{}`",
+            rustdoc_ty_description(value)
+        ));
+    }
+
+    if value.get("raw_pointer").is_some() {
+        return Err(format!(
+            "unsupported raw pointer type `{}`",
+            rustdoc_ty_description(value)
+        ));
+    }
+
+    Err(format!(
+        "unsupported non-primitive type `{}`",
+        rustdoc_ty_description(value)
+    ))
 }
 
 fn is_public_visibility(item: &Value) -> bool {
@@ -295,9 +409,8 @@ fn parse_supported_params(inputs: &[Value]) -> Result<Vec<(Symbol, Rc<ir_type::T
                 sanitized
             }
         };
-        let Some(param_ty) = parse_supported_ty(&input_pair[1]) else {
-            return Err(format!("unsupported parameter type at #{idx}"));
-        };
+        let param_ty = parse_supported_ty(&input_pair[1])
+            .map_err(|reason| format!("unsupported parameter type at #{idx}: {reason}"))?;
         params.push((Symbol::from(param_name), param_ty));
     }
 
@@ -340,8 +453,8 @@ fn parse_public_function_item(
         Err(reason) => return Some(Err(format!("{name}: {reason}"))),
     };
     let return_ty = match parse_supported_ty(output) {
-        Some(ty) => ty,
-        None => return Some(Err(format!("{name}: unsupported return type"))),
+        Ok(ty) => ty,
+        Err(reason) => return Some(Err(format!("{name}: unsupported return type: {reason}"))),
     };
 
     Some(Ok(RustImportedFn {
@@ -401,9 +514,20 @@ fn parse_root_public_functions(
 
 fn rust_ty_to_shim_rs(ty: &ir_type::Ty) -> anyhow::Result<&'static str> {
     match ty.kind.as_ref() {
-        ir_type::TyKind::Fundamental(fty) if fty.kind == ir_type::FundamentalTypeKind::I32 => {
-            Ok("i32")
-        }
+        ir_type::TyKind::Fundamental(fty) => match fty.kind {
+            ir_type::FundamentalTypeKind::I8 => Ok("i8"),
+            ir_type::FundamentalTypeKind::U8 => Ok("u8"),
+            ir_type::FundamentalTypeKind::I16 => Ok("i16"),
+            ir_type::FundamentalTypeKind::U16 => Ok("u16"),
+            ir_type::FundamentalTypeKind::I32 => Ok("i32"),
+            ir_type::FundamentalTypeKind::U32 => Ok("u32"),
+            ir_type::FundamentalTypeKind::I64 => Ok("i64"),
+            ir_type::FundamentalTypeKind::U64 => Ok("u64"),
+            ir_type::FundamentalTypeKind::Bool => Ok("bool"),
+            ir_type::FundamentalTypeKind::Char | ir_type::FundamentalTypeKind::Str => {
+                Err(anyhow!("unsupported shim type: {}", ty.kind))
+            }
+        },
         ir_type::TyKind::Unit => Ok("()"),
         _ => Err(anyhow!("unsupported shim type: {}", ty.kind)),
     }
@@ -536,4 +660,106 @@ pub fn resolve_rust_import(root_dir: &Path, crate_name: &str) -> anyhow::Result<
         dylib_path,
         skipped,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn fundamental(kind: ir_type::FundamentalTypeKind) -> Rc<ir_type::Ty> {
+        Rc::new(ir_type::make_fundamental_type(
+            kind,
+            ir_type::Mutability::Not,
+        ))
+    }
+
+    #[test]
+    fn parse_supported_ty_accepts_supported_primitives() {
+        let cases = [
+            ("i8", ir_type::FundamentalTypeKind::I8),
+            ("u8", ir_type::FundamentalTypeKind::U8),
+            ("i16", ir_type::FundamentalTypeKind::I16),
+            ("u16", ir_type::FundamentalTypeKind::U16),
+            ("i32", ir_type::FundamentalTypeKind::I32),
+            ("u32", ir_type::FundamentalTypeKind::U32),
+            ("i64", ir_type::FundamentalTypeKind::I64),
+            ("u64", ir_type::FundamentalTypeKind::U64),
+            ("bool", ir_type::FundamentalTypeKind::Bool),
+        ];
+
+        for (primitive, expected) in cases {
+            let parsed = parse_supported_ty(&json!({ "primitive": primitive })).unwrap();
+            assert_eq!(parsed, fundamental(expected), "primitive `{primitive}`");
+        }
+    }
+
+    #[test]
+    fn parse_supported_ty_accepts_unit_shapes() {
+        assert_eq!(
+            parse_supported_ty(&Value::Null).unwrap(),
+            Rc::new(ir_type::Ty::new_unit())
+        );
+        assert_eq!(
+            parse_supported_ty(&json!({ "tuple": [] })).unwrap(),
+            Rc::new(ir_type::Ty::new_unit())
+        );
+    }
+
+    #[test]
+    fn parse_supported_ty_rejects_unsupported_shapes_with_reason() {
+        let char_err = parse_supported_ty(&json!({ "primitive": "char" })).unwrap_err();
+        assert!(char_err.contains("primitive type `char`"));
+
+        let str_ref_err = parse_supported_ty(&json!({
+            "borrowed_ref": {
+                "lifetime": null,
+                "is_mutable": false,
+                "type": { "primitive": "str" }
+            }
+        }))
+        .unwrap_err();
+        assert!(str_ref_err.contains("borrowed reference type `&str`"));
+
+        let raw_ptr_err = parse_supported_ty(&json!({
+            "raw_pointer": {
+                "is_mutable": false,
+                "type": { "primitive": "i8" }
+            }
+        }))
+        .unwrap_err();
+        assert!(raw_ptr_err.contains("raw pointer type `*const i8`"));
+    }
+
+    #[test]
+    fn rust_ty_to_shim_rs_accepts_supported_types() {
+        let cases = [
+            (fundamental(ir_type::FundamentalTypeKind::I8), "i8"),
+            (fundamental(ir_type::FundamentalTypeKind::U8), "u8"),
+            (fundamental(ir_type::FundamentalTypeKind::I16), "i16"),
+            (fundamental(ir_type::FundamentalTypeKind::U16), "u16"),
+            (fundamental(ir_type::FundamentalTypeKind::I32), "i32"),
+            (fundamental(ir_type::FundamentalTypeKind::U32), "u32"),
+            (fundamental(ir_type::FundamentalTypeKind::I64), "i64"),
+            (fundamental(ir_type::FundamentalTypeKind::U64), "u64"),
+            (fundamental(ir_type::FundamentalTypeKind::Bool), "bool"),
+            (Rc::new(ir_type::Ty::new_unit()), "()"),
+        ];
+
+        for (ty, expected) in cases {
+            assert_eq!(rust_ty_to_shim_rs(&ty).unwrap(), expected);
+        }
+    }
+
+    #[test]
+    fn rust_ty_to_shim_rs_rejects_unsupported_types() {
+        assert!(rust_ty_to_shim_rs(&fundamental(ir_type::FundamentalTypeKind::Char)).is_err());
+        assert!(rust_ty_to_shim_rs(&fundamental(ir_type::FundamentalTypeKind::Str)).is_err());
+        assert!(
+            rust_ty_to_shim_rs(&ir_type::Ty::wrap_in_pointer(fundamental(
+                ir_type::FundamentalTypeKind::I8,
+            )))
+            .is_err()
+        );
+    }
 }
