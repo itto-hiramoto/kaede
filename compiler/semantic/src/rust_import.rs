@@ -12,6 +12,18 @@ use kaede_symbol::Symbol;
 use serde_json::Value;
 use toml::Value as TomlValue;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TyPosition {
+    Param,
+    Return,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShimTyPosition {
+    Param,
+    Return,
+}
+
 #[derive(Debug, Clone)]
 pub struct RustImportedFn {
     pub kaede_name: Symbol,
@@ -141,7 +153,53 @@ fn rustdoc_ty_description(value: &Value) -> String {
     "unknown".to_string()
 }
 
-fn parse_supported_ty(value: &Value) -> Result<Rc<ir_type::Ty>, String> {
+fn kaede_str_ir_ty() -> Rc<ir_type::Ty> {
+    Rc::new(ir_type::wrap_in_ref(
+        Rc::new(ir_type::make_fundamental_type(
+            ir_type::FundamentalTypeKind::Str,
+            ir_type::Mutability::Not,
+        )),
+        ir_type::Mutability::Not,
+    ))
+}
+
+fn is_kaede_str_ty(ty: &ir_type::Ty) -> bool {
+    ty.is_str()
+}
+
+fn parse_borrowed_ref_ty(value: &Value, position: TyPosition) -> Result<Rc<ir_type::Ty>, String> {
+    let borrowed_ref = value.get("borrowed_ref").ok_or_else(|| {
+        format!(
+            "unsupported borrowed reference type `{}`",
+            rustdoc_ty_description(value)
+        )
+    })?;
+    let is_mutable = borrowed_ref
+        .get("is_mutable")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let inner = borrowed_ref.get("type").unwrap_or(&Value::Null);
+
+    if inner.get("primitive").and_then(Value::as_str) == Some("str") {
+        if is_mutable {
+            return Err("unsupported mutable borrowed string type `&mut str`".to_string());
+        }
+
+        return match position {
+            TyPosition::Param => Ok(kaede_str_ir_ty()),
+            TyPosition::Return => {
+                Err("borrowed reference type `&str` is not supported yet".to_string())
+            }
+        };
+    }
+
+    Err(format!(
+        "unsupported borrowed reference type `{}`",
+        rustdoc_ty_description(value)
+    ))
+}
+
+fn parse_supported_ty(value: &Value, position: TyPosition) -> Result<Rc<ir_type::Ty>, String> {
     if value.is_null() {
         return Ok(Rc::new(ir_type::Ty::new_unit()));
     }
@@ -173,10 +231,7 @@ fn parse_supported_ty(value: &Value) -> Result<Rc<ir_type::Ty>, String> {
     }
 
     if value.get("borrowed_ref").is_some() {
-        return Err(format!(
-            "unsupported borrowed reference type `{}`",
-            rustdoc_ty_description(value)
-        ));
+        return parse_borrowed_ref_ty(value, position);
     }
 
     if value.get("raw_pointer").is_some() {
@@ -409,7 +464,7 @@ fn parse_supported_params(inputs: &[Value]) -> Result<Vec<(Symbol, Rc<ir_type::T
                 sanitized
             }
         };
-        let param_ty = parse_supported_ty(&input_pair[1])
+        let param_ty = parse_supported_ty(&input_pair[1], TyPosition::Param)
             .map_err(|reason| format!("unsupported parameter type at #{idx}: {reason}"))?;
         params.push((Symbol::from(param_name), param_ty));
     }
@@ -452,7 +507,7 @@ fn parse_public_function_item(
         Ok(params) => params,
         Err(reason) => return Some(Err(format!("{name}: {reason}"))),
     };
-    let return_ty = match parse_supported_ty(output) {
+    let return_ty = match parse_supported_ty(output, TyPosition::Return) {
         Ok(ty) => ty,
         Err(reason) => return Some(Err(format!("{name}: unsupported return type: {reason}"))),
     };
@@ -512,7 +567,14 @@ fn parse_root_public_functions(
     Ok((functions, skipped))
 }
 
-fn rust_ty_to_shim_rs(ty: &ir_type::Ty) -> anyhow::Result<&'static str> {
+fn rust_ty_to_shim_rs(ty: &ir_type::Ty, position: ShimTyPosition) -> anyhow::Result<&'static str> {
+    if is_kaede_str_ty(ty) {
+        return match position {
+            ShimTyPosition::Param => Ok("*const KaedeStr"),
+            ShimTyPosition::Return => Err(anyhow!("unsupported shim type: {}", ty.kind)),
+        };
+    }
+
     match ty.kind.as_ref() {
         ir_type::TyKind::Fundamental(fty) => match fty.kind {
             ir_type::FundamentalTypeKind::I8 => Ok("i8"),
@@ -531,6 +593,22 @@ fn rust_ty_to_shim_rs(ty: &ir_type::Ty) -> anyhow::Result<&'static str> {
         ir_type::TyKind::Unit => Ok("()"),
         _ => Err(anyhow!("unsupported shim type: {}", ty.kind)),
     }
+}
+
+fn shim_arg_expr(name: &str, ty: &ir_type::Ty) -> anyhow::Result<String> {
+    if is_kaede_str_ty(ty) {
+        return Ok(format!("unsafe {{ kaede_str_as_rust_str({name}) }}"));
+    }
+
+    rust_ty_to_shim_rs(ty, ShimTyPosition::Param)?;
+    Ok(name.to_string())
+}
+
+fn shim_needs_kaede_str_helpers(functions: &[RustImportedFn]) -> bool {
+    functions
+        .iter()
+        .flat_map(|func| func.params.iter())
+        .any(|(_, ty)| is_kaede_str_ty(ty))
 }
 
 fn generate_shim_crate(
@@ -567,6 +645,21 @@ fn generate_shim_crate(
     fs::write(shim_dir.join("Cargo.toml"), cargo_toml)?;
 
     let mut lib_rs = String::new();
+    if shim_needs_kaede_str_helpers(functions) {
+        lib_rs.push_str(
+            "#[repr(C)]\n\
+pub struct KaedeStr {\n\
+    ptr: *const i8,\n\
+    len: u64,\n\
+}\n\n\
+unsafe fn kaede_str_as_rust_str<'a>(value: *const KaedeStr) -> &'a str {\n\
+    let value = unsafe { &*value };\n\
+    let bytes = unsafe { std::slice::from_raw_parts(value.ptr.cast::<u8>(), value.len as usize) };\n\
+    unsafe { std::str::from_utf8_unchecked(bytes) }\n\
+}\n\n",
+        );
+    }
+
     for func in functions {
         let param_decls = func
             .params
@@ -575,16 +668,21 @@ fn generate_shim_crate(
                 Ok(format!(
                     "{}: {}",
                     sanitize_symbol(name.as_str()),
-                    rust_ty_to_shim_rs(ty)?
+                    rust_ty_to_shim_rs(ty, ShimTyPosition::Param)?
                 ))
             })
             .collect::<anyhow::Result<Vec<_>>>()?
             .join(", ");
-        let return_ty = rust_ty_to_shim_rs(&func.return_ty)?;
+        let return_ty = rust_ty_to_shim_rs(&func.return_ty, ShimTyPosition::Return)?;
         let args = func
             .params
             .iter()
-            .map(|(name, _)| sanitize_symbol(name.as_str()))
+            .map(|(name, ty)| {
+                let sanitized = sanitize_symbol(name.as_str());
+                shim_arg_expr(&sanitized, ty)
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?
+            .into_iter()
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -689,7 +787,8 @@ mod tests {
         ];
 
         for (primitive, expected) in cases {
-            let parsed = parse_supported_ty(&json!({ "primitive": primitive })).unwrap();
+            let parsed =
+                parse_supported_ty(&json!({ "primitive": primitive }), TyPosition::Param).unwrap();
             assert_eq!(parsed, fundamental(expected), "primitive `{primitive}`");
         }
     }
@@ -697,36 +796,87 @@ mod tests {
     #[test]
     fn parse_supported_ty_accepts_unit_shapes() {
         assert_eq!(
-            parse_supported_ty(&Value::Null).unwrap(),
+            parse_supported_ty(&Value::Null, TyPosition::Param).unwrap(),
             Rc::new(ir_type::Ty::new_unit())
         );
         assert_eq!(
-            parse_supported_ty(&json!({ "tuple": [] })).unwrap(),
+            parse_supported_ty(&json!({ "tuple": [] }), TyPosition::Param).unwrap(),
             Rc::new(ir_type::Ty::new_unit())
         );
     }
 
     #[test]
+    fn parse_supported_ty_accepts_shared_borrowed_str_parameter() {
+        let parsed = parse_supported_ty(
+            &json!({
+                "borrowed_ref": {
+                    "lifetime": null,
+                    "is_mutable": false,
+                    "type": { "primitive": "str" }
+                }
+            }),
+            TyPosition::Param,
+        )
+        .unwrap();
+
+        assert!(parsed.is_str());
+        assert_eq!(parsed, kaede_str_ir_ty());
+    }
+
+    #[test]
     fn parse_supported_ty_rejects_unsupported_shapes_with_reason() {
-        let char_err = parse_supported_ty(&json!({ "primitive": "char" })).unwrap_err();
+        let char_err =
+            parse_supported_ty(&json!({ "primitive": "char" }), TyPosition::Param).unwrap_err();
         assert!(char_err.contains("primitive type `char`"));
 
-        let str_ref_err = parse_supported_ty(&json!({
-            "borrowed_ref": {
-                "lifetime": null,
-                "is_mutable": false,
-                "type": { "primitive": "str" }
-            }
-        }))
+        let str_ref_err = parse_supported_ty(
+            &json!({
+                "borrowed_ref": {
+                    "lifetime": null,
+                    "is_mutable": false,
+                    "type": { "primitive": "str" }
+                }
+            }),
+            TyPosition::Return,
+        )
         .unwrap_err();
-        assert!(str_ref_err.contains("borrowed reference type `&str`"));
+        assert!(str_ref_err.contains("`&str` is not supported yet"));
 
-        let raw_ptr_err = parse_supported_ty(&json!({
-            "raw_pointer": {
-                "is_mutable": false,
-                "type": { "primitive": "i8" }
-            }
-        }))
+        let mut_str_err = parse_supported_ty(
+            &json!({
+                "borrowed_ref": {
+                    "lifetime": null,
+                    "is_mutable": true,
+                    "type": { "primitive": "str" }
+                }
+            }),
+            TyPosition::Param,
+        )
+        .unwrap_err();
+        assert!(mut_str_err.contains("mutable borrowed string type `&mut str`"));
+
+        let borrowed_ref_err = parse_supported_ty(
+            &json!({
+                "borrowed_ref": {
+                    "lifetime": null,
+                    "is_mutable": false,
+                    "type": { "primitive": "i32" }
+                }
+            }),
+            TyPosition::Param,
+        )
+        .unwrap_err();
+        assert!(borrowed_ref_err.contains("borrowed reference type `&i32`"));
+
+        let raw_ptr_err = parse_supported_ty(
+            &json!({
+                "raw_pointer": {
+                    "is_mutable": false,
+                    "type": { "primitive": "i8" }
+                }
+            }),
+            TyPosition::Param,
+        )
         .unwrap_err();
         assert!(raw_ptr_err.contains("raw pointer type `*const i8`"));
     }
@@ -747,19 +897,47 @@ mod tests {
         ];
 
         for (ty, expected) in cases {
-            assert_eq!(rust_ty_to_shim_rs(&ty).unwrap(), expected);
+            assert_eq!(
+                rust_ty_to_shim_rs(&ty, ShimTyPosition::Param).unwrap(),
+                expected
+            );
         }
+
+        assert_eq!(
+            rust_ty_to_shim_rs(&kaede_str_ir_ty(), ShimTyPosition::Param).unwrap(),
+            "*const KaedeStr"
+        );
     }
 
     #[test]
     fn rust_ty_to_shim_rs_rejects_unsupported_types() {
-        assert!(rust_ty_to_shim_rs(&fundamental(ir_type::FundamentalTypeKind::Char)).is_err());
-        assert!(rust_ty_to_shim_rs(&fundamental(ir_type::FundamentalTypeKind::Str)).is_err());
-        assert!(
-            rust_ty_to_shim_rs(&ir_type::Ty::wrap_in_pointer(fundamental(
-                ir_type::FundamentalTypeKind::I8,
-            )))
-            .is_err()
+        assert!(rust_ty_to_shim_rs(
+            &fundamental(ir_type::FundamentalTypeKind::Char),
+            ShimTyPosition::Param,
+        )
+        .is_err());
+        assert!(rust_ty_to_shim_rs(
+            &fundamental(ir_type::FundamentalTypeKind::Str),
+            ShimTyPosition::Param,
+        )
+        .is_err());
+        assert!(rust_ty_to_shim_rs(
+            &ir_type::Ty::wrap_in_pointer(fundamental(ir_type::FundamentalTypeKind::I8,)),
+            ShimTyPosition::Param,
+        )
+        .is_err());
+        assert!(rust_ty_to_shim_rs(&kaede_str_ir_ty(), ShimTyPosition::Return).is_err());
+    }
+
+    #[test]
+    fn shim_arg_expr_converts_kaede_str_param() {
+        assert_eq!(
+            shim_arg_expr("value", &kaede_str_ir_ty()).unwrap(),
+            "unsafe { kaede_str_as_rust_str(value) }"
+        );
+        assert_eq!(
+            shim_arg_expr("value", &fundamental(ir_type::FundamentalTypeKind::I32)).unwrap(),
+            "value"
         );
     }
 }

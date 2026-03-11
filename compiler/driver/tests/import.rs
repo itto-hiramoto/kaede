@@ -1369,14 +1369,87 @@ pub fn touch() {}"#,
 }
 
 #[test]
-fn import_rust_skips_unsupported_functions_but_keeps_supported_ones() -> anyhow::Result<()> {
+fn import_rust_function_with_str_param() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+    let crate_name = "str_probe";
+
+    write_rust_import_crate(
+        tempdir.path(),
+        crate_name,
+        r#"pub fn strlen(s: &str) -> i32 { s.len() as i32 }"#,
+    )?;
+
+    let main = tempdir.child("main.kd");
+    main.write_str(
+        r#"import rust::str_probe
+
+        fn main(): i32 {
+            return rust::str_probe::strlen("hello")
+        }"#,
+    )?;
+
+    test(5, &[main.path()], &tempdir)
+}
+
+#[test]
+fn import_rust_function_with_multiple_str_params() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+    let crate_name = "multi_str_probe";
+
+    write_rust_import_crate(
+        tempdir.path(),
+        crate_name,
+        r#"pub fn total_len(a: &str, b: &str) -> i32 { (a.len() + b.len()) as i32 }"#,
+    )?;
+
+    let main = tempdir.child("main.kd");
+    main.write_str(
+        r#"import rust::multi_str_probe
+
+        fn main(): i32 {
+            return rust::multi_str_probe::total_len("kae", "de")
+        }"#,
+    )?;
+
+    test(5, &[main.path()], &tempdir)
+}
+
+#[test]
+fn import_rust_function_with_str_and_primitives() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+    let crate_name = "mixed_str_probe";
+
+    write_rust_import_crate(
+        tempdir.path(),
+        crate_name,
+        r#"pub fn starts_with_len(s: &str, n: i32) -> bool { s.len() == n as usize }"#,
+    )?;
+
+    let main = tempdir.child("main.kd");
+    main.write_str(
+        r#"import rust::mixed_str_probe
+
+        fn main(): i32 {
+            if rust::mixed_str_probe::starts_with_len("kaede", 5) {
+                return 58
+            }
+            return 0
+        }"#,
+    )?;
+
+    test(58, &[main.path()], &tempdir)
+}
+
+#[test]
+fn import_rust_skips_str_return_but_keeps_supported_ones() -> anyhow::Result<()> {
     let tempdir = assert_fs::TempDir::new()?;
     let crate_name = "skip_probe";
 
     write_rust_import_crate(
         tempdir.path(),
         crate_name,
-        r#"pub fn ok_i64(v: i64) -> i64 { v }
+        r#"pub fn strlen(v: &str) -> i32 { v.len() as i32 }
+pub fn ok_i64(v: i64) -> i64 { v }
 pub fn ng_char(v: char) -> char { v }
 pub fn ng_str(v: &str) -> &str { v }
 pub fn ng_ptr(v: *const i8) -> *const i8 { v }"#,
@@ -1387,7 +1460,7 @@ pub fn ng_ptr(v: *const i8) -> *const i8 { v }"#,
         r#"import rust::skip_probe
 
         fn main(): i32 {
-            return rust::skip_probe::ok_i64(58 as i64) as i32
+            return rust::skip_probe::ok_i64(53 as i64) as i32 + rust::skip_probe::strlen("kaede")
         }"#,
     )?;
 
@@ -1397,9 +1470,40 @@ pub fn ng_ptr(v: *const i8) -> *const i8 { v }"#,
     assert!(stderr.contains("warning: skipped rust function in `skip_probe`: ng_char"));
     assert!(stderr.contains("unsupported primitive type `char`"));
     assert!(stderr.contains("warning: skipped rust function in `skip_probe`: ng_str"));
-    assert!(stderr.contains("unsupported borrowed reference type `&str`"));
+    assert!(stderr
+        .contains("unsupported return type: borrowed reference type `&str` is not supported yet"));
     assert!(stderr.contains("warning: skipped rust function in `skip_probe`: ng_ptr"));
     assert!(stderr.contains("unsupported raw pointer type `*const i8`"));
 
     run_compiled_binary(58, exe.path())
+}
+
+#[test]
+fn import_rust_skips_mut_str_param_but_keeps_supported_ones() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+    let crate_name = "mut_str_probe";
+
+    write_rust_import_crate(
+        tempdir.path(),
+        crate_name,
+        r#"pub fn ok(s: &str) -> i32 { s.len() as i32 }
+pub fn normalize(s: &mut str) -> i32 { s.len() as i32 }"#,
+    )?;
+
+    let main = tempdir.child("main.kd");
+    main.write_str(
+        r#"import rust::mut_str_probe
+
+        fn main(): i32 {
+            return rust::mut_str_probe::ok("kaede")
+        }"#,
+    )?;
+
+    let (exe, output) = compile_project(&[main.path()], tempdir.path())?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(stderr.contains("warning: skipped rust function in `mut_str_probe`: normalize"));
+    assert!(stderr.contains("unsupported mutable borrowed string type `&mut str`"));
+
+    run_compiled_binary(5, exe.path())
 }
