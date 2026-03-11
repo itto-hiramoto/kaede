@@ -611,6 +611,22 @@ fn shim_needs_kaede_str_helpers(functions: &[RustImportedFn]) -> bool {
         .any(|(_, ty)| is_kaede_str_ty(ty))
 }
 
+fn generate_kaede_str_helpers() -> &'static str {
+    r#"#[repr(C)]
+pub struct KaedeStr {
+    ptr: *const i8,
+    len: u64,
+}
+
+unsafe fn kaede_str_as_rust_str<'a>(value: *const KaedeStr) -> &'a str {
+    let value = unsafe { &*value };
+    let bytes = unsafe { std::slice::from_raw_parts(value.ptr.cast::<u8>(), value.len as usize) };
+    unsafe { std::str::from_utf8_unchecked(bytes) }
+}
+
+"#
+}
+
 fn generate_shim_crate(
     project_root: &Path,
     rust_manifest: &Path,
@@ -646,18 +662,7 @@ fn generate_shim_crate(
 
     let mut lib_rs = String::new();
     if shim_needs_kaede_str_helpers(functions) {
-        lib_rs.push_str(
-            "#[repr(C)]\n\
-pub struct KaedeStr {\n\
-    ptr: *const i8,\n\
-    len: u64,\n\
-}\n\n\
-unsafe fn kaede_str_as_rust_str<'a>(value: *const KaedeStr) -> &'a str {\n\
-    let value = unsafe { &*value };\n\
-    let bytes = unsafe { std::slice::from_raw_parts(value.ptr.cast::<u8>(), value.len as usize) };\n\
-    unsafe { std::str::from_utf8_unchecked(bytes) }\n\
-}\n\n",
-        );
+        lib_rs.push_str(generate_kaede_str_helpers());
     }
 
     for func in functions {
