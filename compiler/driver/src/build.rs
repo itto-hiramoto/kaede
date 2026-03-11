@@ -6,7 +6,7 @@ use std::{
 use anyhow::Context as _;
 use inkwell::OptimizationLevel;
 
-use crate::{compile_and_link, CompileOption, CompileUnitInfo};
+use crate::{compile_and_link, select_entry_unit, CompileOption, CompileUnitInfo};
 
 fn ensure_kaede_project_root() -> anyhow::Result<()> {
     if !Path::new("src").exists() {
@@ -45,7 +45,8 @@ fn find_kd_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
 }
 
 fn collect_kaede_unit_infos(src_root: &Path) -> anyhow::Result<Vec<CompileUnitInfo>> {
-    let file_paths = find_kd_files(src_root)?;
+    let mut file_paths = find_kd_files(src_root)?;
+    file_paths.sort();
 
     if file_paths.is_empty() {
         anyhow::bail!("No .kd files found in kaede directory");
@@ -58,8 +59,11 @@ fn collect_kaede_unit_infos(src_root: &Path) -> anyhow::Result<Vec<CompileUnitIn
             program: fs::read_to_string(file_path)
                 .with_context(|| format!("Failed to read file: {}", file_path.display()))?,
             file_path: file_path.clone(),
+            is_entry_unit: false,
         });
     }
+
+    select_entry_unit(&mut unit_infos)?;
 
     Ok(unit_infos)
 }

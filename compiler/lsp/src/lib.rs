@@ -4,7 +4,7 @@ use std::{
 };
 
 use kaede_parse::{ParseError, Parser};
-use kaede_semantic::{SemanticAnalyzer, SemanticError};
+use kaede_semantic::{AnalyzeOptions, SemanticAnalyzer, SemanticError};
 use kaede_span::{file::FilePath, Location, Span};
 use kaede_type_infer::TypeInferError;
 use tokio::sync::RwLock;
@@ -17,6 +17,16 @@ use tower_lsp::{
     },
     Client, LanguageServer, LspService, Server,
 };
+
+fn ast_has_entry_candidate(ast: &kaede_ast::CompileUnit) -> bool {
+    ast.items.iter().any(|item| match item {
+        kaede_ast::ModuleItem::Stmt(_) => true,
+        kaede_ast::ModuleItem::Decl(top_level) => matches!(
+            &top_level.kind,
+            kaede_ast::top::TopLevelKind::Fn(fn_) if fn_.decl.name.symbol().as_str() == "main"
+        ),
+    })
+}
 
 #[derive(Debug)]
 pub struct Backend {
@@ -61,7 +71,15 @@ impl Backend {
             };
 
             let mut analyzer = SemanticAnalyzer::new(file, root_dir);
-            match analyzer.analyze(ast, false, false) {
+            let is_entry_unit = ast_has_entry_candidate(&ast);
+            match analyzer.analyze(
+                ast,
+                AnalyzeOptions {
+                    no_autoload: false,
+                    no_prelude: false,
+                    is_entry_unit,
+                },
+            ) {
                 Ok(_) => Vec::new(),
                 Err(err) => diagnostics_from_semantic_error(err),
             }
@@ -275,6 +293,9 @@ fn semantic_error_span(err: &SemanticError) -> Option<Span> {
         | SemanticError::SpawnTargetNotCall { span }
         | SemanticError::SpawnReturnTypeNotUnit { span, .. }
         | SemanticError::UnsupportedLanguageLinkage { span, .. }
+        | SemanticError::TopLevelStatementsWithExplicitMain { span }
+        | SemanticError::TopLevelStatementsOnlyAllowedInEntryUnit { span }
+        | SemanticError::MainOnlyAllowedInEntryUnit { span }
         | SemanticError::FormatTemplateMustBeStringLiteral { span }
         | SemanticError::FormatArgumentMustBeStr { span, .. }
         | SemanticError::InvalidFormatTemplate { span, .. }

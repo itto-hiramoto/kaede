@@ -41,7 +41,14 @@ impl ImportTestProject {
             self.temp_dir.path().to_path_buf(),
         );
 
-        analyzer.analyze(ast, false, false)
+        analyzer.analyze(
+            ast,
+            kaede_semantic::AnalyzeOptions {
+                no_autoload: false,
+                no_prelude: false,
+                is_entry_unit: true,
+            },
+        )
     }
 
     /// Expect analysis to fail
@@ -426,6 +433,30 @@ fn import_private_items() -> anyhow::Result<()> {
         modules: HashMap::from([("private", "fn private_func(): i32 { return 42 }")]),
         main_content: "import private\nfn main(): i32 { return private.private_func() }",
         expected_min_top_levels: 1,
+        should_fail: true,
+    }
+    .run()
+}
+
+#[test]
+fn import_module_with_top_level_statements_fails() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "module_with_top_level_statements",
+        modules: HashMap::from([("side_effect", "let x = 1")]),
+        main_content: "import side_effect\nfn main(): i32 { return 0 }",
+        expected_min_top_levels: 0,
+        should_fail: true,
+    }
+    .run()
+}
+
+#[test]
+fn import_module_with_main_fails() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "module_with_main",
+        modules: HashMap::from([("nested", "fn main(): i32 { return 0 }")]),
+        main_content: "import nested\nfn main(): i32 { return 0 }",
+        expected_min_top_levels: 0,
         should_fail: true,
     }
     .run()

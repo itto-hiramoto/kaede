@@ -4,9 +4,18 @@ use predicates::prelude::*;
 use std::process::Command;
 
 fn create_project(temp_dir: &assert_fs::TempDir, program: &str) -> anyhow::Result<()> {
+    create_project_files(temp_dir, &[("main.kd", program)])
+}
+
+fn create_project_files(
+    temp_dir: &assert_fs::TempDir,
+    files: &[(&str, &str)],
+) -> anyhow::Result<()> {
     let src_dir = temp_dir.child("src");
     src_dir.create_dir_all()?;
-    src_dir.child("main.kd").write_str(program)?;
+    for (path, program) in files {
+        src_dir.child(path).write_str(program)?;
+    }
     Ok(())
 }
 
@@ -42,6 +51,74 @@ fn run_executes_build_main_and_propagates_exit_code() -> anyhow::Result<()> {
         .arg("run")
         .assert()
         .code(predicate::eq(42));
+
+    Ok(())
+}
+
+#[test]
+fn run_executes_top_level_script_entry() -> anyhow::Result<()> {
+    let temp_dir = assert_fs::TempDir::new()?;
+
+    create_project(
+        &temp_dir,
+        r#"let mut n = 40
+n += 2
+return n"#,
+    )?;
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .current_dir(temp_dir.path())
+        .arg("run")
+        .assert()
+        .code(predicate::eq(42));
+
+    Ok(())
+}
+
+#[test]
+fn run_uses_unique_entry_candidate_even_if_not_main_kd() -> anyhow::Result<()> {
+    let temp_dir = assert_fs::TempDir::new()?;
+
+    create_project_files(
+        &temp_dir,
+        &[
+            ("main.kd", "fn helper(): i32 { return 0 }"),
+            (
+                "app.kd",
+                r#"let mut n = 40
+n += 2
+return n"#,
+            ),
+        ],
+    )?;
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .current_dir(temp_dir.path())
+        .arg("run")
+        .assert()
+        .code(predicate::eq(42));
+
+    Ok(())
+}
+
+#[test]
+fn run_fails_when_entry_candidate_is_ambiguous() -> anyhow::Result<()> {
+    let temp_dir = assert_fs::TempDir::new()?;
+
+    create_project_files(
+        &temp_dir,
+        &[
+            ("main.kd", "fn main(): i32 { return 0 }"),
+            ("app.kd", "return 42"),
+        ],
+    )?;
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .current_dir(temp_dir.path())
+        .arg("run")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Entry unit is ambiguous"));
 
     Ok(())
 }

@@ -1,6 +1,6 @@
 mod common;
 
-use common::semantic_analyze;
+use common::{semantic_analyze, semantic_analyze_as_non_entry};
 use kaede_ir::{
     expr::{Expr, ExprKind},
     stmt::Stmt,
@@ -10,7 +10,7 @@ use kaede_ir::{
 };
 use kaede_symbol::Symbol;
 
-use crate::common::semantic_analyze_expect_error;
+use crate::common::{semantic_analyze_expect_error, semantic_analyze_non_entry_expect_error};
 
 fn find_generic_callee_in_expr(expr: &Expr) -> Option<kaede_ir::qualified_symbol::QualifiedSymbol> {
     match &expr.kind {
@@ -481,5 +481,85 @@ fn type_alias_struct() -> anyhow::Result<()> {
             return AliasS { x: 1 }
          }",
     )?;
+    Ok(())
+}
+
+#[test]
+fn top_level_statements_synthesize_main() -> anyhow::Result<()> {
+    let ir = semantic_analyze(
+        r#"
+        let x = 1
+        return x
+        "#,
+    )?;
+
+    let main_name = Symbol::from("kdmain".to_owned());
+    let main_fn = ir
+        .top_levels
+        .iter()
+        .find_map(|top| match top {
+            TopLevel::Fn(fn_) if fn_.decl.name.symbol() == main_name => Some(fn_),
+            _ => None,
+        })
+        .expect("expected synthetic main");
+
+    let body = main_fn.body.as_ref().expect("expected synthetic main body");
+    assert!(matches!(body.body.first(), Some(Stmt::Let(_))));
+
+    Ok(())
+}
+
+#[test]
+fn top_level_statements_conflict_with_explicit_main() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error(
+        r#"
+        let x = 1
+        fn main(): i32 { return x }
+        "#,
+    )?;
+
+    assert!(err
+        .to_string()
+        .contains("top-level statements cannot be combined"));
+
+    Ok(())
+}
+
+#[test]
+fn top_level_statements_are_rejected_in_non_entry_units() -> anyhow::Result<()> {
+    let err = semantic_analyze_non_entry_expect_error("let x = 1")?;
+
+    assert!(err.to_string().contains("only allowed in the entry unit"));
+
+    Ok(())
+}
+
+#[test]
+fn main_is_rejected_in_non_entry_units() -> anyhow::Result<()> {
+    let err = semantic_analyze_non_entry_expect_error("fn main(): i32 { return 0 }")?;
+
+    assert!(err.to_string().contains("`main` is only allowed"));
+
+    Ok(())
+}
+
+#[test]
+fn top_level_functions_do_not_capture_script_locals() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error(
+        r#"
+        let x = 1
+        fn helper(): i32 { return x }
+        return helper()
+        "#,
+    )?;
+
+    assert!(err.to_string().contains("`x` was not declared"));
+
+    Ok(())
+}
+
+#[test]
+fn plain_functions_are_allowed_in_non_entry_units() -> anyhow::Result<()> {
+    semantic_analyze_as_non_entry("fn helper(): i32 { return 0 }")?;
     Ok(())
 }

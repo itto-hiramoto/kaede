@@ -10,11 +10,12 @@ use std::{
 use anyhow::{anyhow, Context as _};
 use colored::Colorize;
 use inkwell::{context::Context, module::Module, OptimizationLevel};
+use kaede_ast::{top::TopLevelKind, ModuleItem};
 use kaede_codegen::{error::CodegenError, CodeGenerator, CodegenCtx};
 use kaede_common::{kaede_gc_lib_path, kaede_lib_path, kaede_runtime_lib_path};
 use kaede_monomorphize::Monomorphizer;
 use kaede_parse::Parser;
-use kaede_semantic::SemanticAnalyzer;
+use kaede_semantic::{AnalyzeOptions, SemanticAnalyzer};
 use tempfile::{NamedTempFile, TempPath};
 
 mod build;
@@ -108,6 +109,61 @@ fn to_inkwell_opt_level(level: u8) -> OptimizationLevel {
 pub(crate) struct CompileUnitInfo {
     pub file_path: PathBuf,
     pub program: String,
+    pub is_entry_unit: bool,
+}
+
+fn ast_has_entry_candidate(ast: &kaede_ast::CompileUnit) -> bool {
+    ast.items.iter().any(|item| match item {
+        ModuleItem::Stmt(_) => true,
+        ModuleItem::Decl(top_level) => {
+            matches!(
+                &top_level.kind,
+                TopLevelKind::Fn(fn_) if fn_.decl.name.symbol().as_str() == "main"
+            )
+        }
+    })
+}
+
+fn is_entry_candidate(unit_info: &CompileUnitInfo) -> anyhow::Result<bool> {
+    let file = unit_info.file_path.clone().into();
+    let ast = Parser::new(&unit_info.program, file).run()?;
+
+    Ok(ast_has_entry_candidate(&ast))
+}
+
+pub(crate) fn select_entry_unit(unit_infos: &mut [CompileUnitInfo]) -> anyhow::Result<()> {
+    unit_infos
+        .iter_mut()
+        .for_each(|unit| unit.is_entry_unit = false);
+
+    let candidate_indices = unit_infos
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, unit)| match is_entry_candidate(unit) {
+            Ok(true) => Some(Ok(idx)),
+            Ok(false) => None,
+            Err(err) => Some(Err(err)),
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+
+    match candidate_indices.as_slice() {
+        [] => Ok(()),
+        [idx] => {
+            unit_infos[*idx].is_entry_unit = true;
+            Ok(())
+        }
+        _ => {
+            let candidates = candidate_indices
+                .iter()
+                .map(|idx| unit_infos[*idx].file_path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
+            anyhow::bail!(
+                "Entry unit is ambiguous. Exactly one compile unit may contain top-level statements or `fn main`: {}",
+                candidates
+            )
+        }
+    }
 }
 
 fn emit_bitcode_to_tempfile(module: &Module) -> anyhow::Result<TempPath> {
@@ -192,12 +248,24 @@ fn compile<'ctx>(
     let mut additional_native_libs = Vec::new();
 
     for unit_info in unit_infos {
-        let file = unit_info.file_path.into();
+        let CompileUnitInfo {
+            file_path,
+            program,
+            is_entry_unit,
+        } = unit_info;
+        let file = file_path.into();
 
-        let ast = Parser::new(&unit_info.program, file).run()?;
+        let ast = Parser::new(&program, file).run()?;
 
         let mut analyzer = SemanticAnalyzer::new(file, root_dir.to_path_buf());
-        let mut ir = analyzer.analyze(ast, no_autoload, no_prelude)?;
+        let mut ir = analyzer.analyze(
+            ast,
+            AnalyzeOptions {
+                no_autoload,
+                no_prelude,
+                is_entry_unit,
+            },
+        )?;
         for lib in analyzer.take_additional_native_libs() {
             if !additional_native_libs.contains(&lib) {
                 additional_native_libs.push(lib);
@@ -404,13 +472,13 @@ fn main() -> anyhow::Result<()> {
     };
 
     if let Some(program) = args.program {
-        compile_and_link(
-            vec![CompileUnitInfo {
-                file_path: PathBuf::from("<commandline>"),
-                program,
-            }],
-            option,
-        )?;
+        let mut unit_infos = vec![CompileUnitInfo {
+            file_path: PathBuf::from("<commandline>"),
+            program,
+            is_entry_unit: false,
+        }];
+        select_entry_unit(&mut unit_infos)?;
+        compile_and_link(unit_infos, option)?;
 
         return Ok(());
     }
@@ -420,7 +488,6 @@ fn main() -> anyhow::Result<()> {
     }
 
     // --- Compile ---
-
     let mut programs = Vec::new();
 
     for file_path in file_paths {
@@ -428,8 +495,11 @@ fn main() -> anyhow::Result<()> {
             program: fs::read_to_string(&file_path)
                 .with_context(|| format!("Failed to open file: {}", file_path.to_string_lossy()))?,
             file_path,
+            is_entry_unit: false,
         });
     }
+
+    select_entry_unit(&mut programs)?;
 
     if args.c {
         // Emit object files

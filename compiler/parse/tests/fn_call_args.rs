@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::Result;
-use kaede_ast::{expr::ExprKind, top::TopLevelKind};
+use kaede_ast::{expr::ExprKind, top::TopLevelKind, ModuleItem};
 use kaede_parse::{ParseError, Parser};
 use kaede_span::file::FilePath;
 use kaede_symbol::Symbol;
@@ -53,7 +53,11 @@ fn parse_fn_param_default() -> Result<()> {
     );
     let compile_unit = parser.run()?;
 
-    let TopLevelKind::Fn(func) = &compile_unit.top_levels.front().unwrap().kind else {
+    let ModuleItem::Decl(top_level) = compile_unit.items.front().unwrap() else {
+        panic!("expected top-level declaration");
+    };
+
+    let TopLevelKind::Fn(func) = &top_level.kind else {
         panic!("expected fn top-level");
     };
 
@@ -143,7 +147,9 @@ fn parse_foreign_rust_import() -> Result<()> {
         FilePath::from(PathBuf::from("test.kd")),
     );
     let unit = parser.run()?;
-    let top = unit.top_levels.front().expect("top level");
+    let ModuleItem::Decl(top) = unit.items.front().expect("top level") else {
+        panic!("expected declaration");
+    };
 
     let TopLevelKind::Import(import) = &top.kind else {
         panic!("expected import top-level");
@@ -161,6 +167,21 @@ fn parse_foreign_rust_import() -> Result<()> {
 }
 
 #[test]
+fn parse_mixed_module_items_keeps_source_order() -> Result<()> {
+    let mut parser = Parser::new(
+        "fn helper() {}\nlet x = 1\nx",
+        FilePath::from(PathBuf::from("test.kd")),
+    );
+    let unit = parser.run()?;
+
+    assert!(matches!(unit.items[0], ModuleItem::Decl(_)));
+    assert!(matches!(unit.items[1], ModuleItem::Stmt(_)));
+    assert!(matches!(unit.items[2], ModuleItem::Stmt(_)));
+
+    Ok(())
+}
+
+#[test]
 fn parse_bridge_is_plain_parse_error() -> Result<()> {
     let mut parser = Parser::new(
         r#"pub bridge "Rust" fn hello()"#,
@@ -168,6 +189,33 @@ fn parse_bridge_is_plain_parse_error() -> Result<()> {
     );
 
     let err = parser.run().expect_err("bridge syntax must fail");
+    let parse_err = err.downcast::<ParseError>().expect("expected parse error");
+
+    assert!(matches!(parse_err, ParseError::ExpectedError { .. }));
+
+    Ok(())
+}
+
+#[test]
+fn parse_pub_let_is_rejected() -> Result<()> {
+    let mut parser = Parser::new("pub let x = 1", FilePath::from(PathBuf::from("test.kd")));
+
+    let err = parser.run().expect_err("pub let must fail");
+    let parse_err = err.downcast::<ParseError>().expect("expected parse error");
+
+    assert!(matches!(parse_err, ParseError::ExpectedError { .. }));
+
+    Ok(())
+}
+
+#[test]
+fn parse_impl_body_rejects_statements() -> Result<()> {
+    let mut parser = Parser::new(
+        "struct Foo {}\nimpl Foo { let x = 1 }",
+        FilePath::from(PathBuf::from("test.kd")),
+    );
+
+    let err = parser.run().expect_err("impl statements must fail");
     let parse_err = err.downcast::<ParseError>().expect("expected parse error");
 
     assert!(matches!(parse_err, ParseError::ExpectedError { .. }));
