@@ -43,6 +43,9 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
 
+      - name: Install nightly rustdoc toolchain
+        run: rustup toolchain install nightly --profile minimal
+
       - name: Install kaede
         run: chmod +x install.py && ./install.py
 
