@@ -242,7 +242,7 @@ impl SemanticAnalyzer {
                 match item {
                     ast::ModuleItem::Decl(top_level) => {
                         if explicit_main_span.is_none() {
-                            explicit_main_span = Self::explicit_main_span(&top_level);
+                            explicit_main_span = Self::find_explicit_main_span(&top_level);
                         }
                         top_levels.push(top_level);
                     }
@@ -255,6 +255,7 @@ impl SemanticAnalyzer {
                 }
             }
 
+            // Imported Kaede modules are always analyzed as non-entry units.
             if let Some(span) = explicit_main_span {
                 return Err(SemanticError::MainOnlyAllowedInEntryUnit { span }.into());
             }
@@ -283,18 +284,23 @@ impl SemanticAnalyzer {
                 )
             });
 
+            // Analyze all imports.
             for top_level in imports {
                 results.push(analyzer.analyze_top_level(top_level)?);
             }
 
+            // Analyze all use directives.
             for top_level in uses {
                 results.push(analyzer.analyze_top_level(top_level)?);
             }
 
+            // Declare all types.
             for top_level in types {
                 results.push(analyzer.analyze_top_level(top_level)?);
             }
 
+            // Declare all functions and methods.
+            // This removes the need to worry about function declaration order.
             analyzer.with_analyze_command(AnalyzeCommand::OnlyFnDeclare, |analyzer| {
                 for top_level in funcs.iter() {
                     match &top_level.kind {
@@ -312,6 +318,7 @@ impl SemanticAnalyzer {
                 Ok::<(), anyhow::Error>(())
             })?;
 
+            // Analyze all remaining top levels after declarations are registered.
             for top_level in others {
                 results.push(analyzer.analyze_top_level(top_level)?);
             }

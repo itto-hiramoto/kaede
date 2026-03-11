@@ -69,7 +69,7 @@ pub struct SemanticAnalyzer {
 }
 
 impl SemanticAnalyzer {
-    fn explicit_main_span(top_level: &ast::top::TopLevel) -> Option<Span> {
+    fn find_explicit_main_span(top_level: &ast::top::TopLevel) -> Option<Span> {
         match &top_level.kind {
             ast::top::TopLevelKind::Fn(fn_) if fn_.decl.name.symbol().as_str() == "main" => {
                 Some(top_level.span)
@@ -151,7 +151,7 @@ impl SemanticAnalyzer {
             match item {
                 ast::ModuleItem::Decl(top_level) => {
                     if explicit_main_span.is_none() {
-                        explicit_main_span = Self::explicit_main_span(&top_level);
+                        explicit_main_span = Self::find_explicit_main_span(&top_level);
                     }
                     top_levels.push(top_level);
                 }
@@ -159,6 +159,7 @@ impl SemanticAnalyzer {
             }
         }
 
+        // Top-level executable statements are script-entry only.
         if !is_entry_unit {
             if let Some(span) = explicit_main_span {
                 return Err(SemanticError::MainOnlyAllowedInEntryUnit { span }.into());
@@ -172,6 +173,8 @@ impl SemanticAnalyzer {
             }
         }
 
+        // If the entry unit uses script-style top-level statements, lower them into a synthetic
+        // `main(): i32`. This keeps declaration hoisting behavior unchanged for the rest.
         if explicit_main_span.is_some() && !top_level_statements.is_empty() {
             return Err(SemanticError::TopLevelStatementsWithExplicitMain {
                 span: top_level_statements[0].span,
@@ -200,6 +203,7 @@ impl SemanticAnalyzer {
             .into_iter()
             .partition(|top| matches!(top.kind, ast::top::TopLevelKind::Use(_)));
 
+        // Analyze all imports.
         for top_level in imports {
             if let TopLevelAnalysisResult::Imported(imported_irs) =
                 self.analyze_top_level(top_level)?
@@ -212,6 +216,7 @@ impl SemanticAnalyzer {
             }
         }
 
+        // Analyze all use directives.
         for top_level in uses {
             if let TopLevelAnalysisResult::Imported(imported_irs) =
                 self.analyze_top_level(top_level)?
@@ -224,8 +229,11 @@ impl SemanticAnalyzer {
             }
         }
 
+        // Ensure analysis continues in the current compile unit's module after imports/uses.
         self.context.set_current_module_path(current_module_path);
 
+        // Declare all types.
+        // This is necessary to avoid errors when declaring functions and methods.
         for top_level in types {
             match self.analyze_top_level(top_level)? {
                 TopLevelAnalysisResult::TopLevel(top_level) => {
@@ -236,6 +244,8 @@ impl SemanticAnalyzer {
             }
         }
 
+        // Declare all functions and methods.
+        // This removes the need to worry about function declaration order.
         self.with_analyze_command(AnalyzeCommand::OnlyFnDeclare, |analyzer| {
             for top_level in others.iter() {
                 match &top_level.kind {
@@ -253,6 +263,7 @@ impl SemanticAnalyzer {
             Ok::<(), anyhow::Error>(())
         })?;
 
+        // Analyze all remaining top levels after declarations are registered.
         self.with_analyze_command(AnalyzeCommand::WithoutFnDeclare, |analyzer| {
             for top_level in others {
                 match analyzer.analyze_top_level(top_level)? {
