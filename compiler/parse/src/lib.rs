@@ -62,13 +62,13 @@ impl Parser {
         mut end_predicate: impl FnMut(&mut Self) -> bool,
     ) -> ParseResult<CompileUnit> {
         let mut compile_unit = CompileUnit {
-            top_levels: VecDeque::new(),
+            items: VecDeque::new(),
         };
 
         while end_predicate(self) {
-            let top = self.top_level()?;
+            let item = self.module_item()?;
 
-            compile_unit.top_levels.push_back(top);
+            compile_unit.items.push_back(item);
         }
 
         Ok(compile_unit)

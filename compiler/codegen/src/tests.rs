@@ -7,7 +7,7 @@ use std::process::Command;
 use inkwell::context::Context;
 use kaede_common::{kaede_gc_lib_path, kaede_lib_path, kaede_runtime_lib_path};
 use kaede_parse::Parser;
-use kaede_semantic::{SemanticAnalyzer, SemanticError};
+use kaede_semantic::{AnalyzeOptions, SemanticAnalyzer, SemanticError};
 use tempfile::tempdir;
 
 use crate::{CodeGenerator, CodegenCtx};
@@ -31,7 +31,14 @@ fn exec(program: &str) -> anyhow::Result<i32> {
     let file = PathBuf::from("test").into();
 
     let ast = Parser::new(program, file).run().unwrap();
-    let ir = SemanticAnalyzer::new_for_single_file_test().analyze(ast, false, false)?;
+    let ir = SemanticAnalyzer::new_for_single_file_test().analyze(
+        ast,
+        AnalyzeOptions {
+            no_autoload: false,
+            no_prelude: false,
+            is_entry_unit: true,
+        },
+    )?;
 
     let module = CodeGenerator::new(&cgcx).unwrap().codegen(ir).unwrap();
     if let Some(main_fn) = module.get_function("main") {
@@ -136,7 +143,14 @@ fn exec_expect_abort(program: &str) -> anyhow::Result<String> {
     let file = PathBuf::from("test").into();
 
     let ast = Parser::new(program, file).run().unwrap();
-    let ir = SemanticAnalyzer::new_for_single_file_test().analyze(ast, false, false)?;
+    let ir = SemanticAnalyzer::new_for_single_file_test().analyze(
+        ast,
+        AnalyzeOptions {
+            no_autoload: false,
+            no_prelude: false,
+            is_entry_unit: true,
+        },
+    )?;
 
     let module = CodeGenerator::new(&cgcx).unwrap().codegen(ir).unwrap();
     if let Some(main_fn) = module.get_function("main") {
@@ -224,6 +238,47 @@ int main(void) {
     // We expect the program to abort, so don't check status.success()
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     Ok(stderr)
+}
+
+#[test]
+fn top_level_statements_codegen() -> anyhow::Result<()> {
+    assert_eq!(
+        exec(
+            r#"
+            let mut x = 40
+            x += 2
+            return x
+            "#,
+        )?,
+        42
+    );
+
+    Ok(())
+}
+
+#[test]
+fn top_level_statements_can_call_later_functions() -> anyhow::Result<()> {
+    assert_eq!(
+        exec(
+            r#"
+            return add(40, 2)
+
+            fn add(a: i32, b: i32): i32 {
+                return a + b
+            }
+            "#,
+        )?,
+        42
+    );
+
+    Ok(())
+}
+
+#[test]
+fn top_level_fallthrough_returns_zero() -> anyhow::Result<()> {
+    assert_eq!(exec("40 + 2")?, 0);
+
+    Ok(())
 }
 
 #[test]

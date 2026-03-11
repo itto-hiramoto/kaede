@@ -164,6 +164,15 @@ pub enum SemanticError {
     #[error("{}:{}:{} unsupported language linkage `{}`", span.file, span.start.line, span.start.column, lang_linkage)]
     UnsupportedLanguageLinkage { lang_linkage: Symbol, span: Span },
 
+    #[error("{}:{}:{} top-level statements cannot be combined with `fn main`", span.file, span.start.line, span.start.column)]
+    TopLevelStatementsWithExplicitMain { span: Span },
+
+    #[error("{}:{}:{} top-level statements are only allowed in the entry unit", span.file, span.start.line, span.start.column)]
+    TopLevelStatementsOnlyAllowedInEntryUnit { span: Span },
+
+    #[error("{}:{}:{} `main` is only allowed in the entry unit", span.file, span.start.line, span.start.column)]
+    MainOnlyAllowedInEntryUnit { span: Span },
+
     #[error("`main` function not found")]
     MainNotFound,
 

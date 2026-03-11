@@ -1,9 +1,12 @@
 use std::{collections::VecDeque, rc::Rc};
 
-use kaede_ast::top::{
-    Enum, EnumVariant, Extern, Fn, FnDecl, GenericParams, Impl, Import, ImportKind, Param, Params,
-    Path, PathSegment, Struct, StructField, TopLevel, TopLevelKind, TypeAlias, Use, VariadicKind,
-    Visibility,
+use kaede_ast::{
+    top::{
+        Enum, EnumVariant, Extern, Fn, FnDecl, GenericParams, Impl, Import, ImportKind, Param,
+        Params, Path, PathSegment, Struct, StructField, TopLevel, TopLevelKind, TypeAlias, Use,
+        VariadicKind, Visibility,
+    },
+    ModuleItem,
 };
 use kaede_ast_type::{Mutability, Ty};
 use kaede_common::LangLinkage;
@@ -16,6 +19,16 @@ use crate::{
 };
 
 impl Parser {
+    pub fn module_item(&mut self) -> ParseResult<ModuleItem> {
+        if self.is_top_level_decl_start() {
+            return Ok(ModuleItem::Decl(self.top_level()?));
+        }
+
+        let stmt = self.stmt()?;
+        self.consume_semi()?;
+        Ok(ModuleItem::Stmt(stmt))
+    }
+
     pub fn top_level(&mut self) -> ParseResult<TopLevel> {
         let vis = self.consume_b(&TokenKind::Pub).into();
 
@@ -75,6 +88,29 @@ impl Parser {
         self.consume_semi()?;
 
         Ok(TopLevel { kind, span })
+    }
+
+    fn is_top_level_decl_start(&mut self) -> bool {
+        let token = match self.tokens.front() {
+            Some(token) => &token.kind,
+            None => return false,
+        };
+
+        if matches!(token, TokenKind::Pub) {
+            return true;
+        }
+
+        matches!(
+            token,
+            TokenKind::Import
+                | TokenKind::Fn
+                | TokenKind::Struct
+                | TokenKind::Impl
+                | TokenKind::Enum
+                | TokenKind::Extern
+                | TokenKind::Use
+                | TokenKind::Type
+        )
     }
 
     fn type_alias(&mut self, vis: Visibility) -> ParseResult<TypeAlias> {

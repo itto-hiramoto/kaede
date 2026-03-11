@@ -235,16 +235,38 @@ impl SemanticAnalyzer {
 
         self.with_module(module_path.clone(), |analyzer| {
             let mut results = vec![];
+            let mut top_levels = Vec::new();
+            let mut explicit_main_span = None;
 
-            let (types, others): (Vec<_>, Vec<_>) =
-                parsed_module.top_levels.into_iter().partition(|top| {
-                    matches!(
-                        top.kind,
-                        ast::top::TopLevelKind::Struct(_)
-                            | ast::top::TopLevelKind::Enum(_)
-                            | ast::top::TopLevelKind::TypeAlias(_)
-                    )
-                });
+            for item in parsed_module.items {
+                match item {
+                    ast::ModuleItem::Decl(top_level) => {
+                        if explicit_main_span.is_none() {
+                            explicit_main_span = Self::explicit_main_span(&top_level);
+                        }
+                        top_levels.push(top_level);
+                    }
+                    ast::ModuleItem::Stmt(stmt) => {
+                        return Err(SemanticError::TopLevelStatementsOnlyAllowedInEntryUnit {
+                            span: stmt.span,
+                        }
+                        .into())
+                    }
+                }
+            }
+
+            if let Some(span) = explicit_main_span {
+                return Err(SemanticError::MainOnlyAllowedInEntryUnit { span }.into());
+            }
+
+            let (types, others): (Vec<_>, Vec<_>) = top_levels.into_iter().partition(|top| {
+                matches!(
+                    top.kind,
+                    ast::top::TopLevelKind::Struct(_)
+                        | ast::top::TopLevelKind::Enum(_)
+                        | ast::top::TopLevelKind::TypeAlias(_)
+                )
+            });
 
             let (imports, others): (Vec<_>, Vec<_>) = others
                 .into_iter()
@@ -261,24 +283,18 @@ impl SemanticAnalyzer {
                 )
             });
 
-            // Analyze all imports
             for top_level in imports {
                 results.push(analyzer.analyze_top_level(top_level)?);
             }
 
-            // Analyze all use directives
             for top_level in uses {
                 results.push(analyzer.analyze_top_level(top_level)?);
             }
 
-            // Declare all types
-            // (This is necessary to avoid errors when declaring functions and methods)
             for top_level in types {
                 results.push(analyzer.analyze_top_level(top_level)?);
             }
 
-            // Declare all functions and methods
-            // (This process removes the need to worry about function declaration order)
             analyzer.with_analyze_command(AnalyzeCommand::OnlyFnDeclare, |analyzer| {
                 for top_level in funcs.iter() {
                     match &top_level.kind {
@@ -296,7 +312,6 @@ impl SemanticAnalyzer {
                 Ok::<(), anyhow::Error>(())
             })?;
 
-            // Analyze all top levels
             for top_level in others {
                 results.push(analyzer.analyze_top_level(top_level)?);
             }

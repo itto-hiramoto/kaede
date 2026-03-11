@@ -1,10 +1,11 @@
 use std::{
     collections::HashMap,
+    ffi::OsStr,
     path::{Path, PathBuf},
 };
 
 use kaede_parse::{ParseError, Parser};
-use kaede_semantic::{SemanticAnalyzer, SemanticError};
+use kaede_semantic::{AnalyzeOptions, SemanticAnalyzer, SemanticError};
 use kaede_span::{file::FilePath, Location, Span};
 use kaede_type_infer::TypeInferError;
 use tokio::sync::RwLock;
@@ -61,7 +62,17 @@ impl Backend {
             };
 
             let mut analyzer = SemanticAnalyzer::new(file, root_dir);
-            match analyzer.analyze(ast, false, false) {
+            let is_entry_unit = file_path
+                .file_name()
+                .is_some_and(|name| name == OsStr::new("main.kd"));
+            match analyzer.analyze(
+                ast,
+                AnalyzeOptions {
+                    no_autoload: false,
+                    no_prelude: false,
+                    is_entry_unit,
+                },
+            ) {
                 Ok(_) => Vec::new(),
                 Err(err) => diagnostics_from_semantic_error(err),
             }
@@ -275,6 +286,9 @@ fn semantic_error_span(err: &SemanticError) -> Option<Span> {
         | SemanticError::SpawnTargetNotCall { span }
         | SemanticError::SpawnReturnTypeNotUnit { span, .. }
         | SemanticError::UnsupportedLanguageLinkage { span, .. }
+        | SemanticError::TopLevelStatementsWithExplicitMain { span }
+        | SemanticError::TopLevelStatementsOnlyAllowedInEntryUnit { span }
+        | SemanticError::MainOnlyAllowedInEntryUnit { span }
         | SemanticError::FormatTemplateMustBeStringLiteral { span }
         | SemanticError::FormatArgumentMustBeStr { span, .. }
         | SemanticError::InvalidFormatTemplate { span, .. }

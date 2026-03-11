@@ -47,6 +47,26 @@ fn run_executes_build_main_and_propagates_exit_code() -> anyhow::Result<()> {
 }
 
 #[test]
+fn run_executes_top_level_script_entry() -> anyhow::Result<()> {
+    let temp_dir = assert_fs::TempDir::new()?;
+
+    create_project(
+        &temp_dir,
+        r#"let mut n = 40
+n += 2
+return n"#,
+    )?;
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .current_dir(temp_dir.path())
+        .arg("run")
+        .assert()
+        .code(predicate::eq(42));
+
+    Ok(())
+}
+
+#[test]
 fn run_forwards_args_after_double_dash() -> anyhow::Result<()> {
     let temp_dir = assert_fs::TempDir::new()?;
 

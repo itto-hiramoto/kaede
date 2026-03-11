@@ -45,7 +45,8 @@ fn find_kd_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
 }
 
 fn collect_kaede_unit_infos(src_root: &Path) -> anyhow::Result<Vec<CompileUnitInfo>> {
-    let file_paths = find_kd_files(src_root)?;
+    let mut file_paths = find_kd_files(src_root)?;
+    file_paths.sort();
 
     if file_paths.is_empty() {
         anyhow::bail!("No .kd files found in kaede directory");
@@ -53,11 +54,13 @@ fn collect_kaede_unit_infos(src_root: &Path) -> anyhow::Result<Vec<CompileUnitIn
 
     println!("🔨 Compiling Kaede files...");
     let mut unit_infos = Vec::new();
+    let entry_path = src_root.join("main.kd");
     for file_path in &file_paths {
         unit_infos.push(CompileUnitInfo {
             program: fs::read_to_string(file_path)
                 .with_context(|| format!("Failed to read file: {}", file_path.display()))?,
             file_path: file_path.clone(),
+            is_entry_unit: file_path == &entry_path,
         });
     }
 
