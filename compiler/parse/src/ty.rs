@@ -9,7 +9,7 @@ use kaede_symbol::Ident;
 
 use crate::{
     error::{ParseError, ParseResult},
-    Parser,
+    parse_int_literal_u32, Parser,
 };
 
 fn wrap_in_reference(refee_ty: Ty) -> Ty {
@@ -232,9 +232,9 @@ impl Parser {
         let token = self.bump().unwrap();
 
         if let TokenKind::Int(s) = &token.kind {
-            match s.parse() {
-                Ok(n) => Ok(n),
-                Err(_) => Err(ParseError::OutOfRangeForU32(token.span).into()),
+            match parse_int_literal_u32(s) {
+                Some(n) => Ok(n),
+                None => Err(ParseError::OutOfRangeForU32(token.span).into()),
             }
         } else {
             Err(ParseError::ExpectedError {

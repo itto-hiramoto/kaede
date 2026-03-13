@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use kaede_ast::{expr::ExprKind, top::TopLevelKind, ModuleItem};
+use kaede_ast_type::TyKind;
 use kaede_parse::{ParseError, Parser};
 use kaede_span::file::FilePath;
 use kaede_symbol::Symbol;
@@ -137,6 +138,49 @@ fn parse_match_arms_without_commas() -> Result<()> {
     };
 
     assert_eq!(m.arms.len(), 2);
+    Ok(())
+}
+
+#[test]
+fn parse_hex_integer_literal() -> Result<()> {
+    let mut parser = Parser::new("0x80", FilePath::from(PathBuf::from("test.kd")));
+    let expr = parser.expr()?;
+
+    let int = match expr.kind {
+        ExprKind::Int(int) => int,
+        other => panic!("expected int literal, got {other:?}"),
+    };
+
+    assert_eq!(int.as_u64(), 0x80);
+
+    Ok(())
+}
+
+#[test]
+fn parse_hex_array_size() -> Result<()> {
+    let mut parser = Parser::new(
+        "fn f(values: [i32; 0x10]) {}",
+        FilePath::from(PathBuf::from("test.kd")),
+    );
+    let unit = parser.run()?;
+
+    let ModuleItem::Decl(top_level) = unit.items.front().expect("top level") else {
+        panic!("expected top-level declaration");
+    };
+
+    let TopLevelKind::Fn(func) = &top_level.kind else {
+        panic!("expected fn top-level");
+    };
+
+    let param = func.decl.params.v.front().expect("function parameter");
+    match param.ty.kind.as_ref() {
+        TyKind::Reference(reference) => match reference.refee_ty.kind.as_ref() {
+            TyKind::Array((_, size)) => assert_eq!(*size, 0x10),
+            other => panic!("expected array type, got {other:?}"),
+        },
+        other => panic!("expected reference type, got {other:?}"),
+    }
+
     Ok(())
 }
 
