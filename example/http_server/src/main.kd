@@ -9,10 +9,14 @@ app.ws("/ws/echo", |req, ws| {
             Option::Some(msg) => {
                 match msg.kind {
                     std.http.WebSocketMessageKind::Text => {
-                        ws.send(msg)
+                        if !ws.send(msg) {
+                            return
+                        }
                     }
                     std.http.WebSocketMessageKind::Binary => {
-                        ws.send(msg)
+                        if !ws.send(msg) {
+                            return
+                        }
                     }
                     std.http.WebSocketMessageKind::Close => {
                         return

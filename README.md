@@ -22,6 +22,7 @@
 - Python 3
 - CMake
 - C compiler (gcc or clang)
+- OpenSSL development files and `pkg-config`
 - **Supported architectures**: x86-64, AArch64
 
 ### macOS / Linux (Homebrew)

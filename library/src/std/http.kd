@@ -55,7 +55,8 @@ pub struct WebSocket {
 }
 
 impl Request {
-    // Returns the value of the query parameter `name` (e.g. ?n=1000 -> query("n") -> Some("1000")).
+    // Returns the decoded value of the query parameter `name`
+    // (e.g. ?name=alice%20bob -> query("name") -> Some("alice bob")).
     pub fn query(self, name: str): Option<String> {
         return find_query_param_value(self.query, name)
     }
@@ -105,45 +106,96 @@ impl WebSocket {
     }
 
     // Sends a message using the opcode that matches its kind.
-    pub fn send(mut self, msg: WebSocketMessage) {
-        match msg.kind {
-            WebSocketMessageKind::Text => write_ws_frame(self.conn, 1, msg.payload.as_slice()),
-            WebSocketMessageKind::Binary => write_ws_frame(self.conn, 2, msg.payload.as_slice()),
+    // Returns false if the socket is already closed, the payload is invalid
+    // for a control frame, or the frame write fails.
+    pub fn send(mut self, msg: WebSocketMessage): bool {
+        return match msg.kind {
+            WebSocketMessageKind::Text => self.send_frame(1, msg.payload.as_slice()),
+            WebSocketMessageKind::Binary => self.send_frame(2, msg.payload.as_slice()),
             WebSocketMessageKind::Close => self.close_with_body(msg.payload.as_slice()),
-            WebSocketMessageKind::Ping => write_ws_control_frame(self.conn, 9, msg.payload.as_slice()),
+            WebSocketMessageKind::Ping => self.send_control_frame(9, msg.payload.as_slice()),
             WebSocketMessageKind::Pong => self.send_pong(msg.payload.as_slice()),
         }
     }
 
-    // Sends a text frame from a string payload.
-    pub fn send_text(self, text: str) {
+    // Sends a text frame.
+    // Returns false if the socket is already closed or the frame write fails.
+    pub fn send_text(mut self, text: str): bool {
         let bytes = text.to_bytes()
-        write_ws_frame(self.conn, 1, bytes.as_slice())
+        return self.send_frame(1, bytes.as_slice())
     }
 
-    // Sends a binary frame from raw bytes.
-    pub fn send_bytes(self, body: [u8]) {
-        write_ws_frame(self.conn, 2, body)
+    // Sends a binary frame.
+    // Returns false if the socket is already closed or the frame write fails.
+    pub fn send_bytes(mut self, body: [u8]): bool {
+        return self.send_frame(2, body)
+    }
+
+    // Sends a ping control frame.
+    // Returns false if the socket is already closed, the payload exceeds 125 bytes,
+    // or the frame write fails.
+    pub fn send_ping(mut self, body: [u8]): bool {
+        return self.send_control_frame(9, body)
     }
 
     // Sends a pong control frame.
-    pub fn send_pong(self, body: [u8]) {
-        write_ws_control_frame(self.conn, 10, body)
+    // Returns false if the socket is already closed, the payload exceeds 125 bytes,
+    // or the frame write fails.
+    pub fn send_pong(mut self, body: [u8]): bool {
+        return self.send_control_frame(10, body)
     }
 
-    // Closes the WebSocket connection without a close body.
-    pub fn close(mut self) {
-        self.close_with_body(b"")
+    // Sends a close control frame with an empty payload.
+    // Returns false if the socket is already closed or the frame write fails.
+    pub fn close(mut self): bool {
+        return self.close_with_body(b"")
     }
 
-    // Closes the WebSocket connection with an explicit close payload.
-    pub fn close_with_body(mut self, body: [u8]) {
+    // Sends a close control frame with an explicit payload.
+    // Returns false if the socket is already closed, the payload exceeds 125 bytes,
+    // or the frame write fails. The socket is marked closed after this call.
+    pub fn close_with_body(mut self, body: [u8]): bool {
         if self.closed {
-            return
+            return false
         }
 
-        write_ws_control_frame(self.conn, 8, body)
+        if body.len() > 125 {
+            return false
+        }
+
+        let ok = write_ws_control_frame(self.conn, 8, body)
         self.closed = true
+        return ok
+    }
+
+    fn send_frame(mut self, opcode: u8, payload: [u8]): bool {
+        if self.closed {
+            return false
+        }
+
+        let ok = write_ws_frame(self.conn, opcode, payload)
+        if !ok {
+            self.closed = true
+        }
+
+        return ok
+    }
+
+    fn send_control_frame(mut self, opcode: u8, payload: [u8]): bool {
+        if self.closed {
+            return false
+        }
+
+        if payload.len() > 125 {
+            return false
+        }
+
+        let ok = write_ws_control_frame(self.conn, opcode, payload)
+        if !ok {
+            self.closed = true
+        }
+
+        return ok
     }
 }
 
@@ -433,7 +485,6 @@ fn websocket_upgrade_key(method: str, version: str, header: [u8]): Option<[u8]> 
     return Option<[u8]>::Some(key)
 }
 
-// Converts a string to a byte vector for frame payload writing.
 // Parses query string "key1=val1&key2=val2" and returns the value for the given name.
 // We scan each '&'-separated segment, then split the segment by '='.
 fn find_query_param_value(query: String, name: str): Option<String> {
@@ -444,9 +495,9 @@ fn find_query_param_value(query: String, name: str): Option<String> {
 
         // A valid key-value pair is "key=value" where '=' exists inside the segment.
         if eq_pos < seg_end {
-            let key = query.slice(seg_start, eq_pos)
+            let key = decode_query_component(query.slice(seg_start, eq_pos))
             if key.as_str() == name {
-                return Option<String>::Some(query.slice(eq_pos + 1, seg_end))
+                return Option<String>::Some(decode_query_component(query.slice(eq_pos + 1, seg_end)))
             }
         }
 
@@ -456,6 +507,50 @@ fn find_query_param_value(query: String, name: str): Option<String> {
         seg_start = seg_end + 1
     }
     return Option<String>::None
+}
+
+fn decode_query_component(component: String): String {
+    let mut out = String::new()
+    let mut i = 0
+
+    while i < component.len() {
+        let ch = component.as_str()[i]
+
+        if ch == '+' {
+            out.push(' ')
+            i += 1
+        } else if ch == '%' && i + 2 < component.len() {
+            let hi = hex_nibble(component.as_str()[i + 1])
+            let lo = hex_nibble(component.as_str()[i + 2])
+
+            if hi >= 0 && lo >= 0 {
+                out.push(((hi << 4) | lo) as char)
+                i += 3
+            } else {
+                out.push(ch)
+                i += 1
+            }
+        } else {
+            out.push(ch)
+            i += 1
+        }
+    }
+
+    return out
+}
+
+fn hex_nibble(ch: char): i32 {
+    if ch >= '0' && ch <= '9' {
+        return (ch - '0') as i32
+    }
+    if ch >= 'a' && ch <= 'f' {
+        return (ch - 'a') as i32 + 10
+    }
+    if ch >= 'A' && ch <= 'F' {
+        return (ch - 'A') as i32 + 10
+    }
+
+    return -1
 }
 
 fn find_path_param_value(params_vec: Vector<PathParam>, name: str): Option<String> {
@@ -560,16 +655,16 @@ fn write_websocket_upgrade_response(conn: Fd, accept_value: [u8]) {
 }
 
 // Writes a WebSocket control frame and enforces its payload size limit.
-fn write_ws_control_frame(conn: Fd, opcode: u8, payload: [u8]) {
+fn write_ws_control_frame(conn: Fd, opcode: u8, payload: [u8]): bool {
     if payload.len() > 125 {
-        panic("websocket control frame payload too large")
+        return false
     }
 
-    write_ws_frame(conn, opcode, payload)
+    return write_ws_frame(conn, opcode, payload)
 }
 
 // Encodes and writes a single server-side WebSocket frame.
-fn write_ws_frame(conn: Fd, opcode: u8, payload: [u8]) {
+fn write_ws_frame(conn: Fd, opcode: u8, payload: [u8]): bool {
     let mut header = [0; 10]
     header[0] = opcode + 128
 
@@ -594,10 +689,15 @@ fn write_ws_frame(conn: Fd, opcode: u8, payload: [u8]) {
         10
     }
 
-    std.sys.write(conn, header[0:header_len])
-    if payload.len() > 0 {
-        std.sys.write(conn, payload)
+    if !std.sys.try_write(conn, header[0:header_len]) {
+        return false
     }
+
+    if payload.len() == 0 {
+        return true
+    }
+
+    return std.sys.try_write(conn, payload)
 }
 
 // Reads an exact number of bytes and reports whether it succeeded.

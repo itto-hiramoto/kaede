@@ -6,6 +6,7 @@ pub extern "C" fn kaede_sys_accept(listen_fd: i32): i32
 pub extern "C" fn kaede_sys_read(fd: i32, buf: *i8, len: u64): i64
 pub extern "C" fn kaede_sys_write(fd: i32, buf: *i8, len: u64): i64
 pub extern "C" fn kaede_sys_close(fd: i32): i32
+pub extern "C" fn kaede_sys_sleep_ms(ms: u64): i32
 pub extern "C" fn kaede_sys_errno(): i32
 pub extern "C" fn kaede_sys_somaxconn(): i32
 
@@ -39,6 +40,10 @@ pub fn __sys_write(fd: i32, buf: *i8, len: u64): i64 {
 
 pub fn __sys_close(fd: i32): i32 {
     return kaede_sys_close(fd)
+}
+
+pub fn __sys_sleep_ms(ms: u64): i32 {
+    return kaede_sys_sleep_ms(ms)
 }
 
 pub fn __sys_errno(): i32 {
