@@ -4,10 +4,43 @@ import pathlib
 import shutil
 import subprocess
 import os
+import shlex
 import tempfile
 import platform
 
 this_dir = os.path.dirname(os.path.abspath(__file__))
+
+
+def resolve_openssl_flags():
+    error = (
+        "OpenSSL development files are required to build the standard library. "
+        "Install pkg-config and an OpenSSL dev package so "
+        "`pkg-config --cflags --libs openssl` succeeds."
+    )
+
+    try:
+        cflags = subprocess.run(
+            ["pkg-config", "--cflags", "openssl"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        libs = subprocess.run(
+            ["pkg-config", "--libs", "openssl"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+    except FileNotFoundError as exc:
+        raise RuntimeError(
+            f"{error} `pkg-config` was not found in PATH."
+        ) from exc
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            f"{error} `pkg-config` could not resolve the `openssl` package."
+        ) from exc
+
+    return shlex.split(cflags), shlex.split(libs)
 
 
 def install_bdwgc(third_party_dir):
@@ -51,6 +84,9 @@ def install_standard_library(
     runtime_lib_path,
 ):
     print("Installing standard library...")
+    env = os.environ.copy()
+    env["KAEDE_DIR"] = os.path.dirname(kaede_lib_dir)
+    openssl_cflags, openssl_libs = resolve_openssl_flags()
 
     # Copy standard library source files
     kaede_lib_src_dir = os.path.join(kaede_lib_dir, "src")
@@ -89,7 +125,8 @@ def install_standard_library(
             "-o",
             t1.name,
             *autoload_files,
-        ]
+        ],
+        env=env,
     ).check_returncode()
     subprocess.run(
         [
@@ -104,7 +141,8 @@ def install_standard_library(
             "-o",
             t2.name,
             *std_lib_files,
-        ]
+        ],
+        env=env,
     ).check_returncode()
     subprocess.run(
         [
@@ -113,6 +151,7 @@ def install_standard_library(
             "-fPIC",
             "-I",
             bdwgc_include_dir,
+            *openssl_cflags,
             "-o",
             kaede_lib_path,
             t1.name,
@@ -120,6 +159,7 @@ def install_standard_library(
             *ffi_c_files,
             runtime_lib_path,
             bdwgc_lib_path,
+            *openssl_libs,
         ]
     ).check_returncode()
 

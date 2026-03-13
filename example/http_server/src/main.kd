@@ -2,6 +2,32 @@ import std.http
 
 let mut app = std.http.App::new()
 
+app.ws("/ws/echo", |req, ws| {
+    loop {
+        let msg = ws.receive()
+        match msg {
+            Option::Some(msg) => {
+                match msg.kind {
+                    std.http.WebSocketMessageKind::Text => {
+                        ws.send(msg)
+                    }
+                    std.http.WebSocketMessageKind::Binary => {
+                        ws.send(msg)
+                    }
+                    std.http.WebSocketMessageKind::Close => {
+                        return
+                    }
+                    std.http.WebSocketMessageKind::Ping => {},
+                    std.http.WebSocketMessageKind::Pong => {},
+                }
+            }
+            Option::None => {
+                return
+            }
+        }
+    }
+})
+
 app.get("/", |req, res| {
     res.send_string("Kaede!")
 })

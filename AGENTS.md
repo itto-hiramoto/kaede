@@ -7,7 +7,7 @@
 - Build artifacts land in `target/`; keep working tree clean before commits.
 
 ## Build, Test, and Development Commands
-- Install prerequisites once: `./install.py` (sets up standard library/runtime). On macOS add `export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"` to load LLVM.
+- Install prerequisites once: `./install.py` (sets up standard library/runtime). WebSocket-enabled stdlib builds require `pkg-config` plus OpenSSL development files so `pkg-config --cflags --libs openssl` succeeds. On macOS add `export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"` to load LLVM.
 - Format check: `cargo fmt --all -- --check`.
 - Lint: `cargo clippy -- -D warnings`.
 - Tests: `cargo test --release --no-fail-fast`.
