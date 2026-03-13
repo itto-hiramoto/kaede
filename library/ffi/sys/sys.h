@@ -23,6 +23,7 @@ long kaede_sys_read(sys_fd_t fd, void *buf,
 long kaede_sys_write(sys_fd_t fd, const void *buf,
                      size_t len); // returns n>=0, -1 on error
 int kaede_sys_close(sys_fd_t fd);
+int kaede_sys_sleep_ms(uint64_t ms);
 
 /* --- Error introspection (optional but handy) --- */
 int kaede_sys_errno(void);

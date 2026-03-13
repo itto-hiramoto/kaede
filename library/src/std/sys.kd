@@ -63,6 +63,13 @@ pub fn close(fd: Fd) {
     }
 }
 
+pub fn sleep_ms(ms: u64) {
+    let r = __sys_sleep_ms(ms)
+    if r < 0 {
+        panic("sleep_ms failed")
+    }
+}
+
 // ===== I/O =====
 
 pub fn read(fd: Fd, buf: mut [u8]): u64 {
@@ -91,6 +98,25 @@ pub fn read_exact(fd: Fd, buf: mut [u8], len: u64): u64 {
 
 pub fn write(fd: Fd, buf: [u8]): u64 {
     return write_all(fd, buf)
+}
+
+pub fn try_write(fd: Fd, buf: [u8]): bool {
+    let mut off = 0
+    let total = buf.len()
+
+    while off < total {
+        let ptr = __ptr_add(buf.as_ptr(), off)
+        let rem = total - off
+
+        let n = __sys_write(fd.raw, ptr as *i8, rem)
+        if n <= 0 {
+            return false
+        }
+
+        off += n as u64
+    }
+
+    return true
 }
 
 fn write_all(fd: Fd, buf: [u8]): u64 {

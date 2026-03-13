@@ -105,45 +105,96 @@ impl WebSocket {
     }
 
     // Sends a message using the opcode that matches its kind.
-    pub fn send(mut self, msg: WebSocketMessage) {
-        match msg.kind {
-            WebSocketMessageKind::Text => write_ws_frame(self.conn, 1, msg.payload.as_slice()),
-            WebSocketMessageKind::Binary => write_ws_frame(self.conn, 2, msg.payload.as_slice()),
+    // Returns false if the socket is already closed, the payload is invalid
+    // for a control frame, or the frame write fails.
+    pub fn send(mut self, msg: WebSocketMessage): bool {
+        return match msg.kind {
+            WebSocketMessageKind::Text => self.send_frame(1, msg.payload.as_slice()),
+            WebSocketMessageKind::Binary => self.send_frame(2, msg.payload.as_slice()),
             WebSocketMessageKind::Close => self.close_with_body(msg.payload.as_slice()),
-            WebSocketMessageKind::Ping => write_ws_control_frame(self.conn, 9, msg.payload.as_slice()),
+            WebSocketMessageKind::Ping => self.send_control_frame(9, msg.payload.as_slice()),
             WebSocketMessageKind::Pong => self.send_pong(msg.payload.as_slice()),
         }
     }
 
-    // Sends a text frame from a string payload.
-    pub fn send_text(self, text: str) {
+    // Sends a text frame.
+    // Returns false if the socket is already closed or the frame write fails.
+    pub fn send_text(mut self, text: str): bool {
         let bytes = text.to_bytes()
-        write_ws_frame(self.conn, 1, bytes.as_slice())
+        return self.send_frame(1, bytes.as_slice())
     }
 
-    // Sends a binary frame from raw bytes.
-    pub fn send_bytes(self, body: [u8]) {
-        write_ws_frame(self.conn, 2, body)
+    // Sends a binary frame.
+    // Returns false if the socket is already closed or the frame write fails.
+    pub fn send_bytes(mut self, body: [u8]): bool {
+        return self.send_frame(2, body)
+    }
+
+    // Sends a ping control frame.
+    // Returns false if the socket is already closed, the payload exceeds 125 bytes,
+    // or the frame write fails.
+    pub fn send_ping(mut self, body: [u8]): bool {
+        return self.send_control_frame(9, body)
     }
 
     // Sends a pong control frame.
-    pub fn send_pong(self, body: [u8]) {
-        write_ws_control_frame(self.conn, 10, body)
+    // Returns false if the socket is already closed, the payload exceeds 125 bytes,
+    // or the frame write fails.
+    pub fn send_pong(mut self, body: [u8]): bool {
+        return self.send_control_frame(10, body)
     }
 
-    // Closes the WebSocket connection without a close body.
-    pub fn close(mut self) {
-        self.close_with_body(b"")
+    // Sends a close control frame with an empty payload.
+    // Returns false if the socket is already closed or the frame write fails.
+    pub fn close(mut self): bool {
+        return self.close_with_body(b"")
     }
 
-    // Closes the WebSocket connection with an explicit close payload.
-    pub fn close_with_body(mut self, body: [u8]) {
+    // Sends a close control frame with an explicit payload.
+    // Returns false if the socket is already closed, the payload exceeds 125 bytes,
+    // or the frame write fails. The socket is marked closed after this call.
+    pub fn close_with_body(mut self, body: [u8]): bool {
         if self.closed {
-            return
+            return false
         }
 
-        write_ws_control_frame(self.conn, 8, body)
+        if body.len() > 125 {
+            return false
+        }
+
+        let ok = write_ws_control_frame(self.conn, 8, body)
         self.closed = true
+        return ok
+    }
+
+    fn send_frame(mut self, opcode: u8, payload: [u8]): bool {
+        if self.closed {
+            return false
+        }
+
+        let ok = write_ws_frame(self.conn, opcode, payload)
+        if !ok {
+            self.closed = true
+        }
+
+        return ok
+    }
+
+    fn send_control_frame(mut self, opcode: u8, payload: [u8]): bool {
+        if self.closed {
+            return false
+        }
+
+        if payload.len() > 125 {
+            return false
+        }
+
+        let ok = write_ws_control_frame(self.conn, opcode, payload)
+        if !ok {
+            self.closed = true
+        }
+
+        return ok
     }
 }
 
@@ -560,16 +611,16 @@ fn write_websocket_upgrade_response(conn: Fd, accept_value: [u8]) {
 }
 
 // Writes a WebSocket control frame and enforces its payload size limit.
-fn write_ws_control_frame(conn: Fd, opcode: u8, payload: [u8]) {
+fn write_ws_control_frame(conn: Fd, opcode: u8, payload: [u8]): bool {
     if payload.len() > 125 {
-        panic("websocket control frame payload too large")
+        return false
     }
 
-    write_ws_frame(conn, opcode, payload)
+    return write_ws_frame(conn, opcode, payload)
 }
 
 // Encodes and writes a single server-side WebSocket frame.
-fn write_ws_frame(conn: Fd, opcode: u8, payload: [u8]) {
+fn write_ws_frame(conn: Fd, opcode: u8, payload: [u8]): bool {
     let mut header = [0; 10]
     header[0] = opcode + 128
 
@@ -594,10 +645,15 @@ fn write_ws_frame(conn: Fd, opcode: u8, payload: [u8]) {
         10
     }
 
-    std.sys.write(conn, header[0:header_len])
-    if payload.len() > 0 {
-        std.sys.write(conn, payload)
+    if !std.sys.try_write(conn, header[0:header_len]) {
+        return false
     }
+
+    if payload.len() == 0 {
+        return true
+    }
+
+    return std.sys.try_write(conn, payload)
 }
 
 // Reads an exact number of bytes and reports whether it succeeded.

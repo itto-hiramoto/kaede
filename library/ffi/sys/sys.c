@@ -6,6 +6,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 sys_fd_t kaede_sys_socket_tcp4(void) {
@@ -74,6 +75,20 @@ long kaede_sys_write(sys_fd_t fd, const void *buf, size_t len) {
 }
 
 int kaede_sys_close(sys_fd_t fd) { return close((int)fd); }
+
+int kaede_sys_sleep_ms(uint64_t ms) {
+  struct timespec req;
+  req.tv_sec = (time_t)(ms / 1000);
+  req.tv_nsec = (long)((ms % 1000) * 1000000ULL);
+
+  for (;;) {
+    if (nanosleep(&req, &req) == 0)
+      return 0;
+    if (errno == EINTR)
+      continue;
+    return -1;
+  }
+}
 
 int kaede_sys_errno(void) { return errno; }
 
