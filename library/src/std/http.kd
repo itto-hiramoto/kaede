@@ -3,11 +3,13 @@ import std.string
 import std.collections
 import std.io
 import std.option
+import std.ffi.http
 
 use std.sys.Fd
 use std.string.String
 use std.collections.Vector
 use std.option.Option
+use std.ffi.http.__http_ws_accept
 
 // ====== Minimal HTTP request/response types ======
 
@@ -17,6 +19,14 @@ pub enum Status {
     BadRequest, // 400
     PayloadTooLarge, // 413
     InternalServerError, // 500
+}
+
+pub enum WebSocketMessageKind {
+    Text,
+    Binary,
+    Close,
+    Ping,
+    Pong,
 }
 
 struct PathParam {
@@ -34,6 +44,16 @@ pub struct Request {
     body: [u8],
 }
 
+pub struct WebSocketMessage {
+    kind: WebSocketMessageKind,
+    payload: Vector<u8>,
+}
+
+pub struct WebSocket {
+    conn: Fd,
+    closed: bool,
+}
+
 impl Request {
     // Returns the value of the query parameter `name` (e.g. ?n=1000 -> query("n") -> Some("1000")).
     pub fn query(self, name: str): Option<String> {
@@ -43,6 +63,87 @@ impl Request {
     // Returns the value of the path parameter `name` (e.g. "/users/:id" + "/users/42" -> param("id") -> Some("42")).
     pub fn param(self, name: str): Option<String> {
         return find_path_param_value(self.params, name)
+    }
+}
+
+impl WebSocket {
+    // Reads the next WebSocket frame and maps it to a high-level message.
+    pub fn receive(mut self): Option<WebSocketMessage> {
+        if self.closed {
+            return Option<WebSocketMessage>::None
+        }
+
+        loop {
+            let frame = read_ws_frame(self.conn)
+            match frame {
+                FrameReadResult::Message(msg) => {
+                    match msg.kind {
+                        WebSocketMessageKind::Ping => {
+                            self.send_pong(msg.payload.as_slice())
+                        }
+                        WebSocketMessageKind::Close => {
+                            self.close_with_body(msg.payload.as_slice())
+                            return Option<WebSocketMessage>::Some(msg)
+                        }
+                        _ => {
+                            return Option<WebSocketMessage>::Some(msg)
+                        }
+                    }
+                }
+                FrameReadResult::Closed => {
+                    self.closed = true
+                    return Option<WebSocketMessage>::None
+                }
+                FrameReadResult::ProtocolError => {
+                    self.close()
+                    return Option<WebSocketMessage>::None
+                }
+            }
+        }
+
+        __unreachable()
+    }
+
+    // Sends a message using the opcode that matches its kind.
+    pub fn send(mut self, msg: WebSocketMessage) {
+        match msg.kind {
+            WebSocketMessageKind::Text => write_ws_frame(self.conn, 1, msg.payload.as_slice()),
+            WebSocketMessageKind::Binary => write_ws_frame(self.conn, 2, msg.payload.as_slice()),
+            WebSocketMessageKind::Close => self.close_with_body(msg.payload.as_slice()),
+            WebSocketMessageKind::Ping => write_ws_control_frame(self.conn, 9, msg.payload.as_slice()),
+            WebSocketMessageKind::Pong => self.send_pong(msg.payload.as_slice()),
+        }
+    }
+
+    // Sends a text frame from a string payload.
+    pub fn send_text(self, text: str) {
+        let bytes = text.to_bytes()
+        write_ws_frame(self.conn, 1, bytes.as_slice())
+    }
+
+    // Sends a binary frame from raw bytes.
+    pub fn send_bytes(self, body: [u8]) {
+        write_ws_frame(self.conn, 2, body)
+    }
+
+    // Sends a pong control frame.
+    pub fn send_pong(self, body: [u8]) {
+        write_ws_control_frame(self.conn, 10, body)
+    }
+
+    // Closes the WebSocket connection without a close body.
+    pub fn close(mut self) {
+        self.close_with_body(b"")
+    }
+
+    // Closes the WebSocket connection with an explicit close payload.
+    pub fn close_with_body(mut self, body: [u8]) {
+        if self.closed {
+            return
+        }
+
+        write_ws_control_frame(self.conn, 8, body)
+        self.closed = true
     }
 }
 
@@ -73,15 +174,14 @@ impl Response {
     }
 
     pub fn send_string(mut self, text: str) {
-        // Note: assumes ASCII
-        let mut bytes = [0; 2048]
-        let mut i = 0
-        while i < text.len() && i < bytes.len() {
-            bytes[i] = text[i] as u8
-            i += 1
-        }
-        self.send_bytes(bytes[0:i])
+        self.send_bytes(text.to_bytes().as_slice())
     }
+}
+
+enum FrameReadResult {
+    Message(WebSocketMessage),
+    Closed,
+    ProtocolError,
 }
 
 // Splits the request target (e.g. "/primes?n=1000") into path and query string.
@@ -137,6 +237,203 @@ fn find_char_from(s: String, start: u64, target: char): u64 {
     return s.len()
 }
 
+// Finds a single byte in a byte slice.
+fn find_byte(buf: [u8], target: u8): i32 {
+    let mut i = 0
+    while i < buf.len() {
+        if buf[i] == target {
+            return i as i32
+        }
+        i += 1
+    }
+    return -1
+}
+
+// Compares two byte slices for exact equality.
+fn bytes_eq(left: [u8], right: [u8]): bool {
+    if left.len() != right.len() {
+        return false
+    }
+
+    let mut i = 0
+    while i < left.len() {
+        if left[i] != right[i] {
+            return false
+        }
+        i += 1
+    }
+
+    return true
+}
+
+// Trims leading and trailing spaces used in HTTP header values.
+fn trim_http_whitespace(value: [u8]): [u8] {
+    let mut start = 0
+    let mut end = value.len()
+
+    while start < end && (value[start] == b' ' || value[start] == b'\t') {
+        start += 1
+    }
+
+    while end > start && (value[end - 1] == b' ' || value[end - 1] == b'\t') {
+        end -= 1
+    }
+
+    return value[start:end]
+}
+
+// Checks whether an HTTP header line starts with the requested header name.
+fn line_matches_header_name(line: [u8], name: [u8]): bool {
+    if line.len() < name.len() + 1 {
+        return false
+    }
+
+    if !bytes_eq(line[0:name.len()], name) {
+        return false
+    }
+
+    return line[name.len()] == b':'
+}
+
+// Returns the raw value of a named HTTP header.
+fn header_value(header: [u8], name: [u8]): Option<[u8]> {
+    let mut line_start = 0
+
+    loop {
+        if line_start >= header.len() {
+            break
+        }
+
+        let line_rel_end = std.sys.find_subslice(header[line_start:header.len()], b"\r\n")
+        if line_rel_end < 0 {
+            break
+        }
+
+        let line_end = line_start + (line_rel_end as u64)
+        if line_end == line_start {
+            break
+        }
+
+        let line = header[line_start:line_end]
+        if line_matches_header_name(line, name) {
+            let colon = find_byte(line, b':')
+            if colon < 0 {
+                return Option<[u8]>::None
+            }
+
+            return Option<[u8]>::Some(trim_http_whitespace(line[(colon as u64 + 1):line.len()]))
+        }
+
+        line_start = line_end + 2
+    }
+
+    return Option<[u8]>::None
+}
+
+// Checks whether a comma-separated header value contains a given token.
+fn value_has_token(value: [u8], token: [u8]): bool {
+    let mut i = 0
+
+    while i < value.len() {
+        while i < value.len() && (value[i] == b' ' || value[i] == b',' || value[i] == b'\t') {
+            i += 1
+        }
+
+        let start = i
+        while i < value.len() && value[i] != b',' {
+            i += 1
+        }
+
+        let segment = trim_http_whitespace(value[start:i])
+        if bytes_eq(segment, token) {
+            return true
+        }
+
+        if i < value.len() && value[i] == b',' {
+            i += 1
+        }
+    }
+
+    return false
+}
+
+// Checks whether the Connection header requests an Upgrade.
+fn has_connection_upgrade_token(header: [u8]): bool {
+    let connection = header_value(header, b"Connection")
+    return match connection {
+        Option::Some(value) => value_has_token(value, b"Upgrade"),
+        Option::None => false,
+    }
+}
+
+// Detects whether a request looks like a WebSocket upgrade attempt.
+fn is_websocket_upgrade_candidate(header: [u8]): bool {
+    if has_connection_upgrade_token(header) {
+        return true
+    }
+
+    if match header_value(header, b"Upgrade") {
+        Option::Some(_) => true,
+        Option::None => false,
+    } {
+        return true
+    }
+
+    if match header_value(header, b"Sec-WebSocket-Key") {
+        Option::Some(_) => true,
+        Option::None => false,
+    } {
+        return true
+    }
+
+    return match header_value(header, b"Sec-WebSocket-Version") {
+        Option::Some(_) => true,
+        Option::None => false,
+    }
+}
+
+// Validates the upgrade request and returns the Sec-WebSocket-Key.
+fn websocket_upgrade_key(method: str, version: str, header: [u8]): Option<[u8]> {
+    if method != "GET" {
+        return Option<[u8]>::None
+    }
+
+    if version != "HTTP/1.1" {
+        return Option<[u8]>::None
+    }
+
+    let upgrade = match header_value(header, b"Upgrade") {
+        Option::Some(value) => value,
+        Option::None => return Option<[u8]>::None,
+    }
+    if !bytes_eq(upgrade, b"websocket") {
+        return Option<[u8]>::None
+    }
+
+    if !has_connection_upgrade_token(header) {
+        return Option<[u8]>::None
+    }
+
+    let version_header = match header_value(header, b"Sec-WebSocket-Version") {
+        Option::Some(value) => value,
+        Option::None => return Option<[u8]>::None,
+    }
+    if !bytes_eq(version_header, b"13") {
+        return Option<[u8]>::None
+    }
+
+    let key = match header_value(header, b"Sec-WebSocket-Key") {
+        Option::Some(value) => value,
+        Option::None => return Option<[u8]>::None,
+    }
+    if key.len() == 0 {
+        return Option<[u8]>::None
+    }
+
+    return Option<[u8]>::Some(key)
+}
+
+// Converts a string to a byte vector for frame payload writing.
 // Parses query string "key1=val1&key2=val2" and returns the value for the given name.
 // We scan each '&'-separated segment, then split the segment by '='.
 fn find_query_param_value(query: String, name: str): Option<String> {
@@ -253,16 +550,214 @@ pub fn write_bytes_response(conn: Fd, close_conn: bool, status: Status, body: [u
     write_text_response(conn, close_conn, status, body)
 }
 
+fn write_websocket_upgrade_response(conn: Fd, accept_value: [u8]) {
+    std.sys.write(conn, b"HTTP/1.1 101 Switching Protocols\r\n")
+    std.sys.write(conn, b"Upgrade: websocket\r\n")
+    std.sys.write(conn, b"Connection: Upgrade\r\n")
+    std.sys.write(conn, b"Sec-WebSocket-Accept: ")
+    std.sys.write(conn, accept_value)
+    std.sys.write(conn, b"\r\n\r\n")
+}
+
+// Writes a WebSocket control frame and enforces its payload size limit.
+fn write_ws_control_frame(conn: Fd, opcode: u8, payload: [u8]) {
+    if payload.len() > 125 {
+        panic("websocket control frame payload too large")
+    }
+
+    write_ws_frame(conn, opcode, payload)
+}
+
+// Encodes and writes a single server-side WebSocket frame.
+fn write_ws_frame(conn: Fd, opcode: u8, payload: [u8]) {
+    let mut header = [0; 10]
+    header[0] = opcode + 128
+
+    let header_len = if payload.len() < 126 {
+        header[1] = payload.len() as u8
+        2
+    } else if payload.len() < 65536 {
+        header[1] = 126
+        header[2] = ((payload.len() >> 8) % 256) as u8
+        header[3] = (payload.len() % 256) as u8
+        4
+    } else {
+        header[1] = 127
+        header[2] = ((payload.len() >> 56) % 256) as u8
+        header[3] = ((payload.len() >> 48) % 256) as u8
+        header[4] = ((payload.len() >> 40) % 256) as u8
+        header[5] = ((payload.len() >> 32) % 256) as u8
+        header[6] = ((payload.len() >> 24) % 256) as u8
+        header[7] = ((payload.len() >> 16) % 256) as u8
+        header[8] = ((payload.len() >> 8) % 256) as u8
+        header[9] = (payload.len() % 256) as u8
+        10
+    }
+
+    std.sys.write(conn, header[0:header_len])
+    if payload.len() > 0 {
+        std.sys.write(conn, payload)
+    }
+}
+
+// Reads an exact number of bytes and reports whether it succeeded.
+fn read_exact_bytes(fd: Fd, buf: mut [u8], len: u64): bool {
+    return std.sys.read_exact(fd, buf, len) == len
+}
+
+// Reads a 16-bit extended WebSocket payload length.
+fn read_ws_len16(conn: Fd): Option<u64> {
+    let mut buf = [0; 2]
+    if !read_exact_bytes(conn, buf, 2) {
+        return Option<u64>::None
+    }
+
+    return Option<u64>::Some(((buf[0] as u64) << 8) + (buf[1] as u64))
+}
+
+// Reads a 64-bit extended WebSocket payload length.
+fn read_ws_len64(conn: Fd): Option<u64> {
+    let mut buf = [0; 8]
+    if !read_exact_bytes(conn, buf, 8) {
+        return Option<u64>::None
+    }
+
+    let len =
+        ((buf[0] as u64) << 56) +
+        ((buf[1] as u64) << 48) +
+        ((buf[2] as u64) << 40) +
+        ((buf[3] as u64) << 32) +
+        ((buf[4] as u64) << 24) +
+        ((buf[5] as u64) << 16) +
+        ((buf[6] as u64) << 8) +
+        (buf[7] as u64)
+
+    return Option<u64>::Some(len)
+}
+
+// Reads and unmasks a WebSocket payload body.
+fn read_ws_payload(conn: Fd, payload_len: u64, mask_key: [u8]): Option<Vector<u8>> {
+    let mut out = Vector<u8>::new()
+    let mut chunk = [0; 256]
+    let mut remaining = payload_len
+    let mut offset = 0
+
+    while remaining > 0 {
+        let want = if remaining > chunk.len() { chunk.len() } else { remaining }
+        if std.sys.read_exact(conn, chunk, want) != want {
+            return Option<Vector<u8>>::None
+        }
+
+        let mut i = 0
+        while i < want {
+            out.push(chunk[i] ^ mask_key[(offset + i) % 4])
+            i += 1
+        }
+
+        offset += want
+        remaining -= want
+    }
+
+    return Option<Vector<u8>>::Some(out)
+}
+
+// Reads one client WebSocket frame and validates the minimal protocol rules.
+fn read_ws_frame(conn: Fd): FrameReadResult {
+    let mut first_bytes = [0; 2]
+    let n = std.sys.read_exact(conn, first_bytes, 2)
+    if n == 0 {
+        return FrameReadResult::Closed
+    }
+    if n != 2 {
+        return FrameReadResult::Closed
+    }
+
+    let first = first_bytes[0]
+    let second = first_bytes[1]
+    let fin = (first & 0x80) != 0
+    let rsv = (first & 0x70) >> 4
+    let opcode = first & 0x0f
+    let masked = (second & 0x80) != 0
+
+    if rsv != 0 || !fin || !masked {
+        return FrameReadResult::ProtocolError
+    }
+
+    if opcode != 1 && opcode != 2 && opcode != 8 && opcode != 9 && opcode != 10 {
+        return FrameReadResult::ProtocolError
+    }
+
+    let mut payload_len = (second & 0x7f) as u64
+    if payload_len == 126 {
+        payload_len = match read_ws_len16(conn) {
+            Option::Some(len) => len,
+            Option::None => return FrameReadResult::Closed,
+        }
+    } else if payload_len == 127 {
+        payload_len = match read_ws_len64(conn) {
+            Option::Some(len) => len,
+            Option::None => return FrameReadResult::Closed,
+        }
+    }
+
+    if (opcode == 8 || opcode == 9 || opcode == 10) && payload_len > 125 {
+        return FrameReadResult::ProtocolError
+    }
+
+    let max_payload_len = 1024 * 1024
+    if payload_len > max_payload_len {
+        return FrameReadResult::ProtocolError
+    }
+
+    let mut mask_key = [0; 4]
+    if !read_exact_bytes(conn, mask_key, 4) {
+        return FrameReadResult::Closed
+    }
+
+    let payload = match read_ws_payload(conn, payload_len, mask_key) {
+        Option::Some(value) => value,
+        Option::None => return FrameReadResult::Closed,
+    }
+
+    let kind = match opcode {
+        1 => WebSocketMessageKind::Text,
+        2 => WebSocketMessageKind::Binary,
+        8 => WebSocketMessageKind::Close,
+        9 => WebSocketMessageKind::Ping,
+        10 => WebSocketMessageKind::Pong,
+        _ => return FrameReadResult::ProtocolError,
+    }
+
+    return FrameReadResult::Message(WebSocketMessage { kind, payload })
+}
+
 // ====== Routing ======
 
 pub type Handler = fn(mut Request, mut Response)
+// Handler type used by WebSocket routes after the upgrade succeeds.
+pub type WebSocketHandler = fn(mut Request, mut WebSocket)
+
+enum RouteKind {
+    Http(Handler),
+    Ws(WebSocketHandler),
+}
 
 struct Route {
     method: String,
     path: String,
     // true when route path contains at least one ":name" segment.
     has_params: bool,
+    kind: RouteKind,
+}
+
+struct HttpRouteMatch {
     handler: Handler,
+    params: Vector<PathParam>,
+}
+
+struct WsRouteMatch {
+    handler: WebSocketHandler,
+    params: Vector<PathParam>,
 }
 
 pub struct App {
@@ -275,64 +770,144 @@ impl App {
     }
 
     pub fn get(mut self, path: str, handler: Handler) {
-        self.add_route("GET", path, handler)
+        self.add_http_route("GET", path, handler)
     }
 
     pub fn post(mut self, path: str, handler: Handler) {
-        self.add_route("POST", path, handler)
+        self.add_http_route("POST", path, handler)
+    }
+
+    pub fn ws(mut self, path: str, handler: WebSocketHandler) {
+        self.add_ws_route("GET", path, handler)
     }
 
     pub fn dispatch(self, req: mut Request, res: mut Response): bool {
-        // Fast path: exact match routes first (no segment parsing / param extraction).
-        {
-            let mut i = 0
-            while i < self.routes.len() {
-                let r = self.routes.at(i).unwrap()
-                if !r.has_params && r.method.as_str() == req.method.as_str() && r.path.as_str() == req.path.as_str() {
-                    let h = r.handler
-                    h(req, res)
-                    return true
-                }
-                i += 1
-            }
+        let has_match = match self.find_http_route(req.method.as_str(), req.path.as_str()) {
+            Option::Some(_) => true,
+            Option::None => false,
         }
 
-        // Param path routes (e.g. "/users/:id"): collect params only when a route matches.
-        {
-            let mut i = 0
-            while i < self.routes.len() {
-                let r = self.routes.at(i).unwrap()
-                if r.has_params && r.method.as_str() == req.method.as_str() {
-                    let mut params = Vector<PathParam>::new()
-                    let matched = match_route_path(r.path, req.path, params)
-                    if matched {
-                        req.params = params
-                        let h = r.handler
-                        h(req, res)
-                        return true
-                    }
-                }
-                i += 1
-            }
+        if !has_match {
+            return false
         }
 
-        return false
+        let found = self.find_http_route(req.method.as_str(), req.path.as_str()).unwrap()
+        req.params = found.params
+        let h = found.handler
+        h(req, res)
+        return true
     }
 
     pub fn listen(self, ip: str = "0.0.0.0", port: u16) {
         serve_tcp4(self, ip, port)
     }
 
-    fn add_route(mut self, method: str, path: str, handler: Handler) {
+    fn add_http_route(mut self, method: str, path: str, handler: Handler) {
+        self.add_route(method, path, RouteKind::Http(handler))
+    }
+
+    // Registers a GET route that upgrades to WebSocket.
+    fn add_ws_route(mut self, method: str, path: str, handler: WebSocketHandler) {
+        self.add_route(method, path, RouteKind::Ws(handler))
+    }
+
+    fn add_route(mut self, method: str, path: str, kind: RouteKind) {
         let route_path = String::from(path)
         let has_params = has_path_params(route_path.as_str())
         let route = Route {
             method: String::from(method),
             path: route_path,
             has_params,
-            handler,
+            kind,
         }
         self.routes.push(route)
+    }
+
+    fn find_http_route(self, method: str, path: str): Option<HttpRouteMatch> {
+        {
+            let mut i = 0
+            while i < self.routes.len() {
+                let r = self.routes.at(i).unwrap()
+                match r.kind {
+                    RouteKind::Http(handler) => {
+                        if !r.has_params && r.method.as_str() == method && r.path.as_str() == path {
+                            return Option<HttpRouteMatch>::Some(HttpRouteMatch {
+                                handler,
+                                params: Vector<PathParam>::new(),
+                            })
+                        }
+                    }
+                    RouteKind::Ws(_) => {}
+                }
+                i += 1
+            }
+        }
+
+        {
+            let mut i = 0
+            while i < self.routes.len() {
+                let r = self.routes.at(i).unwrap()
+                match r.kind {
+                    RouteKind::Http(handler) => {
+                        if r.has_params && r.method.as_str() == method {
+                            let mut params = Vector<PathParam>::new()
+                            let matched = match_route_path(r.path, String::from(path), params)
+                            if matched {
+                                return Option<HttpRouteMatch>::Some(HttpRouteMatch { handler, params })
+                            }
+                        }
+                    }
+                    RouteKind::Ws(_) => {}
+                }
+                i += 1
+            }
+        }
+
+        return Option<HttpRouteMatch>::None
+    }
+
+    // Finds the WebSocket handler that matches an incoming request path.
+    fn find_ws_route(self, method: str, path: str): Option<WsRouteMatch> {
+        {
+            let mut i = 0
+            while i < self.routes.len() {
+                let r = self.routes.at(i).unwrap()
+                match r.kind {
+                    RouteKind::Ws(handler) => {
+                        if !r.has_params && r.method.as_str() == method && r.path.as_str() == path {
+                            return Option<WsRouteMatch>::Some(WsRouteMatch {
+                                handler,
+                                params: Vector<PathParam>::new(),
+                            })
+                        }
+                    }
+                    RouteKind::Http(_) => {}
+                }
+                i += 1
+            }
+        }
+
+        {
+            let mut i = 0
+            while i < self.routes.len() {
+                let r = self.routes.at(i).unwrap()
+                match r.kind {
+                    RouteKind::Ws(handler) => {
+                        if r.has_params && r.method.as_str() == method {
+                            let mut params = Vector<PathParam>::new()
+                            let matched = match_route_path(r.path, String::from(path), params)
+                            if matched {
+                                return Option<WsRouteMatch>::Some(WsRouteMatch { handler, params })
+                            }
+                        }
+                    }
+                    RouteKind::Http(_) => {}
+                }
+                i += 1
+            }
+        }
+
+        return Option<WsRouteMatch>::None
     }
 }
 
@@ -408,6 +983,7 @@ fn match_route_path(route_path: String, path: String, params: mut Vector<PathPar
 
 // ====== Connection handling / server ======
 
+// Handles one TCP connection as either HTTP or WebSocket depending on the request.
 fn handle_conn(conn: Fd, app: App) {
     loop {
         let mut buf = [0; 8192]
@@ -427,13 +1003,58 @@ fn handle_conn(conn: Fd, app: App) {
         let header = buf[0:header_len]
 
         let (method, target, version) = std.sys.parse_request_line(header)
-        // Split target into path (for routing) and query string (for query method)
         let (path, query) = split_path_query(target)
 
         let content_length = parse_content_length(header)
         if content_length < 0 {
             write_text_response(conn, true, Status::BadRequest, b"")
             break
+        }
+
+        let ws_route = app.find_ws_route(method.as_str(), path.as_str())
+        match ws_route {
+            Option::Some(found) => {
+                if is_websocket_upgrade_candidate(header) {
+                    if content_length != 0 {
+                        write_text_response(conn, true, Status::BadRequest, b"")
+                        break
+                    }
+
+                    let key = match websocket_upgrade_key(method.as_str(), version.as_str(), header) {
+                        Option::Some(value) => value,
+                        Option::None => {
+                            write_text_response(conn, true, Status::BadRequest, b"")
+                            break
+                        }
+                    }
+
+                    let mut accept_value = [0; 28]
+                    if __http_ws_accept(key, accept_value) != 28 {
+                        write_text_response(conn, true, Status::InternalServerError, b"")
+                        break
+                    }
+
+                    let mut req = Request {
+                        method,
+                        path,
+                        query,
+                        params: found.params,
+                        version,
+                        headers: header,
+                        body: b"",
+                    }
+                    write_websocket_upgrade_response(conn, accept_value)
+
+                    let mut ws = WebSocket { conn, closed: false }
+                    let h = found.handler
+                    h(req, ws)
+                    if !ws.closed {
+                        ws.close()
+                    }
+                    break
+                }
+            }
+            Option::None => {}
         }
 
         let mut body = [0; 4096]
@@ -472,6 +1093,7 @@ fn handle_conn(conn: Fd, app: App) {
     std.sys.close(conn)
 }
 
+// Starts the TCP server and dispatches each accepted connection.
 pub fn serve_tcp4(app: App, ip: str, port: u16) {
     let backlog = std.sys.somaxconn()
     let fd = std.sys.socket_tcp4()

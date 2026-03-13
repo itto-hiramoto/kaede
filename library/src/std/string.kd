@@ -195,6 +195,17 @@ fn i64_to_string(n: i64): String {
 }
 
 impl str {
+    // Converts a string slice to a byte vector.
+    pub fn to_bytes(self): Vector<u8> {
+        let mut bytes = Vector<u8>::new()
+        let mut i = 0
+        while i < self.len() {
+            bytes.push(self[i] as u8)
+            i += 1
+        }
+        return bytes
+    }
+
     pub fn parse_u64(self): std.option.Option<u64> {
         return parse_u64_from_str(self)
     }
