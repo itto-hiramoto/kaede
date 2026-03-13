@@ -1,5 +1,5 @@
 [package]
-name = "kaede_rust_bridge_example"
+name = "rust_interop"
 version = "0.1.0"
 edition = "2024"
 

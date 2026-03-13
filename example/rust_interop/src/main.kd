@@ -1,6 +1,6 @@
-import rust::kaede_rust_bridge_example
+import rust::rust_interop
 
 fn main(): i32 {
-    rust::kaede_rust_bridge_example::greetings()
-    return rust::kaede_rust_bridge_example::add(10, 20)
+    rust::rust_interop::greetings()
+    return rust::rust_interop::add(10, 20)
 }
