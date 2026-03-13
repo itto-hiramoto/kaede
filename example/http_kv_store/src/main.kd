@@ -41,7 +41,7 @@ app.post("/kv/:key", |req, res| {
     }
 
     lock.lock()
-    kvs.insert(clone_string(key), clone_string(value))
+    kvs.insert(key.clone(), value.clone())
     lock.unlock()
 
     res.send_string("OK")
@@ -57,7 +57,7 @@ app.get("/kv/:key", |req, res| {
     }
 
     lock.lock()
-    let found = kvs.get(clone_string(key))
+    let found = kvs.get(key.clone())
     lock.unlock()
 
     match found {
@@ -80,7 +80,7 @@ app.post("/kv/:key/del", |req, res| {
     }
 
     lock.lock()
-    let removed = match kvs.remove(clone_string(key)) {
+    let removed = match kvs.remove(key.clone()) {
         Option::Some(_) => true,
         Option::None => false,
     }
@@ -104,7 +104,7 @@ app.post("/kv/:key/incr", |req, res| {
 
     lock.lock()
     let mut current: i64 = 0
-    match kvs.get(clone_string(key)) {
+    match kvs.get(key.clone()) {
         Option::Some(v) => {
             match v.as_str().parse_i64() {
                 Option::Some(parsed) => {
@@ -122,7 +122,7 @@ app.post("/kv/:key/incr", |req, res| {
 
     let next = current + 1
     let out = next.to_string()
-    kvs.insert(clone_string(key), String::from(out.as_str()))
+    kvs.insert(key.clone(), out.clone())
     lock.unlock()
 
     res.send_string(out.as_str())
@@ -143,14 +143,14 @@ app.post("/list/:key/lpush", |req, res| {
     }
 
     lock.lock()
-    let values_imm = match list_entries.get(clone_string(key)) {
+    let values_imm = match list_entries.get(key.clone()) {
         Option::Some(v) => v,
         Option::None => Vector<String>::new(),
     }
     let mut values = Vector<String>::from_slice(values_imm.as_slice())
-    values.push(clone_string(value))
+    values.push(value.clone())
     let len = values.len()
-    list_entries.insert(clone_string(key), values)
+    list_entries.insert(key.clone(), values)
     lock.unlock()
 
     let out = len.to_string()
@@ -196,7 +196,7 @@ app.get("/list/:key/range", |req, res| {
     }
 
     lock.lock()
-    let matched = match list_entries.get(clone_string(key)) {
+    let matched = match list_entries.get(key.clone()) {
         Option::Some(v) => v,
         Option::None => Vector<String>::new(),
     }
@@ -214,7 +214,7 @@ app.get("/list/:key/range", |req, res| {
         let mut idx = rev_start
         loop {
             let rev_idx = matched.len() - 1 - idx
-            append_string(out, matched.at(rev_idx).unwrap())
+            out.push_str(matched.at(rev_idx).unwrap().as_str())
             if idx == rev_end {
                 break
             }
@@ -245,13 +245,13 @@ app.post("/pub/:channel", |req, res| {
     lock.lock()
     let id = next_pub_id.next()
 
-    let entries_imm = match pub_entries.get(clone_string(channel)) {
+    let entries_imm = match pub_entries.get(channel.clone()) {
         Option::Some(v) => v,
         Option::None => Vector<PubMessage>::new(),
     }
     let mut entries = Vector<PubMessage>::from_slice(entries_imm.as_slice())
-    entries.push(PubMessage { id, message: clone_string(message) })
-    pub_entries.insert(clone_string(channel), entries)
+    entries.push(PubMessage { id, message: message.clone() })
+    pub_entries.insert(channel.clone(), entries)
     lock.unlock()
 
     let out = id.to_string()
@@ -282,7 +282,7 @@ app.get("/pub/:channel/subscribe", |req, res| {
     }
 
     lock.lock()
-    let entries = match pub_entries.get(clone_string(channel)) {
+    let entries = match pub_entries.get(channel.clone()) {
         Option::Some(v) => v,
         Option::None => Vector<PubMessage>::new(),
     }
@@ -291,9 +291,9 @@ app.get("/pub/:channel/subscribe", |req, res| {
     while i < entries.len() {
         let e = entries.at(i).unwrap()
         if e.id > since {
-            append_string(out, e.id.to_string())
+            out.push_str(e.id.to_string().as_str())
             out.push(' ')
-            append_string(out, e.message)
+            out.push_str(e.message.as_str())
             out.push('\n')
         }
         i += 1
@@ -326,22 +326,10 @@ impl Counter {
     }
 }
 
-fn append_string(out: mut String, s: String) {
-    let mut i = 0
-    while i < s.len() {
-        out.push(s.as_str()[i])
-        i += 1
-    }
-}
-
 fn hash_string(s: String): u64 {
     return hash_str(s.as_str())
 }
 
 fn eq_string(a: String, b: String): bool {
     return a.as_str() == b.as_str()
-}
-
-fn clone_string(s: String): String {
-    return String::from(s.as_str())
 }

@@ -57,6 +57,18 @@ impl String {
         self.chars.push(ch)
     }
 
+    pub fn clone(self): String {
+        return String::from(self.as_str())
+    }
+
+    pub fn push_str(mut self, s: str) {
+        let mut i = 0
+        while i < s.len() {
+            self.push(s[i])
+            i += 1
+        }
+    }
+
     // Returns substring from start (inclusive) to end (exclusive). Like [start:end] slice syntax.
     // Returns empty string if start >= end or start >= len.
     pub fn slice(self, start: u64, end: u64): String {

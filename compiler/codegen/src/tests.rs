@@ -3644,6 +3644,61 @@ fn hashmap_overwrite_returns_old_value() -> anyhow::Result<()> {
 }
 
 #[test]
+fn string_push_str_appends_text() -> anyhow::Result<()> {
+    let program = r#"
+        import std.string
+
+        use std.string.String
+
+        fn main(): i32 {
+            let mut out = String::from("kae")
+            out.push_str("de")
+
+            if out.as_str() != "kaede" {
+                return 1
+            }
+
+            if out.len() != 5 {
+                return 2
+            }
+
+            return 58
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn string_clone_copies_contents() -> anyhow::Result<()> {
+    let program = r#"
+        import std.string
+
+        use std.string.String
+
+        fn main(): i32 {
+            let mut first = String::from("kae")
+            let second = first.clone()
+            first.push_str("de")
+
+            if second.as_str() != "kae" {
+                return 1
+            }
+
+            if first.as_str() != "kaede" {
+                return 2
+            }
+
+            return 58
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
 fn hashmap_collision_and_rehash() -> anyhow::Result<()> {
     let program = r#"
         import std.collections
