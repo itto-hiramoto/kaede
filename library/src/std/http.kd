@@ -55,7 +55,8 @@ pub struct WebSocket {
 }
 
 impl Request {
-    // Returns the value of the query parameter `name` (e.g. ?n=1000 -> query("n") -> Some("1000")).
+    // Returns the decoded value of the query parameter `name`
+    // (e.g. ?name=alice%20bob -> query("name") -> Some("alice bob")).
     pub fn query(self, name: str): Option<String> {
         return find_query_param_value(self.query, name)
     }
@@ -484,7 +485,6 @@ fn websocket_upgrade_key(method: str, version: str, header: [u8]): Option<[u8]> 
     return Option<[u8]>::Some(key)
 }
 
-// Converts a string to a byte vector for frame payload writing.
 // Parses query string "key1=val1&key2=val2" and returns the value for the given name.
 // We scan each '&'-separated segment, then split the segment by '='.
 fn find_query_param_value(query: String, name: str): Option<String> {
@@ -495,9 +495,9 @@ fn find_query_param_value(query: String, name: str): Option<String> {
 
         // A valid key-value pair is "key=value" where '=' exists inside the segment.
         if eq_pos < seg_end {
-            let key = query.slice(seg_start, eq_pos)
+            let key = decode_query_component(query.slice(seg_start, eq_pos))
             if key.as_str() == name {
-                return Option<String>::Some(query.slice(eq_pos + 1, seg_end))
+                return Option<String>::Some(decode_query_component(query.slice(eq_pos + 1, seg_end)))
             }
         }
 
@@ -507,6 +507,50 @@ fn find_query_param_value(query: String, name: str): Option<String> {
         seg_start = seg_end + 1
     }
     return Option<String>::None
+}
+
+fn decode_query_component(component: String): String {
+    let mut out = String::new()
+    let mut i = 0
+
+    while i < component.len() {
+        let ch = component.as_str()[i]
+
+        if ch == '+' {
+            out.push(' ')
+            i += 1
+        } else if ch == '%' && i + 2 < component.len() {
+            let hi = hex_nibble(component.as_str()[i + 1])
+            let lo = hex_nibble(component.as_str()[i + 2])
+
+            if hi >= 0 && lo >= 0 {
+                out.push(((hi << 4) | lo) as char)
+                i += 3
+            } else {
+                out.push(ch)
+                i += 1
+            }
+        } else {
+            out.push(ch)
+            i += 1
+        }
+    }
+
+    return out
+}
+
+fn hex_nibble(ch: char): i32 {
+    if ch >= '0' && ch <= '9' {
+        return (ch - '0') as i32
+    }
+    if ch >= 'a' && ch <= 'f' {
+        return (ch - 'a') as i32 + 10
+    }
+    if ch >= 'A' && ch <= 'F' {
+        return (ch - 'A') as i32 + 10
+    }
+
+    return -1
 }
 
 fn find_path_param_value(params_vec: Vector<PathParam>, name: str): Option<String> {
