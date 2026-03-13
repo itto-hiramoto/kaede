@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{anyhow, Context as _};
 use kaede_common::lib_extension;
-use kaede_ir::{module_path::ModulePath, ty as ir_type};
+use kaede_ir::{module_path::ModulePath, qualified_symbol::QualifiedSymbol, ty as ir_type};
 use kaede_symbol::Symbol;
 use serde_json::Value;
 use toml::Value as TomlValue;
@@ -148,9 +148,35 @@ fn rustdoc_ty_description(value: &Value) -> String {
         if let Some(name) = path.get("name").and_then(Value::as_str) {
             return name.to_string();
         }
+        if let Some(name) = path.get("path").and_then(Value::as_str) {
+            return name.to_string();
+        }
     }
 
     "unknown".to_string()
+}
+
+fn kaede_string_qualified_symbol() -> QualifiedSymbol {
+    QualifiedSymbol::new(
+        ModulePath::new(vec![
+            Symbol::from("std".to_string()),
+            Symbol::from("string".to_string()),
+        ]),
+        Symbol::from("String".to_string()),
+    )
+}
+
+fn kaede_string_ir_ty() -> Rc<ir_type::Ty> {
+    Rc::new(ir_type::wrap_in_ref(
+        Rc::new(ir_type::Ty {
+            kind: ir_type::TyKind::UserDefined(ir_type::UserDefinedType::new(
+                ir_type::UserDefinedTypeKind::Placeholder(kaede_string_qualified_symbol()),
+            ))
+            .into(),
+            mutability: ir_type::Mutability::Not,
+        }),
+        ir_type::Mutability::Not,
+    ))
 }
 
 fn kaede_str_ir_ty() -> Rc<ir_type::Ty> {
@@ -165,6 +191,51 @@ fn kaede_str_ir_ty() -> Rc<ir_type::Ty> {
 
 fn is_kaede_str_ty(ty: &ir_type::Ty) -> bool {
     ty.is_str()
+}
+
+fn is_kaede_string_ty(ty: &ir_type::Ty) -> bool {
+    matches!(
+        ty.kind.as_ref(),
+        ir_type::TyKind::Reference(rty)
+            if matches!(
+                rty.get_base_type().kind.as_ref(),
+                ir_type::TyKind::UserDefined(udt)
+                    if udt.qualified_symbol() == kaede_string_qualified_symbol()
+            )
+    )
+}
+
+fn resolved_path_segments(
+    value: &Value,
+    paths: Option<&serde_json::Map<String, Value>>,
+) -> Option<Vec<String>> {
+    let resolved_path = value.get("resolved_path")?;
+    let path_id = json_id_to_string(resolved_path.get("id")?)?;
+    let path_entry = paths?.get(&path_id)?;
+    let path = path_entry.get("path")?.as_array()?;
+
+    path.iter()
+        .map(|segment| segment.as_str().map(ToOwned::to_owned))
+        .collect()
+}
+
+fn is_rust_string_resolved_path(
+    value: &Value,
+    paths: Option<&serde_json::Map<String, Value>>,
+) -> bool {
+    let Some(segments) = resolved_path_segments(value, paths) else {
+        return false;
+    };
+
+    let matches = |expected: &[&str]| -> bool {
+        segments.len() == expected.len()
+            && segments
+                .iter()
+                .zip(expected.iter())
+                .all(|(actual, expected)| actual == expected)
+    };
+
+    matches(&["alloc", "string", "String"]) || matches(&["std", "string", "String"])
 }
 
 fn parse_borrowed_ref_ty(value: &Value, position: TyPosition) -> Result<Rc<ir_type::Ty>, String> {
@@ -199,7 +270,11 @@ fn parse_borrowed_ref_ty(value: &Value, position: TyPosition) -> Result<Rc<ir_ty
     ))
 }
 
-fn parse_supported_ty(value: &Value, position: TyPosition) -> Result<Rc<ir_type::Ty>, String> {
+fn parse_supported_ty(
+    value: &Value,
+    position: TyPosition,
+    paths: Option<&serde_json::Map<String, Value>>,
+) -> Result<Rc<ir_type::Ty>, String> {
     if value.is_null() {
         return Ok(Rc::new(ir_type::Ty::new_unit()));
     }
@@ -232,6 +307,13 @@ fn parse_supported_ty(value: &Value, position: TyPosition) -> Result<Rc<ir_type:
 
     if value.get("borrowed_ref").is_some() {
         return parse_borrowed_ref_ty(value, position);
+    }
+
+    if value.get("resolved_path").is_some() && is_rust_string_resolved_path(value, paths) {
+        return match position {
+            TyPosition::Param => Err("owned string type `String` is not supported yet".to_string()),
+            TyPosition::Return => Ok(kaede_string_ir_ty()),
+        };
     }
 
     if value.get("raw_pointer").is_some() {
@@ -442,7 +524,10 @@ fn collect_candidate_ids(root_item: &Value, rustdoc: &Value, crate_name: &str) -
     root_item_ids
 }
 
-fn parse_supported_params(inputs: &[Value]) -> Result<Vec<(Symbol, Rc<ir_type::Ty>)>, String> {
+fn parse_supported_params(
+    inputs: &[Value],
+    paths: Option<&serde_json::Map<String, Value>>,
+) -> Result<Vec<(Symbol, Rc<ir_type::Ty>)>, String> {
     let mut params = Vec::with_capacity(inputs.len());
 
     for (idx, input) in inputs.iter().enumerate() {
@@ -464,7 +549,7 @@ fn parse_supported_params(inputs: &[Value]) -> Result<Vec<(Symbol, Rc<ir_type::T
                 sanitized
             }
         };
-        let param_ty = parse_supported_ty(&input_pair[1], TyPosition::Param)
+        let param_ty = parse_supported_ty(&input_pair[1], TyPosition::Param, paths)
             .map_err(|reason| format!("unsupported parameter type at #{idx}: {reason}"))?;
         params.push((Symbol::from(param_name), param_ty));
     }
@@ -475,6 +560,7 @@ fn parse_supported_params(inputs: &[Value]) -> Result<Vec<(Symbol, Rc<ir_type::T
 fn parse_public_function_item(
     item: &Value,
     crate_sanitized: &str,
+    paths: Option<&serde_json::Map<String, Value>>,
 ) -> Option<Result<RustImportedFn, String>> {
     if !is_public_visibility(item) {
         return None;
@@ -503,11 +589,11 @@ fn parse_public_function_item(
         Some(inputs) => inputs,
         None => return Some(Err(format!("{name}: failed to read input types"))),
     };
-    let params = match parse_supported_params(inputs) {
+    let params = match parse_supported_params(inputs, paths) {
         Ok(params) => params,
         Err(reason) => return Some(Err(format!("{name}: {reason}"))),
     };
-    let return_ty = match parse_supported_ty(output, TyPosition::Return) {
+    let return_ty = match parse_supported_ty(output, TyPosition::Return, paths) {
         Ok(ty) => ty,
         Err(reason) => return Some(Err(format!("{name}: unsupported return type: {reason}"))),
     };
@@ -537,6 +623,7 @@ fn parse_root_public_functions(
         .get("index")
         .and_then(Value::as_object)
         .ok_or_else(|| anyhow!("missing index in rustdoc json"))?;
+    let paths = v.get("paths").and_then(Value::as_object);
 
     let root_id = match v.get("root").and_then(json_id_to_string) {
         Some(root) => root,
@@ -557,7 +644,7 @@ fn parse_root_public_functions(
             continue;
         };
 
-        match parse_public_function_item(item, &crate_sanitized) {
+        match parse_public_function_item(item, &crate_sanitized, paths) {
             Some(Ok(parsed)) => functions.push(parsed),
             Some(Err(reason)) => skipped.push(reason),
             None => {}
@@ -572,6 +659,13 @@ fn rust_ty_to_shim_rs(ty: &ir_type::Ty, position: ShimTyPosition) -> anyhow::Res
         return match position {
             ShimTyPosition::Param => Ok("*const KaedeStr"),
             ShimTyPosition::Return => Err(anyhow!("unsupported shim type: {}", ty.kind)),
+        };
+    }
+
+    if is_kaede_string_ty(ty) {
+        return match position {
+            ShimTyPosition::Param => Err(anyhow!("unsupported shim type: {}", ty.kind)),
+            ShimTyPosition::Return => Ok("*mut KaedeString"),
         };
     }
 
@@ -611,6 +705,12 @@ fn shim_needs_kaede_str_helpers(functions: &[RustImportedFn]) -> bool {
         .any(|(_, ty)| is_kaede_str_ty(ty))
 }
 
+fn shim_needs_kaede_string_helpers(functions: &[RustImportedFn]) -> bool {
+    functions
+        .iter()
+        .any(|func| is_kaede_string_ty(&func.return_ty))
+}
+
 fn generate_kaede_str_helpers() -> &'static str {
     r#"#[repr(C)]
 pub struct KaedeStr {
@@ -622,6 +722,52 @@ unsafe fn kaede_str_as_rust_str<'a>(value: *const KaedeStr) -> &'a str {
     let value = unsafe { &*value };
     let bytes = unsafe { std::slice::from_raw_parts(value.ptr.cast::<u8>(), value.len as usize) };
     unsafe { std::str::from_utf8_unchecked(bytes) }
+}
+
+"#
+}
+
+fn generate_kaede_string_helpers() -> &'static str {
+    r#"#[repr(C)]
+pub struct KaedeVectorChar {
+    ptr: *mut i8,
+    len: u64,
+    capacity: u64,
+}
+
+#[repr(C)]
+pub struct KaedeString {
+    chars: *mut KaedeVectorChar,
+}
+
+unsafe extern "C" {
+    fn kaede_mem_alloc(size: usize) -> *mut std::ffi::c_void;
+}
+
+fn rust_string_into_kaede_string(value: String) -> *mut KaedeString {
+    let bytes = value.into_bytes();
+    let len = bytes.len();
+    let ptr = unsafe { kaede_mem_alloc(len) }.cast::<i8>();
+    if len > 0 {
+        unsafe {
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr.cast::<u8>(), len);
+        }
+    }
+
+    let string_ptr =
+        unsafe { kaede_mem_alloc(std::mem::size_of::<KaedeString>()) }.cast::<KaedeString>();
+    let chars_ptr =
+        unsafe { kaede_mem_alloc(std::mem::size_of::<KaedeVectorChar>()) }.cast::<KaedeVectorChar>();
+    unsafe {
+        chars_ptr.write(KaedeVectorChar {
+            ptr,
+            len: len as u64,
+            capacity: len as u64,
+        });
+        string_ptr.write(KaedeString { chars: chars_ptr });
+    }
+
+    string_ptr
 }
 
 "#
@@ -664,6 +810,9 @@ fn generate_shim_crate(
     if shim_needs_kaede_str_helpers(functions) {
         lib_rs.push_str(generate_kaede_str_helpers());
     }
+    if shim_needs_kaede_string_helpers(functions) {
+        lib_rs.push_str(generate_kaede_string_helpers());
+    }
 
     for func in functions {
         let param_decls = func
@@ -697,6 +846,15 @@ fn generate_shim_crate(
                 "pub extern \"C\" fn {}({}) {{\n    kaede_user_crate::{}({});\n}}\n\n",
                 func.export_name.as_str(),
                 param_decls,
+                func.kaede_name.as_str(),
+                args
+            ));
+        } else if is_kaede_string_ty(&func.return_ty) {
+            lib_rs.push_str(&format!(
+                "pub extern \"C\" fn {}({}) -> {} {{\n    rust_string_into_kaede_string(kaede_user_crate::{}({}))\n}}\n\n",
+                func.export_name.as_str(),
+                param_decls,
+                return_ty,
                 func.kaede_name.as_str(),
                 args
             ));
@@ -777,6 +935,27 @@ mod tests {
         ))
     }
 
+    fn rust_string_resolved_path_ty() -> Value {
+        json!({
+            "resolved_path": {
+                "path": "String",
+                "id": 1,
+                "args": null
+            }
+        })
+    }
+
+    fn rust_string_paths() -> serde_json::Map<String, Value> {
+        json!({
+            "1": {
+                "path": ["alloc", "string", "String"]
+            }
+        })
+        .as_object()
+        .unwrap()
+        .clone()
+    }
+
     #[test]
     fn parse_supported_ty_accepts_supported_primitives() {
         let cases = [
@@ -793,7 +972,8 @@ mod tests {
 
         for (primitive, expected) in cases {
             let parsed =
-                parse_supported_ty(&json!({ "primitive": primitive }), TyPosition::Param).unwrap();
+                parse_supported_ty(&json!({ "primitive": primitive }), TyPosition::Param, None)
+                    .unwrap();
             assert_eq!(parsed, fundamental(expected), "primitive `{primitive}`");
         }
     }
@@ -801,11 +981,11 @@ mod tests {
     #[test]
     fn parse_supported_ty_accepts_unit_shapes() {
         assert_eq!(
-            parse_supported_ty(&Value::Null, TyPosition::Param).unwrap(),
+            parse_supported_ty(&Value::Null, TyPosition::Param, None).unwrap(),
             Rc::new(ir_type::Ty::new_unit())
         );
         assert_eq!(
-            parse_supported_ty(&json!({ "tuple": [] }), TyPosition::Param).unwrap(),
+            parse_supported_ty(&json!({ "tuple": [] }), TyPosition::Param, None).unwrap(),
             Rc::new(ir_type::Ty::new_unit())
         );
     }
@@ -821,6 +1001,7 @@ mod tests {
                 }
             }),
             TyPosition::Param,
+            None,
         )
         .unwrap();
 
@@ -829,9 +1010,23 @@ mod tests {
     }
 
     #[test]
+    fn parse_supported_ty_accepts_rust_string_return() {
+        let paths = rust_string_paths();
+        let parsed = parse_supported_ty(
+            &rust_string_resolved_path_ty(),
+            TyPosition::Return,
+            Some(&paths),
+        )
+        .unwrap();
+
+        assert!(is_kaede_string_ty(&parsed));
+        assert_eq!(parsed, kaede_string_ir_ty());
+    }
+
+    #[test]
     fn parse_supported_ty_rejects_unsupported_shapes_with_reason() {
-        let char_err =
-            parse_supported_ty(&json!({ "primitive": "char" }), TyPosition::Param).unwrap_err();
+        let char_err = parse_supported_ty(&json!({ "primitive": "char" }), TyPosition::Param, None)
+            .unwrap_err();
         assert!(char_err.contains("primitive type `char`"));
 
         let str_ref_err = parse_supported_ty(
@@ -843,6 +1038,7 @@ mod tests {
                 }
             }),
             TyPosition::Return,
+            None,
         )
         .unwrap_err();
         assert!(str_ref_err.contains("`&str` is not supported yet"));
@@ -856,6 +1052,7 @@ mod tests {
                 }
             }),
             TyPosition::Param,
+            None,
         )
         .unwrap_err();
         assert!(mut_str_err.contains("mutable borrowed string type `&mut str`"));
@@ -869,6 +1066,7 @@ mod tests {
                 }
             }),
             TyPosition::Param,
+            None,
         )
         .unwrap_err();
         assert!(borrowed_ref_err.contains("borrowed reference type `&i32`"));
@@ -881,9 +1079,19 @@ mod tests {
                 }
             }),
             TyPosition::Param,
+            None,
         )
         .unwrap_err();
         assert!(raw_ptr_err.contains("raw pointer type `*const i8`"));
+
+        let string_paths = rust_string_paths();
+        let string_err = parse_supported_ty(
+            &rust_string_resolved_path_ty(),
+            TyPosition::Param,
+            Some(&string_paths),
+        )
+        .unwrap_err();
+        assert!(string_err.contains("owned string type `String` is not supported yet"));
     }
 
     #[test]
@@ -912,6 +1120,10 @@ mod tests {
             rust_ty_to_shim_rs(&kaede_str_ir_ty(), ShimTyPosition::Param).unwrap(),
             "*const KaedeStr"
         );
+        assert_eq!(
+            rust_ty_to_shim_rs(&kaede_string_ir_ty(), ShimTyPosition::Return).unwrap(),
+            "*mut KaedeString"
+        );
     }
 
     #[test]
@@ -926,6 +1138,7 @@ mod tests {
             ShimTyPosition::Param,
         )
         .is_err());
+        assert!(rust_ty_to_shim_rs(&kaede_string_ir_ty(), ShimTyPosition::Param,).is_err());
         assert!(rust_ty_to_shim_rs(
             &ir_type::Ty::wrap_in_pointer(fundamental(ir_type::FundamentalTypeKind::I8,)),
             ShimTyPosition::Param,

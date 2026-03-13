@@ -1441,6 +1441,55 @@ fn import_rust_function_with_str_and_primitives() -> anyhow::Result<()> {
 }
 
 #[test]
+fn import_rust_function_with_string_return() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+    let crate_name = "string_probe";
+
+    write_rust_import_crate(
+        tempdir.path(),
+        crate_name,
+        r#"pub fn greet() -> String { "kaede".to_string() }
+pub fn empty() -> String { String::new() }
+pub fn surround(s: &str) -> String { format!("<{s}>") }
+pub fn unicode() -> String { "あ".to_string() }"#,
+    )?;
+
+    let main = tempdir.child("main.kd");
+    main.write_str(
+        r#"import rust::string_probe
+
+        fn main(): i32 {
+            let greet = rust::string_probe::greet()
+            if greet.len() != 5 {
+                return 1
+            }
+            if greet.as_str() != "kaede" {
+                return 2
+            }
+
+            let empty = rust::string_probe::empty()
+            if empty.len() != 0 {
+                return 3
+            }
+
+            let surround = rust::string_probe::surround("hi")
+            if surround.as_str() != "<hi>" {
+                return 4
+            }
+
+            let unicode = rust::string_probe::unicode()
+            if unicode.as_str().len() != 3 {
+                return 5
+            }
+
+            return 58
+        }"#,
+    )?;
+
+    test(58, &[main.path()], &tempdir)
+}
+
+#[test]
 fn import_rust_skips_str_return_but_keeps_supported_ones() -> anyhow::Result<()> {
     let tempdir = assert_fs::TempDir::new()?;
     let crate_name = "skip_probe";
