@@ -80,6 +80,10 @@ fn is_id_continue(c: char) -> bool {
     unicode_xid::UnicodeXID::is_xid_continue(c)
 }
 
+fn is_hex_digit(c: char) -> bool {
+    c.is_ascii_hexdigit()
+}
+
 impl Cursor<'_> {
     /// Insert span
     fn create_token(&self, t: TokenKind) -> Token {
@@ -508,6 +512,21 @@ impl Cursor<'_> {
         assert!(first_digit.is_ascii_digit());
 
         let mut result = first_digit.to_string();
+
+        if first_digit == '0' && matches!(self.first(), 'x' | 'X') && is_hex_digit(self.second()) {
+            result.push(self.bump().unwrap());
+
+            loop {
+                let c = self.first();
+
+                if is_hex_digit(c) {
+                    result.push(c);
+                    self.bump().unwrap();
+                } else {
+                    return result;
+                }
+            }
+        }
 
         loop {
             let c = self.first();

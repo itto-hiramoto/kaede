@@ -210,3 +210,24 @@ impl Parser {
         Span::new(start, finish, self.file)
     }
 }
+
+pub(crate) fn parse_int_literal_u64(literal: &str) -> Option<u64> {
+    if let Some(hex_digits) = literal
+        .strip_prefix("0x")
+        .or_else(|| literal.strip_prefix("0X"))
+    {
+        return u64::from_str_radix(hex_digits, 16).ok();
+    }
+
+    literal.parse().ok()
+}
+
+pub(crate) fn parse_int_literal_u32(literal: &str) -> Option<u32> {
+    let value = parse_int_literal_u64(literal)?;
+
+    if value > u32::MAX as u64 {
+        return None;
+    }
+
+    Some(value as u32)
+}

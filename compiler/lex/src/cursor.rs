@@ -21,6 +21,12 @@ impl<'a> Cursor<'a> {
         self.chars.clone().next().unwrap_or(EOF_CHAR)
     }
 
+    pub fn second(&self) -> char {
+        let mut chars = self.chars.clone();
+        chars.next();
+        chars.next().unwrap_or(EOF_CHAR)
+    }
+
     pub fn is_eof(&self) -> bool {
         self.chars.as_str().is_empty() || self.first() == EOF_CHAR
     }

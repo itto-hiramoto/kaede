@@ -13,7 +13,7 @@ use kaede_symbol::{Ident, Symbol};
 
 use crate::{
     error::{ParseError, ParseResult},
-    Parser,
+    parse_int_literal_u64, Parser,
 };
 
 impl Parser {
@@ -1244,13 +1244,13 @@ impl Parser {
             TokenKind::Int(int_s) => {
                 // Integer literals are always non-negative
                 // Parse as u64 (unsuffixed integer literal)
-                match int_s.parse() {
-                    Ok(n) => Ok(Int {
+                match parse_int_literal_u64(&int_s) {
+                    Some(n) => Ok(Int {
                         kind: IntKind::Unsuffixed(n),
                         span: token.span,
                     }),
 
-                    Err(_) => Err(ParseError::OutOfRangeForI32(token.span).into()),
+                    None => Err(ParseError::OutOfRangeForI32(token.span).into()),
                 }
             }
 

@@ -30,6 +30,14 @@ fn number() {
 }
 
 #[test]
+fn hex_number() {
+    lex_test(
+        "0x80 0X7f",
+        vec![Int("0x80".to_string()), Int("0X7f".to_string()), Semi, Eoi],
+    );
+}
+
+#[test]
 fn skip_whitespaces() {
     lex_test("  \n  ", vec![Eoi]);
 
