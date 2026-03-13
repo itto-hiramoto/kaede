@@ -7,6 +7,7 @@
 
 - **Seamless Rust interop** — Import Rust crates directly from Kaede
 - **Go-style green threads** — Lightweight concurrent tasks with multi-core scheduling
+- **Built-in HTTP/WebSocket server library** — Build concurrent HTTP APIs and real-time services out of the box
 - **Rust-like syntax** — Modern, expressive syntax with static typing
 - **Garbage collection** — Automatic memory management without ownership complexity
 - **Bidirectional type inference** — Minimal type annotations with full type safety
