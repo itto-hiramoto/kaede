@@ -1,7 +1,9 @@
 import std.ffi.sys
-import std.option
 import std.string
+import std.collections
+import std.option
 
+use std.collections.Vector
 use std.option.Option
 use std.string.String
 
@@ -14,6 +16,10 @@ pub struct Fd {
 impl Fd {
     pub fn new(fd: i32): Fd {
         return Fd { raw: fd }
+    }
+
+    pub fn raw(self): i32 {
+        return self.raw
     }
 }
 
@@ -50,6 +56,10 @@ pub fn somaxconn(): i32 {
     return __sys_somaxconn()
 }
 
+pub fn errno(): i32 {
+    return __sys_errno()
+}
+
 pub fn accept(fd: Fd): Fd {
     let c = __sys_accept(fd.raw)
     if c < 0 {
@@ -65,6 +75,10 @@ pub fn close(fd: Fd) {
     }
 }
 
+pub fn close_quiet(fd: Fd): bool {
+    return __sys_close(fd.raw) == 0
+}
+
 pub fn sleep_ms(ms: u64) {
     let r = __sys_sleep_ms(ms)
     if r < 0 {
@@ -74,13 +88,24 @@ pub fn sleep_ms(ms: u64) {
 
 // ===== I/O =====
 
+pub fn open_read(path: str): Option<Fd> {
+    let fd = __sys_open_read(path.as_ptr() as *i8, path.len())
+    if fd < 0 {
+        return Option<Fd>::None
+    }
+
+    return Option<Fd>::Some(Fd::new(fd))
+}
+
+pub fn is_regular_file(fd: Fd): bool {
+    return __sys_is_regular_file(fd.raw) == 1
+}
+
 pub fn read(fd: Fd, buf: mut [u8]): Option<u64> {
     let n = __sys_read(fd.raw, buf.as_ptr() as *i8, buf.len())
-
     if n < 0 {
         return Option<u64>::None
     }
-
     return Option<u64>::Some(n as u64)
 }
 
@@ -127,6 +152,34 @@ fn write_all(fd: Fd, buf: [u8]): Option<u64> {
     }
 
     return Option<u64>::Some(total)
+}
+
+pub fn read_all(fd: Fd, max_bytes: u64): Option<Vector<u8>> {
+    let mut out = Vector<u8>::new()
+    let mut buf = [0; 4096]
+
+    loop {
+        let n = match read(fd, buf) {
+            Option::Some(value) => value,
+            Option::None => return Option<Vector<u8>>::None,
+        }
+
+        if n == 0 {
+            break
+        }
+
+        if out.len() + n > max_bytes {
+            return Option<Vector<u8>>::None
+        }
+
+        let mut i = 0
+        while i < n {
+            out.push(buf[i])
+            i += 1
+        }
+    }
+
+    return Option<Vector<u8>>::Some(out)
 }
 
 pub fn read_until(fd: Fd, buf: mut [u8], delim: [u8]): Option<u64> {

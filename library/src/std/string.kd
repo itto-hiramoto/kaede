@@ -218,6 +218,41 @@ impl str {
         return bytes
     }
 
+    // Returns true when `self` begins with `prefix`.
+    pub fn starts_with(self, prefix: str): bool {
+        if prefix.len() > self.len() {
+            return false
+        }
+
+        let mut i = 0
+        while i < prefix.len() {
+            if self[i] != prefix[i] {
+                return false
+            }
+            i += 1
+        }
+
+        return true
+    }
+
+    // Returns true when `self` ends with `suffix`.
+    pub fn ends_with(self, suffix: str): bool {
+        if suffix.len() > self.len() {
+            return false
+        }
+
+        let start = self.len() - suffix.len()
+        let mut i = 0
+        while i < suffix.len() {
+            if self[start + i] != suffix[i] {
+                return false
+            }
+            i += 1
+        }
+
+        return true
+    }
+
     pub fn parse_u64(self): std.option.Option<u64> {
         return parse_u64_from_str(self)
     }

@@ -10,11 +10,15 @@ The shape matches `kaede new --rust comment_server`:
 The example is intentionally small:
 
 - viewers post comments over HTTP
+- the same server can now serve a small browser frontend
 - a frontend consumes comments over WebSocket
 - comments are kept in memory only
 
 ## Endpoints
 
+- `GET /` serves the comment submission page
+- `GET /screen` serves the presentation overlay page
+- `GET /assets/*` serves static frontend assets
 - `POST /comments?author=<name>` accepts the comment body as plain text
 - `GET /comments?since=<id>` returns newline-delimited JSON history
 - `GET /ws/comments?since=<id>` streams one JSON message per WebSocket text frame
@@ -55,9 +59,15 @@ Subscribe over WebSocket with `wscat`:
 wscat -c 'ws://127.0.0.1:8080/ws/comments?since=0'
 ```
 
+Open the browser UI:
+
+- submit comments at `http://127.0.0.1:8080/`
+- open the overlay view at `http://127.0.0.1:8080/screen`
+
 ## Notes
 
 - This example is meant for a single frontend connection.
 - The server uses polling plus cooperative sleep for WebSocket fan-out.
 - Rust interop here demonstrates `&str` parameters and `String` return values.
 - The Rust helper uses `serde_json` to show that Kaede/Rust interop can use normal Rust ecosystem crates.
+- Static assets are served directly from `frontend/` through `std.http::static_file` / `static_dir`.

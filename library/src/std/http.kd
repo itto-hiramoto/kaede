@@ -199,10 +199,16 @@ impl WebSocket {
     }
 }
 
+struct ResponseHeader {
+    name: String,
+    value: String,
+}
+
 pub struct Response {
     conn: Fd,
     close_conn: bool,
     status: Status,
+    headers: Vector<ResponseHeader>,
     write_failed: bool,
 }
 
@@ -212,6 +218,7 @@ impl Response {
             conn,
             close_conn,
             status: Status::Ok,
+            headers: Vector<ResponseHeader>::new(),
             write_failed: false,
         }
     }
@@ -219,6 +226,18 @@ impl Response {
     pub fn status(mut self, code: Status): mut Response {
         self.status = code
         return self
+    }
+
+    pub fn header(mut self, name: str, value: str): mut Response {
+        self.headers.push(ResponseHeader {
+            name: String::from(name),
+            value: String::from(value),
+        })
+        return self
+    }
+
+    pub fn content_type(mut self, value: str): mut Response {
+        return self.header("Content-Type", value)
     }
 
     pub fn has_write_failed(self): bool {
@@ -238,6 +257,10 @@ impl Response {
             self.mark_write_failed()
             return
         }
+        if !write_response_headers(self.conn, self.headers) {
+            self.mark_write_failed()
+            return
+        }
         if !write_content_length(self.conn, body.len()) {
             self.mark_write_failed()
             return
@@ -253,6 +276,10 @@ impl Response {
 
     pub fn send_string(mut self, text: str) {
         self.send_bytes(text.to_bytes().as_slice())
+    }
+
+    pub fn send_file(mut self, body: [u8], content_type: str) {
+        self.content_type(content_type).send_bytes(body)
     }
 }
 
@@ -663,43 +690,65 @@ pub fn write_status_line(conn: Fd, status: Status): bool {
     return false
 }
 
-pub fn write_text_response(conn: Fd, close_conn: bool, status: Status, body: [u8]) {
+fn write_response_headers(conn: Fd, headers: Vector<ResponseHeader>): bool {
+    let mut i = 0
+    while i < headers.len() {
+        let header = headers.at(i).unwrap()
+        if std.sys.write(conn, header.name.as_str().to_bytes().as_slice()).is_none() {
+            return false
+        }
+        if std.sys.write(conn, b": ").is_none() {
+            return false
+        }
+        if std.sys.write(conn, header.value.as_str().to_bytes().as_slice()).is_none() {
+            return false
+        }
+        if std.sys.write(conn, b"\r\n").is_none() {
+            return false
+        }
+        i += 1
+    }
+
+    return true
+}
+
+pub fn write_text_response(conn: Fd, close_conn: bool, status: Status, body: [u8]): bool {
     if !write_status_line(conn, status) {
-        return
+        return false
     }
     if close_conn && std.sys.write(conn, b"Connection: close\r\n").is_none() {
-        return
+        return false
     }
     if !write_content_length(conn, body.len()) {
-        return
+        return false
     }
     if std.sys.write(conn, b"\r\n").is_none() {
-        return
+        return false
     }
-    std.sys.write(conn, body)
+    return std.sys.write(conn, body).is_some()
 }
 
-pub fn write_bytes_response(conn: Fd, close_conn: bool, status: Status, body: [u8]) {
-    write_text_response(conn, close_conn, status, body)
+pub fn write_bytes_response(conn: Fd, close_conn: bool, status: Status, body: [u8]): bool {
+    return write_text_response(conn, close_conn, status, body)
 }
 
-fn write_websocket_upgrade_response(conn: Fd, accept_value: [u8]) {
+fn write_websocket_upgrade_response(conn: Fd, accept_value: [u8]): bool {
     if std.sys.write(conn, b"HTTP/1.1 101 Switching Protocols\r\n").is_none() {
-        return
+        return false
     }
     if std.sys.write(conn, b"Upgrade: websocket\r\n").is_none() {
-        return
+        return false
     }
     if std.sys.write(conn, b"Connection: Upgrade\r\n").is_none() {
-        return
+        return false
     }
     if std.sys.write(conn, b"Sec-WebSocket-Accept: ").is_none() {
-        return
+        return false
     }
     if std.sys.write(conn, accept_value).is_none() {
-        return
+        return false
     }
-    std.sys.write(conn, b"\r\n\r\n")
+    return std.sys.write(conn, b"\r\n\r\n").is_some()
 }
 
 // Writes a WebSocket control frame and enforces its payload size limit.
@@ -918,13 +967,29 @@ struct WsRouteMatch {
     params: Vector<PathParam>,
 }
 
+struct StaticFileRoute {
+    url_path: String,
+    fs_path: String,
+}
+
+struct StaticDirRoute {
+    url_prefix: String,
+    fs_dir: String,
+}
+
 pub struct App {
     routes: Vector<Route>,
+    static_files: Vector<StaticFileRoute>,
+    static_dirs: Vector<StaticDirRoute>,
 }
 
 impl App {
     pub fn new(): mut App {
-        return App { routes: Vector<Route>::new() }
+        return App {
+            routes: Vector<Route>::new(),
+            static_files: Vector<StaticFileRoute>::new(),
+            static_dirs: Vector<StaticDirRoute>::new(),
+        }
     }
 
     pub fn get(mut self, path: str, handler: Handler) {
@@ -939,21 +1004,37 @@ impl App {
         self.add_ws_route("GET", path, handler)
     }
 
+    pub fn static_file(mut self, url_path: str, fs_path: str) {
+        self.static_files.push(StaticFileRoute {
+            url_path: String::from(url_path),
+            fs_path: String::from(fs_path),
+        })
+    }
+
+    pub fn static_dir(mut self, url_prefix: str, fs_dir: str) {
+        self.static_dirs.push(StaticDirRoute {
+            url_prefix: normalize_static_prefix(url_prefix),
+            fs_dir: String::from(fs_dir),
+        })
+    }
+
     pub fn dispatch(self, req: mut Request, res: mut Response): bool {
-        let has_match = match self.find_http_route(req.method.as_str(), req.path.as_str()) {
-            Option::Some(_) => true,
-            Option::None => false,
+        let http_match = self.find_http_route(req.method.as_str(), req.path.as_str())
+        match http_match {
+            Option::Some(found) => {
+                req.params = found.params
+                let h = found.handler
+                h(req, res)
+                return true
+            }
+            Option::None => {}
         }
 
-        if !has_match {
+        if req.method.as_str() != "GET" {
             return false
         }
 
-        let found = self.find_http_route(req.method.as_str(), req.path.as_str()).unwrap()
-        req.params = found.params
-        let h = found.handler
-        h(req, res)
-        return true
+        return self.dispatch_static(req.path, res)
     }
 
     pub fn listen(self, ip: str = "0.0.0.0", port: u16) {
@@ -1067,6 +1148,68 @@ impl App {
 
         return Option<WsRouteMatch>::None
     }
+
+    // Resolves a GET request against explicit static files first, then static directories.
+    fn dispatch_static(self, path: String, res: mut Response): bool {
+        let file_match = self.find_static_file(path.as_str())
+        match file_match {
+            Option::Some(found) => {
+                serve_static_path(res, found.fs_path)
+                return true
+            }
+            Option::None => {}
+        }
+
+        let dir_match = self.find_static_dir_target(path.as_str())
+        match dir_match {
+            Option::Some(found) => {
+                serve_static_path(res, found)
+                return true
+            }
+            Option::None => {}
+        }
+
+        return false
+    }
+
+    // Finds an exact static file mapping such as "/" -> "frontend/post.html".
+    fn find_static_file(self, path: str): Option<StaticFileRoute> {
+        let mut i = 0
+        while i < self.static_files.len() {
+            let route = self.static_files.at(i).unwrap()
+            if route.url_path.as_str() == path {
+                return Option<StaticFileRoute>::Some(route)
+            }
+            i += 1
+        }
+
+        return Option<StaticFileRoute>::None
+    }
+
+    // Maps a URL under a static directory prefix to a safe filesystem path.
+    fn find_static_dir_target(self, path: str): Option<String> {
+        let mut i = 0
+        while i < self.static_dirs.len() {
+            let route = self.static_dirs.at(i).unwrap()
+            let relative = match strip_static_prefix(path, route.url_prefix.as_str()) {
+                Option::Some(value) => value,
+                Option::None => String::new(),
+            }
+
+            if relative.len() > 0 {
+                let safe_relative = match sanitize_static_relative_path(relative) {
+                    Option::Some(value) => value,
+                    Option::None => return Option<String>::Some(String::from("")),
+                }
+
+                return Option<String>::Some(join_static_fs_path(route.fs_dir, safe_relative))
+            }
+
+            i += 1
+        }
+
+        return Option<String>::None
+    }
 }
 
 fn is_path_param_segment(segment: String): bool {
@@ -1139,6 +1282,165 @@ fn match_route_path(route_path: String, path: String, params: mut Vector<PathPar
     return true
 }
 
+// Normalizes a static directory prefix so route matching has one canonical form.
+fn normalize_static_prefix(prefix: str): String {
+    if prefix.len() == 0 {
+        return String::from("/")
+    }
+
+    if prefix == "/" {
+        return String::from("/")
+    }
+
+    let mut normalized = String::from(prefix)
+    while normalized.len() > 1 && normalized.at(normalized.len() - 1).unwrap() == '/' {
+        normalized = normalized.slice(0, normalized.len() - 1)
+    }
+
+    return normalized
+}
+
+// Removes the matched static prefix from a request path and returns the relative tail.
+fn strip_static_prefix(path: str, prefix: str): Option<String> {
+    if prefix == "/" {
+        if path.len() <= 1 || path[0] != '/' {
+            return Option<String>::None
+        }
+
+        return Option<String>::Some(String::from(path).slice(1, path.len()))
+    }
+
+    if !path.starts_with(prefix) {
+        return Option<String>::None
+    }
+
+    if path.len() <= prefix.len() {
+        return Option<String>::None
+    }
+
+    if path[prefix.len()] != '/' {
+        return Option<String>::None
+    }
+
+    return Option<String>::Some(String::from(path).slice(prefix.len() + 1, path.len()))
+}
+
+// Rejects traversal-like paths and returns a normalized relative path for static serving.
+fn sanitize_static_relative_path(relative: String): Option<String> {
+    if relative.len() == 0 {
+        return Option<String>::None
+    }
+
+    let mut i = 0
+    while i < relative.len() {
+        let ch = relative.at(i).unwrap()
+        if ch == '%' || ch == '\\' {
+            return Option<String>::None
+        }
+        i += 1
+    }
+
+    let segments = split_path_segments(relative)
+    let mut out = String::new()
+
+    let mut idx = 0
+    while idx < segments.len() {
+        let segment = segments.at(idx).unwrap()
+        if segment.len() == 0 || segment.as_str() == "." || segment.as_str() == ".." {
+            return Option<String>::None
+        }
+
+        if out.len() > 0 {
+            out.push('/')
+        }
+        out.push_str(segment.as_str())
+        idx += 1
+    }
+
+    if out.len() == 0 {
+        return Option<String>::None
+    }
+
+    return Option<String>::Some(out)
+}
+
+// Joins a static directory root and a sanitized relative path into one filesystem path.
+fn join_static_fs_path(dir: String, relative: String): String {
+    if dir.len() == 0 {
+        return relative
+    }
+
+    let mut out = String::from(dir.as_str())
+    if out.at(out.len() - 1).unwrap() != '/' {
+        out.push('/')
+    }
+    out.push_str(relative.as_str())
+    return out
+}
+
+// Opens a static file, validates it, reads it, and sends it with basic response headers.
+fn serve_static_path(res: mut Response, fs_path: String) {
+    if fs_path.len() == 0 {
+        res.status(Status::NotFound).send_bytes(b"")
+        return
+    }
+
+    let file = match std.sys.open_read(fs_path.as_str()) {
+        Option::Some(fd) => fd,
+        Option::None => {
+            res.status(Status::NotFound).send_bytes(b"")
+            return
+        }
+    }
+
+    if !std.sys.is_regular_file(file) {
+        std.sys.close_quiet(file)
+        res.status(Status::NotFound).send_bytes(b"")
+        return
+    }
+
+    let bytes = match std.sys.read_all(file, 4 * 1024 * 1024) {
+        Option::Some(value) => value,
+        Option::None => {
+            std.sys.close_quiet(file)
+            res.status(Status::InternalServerError).send_bytes(b"")
+            return
+        }
+    }
+
+    std.sys.close_quiet(file)
+    let mut response = res.content_type(guess_content_type(fs_path.as_str()))
+    response = response.header("Cache-Control", "no-store")
+    response.send_bytes(bytes.as_slice())
+}
+
+// Guesses a content type from the file extension for common static assets.
+fn guess_content_type(path: str): str {
+    if path.ends_with(".html") {
+        return "text/html; charset=utf-8"
+    }
+    if path.ends_with(".css") {
+        return "text/css; charset=utf-8"
+    }
+    if path.ends_with(".js") {
+        return "text/javascript; charset=utf-8"
+    }
+    if path.ends_with(".json") {
+        return "application/json"
+    }
+    if path.ends_with(".svg") {
+        return "image/svg+xml"
+    }
+    if path.ends_with(".png") {
+        return "image/png"
+    }
+    if path.ends_with(".jpg") || path.ends_with(".jpeg") {
+        return "image/jpeg"
+    }
+
+    return "application/octet-stream"
+}
+
 // ====== Connection handling / server ======
 
 // Handles one TCP connection as either HTTP or WebSocket depending on the request.
@@ -1204,7 +1506,9 @@ fn handle_conn(conn: Fd, app: App) {
                         headers: header,
                         body: b"",
                     }
-                    write_websocket_upgrade_response(conn, accept_value)
+                    if !write_websocket_upgrade_response(conn, accept_value) {
+                        break
+                    }
 
                     let mut ws = WebSocket { conn, closed: false }
                     let h = found.handler

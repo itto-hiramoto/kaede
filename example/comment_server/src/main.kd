@@ -19,6 +19,10 @@ let mut next_comment_id = Counter::new(1)
 
 let mut app = std.http.App::new()
 
+app.static_file("/", "frontend/post.html")
+app.static_file("/screen", "frontend/screen.html")
+app.static_dir("/assets", "frontend/assets")
+
 app.get("/comments", |req, res| {
     let since = match parse_since(req) {
         Option::Some(value) => value,

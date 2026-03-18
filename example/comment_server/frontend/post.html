@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Comment Server | 投稿画面</title>
+    <link rel="stylesheet" href="/assets/post.css">
+    <script type="module" src="/assets/post.js"></script>
+  </head>
+  <body class="post-page">
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Live Comment Board</p>
+        <h1>コメント投稿</h1>
+        <p class="lede">
+          登壇用の投影画面は
+          <a href="/screen" target="_blank" rel="noopener">/screen</a>
+          で開けます。
+        </p>
+      </section>
+
+      <section class="card composer">
+        <header class="section-head">
+          <div>
+            <p class="section-label">Compose</p>
+            <h2>今の一言を送る</h2>
+          </div>
+          <span id="connection-state" class="status-pill" data-state="connecting">接続中</span>
+        </header>
+
+        <form id="comment-form" class="composer-form">
+          <label class="field">
+            <span>表示名</span>
+            <input id="author" name="author" type="text" maxlength="32" placeholder="anonymous">
+          </label>
+
+          <label class="field">
+            <span>コメント</span>
+            <textarea
+              id="message"
+              name="message"
+              rows="5"
+              maxlength="280"
+              placeholder="プレゼンへの感想や質問を書いてください"
+            ></textarea>
+          </label>
+
+          <div class="composer-foot">
+            <p id="form-error" class="form-error" role="status" aria-live="polite"></p>
+            <div class="composer-actions">
+              <span id="char-count" class="char-count">0 / 280</span>
+              <button id="submit-button" type="submit">送信する</button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <section class="card timeline">
+        <header class="section-head">
+          <div>
+            <p class="section-label">Timeline</p>
+            <h2>最新コメント</h2>
+          </div>
+        </header>
+
+        <p id="empty-state" class="empty-state">まだコメントはありません。</p>
+        <ol id="comment-list" class="comment-list" aria-live="polite"></ol>
+      </section>
+    </main>
+  </body>
+</html>

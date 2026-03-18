@@ -18,10 +18,12 @@ sys_fd_t kaede_sys_accept(sys_fd_t listen_fd); // returns client fd, -1 on error
 int kaede_sys_somaxconn(void); // best-effort SOMAXCONN, falls back to 128
 
 /* --- I/O (EINTR hidden) --- */
+sys_fd_t kaede_sys_open_read(const char *path, size_t path_len);
 long kaede_sys_read(sys_fd_t fd, void *buf,
                     size_t len); // returns n>=0, -1 on error
 long kaede_sys_write(sys_fd_t fd, const void *buf,
                      size_t len); // returns n>=0, -1 on error
+int kaede_sys_is_regular_file(sys_fd_t fd);
 int kaede_sys_close(sys_fd_t fd);
 int kaede_sys_sleep_ms(uint64_t ms);
 
