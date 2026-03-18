@@ -773,6 +773,17 @@ fn rust_string_into_kaede_string(value: String) -> *mut KaedeString {
 "#
 }
 
+fn generate_shim_cargo_config() -> Option<&'static str> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+
+    Some(
+        "[target.'cfg(target_os = \"macos\")']\n\
+rustflags = [\"-C\", \"link-arg=-Wl,-undefined,dynamic_lookup\"]\n",
+    )
+}
+
 fn generate_shim_crate(
     project_root: &Path,
     rust_manifest: &Path,
@@ -793,6 +804,12 @@ fn generate_shim_crate(
     let src_dir = shim_dir.join("src");
     fs::create_dir_all(&src_dir)
         .with_context(|| format!("failed to create {}", src_dir.display()))?;
+    if let Some(config) = generate_shim_cargo_config() {
+        let cargo_dir = shim_dir.join(".cargo");
+        fs::create_dir_all(&cargo_dir)
+            .with_context(|| format!("failed to create {}", cargo_dir.display()))?;
+        fs::write(cargo_dir.join("config.toml"), config)?;
+    }
 
     let rust_dir = rust_manifest
         .parent()
