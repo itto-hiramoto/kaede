@@ -773,15 +773,54 @@ fn rust_string_into_kaede_string(value: String) -> *mut KaedeString {
 "#
 }
 
-fn generate_shim_cargo_config() -> Option<&'static str> {
-    if !cfg!(target_os = "macos") {
-        return None;
+fn generate_shim_build_script() -> &'static str {
+    r#"use std::{env, fs, path::PathBuf};
+
+fn kaede_dir() -> PathBuf {
+    if let Some(dir) = env::var_os("KAEDE_DIR") {
+        return PathBuf::from(dir);
     }
 
-    Some(
-        "[target.'cfg(target_os = \"macos\")']\n\
-rustflags = [\"-C\", \"link-arg=-Wl,-undefined,dynamic_lookup\"]\n",
-    )
+    if let Some(home) = env::var_os("HOME") {
+        return PathBuf::from(home).join(".kaede");
+    }
+
+    panic!("KAEDE_DIR or HOME must be set to build Kaede Rust shims");
+}
+
+fn third_party_lib_dirs(kaede_dir: &PathBuf) -> Vec<PathBuf> {
+    let mut lib_dirs = match fs::read_dir(kaede_dir.join("third_party")) {
+        Ok(entries) => entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("lib"))
+            .filter(|path| path.is_dir())
+            .collect::<Vec<_>>(),
+        Err(_) => Vec::new(),
+    };
+    lib_dirs.sort();
+    lib_dirs
+}
+
+fn main() {
+    println!("cargo:rerun-if-env-changed=KAEDE_DIR");
+
+    let kaede_dir = kaede_dir();
+    let mut lib_dirs = vec![kaede_dir.join("lib")];
+    lib_dirs.extend(third_party_lib_dirs(&kaede_dir));
+
+    println!("cargo:rustc-link-lib=dylib=kd");
+
+    for lib_dir in &lib_dirs {
+        println!("cargo:rustc-link-search=native={}", lib_dir.display());
+    }
+
+    if cfg!(any(target_os = "macos", target_os = "linux")) {
+        for lib_dir in &lib_dirs {
+            println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
+        }
+    }
+}
+"#
 }
 
 fn generate_shim_crate(
@@ -804,12 +843,13 @@ fn generate_shim_crate(
     let src_dir = shim_dir.join("src");
     fs::create_dir_all(&src_dir)
         .with_context(|| format!("failed to create {}", src_dir.display()))?;
-    if let Some(config) = generate_shim_cargo_config() {
-        let cargo_dir = shim_dir.join(".cargo");
-        fs::create_dir_all(&cargo_dir)
-            .with_context(|| format!("failed to create {}", cargo_dir.display()))?;
-        fs::write(cargo_dir.join("config.toml"), config)?;
+
+    let cargo_dir = shim_dir.join(".cargo");
+    if cargo_dir.exists() {
+        fs::remove_dir_all(&cargo_dir)
+            .with_context(|| format!("failed to remove {}", cargo_dir.display()))?;
     }
+    fs::write(shim_dir.join("build.rs"), generate_shim_build_script())?;
 
     let rust_dir = rust_manifest
         .parent()

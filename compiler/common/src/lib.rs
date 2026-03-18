@@ -1,4 +1,4 @@
-use std::{ffi::OsString, path::PathBuf};
+use std::{ffi::OsString, fs, path::PathBuf};
 
 fn kaede_dir() -> PathBuf {
     PathBuf::from(
@@ -11,7 +11,16 @@ fn kaede_lib_dir() -> PathBuf {
 }
 
 fn kaede_third_party_lib_dirs() -> Vec<PathBuf> {
-    vec![kaede_dir().join("third_party").join("bdwgc").join("lib")]
+    let mut lib_dirs = match fs::read_dir(kaede_dir().join("third_party")) {
+        Ok(entries) => entries
+            .filter_map(Result::ok)
+            .map(|entry| entry.path().join("lib"))
+            .filter(|path| path.is_dir())
+            .collect::<Vec<_>>(),
+        Err(_) => Vec::new(),
+    };
+    lib_dirs.sort();
+    lib_dirs
 }
 
 pub fn lib_extension() -> &'static str {
