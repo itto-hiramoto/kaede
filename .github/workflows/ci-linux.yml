@@ -1,0 +1,59 @@
+name: CI (Linux)
+
+on: [push]
+
+jobs:
+  check-and-test:
+    name: Check and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache rust
+        id: cache-rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/
+            ./target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Update apt
+        run: sudo apt update
+
+      - name: Install cmake
+        run: sudo apt install -y cmake
+
+      - name: Install valgrind
+        run: sudo apt install -y valgrind
+
+      - name: Install llvm
+        uses: KyleMayes/install-llvm-action@v2
+        with:
+          version: "17.0"
+
+      - name: Install rust
+        uses: dtolnay/rust-toolchain@stable
+        # Don't replace to cache-hit == 'false'
+        # https://poyo.hatenablog.jp/entry/2024/05/04/094730
+        if: ${{ steps.cache-rust.outputs.cache-hit != 'true' }}
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Install nightly rustdoc toolchain
+        run: rustup toolchain install nightly --profile minimal
+
+      - name: Install kaede
+        run: chmod +x install.py && ./install.py --no-setenv
+
+      - name: Run format
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Run test
+        run: cargo test --release --no-fail-fast
