@@ -203,11 +203,17 @@ pub struct Response {
     conn: Fd,
     close_conn: bool,
     status: Status,
+    write_failed: bool,
 }
 
 impl Response {
     pub fn new(conn: Fd, close_conn: bool): mut Response {
-        return Response { conn, close_conn, status: Status::Ok }
+        return Response {
+            conn,
+            close_conn,
+            status: Status::Ok,
+            write_failed: false,
+        }
     }
 
     pub fn status(mut self, code: Status): mut Response {
@@ -215,20 +221,34 @@ impl Response {
         return self
     }
 
+    pub fn has_write_failed(self): bool {
+        return self.write_failed
+    }
+
+    fn mark_write_failed(mut self) {
+        self.write_failed = true
+    }
+
     pub fn send_bytes(mut self, body: [u8]) {
         if !try_write_status_line(self.conn, self.status) {
+            self.mark_write_failed()
             return
         }
         if self.close_conn && !std.sys.try_write(self.conn, b"Connection: close\r\n") {
+            self.mark_write_failed()
             return
         }
         if !try_write_content_length(self.conn, body.len()) {
+            self.mark_write_failed()
             return
         }
         if !std.sys.try_write(self.conn, b"\r\n") {
+            self.mark_write_failed()
             return
         }
-        let _ = std.sys.try_write(self.conn, body)
+        if !std.sys.try_write(self.conn, body) {
+            self.mark_write_failed()
+        }
     }
 
     pub fn send_string(mut self, text: str) {
@@ -632,11 +652,11 @@ fn try_write_content_length(conn: Fd, len: u64): bool {
 }
 
 fn write_content_length(conn: Fd, len: u64) {
-    let _ = try_write_content_length(conn, len)
+    try_write_content_length(conn, len)
 }
 
 pub fn write_status_line(conn: Fd, status: Status) {
-    let _ = try_write_status_line(conn, status)
+    try_write_status_line(conn, status)
 }
 
 fn try_write_status_line(conn: Fd, status: Status): bool {
@@ -664,7 +684,7 @@ pub fn write_text_response(conn: Fd, close_conn: bool, status: Status, body: [u8
     if !std.sys.try_write(conn, b"\r\n") {
         return
     }
-    let _ = std.sys.try_write(conn, body)
+    std.sys.try_write(conn, body)
 }
 
 pub fn write_bytes_response(conn: Fd, close_conn: bool, status: Status, body: [u8]) {
@@ -687,7 +707,7 @@ fn write_websocket_upgrade_response(conn: Fd, accept_value: [u8]) {
     if !std.sys.try_write(conn, accept_value) {
         return
     }
-    let _ = std.sys.try_write(conn, b"\r\n\r\n")
+    std.sys.try_write(conn, b"\r\n\r\n")
 }
 
 // Writes a WebSocket control frame and enforces its payload size limit.
@@ -1237,10 +1257,10 @@ fn handle_conn(conn: Fd, app: App) {
 
         let handled = app.dispatch(req, res)
         if !handled {
-            write_text_response(conn, want_close, Status::NotFound, b"")
+            res.status(Status::NotFound).send_bytes(b"")
         }
 
-        if want_close {
+        if res.has_write_failed() || want_close {
             break
         }
     }
