@@ -1,11 +1,14 @@
 #include "sys.h"
 
 #include <errno.h>
+#include <fcntl.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -52,6 +55,27 @@ sys_fd_t kaede_sys_accept(sys_fd_t listen_fd) {
   }
 }
 
+sys_fd_t kaede_sys_open_read(const char *path, size_t path_len) {
+  char *owned_path = (char *)malloc(path_len + 1);
+  if (owned_path == NULL)
+    return (sys_fd_t)-1;
+
+  memcpy(owned_path, path, path_len);
+  owned_path[path_len] = '\0';
+
+  for (;;) {
+    int fd = open(owned_path, O_RDONLY);
+    if (fd >= 0) {
+      free(owned_path);
+      return (sys_fd_t)fd;
+    }
+    if (errno == EINTR)
+      continue;
+    free(owned_path);
+    return (sys_fd_t)-1;
+  }
+}
+
 long kaede_sys_read(sys_fd_t fd, void *buf, size_t len) {
   for (;;) {
     ssize_t n = read((int)fd, buf, len);
@@ -72,6 +96,14 @@ long kaede_sys_write(sys_fd_t fd, const void *buf, size_t len) {
       continue;
     return -1;
   }
+}
+
+int kaede_sys_is_regular_file(sys_fd_t fd) {
+  struct stat st;
+  if (fstat((int)fd, &st) < 0)
+    return -1;
+
+  return S_ISREG(st.st_mode) ? 1 : 0;
 }
 
 int kaede_sys_close(sys_fd_t fd) { return close((int)fd); }

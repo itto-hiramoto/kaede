@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Comment Server | 投影画面</title>
+    <link rel="stylesheet" href="/assets/screen.css">
+    <script type="module" src="/assets/screen.js"></script>
+  </head>
+  <body class="screen-page">
+    <div class="screen-chrome">
+      <p class="screen-label">Live Overlay</p>
+      <p id="screen-status" class="screen-status" data-state="connecting">接続中</p>
+    </div>
+
+    <main id="screen-stage" class="screen-stage" aria-live="polite"></main>
+    <div id="measure-box" class="measure-box" aria-hidden="true"></div>
+  </body>
+</html>
