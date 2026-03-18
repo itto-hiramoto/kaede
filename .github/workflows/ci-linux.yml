@@ -26,6 +26,9 @@ jobs:
       - name: Install cmake
         run: sudo apt install -y cmake
 
+      - name: Install valgrind
+        run: sudo apt install -y valgrind
+
       - name: Install llvm
         uses: KyleMayes/install-llvm-action@v2
         with:
@@ -53,7 +56,4 @@ jobs:
         run: cargo clippy -- -D warnings
 
       - name: Run test
-        env:
-          KAEDE_RUN_SANITIZER_TESTS: "1"
-          ASAN_OPTIONS: detect_leaks=1
         run: cargo test --release --no-fail-fast

@@ -60,8 +60,5 @@ jobs:
       - name: Run clippy
         run: cargo clippy -- -D warnings
 
-      - name: Run test
-        env:
-          KAEDE_RUN_SANITIZER_TESTS: "1"
-          ASAN_OPTIONS: detect_leaks=1
-        run: cargo test --release --no-fail-fast
+      - name: Run test except valgrind-only cases
+        run: cargo test --release --no-fail-fast -- --skip leak_check_with_valgrind --skip leak_check_with_no_gc_should_fail
