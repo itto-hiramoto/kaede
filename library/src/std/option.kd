@@ -4,6 +4,20 @@ pub enum Option<T> {
 }
 
 impl<T> Option<T> {
+    pub fn is_some(self): bool {
+        return match self {
+            Option::Some(_) => true,
+            Option::None => false,
+        }
+    }
+
+    pub fn is_none(self): bool {
+        return match self {
+            Option::Some(_) => false,
+            Option::None => true,
+        }
+    }
+
     pub fn unwrap(self): T {
         return match self {
             Option::Some(value) => value,
