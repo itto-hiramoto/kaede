@@ -1,10 +1,9 @@
 use core::panic;
 use std::{
-    ffi::OsStr,
+    ffi::OsString,
     fs,
     path::{Path, PathBuf},
     process::Command,
-    vec,
 };
 
 use anyhow::{anyhow, Context as _};
@@ -12,7 +11,9 @@ use colored::Colorize;
 use inkwell::{context::Context, module::Module, OptimizationLevel};
 use kaede_ast::{top::TopLevelKind, ModuleItem};
 use kaede_codegen::{error::CodegenError, CodeGenerator, CodegenCtx};
-use kaede_common::{kaede_gc_lib_path, kaede_lib_path, kaede_runtime_lib_path};
+use kaede_common::{
+    kaede_gc_lib_path, kaede_lib_path, kaede_runtime_lib_path, kaede_runtime_linker_flags,
+};
 use kaede_monomorphize::Monomorphizer;
 use kaede_parse::Parser;
 use kaede_semantic::{AnalyzeOptions, SemanticAnalyzer};
@@ -204,25 +205,27 @@ fn emit_exe_file(
     additional_libs: &[PathBuf],
 ) -> anyhow::Result<()> {
     let mut args = vec![
-        OsStr::new("-fPIE"), // Enable position-independent executable
-        OsStr::new("-o"),
-        output_file_path.as_os_str(),
-        obj_path.as_os_str(),
+        OsString::from("-fPIE"), // Enable position-independent executable
+        OsString::from("-o"),
+        output_file_path.as_os_str().to_os_string(),
+        obj_path.as_os_str().to_os_string(),
     ];
+
+    args.extend(kaede_runtime_linker_flags());
 
     // Add additional libraries first (like Rust libraries)
     for lib in additional_libs {
-        args.push(lib.as_os_str());
+        args.push(lib.as_os_str().to_os_string());
     }
 
     let kaede_lib_path = kaede_lib_path();
     let kaede_gc_lib_path = kaede_gc_lib_path();
     let kaede_runtime_lib_path = kaede_runtime_lib_path();
     // Add standard libraries
-    args.push(kaede_lib_path.as_os_str()); // Link with standard library
-    args.push(kaede_runtime_lib_path.as_os_str()); // Link with runtime
-    args.push(kaede_gc_lib_path.as_os_str()); // Link with garbage collector
-    args.push(OsStr::new("-pthread"));
+    args.push(kaede_lib_path.into_os_string()); // Link with standard library
+    args.push(kaede_runtime_lib_path.into_os_string()); // Link with runtime
+    args.push(kaede_gc_lib_path.into_os_string()); // Link with garbage collector
+    args.push(OsString::from("-pthread"));
 
     let status = Command::new("cc").args(&args).status()?;
 
