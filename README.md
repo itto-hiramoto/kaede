@@ -1,4 +1,5 @@
-[![test](https://github.com/itto-hiramoto/kaede/actions/workflows/test.yml/badge.svg)](https://github.com/itto-hiramoto/kaede/actions/workflows/test.yml)
+[![CI (Linux)](https://github.com/itto-hiramoto/kaede/actions/workflows/ci-linux.yml/badge.svg)](https://github.com/itto-hiramoto/kaede/actions/workflows/ci-linux.yml)
+[![CI (macOS)](https://github.com/itto-hiramoto/kaede/actions/workflows/ci-macos.yml/badge.svg)](https://github.com/itto-hiramoto/kaede/actions/workflows/ci-macos.yml)
 
 > [!WARNING]
 > As this project is still in the pre-release phase, there is still a possibility that the language specifications could change significantly!
