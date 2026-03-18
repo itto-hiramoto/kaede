@@ -23,6 +23,12 @@ fn kaede_third_party_lib_dirs() -> Vec<PathBuf> {
     lib_dirs
 }
 
+pub fn kaede_runtime_library_dirs() -> Vec<PathBuf> {
+    let mut lib_dirs = vec![kaede_lib_dir()];
+    lib_dirs.extend(kaede_third_party_lib_dirs());
+    lib_dirs
+}
+
 pub fn lib_extension() -> &'static str {
     if cfg!(target_os = "macos") {
         "dylib"
@@ -58,7 +64,7 @@ pub fn kaede_runtime_linker_flags() -> Vec<OsString> {
 
     let mut flags = Vec::new();
 
-    for lib_dir in std::iter::once(kaede_lib_dir()).chain(kaede_third_party_lib_dirs()) {
+    for lib_dir in kaede_runtime_library_dirs() {
         flags.push(OsString::from("-Xlinker"));
         flags.push(OsString::from("-rpath"));
         flags.push(OsString::from("-Xlinker"));
