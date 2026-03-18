@@ -21,6 +21,9 @@ struct Task {
     void *arg;
     size_t arg_size;
     uint8_t *stack;
+    void *stack_root_base;
+    void *stack_root_limit;
+    bool roots_registered;
     bool finished;
     bool is_main;
 };
@@ -42,6 +45,8 @@ bool task_queue_pop(struct TaskQueue *queue, struct Task *task);
 
 uint8_t *create_stack(void);
 void destroy_stack(uint8_t *stack);
+void task_register_stack_roots(struct Task *task);
+void task_unregister_stack_roots(struct Task *task);
 void task_cleanup(struct Task *task);
 
 #endif // KAEDE_TASK_H

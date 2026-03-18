@@ -203,11 +203,17 @@ pub struct Response {
     conn: Fd,
     close_conn: bool,
     status: Status,
+    write_failed: bool,
 }
 
 impl Response {
     pub fn new(conn: Fd, close_conn: bool): mut Response {
-        return Response { conn, close_conn, status: Status::Ok }
+        return Response {
+            conn,
+            close_conn,
+            status: Status::Ok,
+            write_failed: false,
+        }
     }
 
     pub fn status(mut self, code: Status): mut Response {
@@ -215,14 +221,34 @@ impl Response {
         return self
     }
 
+    pub fn has_write_failed(self): bool {
+        return self.write_failed
+    }
+
+    fn mark_write_failed(mut self) {
+        self.write_failed = true
+    }
+
     pub fn send_bytes(mut self, body: [u8]) {
-        write_status_line(self.conn, self.status)
-        if self.close_conn {
-            std.sys.write(self.conn, b"Connection: close\r\n")
+        if !write_status_line(self.conn, self.status) {
+            self.mark_write_failed()
+            return
         }
-        write_content_length(self.conn, body.len())
-        std.sys.write(self.conn, b"\r\n")
-        std.sys.write(self.conn, body)
+        if self.close_conn && std.sys.write(self.conn, b"Connection: close\r\n").is_none() {
+            self.mark_write_failed()
+            return
+        }
+        if !write_content_length(self.conn, body.len()) {
+            self.mark_write_failed()
+            return
+        }
+        if std.sys.write(self.conn, b"\r\n").is_none() {
+            self.mark_write_failed()
+            return
+        }
+        if std.sys.write(self.conn, body).is_none() {
+            self.mark_write_failed()
+        }
     }
 
     pub fn send_string(mut self, text: str) {
@@ -588,9 +614,11 @@ pub fn parse_content_length(header: [u8]): i32 {
     return val
 }
 
-fn write_content_length(conn: Fd, len: u64) {
+fn write_content_length(conn: Fd, len: u64): bool {
     let prefix = b"Content-Length: "
-    std.sys.write(conn, prefix)
+    if std.sys.write(conn, prefix).is_none() {
+        return false
+    }
 
     let mut digits = [0; 20]
     let mut d = 0
@@ -615,29 +643,39 @@ fn write_content_length(conn: Fd, len: u64) {
         j -= 1
         let mut one = [0; 1]
         one[0] = digits[j]
-        std.sys.write(conn, one)
+        if std.sys.write(conn, one).is_none() {
+            return false
+        }
     }
 
-    std.sys.write(conn, b"\r\n")
+    return std.sys.write(conn, b"\r\n").is_some()
 }
 
-pub fn write_status_line(conn: Fd, status: Status) {
+pub fn write_status_line(conn: Fd, status: Status): bool {
     match status {
-        Status::Ok => std.sys.write(conn, b"HTTP/1.1 200 OK\r\n"),
-        Status::NotFound => std.sys.write(conn, b"HTTP/1.1 404 Not Found\r\n"),
-        Status::BadRequest => std.sys.write(conn, b"HTTP/1.1 400 Bad Request\r\n"),
-        Status::PayloadTooLarge => std.sys.write(conn, b"HTTP/1.1 413 Payload Too Large\r\n"),
-        Status::InternalServerError => std.sys.write(conn, b"HTTP/1.1 500 Internal Server Error\r\n"),
+        Status::Ok => return std.sys.write(conn, b"HTTP/1.1 200 OK\r\n").is_some(),
+        Status::NotFound => return std.sys.write(conn, b"HTTP/1.1 404 Not Found\r\n").is_some(),
+        Status::BadRequest => return std.sys.write(conn, b"HTTP/1.1 400 Bad Request\r\n").is_some(),
+        Status::PayloadTooLarge => return std.sys.write(conn, b"HTTP/1.1 413 Payload Too Large\r\n").is_some(),
+        Status::InternalServerError => return std.sys.write(conn, b"HTTP/1.1 500 Internal Server Error\r\n").is_some(),
     }
+
+    return false
 }
 
 pub fn write_text_response(conn: Fd, close_conn: bool, status: Status, body: [u8]) {
-    write_status_line(conn, status)
-    if close_conn {
-        std.sys.write(conn, b"Connection: close\r\n")
+    if !write_status_line(conn, status) {
+        return
     }
-    write_content_length(conn, body.len())
-    std.sys.write(conn, b"\r\n")
+    if close_conn && std.sys.write(conn, b"Connection: close\r\n").is_none() {
+        return
+    }
+    if !write_content_length(conn, body.len()) {
+        return
+    }
+    if std.sys.write(conn, b"\r\n").is_none() {
+        return
+    }
     std.sys.write(conn, body)
 }
 
@@ -646,11 +684,21 @@ pub fn write_bytes_response(conn: Fd, close_conn: bool, status: Status, body: [u
 }
 
 fn write_websocket_upgrade_response(conn: Fd, accept_value: [u8]) {
-    std.sys.write(conn, b"HTTP/1.1 101 Switching Protocols\r\n")
-    std.sys.write(conn, b"Upgrade: websocket\r\n")
-    std.sys.write(conn, b"Connection: Upgrade\r\n")
-    std.sys.write(conn, b"Sec-WebSocket-Accept: ")
-    std.sys.write(conn, accept_value)
+    if std.sys.write(conn, b"HTTP/1.1 101 Switching Protocols\r\n").is_none() {
+        return
+    }
+    if std.sys.write(conn, b"Upgrade: websocket\r\n").is_none() {
+        return
+    }
+    if std.sys.write(conn, b"Connection: Upgrade\r\n").is_none() {
+        return
+    }
+    if std.sys.write(conn, b"Sec-WebSocket-Accept: ").is_none() {
+        return
+    }
+    if std.sys.write(conn, accept_value).is_none() {
+        return
+    }
     std.sys.write(conn, b"\r\n\r\n")
 }
 
@@ -689,7 +737,7 @@ fn write_ws_frame(conn: Fd, opcode: u8, payload: [u8]): bool {
         10
     }
 
-    if !std.sys.try_write(conn, header[0:header_len]) {
+    if std.sys.write(conn, header[0:header_len]).is_none() {
         return false
     }
 
@@ -697,12 +745,15 @@ fn write_ws_frame(conn: Fd, opcode: u8, payload: [u8]): bool {
         return true
     }
 
-    return std.sys.try_write(conn, payload)
+    return std.sys.write(conn, payload).is_some()
 }
 
 // Reads an exact number of bytes and reports whether it succeeded.
 fn read_exact_bytes(fd: Fd, buf: mut [u8], len: u64): bool {
-    return std.sys.read_exact(fd, buf, len) == len
+    return match std.sys.read_exact(fd, buf, len) {
+        Option::Some(n) => n == len,
+        Option::None => false,
+    }
 }
 
 // Reads a 16-bit extended WebSocket payload length.
@@ -744,7 +795,11 @@ fn read_ws_payload(conn: Fd, payload_len: u64, mask_key: [u8]): Option<Vector<u8
 
     while remaining > 0 {
         let want = if remaining > chunk.len() { chunk.len() } else { remaining }
-        if std.sys.read_exact(conn, chunk, want) != want {
+        let read = match std.sys.read_exact(conn, chunk, want) {
+            Option::Some(value) => value,
+            Option::None => return Option<Vector<u8>>::None,
+        }
+        if read != want {
             return Option<Vector<u8>>::None
         }
 
@@ -764,7 +819,10 @@ fn read_ws_payload(conn: Fd, payload_len: u64, mask_key: [u8]): Option<Vector<u8
 // Reads one client WebSocket frame and validates the minimal protocol rules.
 fn read_ws_frame(conn: Fd): FrameReadResult {
     let mut first_bytes = [0; 2]
-    let n = std.sys.read_exact(conn, first_bytes, 2)
+    let n = match std.sys.read_exact(conn, first_bytes, 2) {
+        Option::Some(value) => value,
+        Option::None => return FrameReadResult::Closed,
+    }
     if n == 0 {
         return FrameReadResult::Closed
     }
@@ -1088,7 +1146,10 @@ fn handle_conn(conn: Fd, app: App) {
     loop {
         let mut buf = [0; 8192]
 
-        let n = std.sys.read_until(conn, buf, b"\r\n\r\n")
+        let n = match std.sys.read_until(conn, buf, b"\r\n\r\n") {
+            Option::Some(value) => value,
+            Option::None => break,
+        }
         if n == 0 {
             break
         }
@@ -1164,7 +1225,13 @@ fn handle_conn(conn: Fd, app: App) {
                 write_text_response(conn, true, Status::PayloadTooLarge, b"")
                 break
             }
-            body_len = std.sys.read_exact(conn, body, content_length as u64)
+            body_len = match std.sys.read_exact(conn, body, content_length as u64) {
+                Option::Some(value) => value,
+                Option::None => break,
+            }
+            if body_len != content_length as u64 {
+                break
+            }
         }
 
         let want_close = std.sys.header_has_connection_close(header, version.as_str())
@@ -1182,10 +1249,10 @@ fn handle_conn(conn: Fd, app: App) {
 
         let handled = app.dispatch(req, res)
         if !handled {
-            write_text_response(conn, want_close, Status::NotFound, b"")
+            res.status(Status::NotFound).send_bytes(b"")
         }
 
-        if want_close {
+        if res.has_write_failed() || want_close {
             break
         }
     }
