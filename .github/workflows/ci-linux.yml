@@ -1,10 +1,10 @@
-name: test
+name: CI (Linux)
 
 on: [push]
 
 jobs:
-  test:
-    name: run test
+  check-and-test:
+    name: Check and test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,7 +47,7 @@ jobs:
         run: rustup toolchain install nightly --profile minimal
 
       - name: Install kaede
-        run: chmod +x install.py && ./install.py
+        run: chmod +x install.py && ./install.py --no-setenv
 
       - name: Run format
         run: cargo fmt --all -- --check

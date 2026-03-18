@@ -1,11 +1,16 @@
 //! These tests compile and execute binaries and rely on GC/runtime state.
 
-use std::fs;
-use std::path::PathBuf;
-use std::process::Command;
+use std::{
+    ffi::OsString,
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 use inkwell::context::Context;
-use kaede_common::{kaede_gc_lib_path, kaede_lib_path, kaede_runtime_lib_path};
+use kaede_common::{
+    kaede_gc_lib_path, kaede_lib_path, kaede_runtime_lib_path, kaede_runtime_linker_flags,
+};
 use kaede_parse::Parser;
 use kaede_semantic::{AnalyzeOptions, SemanticAnalyzer, SemanticError};
 use tempfile::tempdir;
@@ -21,6 +26,37 @@ fn extract_semantic_error(err: anyhow::Error) -> SemanticError {
 fn is_field_access_type_error(err: anyhow::Error) -> bool {
     let message = err.to_string();
     message.contains("has no fields") || message.contains("field access requires a struct type")
+}
+
+fn link_test_executable(
+    exe_path: &Path,
+    harness_path: &Path,
+    obj_path: &Path,
+) -> anyhow::Result<()> {
+    let kaede_gc_lib_path = kaede_gc_lib_path();
+    let kaede_std_lib_path = kaede_lib_path();
+    let kaede_runtime_lib_path = kaede_runtime_lib_path();
+
+    let mut args = vec![
+        OsString::from("-fPIE"),
+        OsString::from("-o"),
+        exe_path.as_os_str().to_os_string(),
+        harness_path.as_os_str().to_os_string(),
+        obj_path.as_os_str().to_os_string(),
+    ];
+
+    args.extend(kaede_runtime_linker_flags());
+    args.push(kaede_std_lib_path.into_os_string());
+    args.push(kaede_runtime_lib_path.into_os_string());
+    args.push(kaede_gc_lib_path.into_os_string());
+    args.push(OsString::from("-pthread"));
+
+    let status = Command::new("cc").args(&args).status()?;
+    if !status.success() {
+        anyhow::bail!("Failed to emit executable file using 'cc'");
+    }
+
+    Ok(())
 }
 
 /// Return exit status
@@ -101,26 +137,7 @@ int main(void) {
 
     fs::write(&harness_path, harness_src)?;
 
-    let kaede_gc_lib_path = kaede_gc_lib_path();
-    let kaede_std_lib_path = kaede_lib_path();
-    let kaede_runtime_lib_path = kaede_runtime_lib_path();
-
-    let status = Command::new("cc")
-        .args([
-            "-fPIE",
-            "-o",
-            exe_path.to_str().unwrap(),
-            harness_path.to_str().unwrap(),
-            obj_path.to_str().unwrap(),
-            kaede_std_lib_path.to_str().unwrap(),
-            kaede_runtime_lib_path.to_str().unwrap(),
-            kaede_gc_lib_path.to_str().unwrap(),
-            "-pthread",
-        ])
-        .status()?;
-    if !status.success() {
-        anyhow::bail!("Failed to emit executable file using 'cc'");
-    }
+    link_test_executable(&exe_path, &harness_path, &obj_path)?;
 
     let output = Command::new(&exe_path).output()?;
     if !output.status.success() {
@@ -213,26 +230,7 @@ int main(void) {
 
     fs::write(&harness_path, harness_src)?;
 
-    let kaede_gc_lib_path = kaede_gc_lib_path();
-    let kaede_std_lib_path = kaede_lib_path();
-    let kaede_runtime_lib_path = kaede_runtime_lib_path();
-
-    let status = Command::new("cc")
-        .args([
-            "-fPIE",
-            "-o",
-            exe_path.to_str().unwrap(),
-            harness_path.to_str().unwrap(),
-            obj_path.to_str().unwrap(),
-            kaede_std_lib_path.to_str().unwrap(),
-            kaede_runtime_lib_path.to_str().unwrap(),
-            kaede_gc_lib_path.to_str().unwrap(),
-            "-pthread",
-        ])
-        .status()?;
-    if !status.success() {
-        anyhow::bail!("Failed to emit executable file using 'cc'");
-    }
+    link_test_executable(&exe_path, &harness_path, &obj_path)?;
 
     let output = Command::new(&exe_path).output()?;
     // We expect the program to abort, so don't check status.success()

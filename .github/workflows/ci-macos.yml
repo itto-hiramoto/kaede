@@ -1,0 +1,64 @@
+name: CI (macOS)
+
+on: [push]
+
+jobs:
+  check-and-test:
+    name: Check and test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Cache rust
+        id: cache-rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/
+            ./target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Install Homebrew dependencies
+        run: brew install llvm@17 cmake pkg-config openssl@3
+
+      - name: Configure build environment
+        run: |
+          LLVM_PREFIX="$(brew --prefix llvm@17)"
+          OPENSSL_PREFIX="$(brew --prefix openssl@3)"
+          HOMEBREW_PREFIX="$(brew --prefix)"
+          KAEDE_DIR="$HOME/.kaede"
+
+          echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
+
+          {
+            echo "LLVM_SYS_170_PREFIX=$LLVM_PREFIX"
+            echo "KAEDE_DIR=$KAEDE_DIR"
+            echo "LIBRARY_PATH=$HOMEBREW_PREFIX/lib:$LLVM_PREFIX/lib:${LIBRARY_PATH:-}"
+            echo "PKG_CONFIG_PATH=$OPENSSL_PREFIX/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+            echo "LDFLAGS=-L$LLVM_PREFIX/lib -L$OPENSSL_PREFIX/lib ${LDFLAGS:-}"
+            echo "CPPFLAGS=-I$OPENSSL_PREFIX/include ${CPPFLAGS:-}"
+          } >> "$GITHUB_ENV"
+
+      - name: Install rust
+        uses: dtolnay/rust-toolchain@stable
+        if: ${{ steps.cache-rust.outputs.cache-hit != 'true' }}
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Install nightly rustdoc toolchain
+        run: rustup toolchain install nightly --profile minimal
+
+      - name: Install kaede
+        run: chmod +x install.py && ./install.py --no-setenv
+
+      - name: Run format
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: cargo clippy -- -D warnings
+
+      - name: Run test except valgrind-only cases
+        run: cargo test --release --no-fail-fast -- --skip leak_check_with_valgrind --skip leak_check_with_no_gc_should_fail

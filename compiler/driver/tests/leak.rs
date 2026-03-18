@@ -75,12 +75,16 @@ fn compile_program(
 }
 
 /// Helper function to run valgrind and check for leaks
-fn run_valgrind_leak_check(executable: &impl AsRef<std::path::Path>, should_have_leaks: bool) {
+fn run_valgrind_leak_check(
+    executable: &impl AsRef<std::path::Path>,
+    expected_exit_code: i32,
+    should_have_leaks: bool,
+) {
     let executable_path = executable.as_ref().to_string_lossy();
     let assertion = Command::new("valgrind")
         .args(["--leak-check=full", executable_path.as_ref()])
         .assert()
-        .code(predicate::eq(58));
+        .code(predicate::eq(expected_exit_code));
 
     if should_have_leaks {
         // Expect memory leaks when GC is disabled
@@ -102,7 +106,7 @@ fn run_valgrind_leak_check(executable: &impl AsRef<std::path::Path>, should_have
 fn leak_check_with_valgrind() -> anyhow::Result<()> {
     let (temp_dir, program_file, executable) = setup_test_environment()?;
     compile_program(&program_file, &executable, &temp_dir, &[])?;
-    run_valgrind_leak_check(&executable, false);
+    run_valgrind_leak_check(&executable, 58, false);
     Ok(())
 }
 
@@ -110,6 +114,6 @@ fn leak_check_with_valgrind() -> anyhow::Result<()> {
 fn leak_check_with_no_gc_should_fail() -> anyhow::Result<()> {
     let (temp_dir, program_file, executable) = setup_test_environment()?;
     compile_program(&program_file, &executable, &temp_dir, &["--no-gc"])?;
-    run_valgrind_leak_check(&executable, true);
+    run_valgrind_leak_check(&executable, 58, true);
     Ok(())
 }
