@@ -216,13 +216,19 @@ impl Response {
     }
 
     pub fn send_bytes(mut self, body: [u8]) {
-        write_status_line(self.conn, self.status)
-        if self.close_conn {
-            std.sys.write(self.conn, b"Connection: close\r\n")
+        if !try_write_status_line(self.conn, self.status) {
+            return
         }
-        write_content_length(self.conn, body.len())
-        std.sys.write(self.conn, b"\r\n")
-        std.sys.write(self.conn, body)
+        if self.close_conn && !std.sys.try_write(self.conn, b"Connection: close\r\n") {
+            return
+        }
+        if !try_write_content_length(self.conn, body.len()) {
+            return
+        }
+        if !std.sys.try_write(self.conn, b"\r\n") {
+            return
+        }
+        let _ = std.sys.try_write(self.conn, body)
     }
 
     pub fn send_string(mut self, text: str) {
@@ -588,9 +594,11 @@ pub fn parse_content_length(header: [u8]): i32 {
     return val
 }
 
-fn write_content_length(conn: Fd, len: u64) {
+fn try_write_content_length(conn: Fd, len: u64): bool {
     let prefix = b"Content-Length: "
-    std.sys.write(conn, prefix)
+    if !std.sys.try_write(conn, prefix) {
+        return false
+    }
 
     let mut digits = [0; 20]
     let mut d = 0
@@ -615,30 +623,48 @@ fn write_content_length(conn: Fd, len: u64) {
         j -= 1
         let mut one = [0; 1]
         one[0] = digits[j]
-        std.sys.write(conn, one)
+        if !std.sys.try_write(conn, one) {
+            return false
+        }
     }
 
-    std.sys.write(conn, b"\r\n")
+    return std.sys.try_write(conn, b"\r\n")
+}
+
+fn write_content_length(conn: Fd, len: u64) {
+    let _ = try_write_content_length(conn, len)
 }
 
 pub fn write_status_line(conn: Fd, status: Status) {
+    let _ = try_write_status_line(conn, status)
+}
+
+fn try_write_status_line(conn: Fd, status: Status): bool {
     match status {
-        Status::Ok => std.sys.write(conn, b"HTTP/1.1 200 OK\r\n"),
-        Status::NotFound => std.sys.write(conn, b"HTTP/1.1 404 Not Found\r\n"),
-        Status::BadRequest => std.sys.write(conn, b"HTTP/1.1 400 Bad Request\r\n"),
-        Status::PayloadTooLarge => std.sys.write(conn, b"HTTP/1.1 413 Payload Too Large\r\n"),
-        Status::InternalServerError => std.sys.write(conn, b"HTTP/1.1 500 Internal Server Error\r\n"),
+        Status::Ok => return std.sys.try_write(conn, b"HTTP/1.1 200 OK\r\n"),
+        Status::NotFound => return std.sys.try_write(conn, b"HTTP/1.1 404 Not Found\r\n"),
+        Status::BadRequest => return std.sys.try_write(conn, b"HTTP/1.1 400 Bad Request\r\n"),
+        Status::PayloadTooLarge => return std.sys.try_write(conn, b"HTTP/1.1 413 Payload Too Large\r\n"),
+        Status::InternalServerError => return std.sys.try_write(conn, b"HTTP/1.1 500 Internal Server Error\r\n"),
     }
+
+    return false
 }
 
 pub fn write_text_response(conn: Fd, close_conn: bool, status: Status, body: [u8]) {
-    write_status_line(conn, status)
-    if close_conn {
-        std.sys.write(conn, b"Connection: close\r\n")
+    if !try_write_status_line(conn, status) {
+        return
     }
-    write_content_length(conn, body.len())
-    std.sys.write(conn, b"\r\n")
-    std.sys.write(conn, body)
+    if close_conn && !std.sys.try_write(conn, b"Connection: close\r\n") {
+        return
+    }
+    if !try_write_content_length(conn, body.len()) {
+        return
+    }
+    if !std.sys.try_write(conn, b"\r\n") {
+        return
+    }
+    let _ = std.sys.try_write(conn, body)
 }
 
 pub fn write_bytes_response(conn: Fd, close_conn: bool, status: Status, body: [u8]) {
@@ -646,12 +672,22 @@ pub fn write_bytes_response(conn: Fd, close_conn: bool, status: Status, body: [u
 }
 
 fn write_websocket_upgrade_response(conn: Fd, accept_value: [u8]) {
-    std.sys.write(conn, b"HTTP/1.1 101 Switching Protocols\r\n")
-    std.sys.write(conn, b"Upgrade: websocket\r\n")
-    std.sys.write(conn, b"Connection: Upgrade\r\n")
-    std.sys.write(conn, b"Sec-WebSocket-Accept: ")
-    std.sys.write(conn, accept_value)
-    std.sys.write(conn, b"\r\n\r\n")
+    if !std.sys.try_write(conn, b"HTTP/1.1 101 Switching Protocols\r\n") {
+        return
+    }
+    if !std.sys.try_write(conn, b"Upgrade: websocket\r\n") {
+        return
+    }
+    if !std.sys.try_write(conn, b"Connection: Upgrade\r\n") {
+        return
+    }
+    if !std.sys.try_write(conn, b"Sec-WebSocket-Accept: ") {
+        return
+    }
+    if !std.sys.try_write(conn, accept_value) {
+        return
+    }
+    let _ = std.sys.try_write(conn, b"\r\n\r\n")
 }
 
 // Writes a WebSocket control frame and enforces its payload size limit.
@@ -702,7 +738,10 @@ fn write_ws_frame(conn: Fd, opcode: u8, payload: [u8]): bool {
 
 // Reads an exact number of bytes and reports whether it succeeded.
 fn read_exact_bytes(fd: Fd, buf: mut [u8], len: u64): bool {
-    return std.sys.read_exact(fd, buf, len) == len
+    return match std.sys.try_read_exact(fd, buf, len) {
+        Option::Some(n) => n == len,
+        Option::None => false,
+    }
 }
 
 // Reads a 16-bit extended WebSocket payload length.
@@ -744,7 +783,11 @@ fn read_ws_payload(conn: Fd, payload_len: u64, mask_key: [u8]): Option<Vector<u8
 
     while remaining > 0 {
         let want = if remaining > chunk.len() { chunk.len() } else { remaining }
-        if std.sys.read_exact(conn, chunk, want) != want {
+        let read = match std.sys.try_read_exact(conn, chunk, want) {
+            Option::Some(value) => value,
+            Option::None => return Option<Vector<u8>>::None,
+        }
+        if read != want {
             return Option<Vector<u8>>::None
         }
 
@@ -764,7 +807,10 @@ fn read_ws_payload(conn: Fd, payload_len: u64, mask_key: [u8]): Option<Vector<u8
 // Reads one client WebSocket frame and validates the minimal protocol rules.
 fn read_ws_frame(conn: Fd): FrameReadResult {
     let mut first_bytes = [0; 2]
-    let n = std.sys.read_exact(conn, first_bytes, 2)
+    let n = match std.sys.try_read_exact(conn, first_bytes, 2) {
+        Option::Some(value) => value,
+        Option::None => return FrameReadResult::Closed,
+    }
     if n == 0 {
         return FrameReadResult::Closed
     }
@@ -1088,7 +1134,10 @@ fn handle_conn(conn: Fd, app: App) {
     loop {
         let mut buf = [0; 8192]
 
-        let n = std.sys.read_until(conn, buf, b"\r\n\r\n")
+        let n = match std.sys.try_read_until(conn, buf, b"\r\n\r\n") {
+            Option::Some(value) => value,
+            Option::None => break,
+        }
         if n == 0 {
             break
         }
@@ -1164,7 +1213,13 @@ fn handle_conn(conn: Fd, app: App) {
                 write_text_response(conn, true, Status::PayloadTooLarge, b"")
                 break
             }
-            body_len = std.sys.read_exact(conn, body, content_length as u64)
+            body_len = match std.sys.try_read_exact(conn, body, content_length as u64) {
+                Option::Some(value) => value,
+                Option::None => break,
+            }
+            if body_len != content_length as u64 {
+                break
+            }
         }
 
         let want_close = std.sys.header_has_connection_close(header, version.as_str())

@@ -3,6 +3,7 @@
 #include <kaede/worker.h>
 #include <errno.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +14,10 @@ static int runtime_threads = 0;
 
 void kaede_runtime_init(void) {
     worker_reset_main_state();
+    if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
+        fprintf(stderr, "Failed to ignore SIGPIPE: %s\n", strerror(errno));
+        abort();
+    }
     if (!worker_init()) {
         fprintf(stderr, "Failed to initialize worker/runtime\n");
         abort();

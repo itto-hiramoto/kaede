@@ -190,7 +190,7 @@ bool worker_spawn(TaskFn fn, void *arg, size_t arg_size, bool is_main) {
         memcpy(arg_on_stack, arg, arg_size);
     }
 
-    struct Task task;
+    struct Task task = {0};
     task.fn = fn;
     task.arg = arg_on_stack;
     task.arg_size = arg_size;
@@ -198,6 +198,7 @@ bool worker_spawn(TaskFn fn, void *arg, size_t arg_size, bool is_main) {
     task.is_main = is_main;
     create_context(&task.context, fn, arg_on_stack, stack_top);
     task.finished = false;
+    task_register_stack_roots(&task);
 
     if (is_main) {
         pthread_mutex_lock(&main_mutex);

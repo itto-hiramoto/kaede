@@ -1,4 +1,5 @@
 #include <errno.h>
+#include <gc/gc.h>
 #include <kaede/task.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -163,10 +164,38 @@ void destroy_stack(uint8_t *stack) {
     }
 }
 
+void task_register_stack_roots(struct Task *task) {
+    if (!task || !task->stack || task->roots_registered) {
+        return;
+    }
+
+    const size_t page_size = get_page_size();
+    const size_t usable_size = align_up(STACK_SIZE, page_size);
+    void *root_base = (void *)task->stack;
+    void *root_limit = (void *)(task->stack + usable_size);
+
+    GC_add_roots(root_base, root_limit);
+    task->stack_root_base = root_base;
+    task->stack_root_limit = root_limit;
+    task->roots_registered = true;
+}
+
+void task_unregister_stack_roots(struct Task *task) {
+    if (!task || !task->roots_registered) {
+        return;
+    }
+
+    GC_remove_roots(task->stack_root_base, task->stack_root_limit);
+    task->stack_root_base = NULL;
+    task->stack_root_limit = NULL;
+    task->roots_registered = false;
+}
+
 void task_cleanup(struct Task *task) {
     if (!task) {
         return;
     }
+    task_unregister_stack_roots(task);
     destroy_stack(task->stack);
     task->stack = NULL;
     task->arg = NULL;

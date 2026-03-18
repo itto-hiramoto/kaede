@@ -4337,6 +4337,89 @@ fn spawn_mutex_waitgroup() -> anyhow::Result<()> {
 }
 
 #[test]
+fn spawn_preserves_queued_gc_managed_args_during_collection() -> anyhow::Result<()> {
+    let program = r#"
+        import std.sync
+        import std.collections
+        import std.string
+
+        use std.sync.Mutex
+        use std.sync.WaitGroup
+        use std.collections.Vector
+        use std.string.String
+
+        extern "C" fn GC_gcollect()
+
+        fn blocker(gate: mut Mutex, wg: mut WaitGroup) {
+            gate.lock()
+            gate.unlock()
+            wg.done()
+        }
+
+        fn consumer(msg: String, lock: mut Mutex, out: mut Vector<String>, wg: mut WaitGroup) {
+            lock.lock()
+            out.push(msg)
+            lock.unlock()
+            wg.done()
+        }
+
+        fn main(): i32 {
+            let mut gate = Mutex::new()
+            let mut lock = Mutex::new()
+            let mut out = Vector<String>::new()
+            let mut wg = WaitGroup::new()
+
+            gate.lock()
+
+            let mut i = 0
+            while i < 128 {
+                wg.add(1)
+                spawn blocker(gate, wg)
+                i += 1
+            }
+
+            let mut j = 0
+            while j < 32 {
+                let msg = if (j % 2) == 0 {
+                    String::from("queued-even")
+                } else {
+                    String::from("queued-odd")
+                }
+                wg.add(1)
+                spawn consumer(msg, lock, out, wg)
+                j += 1
+            }
+
+            let mut k = 0
+            while k < 8 {
+                GC_gcollect()
+                k += 1
+            }
+
+            gate.unlock()
+            wg.wait()
+
+            if out.len() != 32 {
+                return 100
+            }
+
+            let mut total = 0
+            let mut idx = 0
+            while idx < out.len() {
+                let item = out.at(idx).unwrap()
+                total += item.len() as i32
+                idx += 1
+            }
+
+            return total
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 336);
+    Ok(())
+}
+
+#[test]
 fn panic_basic() -> anyhow::Result<()> {
     let program = r#"
         fn main(): i32 {
