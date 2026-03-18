@@ -20,6 +20,21 @@ static size_t align_up(size_t value, size_t alignment) {
     return (value + alignment - 1) & ~(alignment - 1);
 }
 
+static size_t get_usable_stack_size(void) {
+    return align_up(STACK_SIZE, get_page_size());
+}
+
+static size_t get_stack_mapping_size(void) {
+    return get_page_size() + get_usable_stack_size();
+}
+
+static void get_stack_root_range(uint8_t *stack, void **root_base,
+                                 void **root_limit) {
+    const size_t usable_size = get_usable_stack_size();
+    *root_base = (void *)stack;
+    *root_limit = (void *)(stack + usable_size);
+}
+
 static inline size_t next_index(const struct TaskQueue *queue, size_t index) {
     return (index + 1) % queue->capacity;
 }
@@ -125,8 +140,7 @@ bool task_queue_pop(struct TaskQueue *queue, struct Task *task) {
 
 uint8_t *create_stack(void) {
     const size_t page_size = get_page_size();
-    const size_t usable_size = align_up(STACK_SIZE, page_size);
-    const size_t mapping_size = page_size + usable_size;
+    const size_t mapping_size = get_stack_mapping_size();
 
     void *mapping = mmap(NULL, mapping_size, PROT_READ | PROT_WRITE,
                          MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -153,8 +167,7 @@ void destroy_stack(uint8_t *stack) {
     }
 
     const size_t page_size = get_page_size();
-    const size_t usable_size = align_up(STACK_SIZE, page_size);
-    const size_t mapping_size = page_size + usable_size;
+    const size_t mapping_size = get_stack_mapping_size();
 
     // `stack` points past the guard page; recover the original mmap base.
     void *mapping = (void *)(stack - page_size);
@@ -169,10 +182,9 @@ void task_register_stack_roots(struct Task *task) {
         return;
     }
 
-    const size_t page_size = get_page_size();
-    const size_t usable_size = align_up(STACK_SIZE, page_size);
-    void *root_base = (void *)task->stack;
-    void *root_limit = (void *)(task->stack + usable_size);
+    void *root_base = NULL;
+    void *root_limit = NULL;
+    get_stack_root_range(task->stack, &root_base, &root_limit);
 
     GC_add_roots(root_base, root_limit);
     task->stack_root_base = root_base;
