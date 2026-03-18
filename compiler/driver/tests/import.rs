@@ -1232,13 +1232,13 @@ fn import_extern_c() -> anyhow::Result<()> {
     let tempdir = assert_fs::TempDir::new()?;
 
     let extern_c = tempdir.child("extern_c.kd");
-    extern_c.write_str(r#"pub extern "C" fn puts(s: *i8): i32"#)?;
+    extern_c.write_str(r#"pub extern "C" fn printf(format: *i8, ...): i32"#)?;
 
     let module = tempdir.child("m.kd");
     module.write_str(
         r#"import extern_c
         fn main(): i32 {
-            return extern_c.puts("Hello, world!".as_ptr())
+            return extern_c.printf("Hello, world!\n".as_ptr())
         }"#,
     )?;
 
