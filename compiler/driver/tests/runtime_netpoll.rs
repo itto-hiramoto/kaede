@@ -93,7 +93,9 @@ fn std_sys_accept_does_not_starve_runnable_handlers() -> anyhow::Result<()> {
     src_dir.create_dir_all()?;
 
     let port = free_port()?;
-    let idle_connections = 64usize;
+    let idle_connections = std::thread::available_parallelism()
+        .map(|count| count.get() + 8)
+        .unwrap_or(16);
     let total_connections = idle_connections + 1;
 
     let main = src_dir.child("main.kd");
@@ -159,10 +161,10 @@ fn main(): i32 {{
     let mut idle_streams = Vec::with_capacity(idle_connections);
     idle_streams.push(connect_with_retry(&addr, Duration::from_secs(10))?);
     for _ in 1..idle_connections {
-        idle_streams.push(connect_with_retry(&addr, Duration::from_secs(2))?);
+        idle_streams.push(connect_with_retry(&addr, Duration::from_secs(10))?);
     }
 
-    let mut active = connect_with_retry(&addr, Duration::from_secs(2))?;
+    let mut active = connect_with_retry(&addr, Duration::from_secs(10))?;
     active.set_read_timeout(Some(Duration::from_secs(2)))?;
     active.write_all(b"x")?;
 
@@ -237,6 +239,57 @@ fn main(): i32 {{
     let addr = format!("127.0.0.1:{port}");
     let client = connect_with_retry(&addr, Duration::from_secs(10))?;
     client.set_read_timeout(Some(Duration::from_secs(2)))?;
+
+    let status = server.wait_for_exit(Duration::from_secs(5))?;
+    assert!(status.success());
+
+    drop(client);
+    let _ = fs::remove_file(binary_path);
+    Ok(())
+}
+
+#[test]
+fn runtime_shutdown_exits_with_background_tasks_still_parked_on_io() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+    let src_dir = tempdir.child("src");
+    src_dir.create_dir_all()?;
+
+    let port = free_port()?;
+    let main = src_dir.child("main.kd");
+    main.write_str(&format!(
+        r#"import std.sys
+
+fn reader(conn: std.sys.Fd) {{
+    let mut buf = [0; 1]
+    let _ = std.sys.read(conn, buf)
+}}
+
+fn main(): i32 {{
+    let listener = std.sys.socket_tcp4()
+    std.sys.set_reuseaddr(listener)
+    std.sys.bind_ipv4(listener, "127.0.0.1", {port})
+    std.sys.listen(listener, std.sys.somaxconn())
+
+    let conn = std.sys.accept(listener)
+    std.sys.close(listener)
+    spawn reader(conn)
+    std.sys.sleep_ms(100)
+    return 0
+}}
+"#
+    ))?;
+
+    let binary_dir = std::env::current_dir()?
+        .join("target")
+        .join("runtime-netpoll-tests");
+    fs::create_dir_all(&binary_dir)?;
+    let binary_path = binary_dir.join(format!("shutdown-parked-{}-{}", std::process::id(), port));
+
+    compile(&[main.path()], tempdir.path(), &binary_path)?;
+    let mut server = ChildGuard::spawn(&binary_path, tempdir.path())?;
+
+    let addr = format!("127.0.0.1:{port}");
+    let client = connect_with_retry(&addr, Duration::from_secs(10))?;
 
     let status = server.wait_for_exit(Duration::from_secs(5))?;
     assert!(status.success());

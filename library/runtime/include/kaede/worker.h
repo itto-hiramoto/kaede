@@ -7,6 +7,7 @@
 
 bool worker_init(void);
 void worker_deinit(void);
+void worker_request_shutdown(void);
 void *worker_loop(void *arg);
 bool worker_spawn(TaskFn fn, void *arg, size_t arg_size, bool is_main);
 bool worker_park_current_on_io(int fd, uint32_t events);
