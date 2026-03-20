@@ -8,7 +8,7 @@ extern "C" {
 
 typedef int32_t sys_fd_t;
 
-/* --- TCP server primitives (blocking) --- */
+/* --- TCP server primitives --- */
 sys_fd_t kaede_sys_socket_tcp4(void);     // AF_INET / SOCK_STREAM
 int kaede_sys_set_reuseaddr(sys_fd_t fd); // SO_REUSEADDR
 int kaede_sys_bind_ipv4(sys_fd_t fd, const char *ip_or_null,
@@ -17,7 +17,7 @@ int kaede_sys_listen(sys_fd_t fd, int backlog);
 sys_fd_t kaede_sys_accept(sys_fd_t listen_fd); // returns client fd, -1 on error
 int kaede_sys_somaxconn(void); // best-effort SOMAXCONN, falls back to 128
 
-/* --- I/O (EINTR hidden) --- */
+/* --- I/O (EINTR hidden, socket I/O parks on EAGAIN) --- */
 sys_fd_t kaede_sys_open_read(const char *path, size_t path_len);
 long kaede_sys_read(sys_fd_t fd, void *buf,
                     size_t len); // returns n>=0, -1 on error

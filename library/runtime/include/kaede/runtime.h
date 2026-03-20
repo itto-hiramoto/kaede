@@ -1,7 +1,9 @@
 #ifndef KAEDE_RUNTIME_H
 #define KAEDE_RUNTIME_H
 
+#include <stdbool.h>
 #include <stddef.h>
+#include <stdint.h>
 
 typedef void (*TaskFn)(void *arg);
 
@@ -19,5 +21,8 @@ int kaede_runtime_run(void);
 void kaede_runtime_shutdown(void);
 
 void kaede_runtime_set_exit_code(int code);
+bool kaede_io_wait_readable(int fd);
+bool kaede_io_wait_writable(int fd);
+void kaede_io_forget_fd(int fd);
 
 #endif // KAEDE_RUNTIME_H

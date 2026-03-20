@@ -151,6 +151,8 @@ def install_standard_library(
             "-fPIC",
             "-I",
             bdwgc_include_dir,
+            "-I",
+            os.path.join(this_dir, "runtime", "include"),
             *openssl_cflags,
             "-o",
             kaede_lib_path,

@@ -1,5 +1,6 @@
 #include <gc/gc.h>
 #include <kaede/runtime.h>
+#include <kaede/task.h>
 #include <kaede/worker.h>
 #include <errno.h>
 #include <pthread.h>
@@ -63,4 +64,16 @@ int kaede_runtime_run(void) {
 
 void kaede_runtime_shutdown(void) {
     (void)runtime_threads;
+}
+
+bool kaede_io_wait_readable(int fd) {
+    return worker_park_current_on_io(fd, KAEDE_IO_EVENT_READ);
+}
+
+bool kaede_io_wait_writable(int fd) {
+    return worker_park_current_on_io(fd, KAEDE_IO_EVENT_WRITE);
+}
+
+void kaede_io_forget_fd(int fd) {
+    worker_forget_fd(fd);
 }

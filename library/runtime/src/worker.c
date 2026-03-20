@@ -259,6 +259,17 @@ static void wake_waiting_tasks_locked(int fd, uint32_t ready_events) {
     }
 }
 
+void worker_forget_fd(int fd) {
+    if (fd < 0) {
+        return;
+    }
+
+    pthread_mutex_lock(&scheduler_mutex);
+    wake_waiting_tasks_locked(fd,
+                              KAEDE_IO_EVENT_READ | KAEDE_IO_EVENT_WRITE);
+    pthread_mutex_unlock(&scheduler_mutex);
+}
+
 static void runtime_init_impl(void) {
     if (pthread_mutex_init(&scheduler_mutex, NULL) != 0) {
         runtime_init_ok = false;
