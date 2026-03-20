@@ -11,19 +11,18 @@
 #define INITIAL_RUN_QUEUE_CAPACITY 1024
 #define INITIAL_IO_WAIT_CAPACITY 64
 #define MAX_POLLER_EVENTS 64
-// A finite timeout lets every worker re-check shutdown/main-finished even
-// though they share one poller and a single wake event may not reach all of
-// them.
-#define POLLER_WAIT_TIMEOUT_MS 100
 
 static struct TaskQueue runnable_tasks;
 static pthread_mutex_t scheduler_mutex;
+static pthread_cond_t scheduler_cond = PTHREAD_COND_INITIALIZER;
 static pthread_once_t runtime_init_once = PTHREAD_ONCE_INIT;
 static bool runtime_init_ok = false;
 static bool shutdown_requested = false;
+static bool poller_waiter_active = false;
 static pthread_mutex_t main_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t main_cond = PTHREAD_COND_INITIALIZER;
 static bool main_finished = false;
+static bool scheduler_main_finished = false;
 static bool main_spawned = false;
 static int main_exit_code = 0;
 
@@ -68,13 +67,6 @@ static void cleanup_task(struct Task *task) {
 
 static bool update_poller_interest_locked(int fd, uint32_t old_events,
                                           uint32_t new_events);
-
-static bool is_main_finished(void) {
-    pthread_mutex_lock(&main_mutex);
-    const bool finished = main_finished;
-    pthread_mutex_unlock(&main_mutex);
-    return finished;
-}
 
 static uint32_t io_wait_entry_events(const struct IoWaitEntry *entry) {
     uint32_t events = KAEDE_IO_EVENT_NONE;
@@ -260,10 +252,10 @@ static bool enqueue_runnable_task_locked(struct Task *task) {
 
 // Caller must hold scheduler_mutex while waking tasks and updating the shared
 // wait-table / poller state for the fd.
-static void wake_waiting_tasks_locked(int fd, uint32_t ready_events) {
+static size_t wake_waiting_tasks_locked(int fd, uint32_t ready_events) {
     struct IoWaitEntry *entry = io_wait_table_find(&io_waits, fd);
     if (!entry) {
-        return;
+        return 0;
     }
 
     struct Task *tasks_to_wake[2] = {NULL, NULL};
@@ -299,8 +291,10 @@ static void wake_waiting_tasks_locked(int fd, uint32_t ready_events) {
     }
 
     if (wake_count > 0) {
-        (void)kaede_poller_wake();
+        pthread_cond_broadcast(&scheduler_cond);
     }
+
+    return wake_count;
 }
 
 void worker_forget_fd(int fd) {
@@ -309,9 +303,13 @@ void worker_forget_fd(int fd) {
     }
 
     pthread_mutex_lock(&scheduler_mutex);
-    wake_waiting_tasks_locked(fd,
-                              KAEDE_IO_EVENT_READ | KAEDE_IO_EVENT_WRITE);
+    const bool should_wake_poller =
+        wake_waiting_tasks_locked(fd, KAEDE_IO_EVENT_READ | KAEDE_IO_EVENT_WRITE) > 0 &&
+        poller_waiter_active;
     pthread_mutex_unlock(&scheduler_mutex);
+    if (should_wake_poller) {
+        (void)kaede_poller_wake();
+    }
 }
 
 static void runtime_init_impl(void) {
@@ -355,6 +353,11 @@ static void task_finished(void) {
         main_finished = true;
         pthread_cond_broadcast(&main_cond);
         pthread_mutex_unlock(&main_mutex);
+
+        pthread_mutex_lock(&scheduler_mutex);
+        scheduler_main_finished = true;
+        pthread_cond_broadcast(&scheduler_cond);
+        pthread_mutex_unlock(&scheduler_mutex);
         (void)kaede_poller_wake();
     }
 
@@ -380,6 +383,7 @@ void worker_request_shutdown(void) {
 
     pthread_mutex_lock(&scheduler_mutex);
     shutdown_requested = true;
+    pthread_cond_broadcast(&scheduler_cond);
     pthread_mutex_unlock(&scheduler_mutex);
     (void)kaede_poller_wake();
 }
@@ -416,6 +420,7 @@ void worker_deinit(void) {
     kaede_poller_deinit();
     io_wait_table_deinit(&io_waits);
     task_queue_deinit(&runnable_tasks);
+    pthread_cond_destroy(&scheduler_cond);
     pthread_mutex_destroy(&scheduler_mutex);
     runtime_init_ok = false;
 }
@@ -432,49 +437,49 @@ static void worker_loop_impl(int worker_id) {
 
     for (;;) {
         struct Task *task = NULL;
-        bool should_shutdown = false;
 
         pthread_mutex_lock(&scheduler_mutex);
-        should_shutdown = shutdown_requested;
-        if (!should_shutdown) {
-            (void)task_queue_pop(&runnable_tasks, &task);
-        }
-        pthread_mutex_unlock(&scheduler_mutex);
-
-        if (should_shutdown) {
-            return;
-        }
-
-        if (!task) {
-            if (is_main_finished()) {
-                return;
-            }
-
-            struct KaedePollEvent events[MAX_POLLER_EVENTS];
-            const int ready = kaede_poller_wait(events, MAX_POLLER_EVENTS,
-                                                POLLER_WAIT_TIMEOUT_MS);
-            if (ready < 0) {
-                if (is_main_finished()) {
-                    return;
-                }
-                fail_runtime("Poller wait failed");
-            }
-
-            if (ready == 0) {
-                continue;
-            }
-
-            pthread_mutex_lock(&scheduler_mutex);
-            if (shutdown_requested) {
+        for (;;) {
+            if (shutdown_requested || scheduler_main_finished) {
                 pthread_mutex_unlock(&scheduler_mutex);
                 return;
             }
-            for (int i = 0; i < ready; ++i) {
-                wake_waiting_tasks_locked(events[i].fd, events[i].events);
+
+            if (task_queue_pop(&runnable_tasks, &task)) {
+                break;
             }
-            pthread_mutex_unlock(&scheduler_mutex);
-            continue;
+
+            if (!poller_waiter_active) {
+                struct KaedePollEvent events[MAX_POLLER_EVENTS];
+
+                poller_waiter_active = true;
+                pthread_mutex_unlock(&scheduler_mutex);
+
+                const int ready = kaede_poller_wait(events, MAX_POLLER_EVENTS, -1);
+
+                pthread_mutex_lock(&scheduler_mutex);
+                poller_waiter_active = false;
+                pthread_cond_broadcast(&scheduler_cond);
+
+                if (shutdown_requested || scheduler_main_finished) {
+                    pthread_mutex_unlock(&scheduler_mutex);
+                    return;
+                }
+
+                if (ready < 0) {
+                    pthread_mutex_unlock(&scheduler_mutex);
+                    fail_runtime("Poller wait failed");
+                }
+
+                for (int i = 0; i < ready; ++i) {
+                    (void)wake_waiting_tasks_locked(events[i].fd, events[i].events);
+                }
+                continue;
+            }
+
+            pthread_cond_wait(&scheduler_cond, &scheduler_mutex);
         }
+        pthread_mutex_unlock(&scheduler_mutex);
 
         worker.current_task = task;
 
@@ -493,7 +498,7 @@ static void worker_loop_impl(int worker_id) {
         worker.current_task = NULL;
 
         pthread_mutex_lock(&scheduler_mutex);
-        should_shutdown = shutdown_requested;
+        const bool should_shutdown = shutdown_requested;
         if (should_shutdown && task->state == TASK_WAITING_IO) {
             remove_task_from_wait_table_locked(task);
         }
@@ -511,6 +516,7 @@ static void worker_loop_impl(int worker_id) {
                 pthread_mutex_unlock(&scheduler_mutex);
                 fail_runtime("Failed to requeue task");
             }
+            pthread_cond_signal(&scheduler_cond);
             pthread_mutex_unlock(&scheduler_mutex);
             break;
         case TASK_WAITING_IO:
@@ -661,7 +667,11 @@ bool worker_spawn(TaskFn fn, void *arg, size_t arg_size, bool is_main) {
         free(task);
         return false;
     }
+    const bool should_wake_poller = poller_waiter_active;
     const bool ok = task_queue_push(&runnable_tasks, task);
+    if (ok) {
+        pthread_cond_signal(&scheduler_cond);
+    }
     pthread_mutex_unlock(&scheduler_mutex);
     if (!ok) {
         fprintf(stderr, "Failed to push task to queue\n");
@@ -675,7 +685,9 @@ bool worker_spawn(TaskFn fn, void *arg, size_t arg_size, bool is_main) {
         return false;
     }
 
-    (void)kaede_poller_wake();
+    if (should_wake_poller) {
+        (void)kaede_poller_wake();
+    }
     return true;
 }
 
@@ -689,9 +701,13 @@ void worker_reset_main_state(void) {
     if (runtime_init_ok) {
         pthread_mutex_lock(&scheduler_mutex);
         shutdown_requested = false;
+        scheduler_main_finished = false;
+        poller_waiter_active = false;
         pthread_mutex_unlock(&scheduler_mutex);
     } else {
         shutdown_requested = false;
+        scheduler_main_finished = false;
+        poller_waiter_active = false;
     }
 }
 
