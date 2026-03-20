@@ -15,6 +15,18 @@
 
 #define STACK_SIZE (64 * 1024) // 64KB
 
+enum TaskState {
+    TASK_RUNNABLE,
+    TASK_WAITING_IO,
+    TASK_FINISHED,
+};
+
+enum KaedeIoEvent {
+    KAEDE_IO_EVENT_NONE = 0,
+    KAEDE_IO_EVENT_READ = 1u << 0,
+    KAEDE_IO_EVENT_WRITE = 1u << 1,
+};
+
 struct Task {
     struct Context context;
     TaskFn fn;
@@ -25,11 +37,14 @@ struct Task {
     void *stack_root_limit;
     bool roots_registered;
     bool finished;
+    enum TaskState state;
+    int waiting_fd;
+    uint32_t waiting_events;
     bool is_main;
 };
 
 struct TaskQueue {
-    struct Task *tasks;
+    struct Task **tasks;
     size_t capacity;
     size_t head;
     size_t tail;
@@ -40,8 +55,8 @@ bool task_queue_init(struct TaskQueue *queue, size_t capacity);
 void task_queue_deinit(struct TaskQueue *queue);
 bool task_queue_is_empty(const struct TaskQueue *queue);
 bool task_queue_is_full(const struct TaskQueue *queue);
-bool task_queue_push(struct TaskQueue *queue, const struct Task *task);
-bool task_queue_pop(struct TaskQueue *queue, struct Task *task);
+bool task_queue_push(struct TaskQueue *queue, struct Task *task);
+bool task_queue_pop(struct TaskQueue *queue, struct Task **task);
 
 uint8_t *create_stack(void);
 void destroy_stack(uint8_t *stack);

@@ -41,7 +41,7 @@ static inline size_t next_index(const struct TaskQueue *queue, size_t index) {
 
 static bool task_queue_grow(struct TaskQueue *queue) {
     size_t new_capacity = queue->capacity ? queue->capacity * 2 : 1;
-    struct Task *new_tasks = calloc(new_capacity, sizeof(struct Task));
+    struct Task **new_tasks = calloc(new_capacity, sizeof(struct Task *));
     if (!new_tasks) {
         return false;
     }
@@ -65,7 +65,7 @@ bool task_queue_init(struct TaskQueue *queue, size_t capacity) {
         return false;
     }
 
-    queue->tasks = calloc(capacity, sizeof(struct Task));
+    queue->tasks = calloc(capacity, sizeof(struct Task *));
     if (!queue->tasks) {
         queue->head = 0;
         queue->tail = 0;
@@ -110,7 +110,7 @@ bool task_queue_is_full(const struct TaskQueue *queue) {
     return queue->count == queue->capacity;
 }
 
-bool task_queue_push(struct TaskQueue *queue, const struct Task *task) {
+bool task_queue_push(struct TaskQueue *queue, struct Task *task) {
     if (!queue || !task || queue->capacity == 0) {
         return false;
     }
@@ -121,13 +121,13 @@ bool task_queue_push(struct TaskQueue *queue, const struct Task *task) {
         }
     }
 
-    queue->tasks[queue->tail] = *task;
+    queue->tasks[queue->tail] = task;
     queue->tail = next_index(queue, queue->tail);
     queue->count++;
     return true;
 }
 
-bool task_queue_pop(struct TaskQueue *queue, struct Task *task) {
+bool task_queue_pop(struct TaskQueue *queue, struct Task **task) {
     if (!queue || !task || task_queue_is_empty(queue)) {
         return false;
     }
@@ -212,4 +212,7 @@ void task_cleanup(struct Task *task) {
     task->stack = NULL;
     task->arg = NULL;
     task->arg_size = 0;
+    task->state = TASK_RUNNABLE;
+    task->waiting_fd = -1;
+    task->waiting_events = KAEDE_IO_EVENT_NONE;
 }

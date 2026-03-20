@@ -9,10 +9,16 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(SOURCES
     src/mutex.c
     src/waitgroup.c
+    src/poller_stub.c
     src/task.c
     src/worker.c
     src/runtime.c
 )
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    list(REMOVE_ITEM SOURCES src/poller_stub.c)
+    list(APPEND SOURCES src/poller_epoll.c)
+endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
     list(APPEND SOURCES src/arch/aarch64.c)
