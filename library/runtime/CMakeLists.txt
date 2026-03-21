@@ -18,6 +18,9 @@ set(SOURCES
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     list(REMOVE_ITEM SOURCES src/poller_stub.c)
     list(APPEND SOURCES src/poller_epoll.c)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+    list(REMOVE_ITEM SOURCES src/poller_stub.c)
+    list(APPEND SOURCES src/poller_kqueue.c)
 endif()
 
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")

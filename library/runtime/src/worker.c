@@ -229,16 +229,7 @@ static void remove_task_from_wait_table_locked(struct Task *task) {
 // poller registration for this fd.
 static bool update_poller_interest_locked(int fd, uint32_t old_events,
                                           uint32_t new_events) {
-    if (old_events == new_events) {
-        return true;
-    }
-    if (new_events == KAEDE_IO_EVENT_NONE) {
-        return kaede_poller_del(fd);
-    }
-    if (old_events == KAEDE_IO_EVENT_NONE) {
-        return kaede_poller_add(fd, new_events);
-    }
-    return kaede_poller_mod(fd, new_events);
+    return kaede_poller_set(fd, old_events, new_events);
 }
 
 // Caller must hold scheduler_mutex before moving a task back onto the runnable

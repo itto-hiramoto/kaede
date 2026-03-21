@@ -104,21 +104,25 @@ void kaede_poller_deinit(void) {
     }
 }
 
-bool kaede_poller_add(int fd, uint32_t events) {
-    return poller_ctl(EPOLL_CTL_ADD, fd, events);
-}
-
-bool kaede_poller_mod(int fd, uint32_t events) {
-    return poller_ctl(EPOLL_CTL_MOD, fd, events);
-}
-
-bool kaede_poller_del(int fd) {
-    if (epoll_ctl(poller_fd, EPOLL_CTL_DEL, fd, NULL) == 0) {
+bool kaede_poller_set(int fd, uint32_t old_events, uint32_t new_events) {
+    if (old_events == new_events) {
         return true;
     }
 
-    fprintf(stderr, "epoll_ctl delete failed: %s\n", strerror(errno));
-    return false;
+    if (new_events == KAEDE_IO_EVENT_NONE) {
+        if (epoll_ctl(poller_fd, EPOLL_CTL_DEL, fd, NULL) == 0 || errno == ENOENT) {
+            return true;
+        }
+
+        fprintf(stderr, "epoll_ctl delete failed: %s\n", strerror(errno));
+        return false;
+    }
+
+    if (old_events == KAEDE_IO_EVENT_NONE) {
+        return poller_ctl(EPOLL_CTL_ADD, fd, new_events);
+    }
+
+    return poller_ctl(EPOLL_CTL_MOD, fd, new_events);
 }
 
 int kaede_poller_wait(struct KaedePollEvent *events, int max_events, int timeout_ms) {

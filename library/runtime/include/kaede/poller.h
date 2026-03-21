@@ -11,9 +11,7 @@ struct KaedePollEvent {
 
 bool kaede_poller_init(void);
 void kaede_poller_deinit(void);
-bool kaede_poller_add(int fd, uint32_t events);
-bool kaede_poller_mod(int fd, uint32_t events);
-bool kaede_poller_del(int fd);
+bool kaede_poller_set(int fd, uint32_t old_events, uint32_t new_events);
 int kaede_poller_wait(struct KaedePollEvent *events, int max_events, int timeout_ms);
 bool kaede_poller_wake(void);
 
