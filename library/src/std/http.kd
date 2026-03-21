@@ -865,6 +865,23 @@ fn read_ws_payload(conn: Fd, payload_len: u64, mask_key: [u8]): Option<Vector<u8
     return Option<Vector<u8>>::Some(out)
 }
 
+// Discards a bounded amount of frame body bytes so the server can send a close
+// frame before tearing the connection down on protocol errors.
+fn discard_ws_frame_body(conn: Fd, len: u64): bool {
+    let mut chunk = [0; 256]
+    let mut remaining = len
+
+    while remaining > 0 {
+        let want = if remaining > chunk.len() { chunk.len() } else { remaining }
+        if !read_exact_bytes(conn, chunk, want) {
+            return false
+        }
+        remaining -= want
+    }
+
+    return true
+}
+
 // Reads one client WebSocket frame and validates the minimal protocol rules.
 fn read_ws_frame(conn: Fd): FrameReadResult {
     let mut first_bytes = [0; 2]
@@ -908,6 +925,8 @@ fn read_ws_frame(conn: Fd): FrameReadResult {
     }
 
     if (opcode == 8 || opcode == 9 || opcode == 10) && payload_len > 125 {
+        let discard_len = payload_len + 4
+        let _ = discard_ws_frame_body(conn, discard_len)
         return FrameReadResult::ProtocolError
     }
 
@@ -1529,6 +1548,8 @@ fn handle_conn(conn: Fd, app: App) {
                 write_text_response(conn, true, Status::PayloadTooLarge, b"")
                 break
             }
+            // Request bodies can arrive across multiple socket reads, so consume
+            // exactly Content-Length bytes before dispatching the handler.
             body_len = match std.sys.read_exact(conn, body, content_length as u64) {
                 Option::Some(value) => value,
                 Option::None => break,

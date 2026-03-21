@@ -1,5 +1,7 @@
 #include "sys.h"
 
+#include <kaede/runtime.h>
+
 #include <errno.h>
 #include <fcntl.h>
 #include <stdlib.h>
@@ -12,8 +14,50 @@
 #include <time.h>
 #include <unistd.h>
 
+// Socket I/O has to be non-blocking so EAGAIN can park the current task
+// without blocking the whole worker thread in the kernel.
+static int set_nonblocking(int fd) {
+  for (;;) {
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) {
+      if ((flags & O_NONBLOCK) != 0) {
+        return 0;
+      }
+
+      for (;;) {
+        if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0) {
+          return 0;
+        }
+        if (errno != EINTR) {
+          return -1;
+        }
+      }
+    }
+
+    if (errno != EINTR) {
+      return -1;
+    }
+  }
+}
+
+static sys_fd_t set_nonblocking_or_close(sys_fd_t fd) {
+  if (fd < 0) {
+    return (sys_fd_t)-1;
+  }
+
+  if (set_nonblocking((int)fd) == 0) {
+    return fd;
+  }
+
+  const int saved_errno = errno;
+  (void)close((int)fd);
+  errno = saved_errno;
+  return (sys_fd_t)-1;
+}
+
 sys_fd_t kaede_sys_socket_tcp4(void) {
-  return (sys_fd_t)socket(AF_INET, SOCK_STREAM, 0);
+  return set_nonblocking_or_close(
+      (sys_fd_t)socket(AF_INET, SOCK_STREAM, 0));
 }
 
 int kaede_sys_set_reuseaddr(sys_fd_t fd) {
@@ -48,9 +92,18 @@ sys_fd_t kaede_sys_accept(sys_fd_t listen_fd) {
   for (;;) {
     int c = accept((int)listen_fd, NULL, NULL);
     if (c >= 0)
-      return (sys_fd_t)c;
+      return set_nonblocking_or_close((sys_fd_t)c);
     if (errno == EINTR)
       continue;
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      KaedeIoWaitResult wait_result = kaede_io_wait_readable((int)listen_fd);
+      if (wait_result == KAEDE_IO_WAIT_READY)
+        continue;
+      if (wait_result == KAEDE_IO_WAIT_CLOSED) {
+        errno = EBADF;
+      }
+      return (sys_fd_t)-1;
+    }
     return (sys_fd_t)-1;
   }
 }
@@ -83,6 +136,15 @@ long kaede_sys_read(sys_fd_t fd, void *buf, size_t len) {
       return (long)n;
     if (errno == EINTR)
       continue;
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      KaedeIoWaitResult wait_result = kaede_io_wait_readable((int)fd);
+      if (wait_result == KAEDE_IO_WAIT_READY)
+        continue;
+      if (wait_result == KAEDE_IO_WAIT_CLOSED) {
+        errno = EBADF;
+      }
+      return -1;
+    }
     return -1;
   }
 }
@@ -94,6 +156,15 @@ long kaede_sys_write(sys_fd_t fd, const void *buf, size_t len) {
       return (long)n;
     if (errno == EINTR)
       continue;
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      KaedeIoWaitResult wait_result = kaede_io_wait_writable((int)fd);
+      if (wait_result == KAEDE_IO_WAIT_READY)
+        continue;
+      if (wait_result == KAEDE_IO_WAIT_CLOSED) {
+        errno = EBADF;
+      }
+      return -1;
+    }
     return -1;
   }
 }
@@ -106,7 +177,11 @@ int kaede_sys_is_regular_file(sys_fd_t fd) {
   return S_ISREG(st.st_mode) ? 1 : 0;
 }
 
-int kaede_sys_close(sys_fd_t fd) { return close((int)fd); }
+int kaede_sys_close(sys_fd_t fd) {
+  // Wake tasks parked on this fd so they do not sleep forever after close.
+  kaede_io_forget_fd((int)fd);
+  return close((int)fd);
+}
 
 int kaede_sys_sleep_ms(uint64_t ms) {
   struct timespec req;

@@ -13,7 +13,43 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define STACK_SIZE (64 * 1024) // 64KB
+// Task stacks are fixed-size for now and the whole region is registered as a GC
+// root set, so keep this large enough for ordinary call depth but not so large
+// that thousands of parked tasks become expensive to scan.
+#define STACK_SIZE (256 * 1024) // 256KB
+
+enum TaskState {
+    TASK_RUNNABLE,
+    TASK_WAITING_IO,
+    TASK_FINISHED,
+};
+
+enum KaedeIoEvent {
+    KAEDE_IO_EVENT_NONE = 0,
+    KAEDE_IO_EVENT_READ = 1u << 0,
+    KAEDE_IO_EVENT_WRITE = 1u << 1,
+};
+
+// GC roots tracked for the task stack while the task is alive.
+struct TaskRoots {
+    void *base;
+    void *limit;
+    bool registered;
+};
+
+// Scheduler-owned execution state for queueing and task lifecycle.
+struct TaskSchedulerState {
+    enum TaskState state;
+    bool queued;
+    bool is_main;
+};
+
+// Scheduler-owned I/O wait state for the task's most recent park.
+struct TaskIoWaitState {
+    int fd;
+    uint32_t events;
+    bool wake_success;
+};
 
 struct Task {
     struct Context context;
@@ -21,15 +57,13 @@ struct Task {
     void *arg;
     size_t arg_size;
     uint8_t *stack;
-    void *stack_root_base;
-    void *stack_root_limit;
-    bool roots_registered;
-    bool finished;
-    bool is_main;
+    struct TaskRoots roots;
+    struct TaskSchedulerState scheduler;
+    struct TaskIoWaitState io_wait;
 };
 
 struct TaskQueue {
-    struct Task *tasks;
+    struct Task **tasks;
     size_t capacity;
     size_t head;
     size_t tail;
@@ -40,8 +74,8 @@ bool task_queue_init(struct TaskQueue *queue, size_t capacity);
 void task_queue_deinit(struct TaskQueue *queue);
 bool task_queue_is_empty(const struct TaskQueue *queue);
 bool task_queue_is_full(const struct TaskQueue *queue);
-bool task_queue_push(struct TaskQueue *queue, const struct Task *task);
-bool task_queue_pop(struct TaskQueue *queue, struct Task *task);
+bool task_queue_push(struct TaskQueue *queue, struct Task *task);
+bool task_queue_pop(struct TaskQueue *queue, struct Task **task);
 
 uint8_t *create_stack(void);
 void destroy_stack(uint8_t *stack);

@@ -41,7 +41,7 @@ static inline size_t next_index(const struct TaskQueue *queue, size_t index) {
 
 static bool task_queue_grow(struct TaskQueue *queue) {
     size_t new_capacity = queue->capacity ? queue->capacity * 2 : 1;
-    struct Task *new_tasks = calloc(new_capacity, sizeof(struct Task));
+    struct Task **new_tasks = calloc(new_capacity, sizeof(struct Task *));
     if (!new_tasks) {
         return false;
     }
@@ -65,7 +65,7 @@ bool task_queue_init(struct TaskQueue *queue, size_t capacity) {
         return false;
     }
 
-    queue->tasks = calloc(capacity, sizeof(struct Task));
+    queue->tasks = calloc(capacity, sizeof(struct Task *));
     if (!queue->tasks) {
         queue->head = 0;
         queue->tail = 0;
@@ -110,9 +110,13 @@ bool task_queue_is_full(const struct TaskQueue *queue) {
     return queue->count == queue->capacity;
 }
 
-bool task_queue_push(struct TaskQueue *queue, const struct Task *task) {
+bool task_queue_push(struct TaskQueue *queue, struct Task *task) {
     if (!queue || !task || queue->capacity == 0) {
         return false;
+    }
+
+    if (task->scheduler.queued) {
+        return true;
     }
 
     if (task_queue_is_full(queue)) {
@@ -121,13 +125,14 @@ bool task_queue_push(struct TaskQueue *queue, const struct Task *task) {
         }
     }
 
-    queue->tasks[queue->tail] = *task;
+    queue->tasks[queue->tail] = task;
     queue->tail = next_index(queue, queue->tail);
     queue->count++;
+    task->scheduler.queued = true;
     return true;
 }
 
-bool task_queue_pop(struct TaskQueue *queue, struct Task *task) {
+bool task_queue_pop(struct TaskQueue *queue, struct Task **task) {
     if (!queue || !task || task_queue_is_empty(queue)) {
         return false;
     }
@@ -135,6 +140,7 @@ bool task_queue_pop(struct TaskQueue *queue, struct Task *task) {
     *task = queue->tasks[queue->head];
     queue->head = next_index(queue, queue->head);
     queue->count--;
+    (*task)->scheduler.queued = false;
     return true;
 }
 
@@ -178,7 +184,7 @@ void destroy_stack(uint8_t *stack) {
 }
 
 void task_register_stack_roots(struct Task *task) {
-    if (!task || !task->stack || task->roots_registered) {
+    if (!task || !task->stack || task->roots.registered) {
         return;
     }
 
@@ -187,20 +193,20 @@ void task_register_stack_roots(struct Task *task) {
     get_stack_root_range(task->stack, &root_base, &root_limit);
 
     GC_add_roots(root_base, root_limit);
-    task->stack_root_base = root_base;
-    task->stack_root_limit = root_limit;
-    task->roots_registered = true;
+    task->roots.base = root_base;
+    task->roots.limit = root_limit;
+    task->roots.registered = true;
 }
 
 void task_unregister_stack_roots(struct Task *task) {
-    if (!task || !task->roots_registered) {
+    if (!task || !task->roots.registered) {
         return;
     }
 
-    GC_remove_roots(task->stack_root_base, task->stack_root_limit);
-    task->stack_root_base = NULL;
-    task->stack_root_limit = NULL;
-    task->roots_registered = false;
+    GC_remove_roots(task->roots.base, task->roots.limit);
+    task->roots.base = NULL;
+    task->roots.limit = NULL;
+    task->roots.registered = false;
 }
 
 void task_cleanup(struct Task *task) {
@@ -212,4 +218,9 @@ void task_cleanup(struct Task *task) {
     task->stack = NULL;
     task->arg = NULL;
     task->arg_size = 0;
+    task->scheduler.state = TASK_RUNNABLE;
+    task->scheduler.queued = false;
+    task->io_wait.fd = -1;
+    task->io_wait.events = KAEDE_IO_EVENT_NONE;
+    task->io_wait.wake_success = false;
 }

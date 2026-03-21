@@ -135,6 +135,8 @@ fn write_all(fd: Fd, buf: [u8]): Option<u64> {
     let total = buf.len()
 
     while off < total {
+        // Short writes are normal on sockets, so keep advancing until all bytes
+        // are written or the syscall reports failure.
         let ptr = __ptr_add(buf.as_ptr(), off)
         let rem = total - off
 
@@ -190,7 +192,8 @@ pub fn read_until(fd: Fd, buf: mut [u8], delim: [u8]): Option<u64> {
             panic("read_until: buffer full")
         }
 
-        // Read 1 byte at a time to avoid consuming beyond the delimiter
+        // Read 1 byte at a time so HTTP keep-alive parsing does not consume
+        // bytes that belong to the next request on the same connection.
         let mut tail = buf[filled:(filled + 1)]
         let n = match std.sys.read(fd, tail) {
             Option::Some(value) => value,
