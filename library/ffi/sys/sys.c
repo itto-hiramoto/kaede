@@ -96,9 +96,13 @@ sys_fd_t kaede_sys_accept(sys_fd_t listen_fd) {
     if (errno == EINTR)
       continue;
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      if (!kaede_io_wait_readable((int)listen_fd))
-        return (sys_fd_t)-1;
-      continue;
+      KaedeIoWaitResult wait_result = kaede_io_wait_readable((int)listen_fd);
+      if (wait_result == KAEDE_IO_WAIT_READY)
+        continue;
+      if (wait_result == KAEDE_IO_WAIT_CLOSED) {
+        errno = EBADF;
+      }
+      return (sys_fd_t)-1;
     }
     return (sys_fd_t)-1;
   }
@@ -133,9 +137,13 @@ long kaede_sys_read(sys_fd_t fd, void *buf, size_t len) {
     if (errno == EINTR)
       continue;
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      if (!kaede_io_wait_readable((int)fd))
-        return -1;
-      continue;
+      KaedeIoWaitResult wait_result = kaede_io_wait_readable((int)fd);
+      if (wait_result == KAEDE_IO_WAIT_READY)
+        continue;
+      if (wait_result == KAEDE_IO_WAIT_CLOSED) {
+        errno = EBADF;
+      }
+      return -1;
     }
     return -1;
   }
@@ -149,9 +157,13 @@ long kaede_sys_write(sys_fd_t fd, const void *buf, size_t len) {
     if (errno == EINTR)
       continue;
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
-      if (!kaede_io_wait_writable((int)fd))
-        return -1;
-      continue;
+      KaedeIoWaitResult wait_result = kaede_io_wait_writable((int)fd);
+      if (wait_result == KAEDE_IO_WAIT_READY)
+        continue;
+      if (wait_result == KAEDE_IO_WAIT_CLOSED) {
+        errno = EBADF;
+      }
+      return -1;
     }
     return -1;
   }

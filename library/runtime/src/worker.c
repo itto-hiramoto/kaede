@@ -1,7 +1,7 @@
+#include <gc/gc.h>
 #include <kaede/poller.h>
 #include <kaede/task.h>
 #include <kaede/worker.h>
-#include <gc/gc.h>
 #include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -31,6 +31,9 @@ struct Worker {
     struct Context context;
     void *gc_thread_handle;
     struct GC_stack_base gc_stack_base;
+    // The state the current task yielded back to the scheduler with.
+    enum TaskState yielded_state;
+    bool returned_with_scheduler_lock;
 };
 
 struct IoWaitEntry {
@@ -60,7 +63,7 @@ static void cleanup_task(struct Task *task) {
         return;
     }
 
-    task->state = TASK_FINISHED;
+    task->scheduler.state = TASK_FINISHED;
     task_cleanup(task);
     free(task);
 }
@@ -140,7 +143,8 @@ static bool io_wait_table_grow(struct IoWaitTable *table) {
     return true;
 }
 
-static struct IoWaitEntry *io_wait_table_find(struct IoWaitTable *table, int fd) {
+static struct IoWaitEntry *io_wait_table_find(struct IoWaitTable *table,
+                                              int fd) {
     for (size_t i = 0; i < table->capacity; ++i) {
         if (table->entries[i].in_use && table->entries[i].fd == fd) {
             return &table->entries[i];
@@ -149,8 +153,8 @@ static struct IoWaitEntry *io_wait_table_find(struct IoWaitTable *table, int fd)
     return NULL;
 }
 
-static struct IoWaitEntry *io_wait_table_get_or_insert(struct IoWaitTable *table,
-                                                       int fd) {
+static struct IoWaitEntry *
+io_wait_table_get_or_insert(struct IoWaitTable *table, int fd) {
     struct IoWaitEntry *entry = io_wait_table_find(table, fd);
     if (entry) {
         return entry;
@@ -199,32 +203,6 @@ static void io_wait_entry_clear_task(struct IoWaitEntry *entry,
     }
 }
 
-static void remove_task_from_wait_table_locked(struct Task *task) {
-    if (!task || task->waiting_fd < 0) {
-        return;
-    }
-
-    struct IoWaitEntry *entry = io_wait_table_find(&io_waits, task->waiting_fd);
-    if (!entry) {
-        task->waiting_fd = -1;
-        task->waiting_events = KAEDE_IO_EVENT_NONE;
-        return;
-    }
-
-    const uint32_t old_events = io_wait_entry_events(entry);
-    io_wait_entry_clear_task(entry, task);
-    const uint32_t new_events = io_wait_entry_events(entry);
-    if (!update_poller_interest_locked(task->waiting_fd, old_events, new_events)) {
-        fail_runtime("Failed to update poller interest while removing task");
-    }
-    if (new_events == KAEDE_IO_EVENT_NONE) {
-        io_wait_table_remove_entry(&io_waits, entry);
-    }
-
-    task->waiting_fd = -1;
-    task->waiting_events = KAEDE_IO_EVENT_NONE;
-}
-
 // Caller must hold scheduler_mutex while reconciling wait-table state with the
 // poller registration for this fd.
 static bool update_poller_interest_locked(int fd, uint32_t old_events,
@@ -235,15 +213,16 @@ static bool update_poller_interest_locked(int fd, uint32_t old_events,
 // Caller must hold scheduler_mutex before moving a task back onto the runnable
 // queue.
 static bool enqueue_runnable_task_locked(struct Task *task) {
-    task->state = TASK_RUNNABLE;
-    task->waiting_fd = -1;
-    task->waiting_events = KAEDE_IO_EVENT_NONE;
+    task->scheduler.state = TASK_RUNNABLE;
+    task->io_wait.fd = -1;
+    task->io_wait.events = KAEDE_IO_EVENT_NONE;
     return task_queue_push(&runnable_tasks, task);
 }
 
 // Caller must hold scheduler_mutex while waking tasks and updating the shared
 // wait-table / poller state for the fd.
-static size_t wake_waiting_tasks_locked(int fd, uint32_t ready_events) {
+static size_t wake_waiting_tasks_locked(int fd, uint32_t ready_events,
+                                        bool wake_success) {
     struct IoWaitEntry *entry = io_wait_table_find(&io_waits, fd);
     if (!entry) {
         return 0;
@@ -276,6 +255,7 @@ static size_t wake_waiting_tasks_locked(int fd, uint32_t ready_events) {
     }
 
     for (size_t i = 0; i < wake_count; ++i) {
+        tasks_to_wake[i]->io_wait.wake_success = wake_success;
         if (!enqueue_runnable_task_locked(tasks_to_wake[i])) {
             fail_runtime("Failed to enqueue runnable task");
         }
@@ -295,7 +275,8 @@ void worker_forget_fd(int fd) {
 
     pthread_mutex_lock(&scheduler_mutex);
     const bool should_wake_poller =
-        wake_waiting_tasks_locked(fd, KAEDE_IO_EVENT_READ | KAEDE_IO_EVENT_WRITE) > 0 &&
+        wake_waiting_tasks_locked(
+            fd, KAEDE_IO_EVENT_READ | KAEDE_IO_EVENT_WRITE, false) > 0 &&
         poller_waiter_active;
     pthread_mutex_unlock(&scheduler_mutex);
     if (should_wake_poller) {
@@ -338,8 +319,10 @@ static void task_finished(void) {
         return;
     }
 
-    worker.current_task->state = TASK_FINISHED;
-    if (worker.current_task->is_main) {
+    worker.current_task->scheduler.state = TASK_FINISHED;
+    worker.yielded_state = TASK_FINISHED;
+    worker.returned_with_scheduler_lock = false;
+    if (worker.current_task->scheduler.is_main) {
         pthread_mutex_lock(&main_mutex);
         main_finished = true;
         pthread_cond_broadcast(&main_cond);
@@ -446,7 +429,8 @@ static void worker_loop_impl(int worker_id) {
                 poller_waiter_active = true;
                 pthread_mutex_unlock(&scheduler_mutex);
 
-                const int ready = kaede_poller_wait(events, MAX_POLLER_EVENTS, -1);
+                const int ready =
+                    kaede_poller_wait(events, MAX_POLLER_EVENTS, -1);
 
                 pthread_mutex_lock(&scheduler_mutex);
                 poller_waiter_active = false;
@@ -463,7 +447,8 @@ static void worker_loop_impl(int worker_id) {
                 }
 
                 for (int i = 0; i < ready; ++i) {
-                    (void)wake_waiting_tasks_locked(events[i].fd, events[i].events);
+                    (void)wake_waiting_tasks_locked(events[i].fd,
+                                                    events[i].events, true);
                 }
                 continue;
             }
@@ -487,20 +472,27 @@ static void worker_loop_impl(int worker_id) {
         }
 
         worker.current_task = NULL;
+        // Use the state captured at yield time instead of re-reading task state
+        // after a cross-worker resume.
+        const enum TaskState yielded_state = worker.yielded_state;
+        const bool returned_with_scheduler_lock =
+            worker.returned_with_scheduler_lock;
+        worker.returned_with_scheduler_lock = false;
+
+        if (returned_with_scheduler_lock) {
+            pthread_mutex_unlock(&scheduler_mutex);
+        }
 
         pthread_mutex_lock(&scheduler_mutex);
         const bool should_shutdown = shutdown_requested;
-        if (should_shutdown && task->state == TASK_WAITING_IO) {
-            remove_task_from_wait_table_locked(task);
-        }
         pthread_mutex_unlock(&scheduler_mutex);
 
-        if (should_shutdown) {
+        if (should_shutdown && yielded_state != TASK_WAITING_IO) {
             cleanup_task(task);
             continue;
         }
 
-        switch (task->state) {
+        switch (yielded_state) {
         case TASK_RUNNABLE:
             pthread_mutex_lock(&scheduler_mutex);
             if (!task_queue_push(&runnable_tasks, task)) {
@@ -530,28 +522,35 @@ void *worker_loop(void *arg) {
     return NULL;
 }
 
-bool worker_park_current_on_io(int fd, uint32_t events) {
+KaedeIoWaitResult worker_park_current_on_io(int fd, uint32_t events) {
     if (!worker.current_task || events == KAEDE_IO_EVENT_NONE) {
-        return false;
+        return KAEDE_IO_WAIT_FAILED;
     }
+
+    // `context_switch()` may suspend here and resume this frame on a different
+    // worker thread, so snapshot task/worker-owned state before touching TLS.
+    struct Task *task = worker.current_task;
+    struct Context *worker_context = &worker.context;
+    void *gc_thread_handle = worker.gc_thread_handle;
+    struct GC_stack_base *gc_stack_base = &worker.gc_stack_base;
 
     pthread_mutex_lock(&scheduler_mutex);
 
     if (shutdown_requested) {
         pthread_mutex_unlock(&scheduler_mutex);
-        return false;
+        return KAEDE_IO_WAIT_FAILED;
     }
 
     struct IoWaitEntry *entry = io_wait_table_get_or_insert(&io_waits, fd);
     if (!entry) {
         pthread_mutex_unlock(&scheduler_mutex);
-        return false;
+        return KAEDE_IO_WAIT_FAILED;
     }
 
     if (((events & KAEDE_IO_EVENT_READ) != 0 && entry->read_task) ||
         ((events & KAEDE_IO_EVENT_WRITE) != 0 && entry->write_task)) {
         pthread_mutex_unlock(&scheduler_mutex);
-        return false;
+        return KAEDE_IO_WAIT_FAILED;
     }
 
     const uint32_t old_events = io_wait_entry_events(entry);
@@ -562,30 +561,34 @@ bool worker_park_current_on_io(int fd, uint32_t events) {
             io_wait_table_remove_entry(&io_waits, entry);
         }
         pthread_mutex_unlock(&scheduler_mutex);
-        return false;
+        return KAEDE_IO_WAIT_FAILED;
     }
 
     if ((events & KAEDE_IO_EVENT_READ) != 0) {
-        entry->read_task = worker.current_task;
+        entry->read_task = task;
     }
     if ((events & KAEDE_IO_EVENT_WRITE) != 0) {
-        entry->write_task = worker.current_task;
+        entry->write_task = task;
     }
 
-    worker.current_task->state = TASK_WAITING_IO;
-    worker.current_task->waiting_fd = fd;
-    worker.current_task->waiting_events = events;
+    task->scheduler.state = TASK_WAITING_IO;
+    task->io_wait.fd = fd;
+    task->io_wait.events = events;
+    task->io_wait.wake_success = false;
+    worker.yielded_state = TASK_WAITING_IO;
+    worker.returned_with_scheduler_lock = true;
 
-    pthread_mutex_unlock(&scheduler_mutex);
-
-    if (worker.gc_thread_handle) {
-        GC_set_stackbottom(worker.gc_thread_handle, &worker.gc_stack_base);
+    if (gc_thread_handle) {
+        GC_set_stackbottom(gc_thread_handle, gc_stack_base);
     }
-    context_switch(&worker.current_task->context, &worker.context);
-    return true;
+    context_switch(&task->context, worker_context);
+    return task->io_wait.wake_success ? KAEDE_IO_WAIT_READY
+                                      : KAEDE_IO_WAIT_CLOSED;
 }
 
 void worker_yield(void) {
+    worker.yielded_state = TASK_RUNNABLE;
+    worker.returned_with_scheduler_lock = false;
     if (worker.gc_thread_handle) {
         GC_set_stackbottom(worker.gc_thread_handle, &worker.gc_stack_base);
     }
@@ -625,11 +628,12 @@ bool worker_spawn(TaskFn fn, void *arg, size_t arg_size, bool is_main) {
     task->arg = arg_on_stack;
     task->arg_size = arg_size;
     task->stack = stack;
-    task->finished = false;
-    task->state = TASK_RUNNABLE;
-    task->waiting_fd = -1;
-    task->waiting_events = KAEDE_IO_EVENT_NONE;
-    task->is_main = is_main;
+    task->scheduler.state = TASK_RUNNABLE;
+    task->scheduler.queued = false;
+    task->scheduler.is_main = is_main;
+    task->io_wait.fd = -1;
+    task->io_wait.events = KAEDE_IO_EVENT_NONE;
+    task->io_wait.wake_success = false;
     create_context(&task->context, fn, arg_on_stack, stack_top);
     task_register_stack_roots(task);
 
@@ -725,6 +729,4 @@ void kaede_spawn_with_arg(TaskFn fn, void *arg, size_t arg_size) {
     }
 }
 
-void kaede_yield(void) {
-    worker_yield();
-}
+void kaede_yield(void) { worker_yield(); }

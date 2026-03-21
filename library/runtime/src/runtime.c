@@ -1,8 +1,8 @@
+#include <errno.h>
 #include <gc/gc.h>
 #include <kaede/runtime.h>
 #include <kaede/task.h>
 #include <kaede/worker.h>
-#include <errno.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdint.h>
@@ -52,8 +52,8 @@ int kaede_runtime_run(void) {
     }
 
     for (int worker_id = 0; worker_id < runtime_threads; ++worker_id) {
-        if (pthread_create(&runtime_worker_threads[worker_id], NULL, worker_loop,
-                           (void *)(intptr_t)worker_id) != 0) {
+        if (pthread_create(&runtime_worker_threads[worker_id], NULL,
+                           worker_loop, (void *)(intptr_t)worker_id) != 0) {
             fprintf(stderr, "Failed to create worker thread\n");
             worker_request_shutdown();
             for (int i = 0; i < runtime_started_threads; ++i) {
@@ -86,14 +86,12 @@ void kaede_runtime_shutdown(void) {
     worker_deinit();
 }
 
-bool kaede_io_wait_readable(int fd) {
+KaedeIoWaitResult kaede_io_wait_readable(int fd) {
     return worker_park_current_on_io(fd, KAEDE_IO_EVENT_READ);
 }
 
-bool kaede_io_wait_writable(int fd) {
+KaedeIoWaitResult kaede_io_wait_writable(int fd) {
     return worker_park_current_on_io(fd, KAEDE_IO_EVENT_WRITE);
 }
 
-void kaede_io_forget_fd(int fd) {
-    worker_forget_fd(fd);
-}
+void kaede_io_forget_fd(int fd) { worker_forget_fd(fd); }

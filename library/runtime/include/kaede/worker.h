@@ -10,7 +10,7 @@ void worker_deinit(void);
 void worker_request_shutdown(void);
 void *worker_loop(void *arg);
 bool worker_spawn(TaskFn fn, void *arg, size_t arg_size, bool is_main);
-bool worker_park_current_on_io(int fd, uint32_t events);
+KaedeIoWaitResult worker_park_current_on_io(int fd, uint32_t events);
 void worker_forget_fd(int fd);
 void worker_yield(void);
 void worker_reset_main_state(void);

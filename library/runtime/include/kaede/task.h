@@ -30,20 +30,36 @@ enum KaedeIoEvent {
     KAEDE_IO_EVENT_WRITE = 1u << 1,
 };
 
+// GC roots tracked for the task stack while the task is alive.
+struct TaskRoots {
+    void *base;
+    void *limit;
+    bool registered;
+};
+
+// Scheduler-owned execution state for queueing and task lifecycle.
+struct TaskSchedulerState {
+    enum TaskState state;
+    bool queued;
+    bool is_main;
+};
+
+// Scheduler-owned I/O wait state for the task's most recent park.
+struct TaskIoWaitState {
+    int fd;
+    uint32_t events;
+    bool wake_success;
+};
+
 struct Task {
     struct Context context;
     TaskFn fn;
     void *arg;
     size_t arg_size;
     uint8_t *stack;
-    void *stack_root_base;
-    void *stack_root_limit;
-    bool roots_registered;
-    bool finished;
-    enum TaskState state;
-    int waiting_fd;
-    uint32_t waiting_events;
-    bool is_main;
+    struct TaskRoots roots;
+    struct TaskSchedulerState scheduler;
+    struct TaskIoWaitState io_wait;
 };
 
 struct TaskQueue {
