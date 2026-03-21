@@ -2,6 +2,7 @@
 #define KAEDE_WORKER_H
 
 #include <kaede/runtime.h>
+#include <kaede/task.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -12,6 +13,13 @@ void *worker_loop(void *arg);
 bool worker_spawn(TaskFn fn, void *arg, size_t arg_size, bool is_main);
 KaedeIoWaitResult worker_park_current_on_io(int fd, uint32_t events);
 void worker_forget_fd(int fd);
+void worker_scheduler_lock(void);
+void worker_scheduler_unlock(void);
+bool worker_shutdown_requested_locked(void);
+struct Task *worker_current_task(void);
+bool worker_park_current_on_channel_locked(void *obj, uint32_t wait_kind,
+                                           void *value_slot);
+bool worker_wake_task_locked(struct Task *task, bool success);
 void worker_yield(void);
 void worker_reset_main_state(void);
 int worker_wait_for_main(void);

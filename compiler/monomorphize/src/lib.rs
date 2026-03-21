@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use anyhow::anyhow;
 use kaede_ir::{
-    expr::{Else, Expr, ExprKind, FnCall, If},
+    expr::{BuiltinFnCallKind, Else, Expr, ExprKind, FnCall, If},
     stmt::{Block, Stmt},
     top::TopLevel,
     ty::contains_type_var,
@@ -394,6 +394,13 @@ impl Monomorphizer {
             ExprKind::Loop(loop_expr) => self.rewrite_block(&mut loop_expr.body)?,
             ExprKind::Block(block) => self.rewrite_block(block)?,
             ExprKind::BuiltinFnCall(call) => {
+                if let BuiltinFnCallKind::TypeSize(ty) = &call.kind {
+                    if contains_type_var(ty) {
+                        return Err(anyhow!(
+                            "unresolved generic arguments at monomorphize: __type_size"
+                        ));
+                    }
+                }
                 for arg in &mut call.args.0 {
                     self.rewrite_expr(arg)?;
                 }

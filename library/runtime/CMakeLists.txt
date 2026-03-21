@@ -9,6 +9,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(SOURCES
     src/mutex.c
     src/waitgroup.c
+    src/channel.c
     src/poller_stub.c
     src/task.c
     src/worker.c

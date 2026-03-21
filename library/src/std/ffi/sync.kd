@@ -8,3 +8,12 @@ pub extern "C" fn kaede_wg_new(): *i8
 pub extern "C" fn kaede_wg_add(wg: *i8, delta: i32)
 pub extern "C" fn kaede_wg_done(wg: *i8)
 pub extern "C" fn kaede_wg_wait(wg: *i8)
+
+// Channel FFI
+pub extern "C" fn kaede_chan_new(elem_size: u64, capacity: u64): *i8
+pub extern "C" fn kaede_chan_send(ch: *i8, value: *i8): i32
+pub extern "C" fn kaede_chan_try_send(ch: *i8, value: *i8): i32
+pub extern "C" fn kaede_chan_recv(ch: *i8, out: *i8): i32
+pub extern "C" fn kaede_chan_try_recv(ch: *i8, out: *i8): i32
+pub extern "C" fn kaede_chan_close(ch: *i8)
+pub extern "C" fn kaede_chan_is_closed(ch: *i8): i32

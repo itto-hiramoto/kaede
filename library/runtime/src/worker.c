@@ -216,6 +216,10 @@ static bool enqueue_runnable_task_locked(struct Task *task) {
     task->scheduler.state = TASK_RUNNABLE;
     task->io_wait.fd = -1;
     task->io_wait.events = KAEDE_IO_EVENT_NONE;
+    task->channel_wait.obj = NULL;
+    task->channel_wait.kind = KAEDE_TASK_WAIT_NONE;
+    task->channel_wait.value_slot = NULL;
+    task->channel_wait.next = NULL;
     return task_queue_push(&runnable_tasks, task);
 }
 
@@ -503,6 +507,7 @@ static void worker_loop_impl(int worker_id) {
             pthread_mutex_unlock(&scheduler_mutex);
             break;
         case TASK_WAITING_IO:
+        case TASK_WAITING_CHANNEL:
             break;
         case TASK_FINISHED:
             task_cleanup(task);
@@ -595,6 +600,64 @@ void worker_yield(void) {
     context_switch(&worker.current_task->context, &worker.context);
 }
 
+void worker_scheduler_lock(void) {
+    pthread_mutex_lock(&scheduler_mutex);
+}
+
+void worker_scheduler_unlock(void) {
+    pthread_mutex_unlock(&scheduler_mutex);
+}
+
+bool worker_shutdown_requested_locked(void) {
+    return shutdown_requested;
+}
+
+struct Task *worker_current_task(void) {
+    return worker.current_task;
+}
+
+bool worker_park_current_on_channel_locked(void *obj, uint32_t wait_kind,
+                                           void *value_slot) {
+    if (!worker.current_task || wait_kind == KAEDE_TASK_WAIT_NONE ||
+        shutdown_requested) {
+        pthread_mutex_unlock(&scheduler_mutex);
+        return false;
+    }
+
+    struct Task *task = worker.current_task;
+    struct Context *worker_context = &worker.context;
+    void *gc_thread_handle = worker.gc_thread_handle;
+    struct GC_stack_base *gc_stack_base = &worker.gc_stack_base;
+
+    task->scheduler.state = TASK_WAITING_CHANNEL;
+    task->channel_wait.obj = obj;
+    task->channel_wait.kind = wait_kind;
+    task->channel_wait.value_slot = value_slot;
+    task->channel_wait.wake_success = false;
+    worker.yielded_state = TASK_WAITING_CHANNEL;
+    worker.returned_with_scheduler_lock = true;
+
+    if (gc_thread_handle) {
+        GC_set_stackbottom(gc_thread_handle, gc_stack_base);
+    }
+    context_switch(&task->context, worker_context);
+    return task->channel_wait.wake_success;
+}
+
+bool worker_wake_task_locked(struct Task *task, bool success) {
+    if (!task || task->scheduler.state != TASK_WAITING_CHANNEL) {
+        return false;
+    }
+
+    task->channel_wait.wake_success = success;
+    if (!enqueue_runnable_task_locked(task)) {
+        return false;
+    }
+
+    pthread_cond_signal(&scheduler_cond);
+    return true;
+}
+
 bool worker_spawn(TaskFn fn, void *arg, size_t arg_size, bool is_main) {
     if (!worker_init()) {
         fprintf(stderr, "Failed to initialize worker/runtime\n");
@@ -634,6 +697,11 @@ bool worker_spawn(TaskFn fn, void *arg, size_t arg_size, bool is_main) {
     task->io_wait.fd = -1;
     task->io_wait.events = KAEDE_IO_EVENT_NONE;
     task->io_wait.wake_success = false;
+    task->channel_wait.obj = NULL;
+    task->channel_wait.kind = KAEDE_TASK_WAIT_NONE;
+    task->channel_wait.value_slot = NULL;
+    task->channel_wait.wake_success = false;
+    task->channel_wait.next = NULL;
     create_context(&task->context, fn, arg_on_stack, stack_top);
     task_register_stack_roots(task);
 

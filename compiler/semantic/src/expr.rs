@@ -1637,6 +1637,54 @@ impl SemanticAnalyzer {
                 )
             }
 
+            "__type_size" => {
+                if let Some(name) = keyword_arg {
+                    return keyword_error(name);
+                }
+
+                Some((|| -> anyhow::Result<ir::expr::Expr> {
+                    if !node.args.args.is_empty() {
+                        return Err(SemanticError::TooManyArguments {
+                            name: callee.symbol(),
+                            span: node.span,
+                        }
+                        .into());
+                    }
+
+                    let generic_args = node.generic_args.as_ref().ok_or(
+                        SemanticError::GenericArgumentLengthMismatch {
+                            expected: 1,
+                            actual: 0,
+                            span: node.span,
+                        },
+                    )?;
+
+                    if generic_args.types.len() != 1 {
+                        return Err(SemanticError::GenericArgumentLengthMismatch {
+                            expected: 1,
+                            actual: generic_args.types.len(),
+                            span: generic_args.span,
+                        }
+                        .into());
+                    }
+
+                    let target_ty = self.analyze_type(&generic_args.types[0])?;
+
+                    Ok(ir::expr::Expr {
+                        ty: Rc::new(ir_type::make_fundamental_type(
+                            ir_type::FundamentalTypeKind::U64,
+                            ir_type::Mutability::Not,
+                        )),
+                        kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                            kind: ir::expr::BuiltinFnCallKind::TypeSize(target_ty),
+                            args: ir::expr::Args(vec![], node.span),
+                            span: node.span,
+                        }),
+                        span: node.span,
+                    })
+                })())
+            }
+
             "panic" => {
                 if let Some(name) = keyword_arg {
                     return keyword_error(name);

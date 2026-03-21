@@ -280,6 +280,21 @@ impl<'ctx> CodeGenerator<'ctx> {
                 Ok(Some(size_u64.as_basic_value_enum()))
             }
 
+            BuiltinFnCallKind::TypeSize(ty) => {
+                let llvm_ty = self.conv_to_llvm_type(ty);
+                let size_val = llvm_ty.size_of().unwrap();
+                let u64_ty = self.context().i64_type();
+
+                let size_u64 = if size_val.get_type() == u64_ty {
+                    size_val
+                } else {
+                    self.builder
+                        .build_int_cast(size_val, u64_ty, "type_size.cast")?
+                };
+
+                Ok(Some(size_u64.as_basic_value_enum()))
+            }
+
             BuiltinFnCallKind::Panic => {
                 self.build_panic(node)?;
                 Ok(None)
