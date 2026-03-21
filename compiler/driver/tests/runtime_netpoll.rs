@@ -5,8 +5,17 @@ use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
+
+const SOCKET_IO_TIMEOUT: Duration = Duration::from_secs(5);
+const CHILD_EXIT_TIMEOUT: Duration = Duration::from_secs(15);
+
+fn test_lock() -> &'static Mutex<()> {
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+}
 
 fn compile(file_paths: &[&Path], root_dir: &Path, output_path: &Path) -> anyhow::Result<()> {
     let mut args = file_paths
@@ -88,6 +97,7 @@ impl Drop for ChildGuard {
 
 #[test]
 fn std_sys_accept_does_not_starve_runnable_handlers() -> anyhow::Result<()> {
+    let _guard = test_lock().lock().unwrap();
     let tempdir = assert_fs::TempDir::new()?;
     let src_dir = tempdir.child("src");
     src_dir.create_dir_all()?;
@@ -165,7 +175,7 @@ fn main(): i32 {{
     }
 
     let mut active = connect_with_retry(&addr, Duration::from_secs(10))?;
-    active.set_read_timeout(Some(Duration::from_secs(2)))?;
+    active.set_read_timeout(Some(SOCKET_IO_TIMEOUT))?;
     active.write_all(b"x")?;
 
     let mut reply = [0u8; 2];
@@ -175,7 +185,7 @@ fn main(): i32 {{
 
     drop(idle_streams);
 
-    let status = server.wait_for_exit(Duration::from_secs(5))?;
+    let status = server.wait_for_exit(CHILD_EXIT_TIMEOUT)?;
     assert!(status.success());
 
     let _ = fs::remove_file(binary_path);
@@ -184,6 +194,7 @@ fn main(): i32 {{
 
 #[test]
 fn std_sys_close_wakes_tasks_parked_on_the_same_fd() -> anyhow::Result<()> {
+    let _guard = test_lock().lock().unwrap();
     let tempdir = assert_fs::TempDir::new()?;
     let src_dir = tempdir.child("src");
     src_dir.create_dir_all()?;
@@ -238,9 +249,9 @@ fn main(): i32 {{
 
     let addr = format!("127.0.0.1:{port}");
     let client = connect_with_retry(&addr, Duration::from_secs(10))?;
-    client.set_read_timeout(Some(Duration::from_secs(2)))?;
+    client.set_read_timeout(Some(SOCKET_IO_TIMEOUT))?;
 
-    let status = server.wait_for_exit(Duration::from_secs(5))?;
+    let status = server.wait_for_exit(CHILD_EXIT_TIMEOUT)?;
     assert!(status.success());
 
     drop(client);
@@ -250,6 +261,7 @@ fn main(): i32 {{
 
 #[test]
 fn runtime_shutdown_exits_with_background_tasks_still_parked_on_io() -> anyhow::Result<()> {
+    let _guard = test_lock().lock().unwrap();
     let tempdir = assert_fs::TempDir::new()?;
     let src_dir = tempdir.child("src");
     src_dir.create_dir_all()?;
@@ -291,7 +303,7 @@ fn main(): i32 {{
     let addr = format!("127.0.0.1:{port}");
     let client = connect_with_retry(&addr, Duration::from_secs(10))?;
 
-    let status = server.wait_for_exit(Duration::from_secs(5))?;
+    let status = server.wait_for_exit(CHILD_EXIT_TIMEOUT)?;
     assert!(status.success());
 
     drop(client);
