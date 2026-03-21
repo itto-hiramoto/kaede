@@ -13,7 +13,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define STACK_SIZE (64 * 1024) // 64KB
+// Task stacks are fixed-size for now and the whole region is registered as a GC
+// root set, so keep this large enough for ordinary call depth but not so large
+// that thousands of parked tasks become expensive to scan.
+#define STACK_SIZE (256 * 1024) // 256KB
 
 enum TaskState {
     TASK_RUNNABLE,
