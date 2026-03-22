@@ -308,7 +308,10 @@ impl Cursor<'_> {
             '^' => self.create_token(TokenKind::Caret),
             '~' => self.create_token(TokenKind::Tilde),
             '<' => {
-                if self.first() == '=' {
+                if self.first() == '-' {
+                    self.bump().unwrap();
+                    self.create_token(TokenKind::LeftArrow)
+                } else if self.first() == '=' {
                     // <=
                     self.bump().unwrap();
                     self.create_token(TokenKind::Le)

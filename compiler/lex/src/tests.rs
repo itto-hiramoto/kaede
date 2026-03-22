@@ -83,6 +83,23 @@ fn punct() {
 }
 
 #[test]
+fn left_arrow() {
+    lex_test(
+        "ch <- value\n<-ch",
+        vec![
+            Ident("ch".to_string()),
+            LeftArrow,
+            Ident("value".to_string()),
+            Semi,
+            LeftArrow,
+            Ident("ch".to_string()),
+            Semi,
+            Eoi,
+        ],
+    );
+}
+
+#[test]
 fn span() {
     let mut r = Lexer::new("\n48 + 10;", PathBuf::from("test").into())
         .run()

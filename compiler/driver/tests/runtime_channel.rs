@@ -88,6 +88,38 @@ fn main(): i32 {
 }
 
 #[test]
+fn channel_syntax_hands_off_values_between_tasks() -> anyhow::Result<()> {
+    test(
+        0,
+        r#"import std.sync
+import std.option
+
+use std.sync.Channel
+use std.option.Option
+
+fn producer(ch: Channel<i32>) {
+    ch <- 42
+}
+
+fn main(): i32 {
+    let ch = Channel<i32>::new()
+    spawn producer(ch)
+
+    let value = match <-ch {
+        Option::Some(v) => v,
+        Option::None => return 1,
+    }
+
+    if value != 42 {
+        return 2
+    }
+
+    return 0
+}"#,
+    )
+}
+
+#[test]
 fn buffered_channel_applies_backpressure_until_receiver_runs() -> anyhow::Result<()> {
     test(
         0,
@@ -125,6 +157,42 @@ fn main(): i32 {
         return 3
     }
     if second != 2 {
+        return 4
+    }
+
+    return 0
+}"#,
+    )
+}
+
+#[test]
+fn channel_syntax_coexists_with_method_api() -> anyhow::Result<()> {
+    test(
+        0,
+        r#"import std.sync
+import std.option
+
+use std.sync.Channel
+use std.option.Option
+
+fn main(): i32 {
+    let ch = Channel<i32>::with_capacity(2)
+    ch <- 10
+    ch.send(20)
+
+    let first = match <-ch {
+        Option::Some(v) => v,
+        Option::None => return 1,
+    }
+    let second = match ch.recv() {
+        Option::Some(v) => v,
+        Option::None => return 2,
+    }
+
+    if first != 10 {
+        return 3
+    }
+    if second != 20 {
         return 4
     }
 

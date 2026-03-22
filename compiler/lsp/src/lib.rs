@@ -292,6 +292,8 @@ fn semantic_error_span(err: &SemanticError) -> Option<Span> {
         | SemanticError::ExpectedTypeInCast { span }
         | SemanticError::SpawnTargetNotCall { span }
         | SemanticError::SpawnReturnTypeNotUnit { span, .. }
+        | SemanticError::ChannelSendRequiresChannel { span, .. }
+        | SemanticError::ChannelRecvRequiresChannel { span, .. }
         | SemanticError::UnsupportedLanguageLinkage { span, .. }
         | SemanticError::TopLevelStatementsWithExplicitMain { span }
         | SemanticError::TopLevelStatementsOnlyAllowedInEntryUnit { span }

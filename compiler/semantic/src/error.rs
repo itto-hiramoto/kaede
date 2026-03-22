@@ -195,6 +195,12 @@ pub enum SemanticError {
     #[error("{}:{}:{} `spawn` requires a function returning `()`; got `{}`", span.file, span.start.line, span.start.column, ty)]
     SpawnReturnTypeNotUnit { ty: String, span: Span },
 
+    #[error("{}:{}:{} channel send requires `std.sync.Channel<T>`, got `{}`", span.file, span.start.line, span.start.column, actual)]
+    ChannelSendRequiresChannel { actual: String, span: Span },
+
+    #[error("{}:{}:{} channel receive requires `std.sync.Channel<T>`, got `{}`", span.file, span.start.line, span.start.column, actual)]
+    ChannelRecvRequiresChannel { actual: String, span: Span },
+
     #[error("{}:{}:{} `format` template must be a string literal", span.file, span.start.line, span.start.column)]
     FormatTemplateMustBeStringLiteral { span: Span },
 

@@ -125,6 +125,42 @@ fn bit_not() -> anyhow::Result<()> {
 }
 
 #[test]
+fn channel_send_and_recv_syntax() -> anyhow::Result<()> {
+    semantic_analyze(
+        r#"import std.sync
+import std.option
+
+use std.sync.Channel
+use std.option.Option
+
+fn f(): i32 {
+    let ch = Channel<i32>::with_capacity(1)
+    ch <- 42
+
+    return match <-ch {
+        Option::Some(v) => v,
+        Option::None => 0,
+    }
+}"#,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn channel_recv_requires_channel() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error("fn f() { <-1 }")?;
+    assert!(err.to_string().contains("channel receive requires"));
+    Ok(())
+}
+
+#[test]
+fn channel_send_requires_channel() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error("fn f() { 1 <- 2 }")?;
+    assert!(err.to_string().contains("channel send requires"));
+    Ok(())
+}
+
+#[test]
 fn array_indexing() -> anyhow::Result<()> {
     semantic_analyze("fn f() { [0, 1, 2][1] }")?;
     Ok(())
