@@ -274,8 +274,12 @@ impl Response {
         }
     }
 
-    pub fn send_string(mut self, text: str) {
+    pub fn send_text(mut self, text: str) {
         self.send_bytes(text.to_bytes().as_slice())
+    }
+
+    pub fn send_string(mut self, text: str) {
+        self.send_text(text)
     }
 
     pub fn send_file(mut self, body: [u8], content_type: str) {

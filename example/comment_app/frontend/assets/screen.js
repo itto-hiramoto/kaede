@@ -1,10 +1,24 @@
 import { createCommentStream, fetchCommentsSince } from "/assets/comments-client.js";
 
+const DEFAULT_SLIDES_PATH = "/slides/slide.html";
 const SPEED_PX_PER_SEC = 160;
 const LANE_HEIGHT = 56;
 const MIN_LANES = 4;
 const MAX_QUEUE_LENGTH = 50;
+const SLIDE_NAV_KEYS = new Set([
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowUp",
+  "ArrowDown",
+  "PageUp",
+  "PageDown",
+  "Home",
+  "End",
+  " ",
+]);
 
+const slideRoot = document.getElementById("screen-slides");
+const slideFrame = document.getElementById("screen-slides-frame");
 const stage = document.getElementById("screen-stage");
 const status = document.getElementById("screen-status");
 const measureBox = document.getElementById("measure-box");
@@ -13,6 +27,121 @@ const queue = [];
 const activeLanes = new Map();
 let laneCount = MIN_LANES;
 let stream = null;
+
+function slideSourceUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const value = params.get("slides");
+  if (value === "off") {
+    return null;
+  }
+  return value || DEFAULT_SLIDES_PATH;
+}
+
+function hideSlideChrome() {
+  try {
+    const doc = slideFrame.contentDocument;
+    if (!doc) {
+      return;
+    }
+
+    if (doc.getElementById("screen-slide-style")) {
+      return;
+    }
+
+    const style = doc.createElement("style");
+    style.id = "screen-slide-style";
+    style.textContent = `
+      .bespoke-marp-osc {
+        display: none !important;
+      }
+
+      body {
+        cursor: default !important;
+      }
+
+      [data-bespoke-view=""] {
+        overflow: hidden !important;
+      }
+    `;
+    doc.head.append(style);
+  } catch (error) {
+    console.warn("failed to hide slide chrome", error);
+  }
+}
+
+function forwardSlideKey(event) {
+  if (slideRoot.hidden || !slideFrame.contentWindow || !SLIDE_NAV_KEYS.has(event.key)) {
+    return;
+  }
+
+  try {
+    const targetWindow = slideFrame.contentWindow;
+    const init = {
+      key: event.key,
+      code: event.code,
+      altKey: event.altKey,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      shiftKey: event.shiftKey,
+      repeat: event.repeat,
+      bubbles: true,
+      cancelable: true,
+    };
+    const forwarded = new targetWindow.KeyboardEvent("keydown", init);
+    targetWindow.dispatchEvent(forwarded);
+    targetWindow.document.dispatchEvent(new targetWindow.KeyboardEvent("keydown", init));
+    targetWindow.document.body?.dispatchEvent(new targetWindow.KeyboardEvent("keydown", init));
+    targetWindow.focus();
+    event.preventDefault();
+  } catch (error) {
+    console.warn("failed to forward slide key", error);
+  }
+}
+
+function handleScreenKeydown(event) {
+  forwardSlideKey(event);
+}
+
+function mountSlideFrame(url) {
+  slideRoot.hidden = false;
+  document.body.classList.add("screen-page--with-slides");
+  slideFrame.src = url;
+  slideFrame.addEventListener(
+    "load",
+    () => {
+      hideSlideChrome();
+    },
+    { once: true },
+  );
+}
+
+function showSlideError(error) {
+  slideRoot.hidden = false;
+  slideRoot.innerHTML = `
+    <div class="screen-slides__error">
+      <div>
+        <p>スライドの読み込みに失敗しました。</p>
+        <p>${String(error)}</p>
+      </div>
+    </div>
+  `;
+}
+
+function bootSlides() {
+  const slidesUrl = slideSourceUrl();
+  if (!slidesUrl) {
+    slideRoot.hidden = true;
+    return;
+  }
+
+  try {
+    mountSlideFrame(slidesUrl);
+    window.addEventListener("keydown", handleScreenKeydown);
+  } catch (error) {
+    console.error("failed to initialize slides", error);
+    showSlideError(error);
+  }
+}
 
 function setConnectionState(state) {
   const labels = {
@@ -115,6 +244,7 @@ function enqueueComment(comment) {
 }
 
 async function boot() {
+  bootSlides();
   updateLaneCount();
   setConnectionState("connecting");
 

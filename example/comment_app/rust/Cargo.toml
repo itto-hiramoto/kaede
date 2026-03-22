@@ -1,5 +1,5 @@
 [package]
-name = "comment_server"
+name = "comment_app"
 version = "0.1.0"
 edition = "2024"
 

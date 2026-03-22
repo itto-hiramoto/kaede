@@ -8,6 +8,16 @@
     <script type="module" src="/assets/screen.js"></script>
   </head>
   <body class="screen-page">
+    <div id="screen-slides" class="screen-slides" aria-hidden="true" hidden>
+      <iframe
+        id="screen-slides-frame"
+        class="screen-slides__frame"
+        title="Slides"
+        loading="eager"
+        referrerpolicy="no-referrer"
+      ></iframe>
+    </div>
+
     <div class="screen-chrome">
       <p class="screen-label">Live Overlay</p>
       <p id="screen-status" class="screen-status" data-state="connecting">接続中</p>
