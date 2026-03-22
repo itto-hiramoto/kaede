@@ -32,7 +32,7 @@ fn std_http_serves_static_files_with_expected_routing_rules() -> anyhow::Result<
 let mut app = std.http.App::new()
 
 app.get("/hello", |req, res| {{
-    res.send_string("route wins")
+    res.send_text("route wins")
 }})
 
 app.static_file("/", "public/index.html")

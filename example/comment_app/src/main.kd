@@ -1,6 +1,6 @@
 import std.http
 import std.sync
-import rust::comment_server
+import rust::comment_app
 
 use std.http.Status
 use std.sync.Mutex
@@ -44,12 +44,13 @@ let mut app = std.http.App::new()
 app.static_file("/", "frontend/post.html")
 app.static_file("/screen", "frontend/screen.html")
 app.static_dir("/assets", "frontend/assets")
+app.static_dir("/slides", "frontend/slides")
 
 app.get("/comments", |req, res| {
     let since = match parse_since(req) {
         Option::Some(value) => value,
         Option::None => {
-            res.status(Status::BadRequest).send_string("since must be u64")
+            res.status(Status::BadRequest).send_text("since must be u64")
             return
         }
     }
@@ -66,7 +67,7 @@ app.get("/comments", |req, res| {
         i += 1
     }
 
-    res.send_string(out.as_str())
+    res.send_text(out.as_str())
 })
 
 app.post("/comments", |req, res| {
@@ -74,31 +75,31 @@ app.post("/comments", |req, res| {
         Option::Some(value) => value,
         Option::None => String::from("anonymous"),
     }
-    let normalized_author = rust::comment_server::normalize_author(author_input.as_str())
+    let normalized_author = rust::comment_app::normalize_author(author_input.as_str())
     let author = if normalized_author.len() == 0 {
         String::from("anonymous")
     } else {
         normalized_author.clone()
     }
     if author.len() > 32 {
-        res.status(Status::BadRequest).send_string("author too long")
+        res.status(Status::BadRequest).send_text("author too long")
         return
     }
 
     let body_text = String::from_bytes(req.body)
-    let message = rust::comment_server::normalize_message(body_text.as_str())
+    let message = rust::comment_app::normalize_message(body_text.as_str())
     if message.len() == 0 {
-        res.status(Status::BadRequest).send_string("message must not be empty")
+        res.status(Status::BadRequest).send_text("message must not be empty")
         return
     }
     if message.len() > 280 {
-        res.status(Status::BadRequest).send_string("message too long")
+        res.status(Status::BadRequest).send_text("message too long")
         return
     }
 
     lock.lock()
     let id = next_comment_id.next()
-    let json = rust::comment_server::comment_json(id, author.as_str(), message.as_str())
+    let json = rust::comment_app::comment_json(id, author.as_str(), message.as_str())
     comments.push(Comment {
         id,
         json,
@@ -118,7 +119,7 @@ app.post("/comments", |req, res| {
     })
     lock.unlock()
 
-    res.send_string(id.to_string().as_str())
+    res.send_text(id.to_string().as_str())
 })
 
 app.ws("/ws/comments", |req, ws| {

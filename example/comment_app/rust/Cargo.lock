@@ -3,7 +3,7 @@
 version = 4
 
 [[package]]
-name = "comment_server"
+name = "comment_app"
 version = "0.1.0"
 dependencies = [
  "serde_json",

@@ -24,7 +24,7 @@ fn spawn_http_server() -> anyhow::Result<(assert_fs::TempDir, TestServer, u16, s
 let mut app = std.http.App::new()
 
 app.get("/hello", |req, res| {{
-    res.send_string("hello")
+    res.send_text("hello")
 }})
 
 app.post("/echo", |req, res| {{

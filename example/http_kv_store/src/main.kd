@@ -21,21 +21,21 @@ let mut pub_entries = HashMap<String, Vector<PubMessage>>::new(hash_string, eq_s
 let mut next_pub_id = Counter::new(1)
 
 app.get("/health", |req, res| {
-    res.send_string("OK")
+    res.send_text("OK")
 })
 
 app.post("/kv/:key", |req, res| {
     let key = match req.param("key") {
         Option::Some(v) => v,
         Option::None => {
-            res.status(Status::BadRequest).send_string("missing path parameter")
+            res.status(Status::BadRequest).send_text("missing path parameter")
             return
         }
     }
     let value = match req.query("value") {
         Option::Some(v) => v,
         Option::None => {
-            res.status(Status::BadRequest).send_string("missing query parameter")
+            res.status(Status::BadRequest).send_text("missing query parameter")
             return
         }
     }
@@ -44,14 +44,14 @@ app.post("/kv/:key", |req, res| {
     kvs.insert(key.clone(), value.clone())
     lock.unlock()
 
-    res.send_string("OK")
+    res.send_text("OK")
 })
 
 app.get("/kv/:key", |req, res| {
     let key = match req.param("key") {
         Option::Some(v) => v,
         Option::None => {
-            res.status(Status::BadRequest).send_string("missing path parameter")
+            res.status(Status::BadRequest).send_text("missing path parameter")
             return
         }
     }
@@ -62,10 +62,10 @@ app.get("/kv/:key", |req, res| {
 
     match found {
         Option::Some(v) => {
-            res.send_string(v.as_str())
+            res.send_text(v.as_str())
         }
         Option::None => {
-            res.status(Status::NotFound).send_string("(nil)")
+            res.status(Status::NotFound).send_text("(nil)")
         },
     }
 })
@@ -74,7 +74,7 @@ app.post("/kv/:key/del", |req, res| {
     let key = match req.param("key") {
         Option::Some(v) => v,
         Option::None => {
-            res.status(Status::BadRequest).send_string("missing path parameter")
+            res.status(Status::BadRequest).send_text("missing path parameter")
             return
         }
     }
@@ -87,9 +87,9 @@ app.post("/kv/:key/del", |req, res| {
     lock.unlock()
 
     if removed {
-        res.send_string("1")
+        res.send_text("1")
     } else {
-        res.send_string("0")
+        res.send_text("0")
     }
 })
 
@@ -97,7 +97,7 @@ app.post("/kv/:key/incr", |req, res| {
     let key = match req.param("key") {
         Option::Some(v) => v,
         Option::None => {
-            res.status(Status::BadRequest).send_string("missing path parameter")
+            res.status(Status::BadRequest).send_text("missing path parameter")
             return
         }
     }
@@ -112,7 +112,7 @@ app.post("/kv/:key/incr", |req, res| {
                 }
                 Option::None => {
                     lock.unlock()
-                    res.status(Status::BadRequest).send_string("value is not integer")
+                    res.status(Status::BadRequest).send_text("value is not integer")
                     return
                 }
             }
@@ -125,19 +125,19 @@ app.post("/kv/:key/incr", |req, res| {
     kvs.insert(key.clone(), out.clone())
     lock.unlock()
 
-    res.send_string(out.as_str())
+    res.send_text(out.as_str())
 })
 
 app.post("/list/:key/lpush", |req, res| {
     let key = match req.param("key") {
         Option::Some(v) => v,
-        Option::None => { res.status(Status::BadRequest).send_string("missing path parameter")
+        Option::None => { res.status(Status::BadRequest).send_text("missing path parameter")
             return },
     }
     let value = match req.query("value") {
         Option::Some(v) => v,
         Option::None => {
-            res.status(Status::BadRequest).send_string("missing query parameter")
+            res.status(Status::BadRequest).send_text("missing query parameter")
             return
         }
     }
@@ -154,28 +154,28 @@ app.post("/list/:key/lpush", |req, res| {
     lock.unlock()
 
     let out = len.to_string()
-    res.send_string(out.as_str())
+    res.send_text(out.as_str())
 })
 
 app.get("/list/:key/range", |req, res| {
     let key = match req.param("key") {
         Option::Some(v) => v,
         Option::None => {
-            res.status(Status::BadRequest).send_string("missing path parameter")
+            res.status(Status::BadRequest).send_text("missing path parameter")
             return
         }
     }
     let start_text = match req.query("start") {
         Option::Some(v) => v,
         Option::None => {
-            res.status(Status::BadRequest).send_string("missing query parameter")
+            res.status(Status::BadRequest).send_text("missing query parameter")
             return
         }
     }
     let stop_text = match req.query("stop") {
         Option::Some(v) => v,
         Option::None => {
-            res.status(Status::BadRequest).send_string("missing query parameter")
+            res.status(Status::BadRequest).send_text("missing query parameter")
             return
         }
     }
@@ -183,14 +183,14 @@ app.get("/list/:key/range", |req, res| {
     let start = match start_text.as_str().parse_u64() {
         Option::Some(v) => v,
         Option::None => {
-            res.status(Status::BadRequest).send_string("start/stop must be u64")
+            res.status(Status::BadRequest).send_text("start/stop must be u64")
             return
         }
     }
     let stop = match stop_text.as_str().parse_u64() {
         Option::Some(v) => v,
         Option::None => {
-            res.status(Status::BadRequest).send_string("start/stop must be u64")
+            res.status(Status::BadRequest).send_text("start/stop must be u64")
             return
         }
     }
@@ -223,21 +223,21 @@ app.get("/list/:key/range", |req, res| {
         }
     }
 
-    res.send_string(out.as_str())
+    res.send_text(out.as_str())
 })
 
 app.post("/pub/:channel", |req, res| {
     let channel = match req.param("channel") {
         Option::Some(v) => v,
         Option::None => {
-            res.status(Status::BadRequest).send_string("missing path parameter")
+            res.status(Status::BadRequest).send_text("missing path parameter")
             return
         }
     }
     let message = match req.query("message") {
         Option::Some(v) => v,
         Option::None => {
-            res.status(Status::BadRequest).send_string("missing query parameter")
+            res.status(Status::BadRequest).send_text("missing query parameter")
             return
         }
     }
@@ -255,13 +255,13 @@ app.post("/pub/:channel", |req, res| {
     lock.unlock()
 
     let out = id.to_string()
-    res.send_string(out.as_str())
+    res.send_text(out.as_str())
 })
 
 app.get("/pub/:channel/subscribe", |req, res| {
     let channel = match req.param("channel") {
         Option::Some(v) => v,
-        Option::None => { res.status(Status::BadRequest).send_string("missing path parameter")
+        Option::None => { res.status(Status::BadRequest).send_text("missing path parameter")
             return },
     }
 
@@ -273,7 +273,7 @@ app.get("/pub/:channel/subscribe", |req, res| {
                     since = parsed
                 }
                 Option::None => {
-                    res.status(Status::BadRequest).send_string("since must be u64")
+                    res.status(Status::BadRequest).send_text("since must be u64")
                     return
                 }
             }
@@ -300,7 +300,7 @@ app.get("/pub/:channel/subscribe", |req, res| {
     }
     lock.unlock()
 
-    res.send_string(out.as_str())
+    res.send_text(out.as_str())
 })
 
 app.listen(port=8080)
