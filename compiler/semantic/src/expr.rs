@@ -63,10 +63,147 @@ impl SemanticAnalyzer {
             ExprKind::TupleLiteral(node) => self.analyze_tuple_literal(node),
             ExprKind::Closure(node) => self.analyze_closure(node, None),
             ExprKind::Spawn(node) => self.analyze_spawn(node),
+            ExprKind::ChannelSend(node) => self.analyze_channel_send(node),
+            ExprKind::ChannelRecv(node) => self.analyze_channel_recv(node),
 
             ExprKind::Ty(_) => todo!(),
             ExprKind::GenericIdent(_) => todo!(),
         }
+    }
+
+    fn channel_udt_from_ty(&self, ty: &Rc<ir_type::Ty>) -> Option<ir_type::UserDefinedType> {
+        let base_ty = match ty.kind.as_ref() {
+            ir_type::TyKind::Reference(rty) => rty.get_base_type(),
+            ir_type::TyKind::UserDefined(_) => ty.clone(),
+            _ => return None,
+        };
+
+        let ir_type::TyKind::UserDefined(udt) = base_ty.kind.as_ref() else {
+            return None;
+        };
+
+        if Self::is_std_sync_channel_udt(udt) {
+            Some(udt.clone())
+        } else {
+            None
+        }
+    }
+
+    fn is_std_sync_channel_udt(udt: &ir_type::UserDefinedType) -> bool {
+        let module_path = udt.module_path();
+        let modules = module_path.get_module_names_from_root();
+        let name = udt.name();
+        let name = name.as_str();
+
+        matches!(modules, [std, sync] if std.as_str() == "std" && sync.as_str() == "sync")
+            && (name == "Channel" || name.starts_with("Channel_"))
+    }
+
+    fn build_channel_method_call_expr(
+        &mut self,
+        channel: ir::expr::Expr,
+        udt: &ir_type::UserDefinedType,
+        method_name: Symbol,
+        args: &[&ast::expr::Expr],
+        span: Span,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let no_method_err = || SemanticError::NoMethod {
+            method_name,
+            parent_name: udt.name(),
+            span,
+        };
+
+        let callee = match self.lookup_qualified_symbol(QualifiedSymbol::new(
+            udt.module_path().clone(),
+            self.create_method_key(udt.name(), method_name, false),
+        )) {
+            Some(value) => {
+                let value = value.borrow();
+                match &value.kind {
+                    SymbolTableValueKind::Function(fn_) => fn_.clone(),
+                    _ => return Err(no_method_err().into()),
+                }
+            }
+            None => return Err(no_method_err().into()),
+        };
+
+        if let Some(self_param) = callee.params.first() {
+            if self_param.name.as_str() == "self"
+                && self_param.ty.mutability.is_mut()
+                && channel.ty.mutability.is_not()
+            {
+                return Err(SemanticError::CannotCallMutableMethodOnImmutableValue { span }.into());
+            }
+        }
+
+        let params_without_self = if callee.params.is_empty() {
+            &[][..]
+        } else {
+            &callee.params[1..]
+        };
+
+        let mut call_args = Vec::with_capacity(1 + args.len());
+        call_args.push(channel);
+
+        for (arg, param) in args.iter().zip(params_without_self.iter()) {
+            call_args.push(self.analyze_expr_with_expected_type(arg, param.ty.clone())?);
+        }
+
+        self.verify_fn_call_arguments(&callee, &call_args, span)?;
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::FnCall(ir::expr::FnCall {
+                callee: callee.clone(),
+                args: ir::expr::Args(call_args, span),
+                span,
+            }),
+            ty: callee.return_ty.clone(),
+            span,
+        })
+    }
+
+    fn analyze_channel_send(
+        &mut self,
+        node: &ast::expr::ChannelSend,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let channel = self.analyze_expr(&node.channel)?;
+        let Some(udt) = self.channel_udt_from_ty(&channel.ty) else {
+            return Err(SemanticError::ChannelSendRequiresChannel {
+                actual: channel.ty.kind.to_string(),
+                span: node.channel.span,
+            }
+            .into());
+        };
+
+        self.build_channel_method_call_expr(
+            channel,
+            &udt,
+            Symbol::from("send".to_owned()),
+            &[node.value.as_ref()],
+            node.span,
+        )
+    }
+
+    fn analyze_channel_recv(
+        &mut self,
+        node: &ast::expr::ChannelRecv,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let channel = self.analyze_expr(&node.channel)?;
+        let Some(udt) = self.channel_udt_from_ty(&channel.ty) else {
+            return Err(SemanticError::ChannelRecvRequiresChannel {
+                actual: channel.ty.kind.to_string(),
+                span: node.channel.span,
+            }
+            .into());
+        };
+
+        self.build_channel_method_call_expr(
+            channel,
+            &udt,
+            Symbol::from("recv".to_owned()),
+            &[],
+            node.span,
+        )
     }
 
     fn analyze_spawn(&mut self, node: &ast::expr::Spawn) -> anyhow::Result<ir::expr::Expr> {
@@ -1635,6 +1772,54 @@ impl SemanticAnalyzer {
                             span: node.span,
                         }),
                 )
+            }
+
+            "__type_size" => {
+                if let Some(name) = keyword_arg {
+                    return keyword_error(name);
+                }
+
+                Some((|| -> anyhow::Result<ir::expr::Expr> {
+                    if !node.args.args.is_empty() {
+                        return Err(SemanticError::TooManyArguments {
+                            name: callee.symbol(),
+                            span: node.span,
+                        }
+                        .into());
+                    }
+
+                    let generic_args = node.generic_args.as_ref().ok_or(
+                        SemanticError::GenericArgumentLengthMismatch {
+                            expected: 1,
+                            actual: 0,
+                            span: node.span,
+                        },
+                    )?;
+
+                    if generic_args.types.len() != 1 {
+                        return Err(SemanticError::GenericArgumentLengthMismatch {
+                            expected: 1,
+                            actual: generic_args.types.len(),
+                            span: generic_args.span,
+                        }
+                        .into());
+                    }
+
+                    let target_ty = self.analyze_type(&generic_args.types[0])?;
+
+                    Ok(ir::expr::Expr {
+                        ty: Rc::new(ir_type::make_fundamental_type(
+                            ir_type::FundamentalTypeKind::U64,
+                            ir_type::Mutability::Not,
+                        )),
+                        kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
+                            kind: ir::expr::BuiltinFnCallKind::TypeSize(target_ty),
+                            args: ir::expr::Args(vec![], node.span),
+                            span: node.span,
+                        }),
+                        span: node.span,
+                    })
+                })())
             }
 
             "panic" => {

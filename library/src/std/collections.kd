@@ -77,6 +77,73 @@ impl<T> Vector<T> {
         return Option<T>::Some(old)
     }
 
+    pub fn remove(mut self, idx: u64): Option<T> {
+        if idx >= self.len {
+            return Option<T>::None
+        }
+
+        let removed = self.ptr[idx]
+
+        let mut i = idx
+        while i + 1 < self.len {
+            self.ptr[i] = self.ptr[i + 1]
+            i += 1
+        }
+
+        self.len -= 1
+        return Option<T>::Some(removed)
+    }
+
+    // Removes an element in O(1) by replacing it with the last element.
+    // This does not preserve order.
+    pub fn swap_remove(mut self, idx: u64): Option<T> {
+        if idx >= self.len {
+            return Option<T>::None
+        }
+
+        let removed = self.ptr[idx]
+        self.len -= 1
+
+        if idx != self.len {
+            self.ptr[idx] = self.ptr[self.len]
+        }
+
+        return Option<T>::Some(removed)
+    }
+
+    pub fn retain(mut self, pred: fn(T) -> bool) {
+        let mut write = 0
+        let mut read = 0
+
+        while read < self.len {
+            let elem = self.ptr[read]
+            if pred(elem) {
+                if write != read {
+                    self.ptr[write] = elem
+                }
+                write += 1
+            }
+            read += 1
+        }
+
+        self.len = write
+    }
+
+    pub fn filter(self, pred: fn(T) -> bool): mut Vector<T> {
+        let mut out = Vector<T>::new()
+        let mut i = 0
+
+        while i < self.len {
+            let elem = self.ptr[i]
+            if pred(elem) {
+                out.push(elem)
+            }
+            i += 1
+        }
+
+        return out
+    }
+
     pub fn from_slice(s: [T]): mut Vector<T> {
         let mut v = Vector<T>::new()
         let mut i = 0

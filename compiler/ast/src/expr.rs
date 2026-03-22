@@ -69,6 +69,19 @@ pub struct Spawn {
 }
 
 #[derive(Debug)]
+pub struct ChannelSend {
+    pub channel: Box<Expr>,
+    pub value: Box<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug)]
+pub struct ChannelRecv {
+    pub channel: Box<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug)]
 pub struct Int {
     pub kind: IntKind,
     pub span: Span,
@@ -347,6 +360,8 @@ pub enum ExprKind {
     TupleLiteral(TupleLiteral),
     Closure(Closure),
     Spawn(Spawn),
+    ChannelSend(ChannelSend),
+    ChannelRecv(ChannelRecv),
     Return(Return),
     If(If),
     Loop(Loop),

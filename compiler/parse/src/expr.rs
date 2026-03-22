@@ -2,9 +2,9 @@ use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::expr::{
     Arg, Args, ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BitNot, Break, ByteLiteral,
-    ByteStringLiteral, CharLiteral, Closure, Else, Expr, ExprKind, FnCall, If, Indexing, Int,
-    IntKind, LogicalNot, Loop, Match, MatchArm, Return, Slicing, Spawn, StringLiteral,
-    StructLiteral, TupleLiteral, While,
+    ByteStringLiteral, ChannelRecv, ChannelSend, CharLiteral, Closure, Else, Expr, ExprKind,
+    FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, Return, Slicing, Spawn,
+    StringLiteral, StructLiteral, TupleLiteral, While,
 };
 use kaede_ast_type::{GenericArgs, Ty, TyKind};
 use kaede_lex::token::TokenKind;
@@ -18,7 +18,27 @@ use crate::{
 
 impl Parser {
     pub fn expr(&mut self) -> ParseResult<Expr> {
-        self.logical_or()
+        self.channel_send()
+    }
+
+    fn channel_send(&mut self) -> ParseResult<Expr> {
+        let node = self.logical_or()?;
+
+        if self.consume_b(&TokenKind::LeftArrow) {
+            let value = self.channel_send()?;
+            let span = self.new_span(node.span.start, value.span.finish);
+
+            return Ok(Expr {
+                span,
+                kind: ExprKind::ChannelSend(ChannelSend {
+                    channel: Box::new(node),
+                    value: Box::new(value),
+                    span,
+                }),
+            });
+        }
+
+        Ok(node)
     }
 
     fn logical_or(&mut self) -> ParseResult<Expr> {
@@ -274,6 +294,19 @@ impl Parser {
     }
 
     fn unary(&mut self) -> ParseResult<Expr> {
+        if let Ok(span) = self.consume(&TokenKind::LeftArrow) {
+            let channel = self.cast()?;
+            let span = self.new_span(span.start, channel.span.finish);
+
+            return Ok(Expr {
+                kind: ExprKind::ChannelRecv(ChannelRecv {
+                    channel: Box::new(channel),
+                    span,
+                }),
+                span,
+            });
+        }
+
         if self.consume_b(&TokenKind::Plus) {
             return self.cast();
         }

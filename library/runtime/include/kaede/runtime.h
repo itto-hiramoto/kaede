@@ -31,4 +31,12 @@ KaedeIoWaitResult kaede_io_wait_readable(int fd);
 KaedeIoWaitResult kaede_io_wait_writable(int fd);
 void kaede_io_forget_fd(int fd);
 
+void *kaede_chan_new(size_t elem_size, size_t capacity);
+int32_t kaede_chan_send(void *chan, void *value);
+int32_t kaede_chan_try_send(void *chan, void *value);
+int32_t kaede_chan_recv(void *chan, void *out);
+int32_t kaede_chan_try_recv(void *chan, void *out);
+void kaede_chan_close(void *chan);
+int32_t kaede_chan_is_closed(void *chan);
+
 #endif // KAEDE_RUNTIME_H

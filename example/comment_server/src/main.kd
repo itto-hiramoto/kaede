@@ -1,21 +1,43 @@
 import std.http
-import std.string
-import std.collections
 import std.sync
-import std.option
 import rust::comment_server
 
 use std.http.Status
-use std.string.String
-use std.collections.Vector
 use std.sync.Mutex
-use std.option.Option
+
+struct Comment {
+    id: u64,
+    json: String,
+}
+
+struct Subscriber {
+    id: u64,
+    events: Channel<String>,
+}
+
+struct Counter {
+    value: u64,
+}
+
+impl Counter {
+    fn new(start: u64): mut Counter {
+        return Counter { value: start }
+    }
+
+    fn next(mut self): u64 {
+        let id = self.value
+        self.value = id + 1
+        return id
+    }
+}
 
 let max_history = 128
 
 let mut lock = Mutex::new()
 let mut comments = Vector<Comment>::new()
 let mut next_comment_id = Counter::new(1)
+let mut subscribers = Vector<Subscriber>::new()
+let mut next_subscriber_id = Counter::new(1)
 
 let mut app = std.http.App::new()
 
@@ -32,10 +54,17 @@ app.get("/comments", |req, res| {
         }
     }
 
-    let mut out = String::new()
     lock.lock()
-    append_comments_since(out, comments, since)
+    let pending = comments.filter(|comment| comment.id > since)
     lock.unlock()
+
+    let mut out = String::new()
+    let mut i = 0
+    while i < pending.len() {
+        let comment = pending.at(i).unwrap()
+        out.push_line(comment.json.as_str())
+        i += 1
+    }
 
     res.send_string(out.as_str())
 })
@@ -70,80 +99,82 @@ app.post("/comments", |req, res| {
     lock.lock()
     let id = next_comment_id.next()
     let json = rust::comment_server::comment_json(id, author.as_str(), message.as_str())
-    comments.push(Comment { id, json })
+    comments.push(Comment {
+        id,
+        json,
+    })
     if comments.len() > max_history {
         let start = comments.len() - max_history
         let snapshot = comments.as_slice()
         comments = Vector<Comment>::from_slice(snapshot[start:comments.len()])
     }
+    subscribers.retain(|subscriber| {
+        if subscriber.events.try_send(json) {
+            return true
+        }
+
+        subscriber.events.close()
+        return false
+    })
     lock.unlock()
 
     res.send_string(id.to_string().as_str())
 })
 
 app.ws("/ws/comments", |req, ws| {
-    let mut since = match parse_since(req) {
+    let since = match parse_since(req) {
         Option::Some(value) => value,
         Option::None => 0,
     }
-    let mut idle_ms = 0
+    let events = Channel<String>::with_capacity(max_history)
+
+    lock.lock()
+    let pending = comments.filter(|comment| comment.id > since)
+    let subscriber_id = next_subscriber_id.next()
+    subscribers.push(Subscriber {
+        id: subscriber_id,
+        events,
+    })
+    lock.unlock()
+
+    spawn ws_reader(ws, events)
+
+    let mut i = 0
+    while i < pending.len() {
+        let comment = pending.at(i).unwrap()
+        if !ws.send_text(comment.json.as_str()) {
+            events.close()
+            lock.lock()
+            subscribers.retain(|subscriber| subscriber.id != subscriber_id)
+            lock.unlock()
+            return
+        }
+        i += 1
+    }
 
     loop {
-        let mut pending = Vector<Comment>::new()
-
-        lock.lock()
-        collect_comments_since(pending, comments, since)
-        lock.unlock()
-
-        if pending.len() == 0 {
-            if idle_ms >= 5000 {
-                if !ws.send_ping(b"") {
-                    return
-                }
-                idle_ms = 0
+        let json = match <-events {
+            Option::Some(value) => value,
+            Option::None => {
+                events.close()
+                lock.lock()
+                subscribers.retain(|subscriber| subscriber.id != subscriber_id)
+                lock.unlock()
+                return
             }
+        }
 
-            std.sys.sleep_ms(50)
-            idle_ms += 50
-        } else {
-            idle_ms = 0
-
-            let mut i = 0
-            while i < pending.len() {
-                let comment = pending.at(i).unwrap()
-                if !ws.send_text(comment.json.as_str()) {
-                    return
-                }
-
-                since = comment.id
-                i += 1
-            }
+        if !ws.send_text(json.as_str()) {
+            events.close()
+            lock.lock()
+            subscribers.retain(|subscriber| subscriber.id != subscriber_id)
+            lock.unlock()
+            return
         }
     }
 })
 
 app.listen(port=8080)
-
-struct Comment {
-    id: u64,
-    json: String,
-}
-
-struct Counter {
-    value: u64,
-}
-
-impl Counter {
-    fn new(start: u64): mut Counter {
-        return Counter { value: start }
-    }
-
-    fn next(mut self): u64 {
-        let id = self.value
-        self.value = id + 1
-        return id
-    }
-}
 
 fn parse_since(req: std.http.Request): Option<u64> {
     return match req.query("since") {
@@ -152,28 +183,22 @@ fn parse_since(req: std.http.Request): Option<u64> {
     }
 }
 
-fn collect_comments_since(out: mut Vector<Comment>, src: Vector<Comment>, since: u64) {
-    let mut i = 0
-    while i < src.len() {
-        let comment = src.at(i).unwrap()
-        if comment.id > since {
-            out.push(Comment {
-                id: comment.id,
-                json: comment.json.clone(),
-            })
+fn ws_reader(ws: mut std.http.WebSocket, events: Channel<String>) {
+    loop {
+        match ws.receive() {
+            Option::Some(msg) => {
+                match msg.kind {
+                    std.http.WebSocketMessageKind::Close => {
+                        events.close()
+                        return
+                    }
+                    _ => {}
+                }
+            }
+            Option::None => {
+                events.close()
+                return
+            }
         }
-        i += 1
-    }
-}
-
-fn append_comments_since(out: mut String, src: Vector<Comment>, since: u64) {
-    let mut i = 0
-    while i < src.len() {
-        let comment = src.at(i).unwrap()
-        if comment.id > since {
-            out.push_str(comment.json.as_str())
-            out.push('\n')
-        }
-        i += 1
     }
 }

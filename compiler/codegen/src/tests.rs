@@ -3518,6 +3518,192 @@ fn vector_new_infers_struct_from_push() -> anyhow::Result<()> {
 }
 
 #[test]
+fn vector_remove_preserves_order() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let mut v = Vector<i32>::new()
+            v.push(10)
+            v.push(20)
+            v.push(30)
+
+            let removed = match v.remove(1) {
+                Option::Some(value) => value,
+                Option::None => return 1,
+            }
+            if removed != 20 {
+                return 2
+            }
+            if v.len() != 2 {
+                return 3
+            }
+
+            let first = match v.at(0) {
+                Option::Some(value) => value,
+                Option::None => return 4,
+            }
+            let second = match v.at(1) {
+                Option::Some(value) => value,
+                Option::None => return 5,
+            }
+            if first != 10 {
+                return 6
+            }
+            if second != 30 {
+                return 7
+            }
+
+            return 58
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn vector_swap_remove_replaces_with_last() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let mut v = Vector<i32>::new()
+            v.push(10)
+            v.push(20)
+            v.push(30)
+
+            let removed = match v.swap_remove(0) {
+                Option::Some(value) => value,
+                Option::None => return 1,
+            }
+            if removed != 10 {
+                return 2
+            }
+            if v.len() != 2 {
+                return 3
+            }
+
+            let first = match v.at(0) {
+                Option::Some(value) => value,
+                Option::None => return 4,
+            }
+            let second = match v.at(1) {
+                Option::Some(value) => value,
+                Option::None => return 5,
+            }
+            if first != 30 {
+                return 6
+            }
+            if second != 20 {
+                return 7
+            }
+
+            return 58
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn vector_retain_accepts_capturing_closure() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let mut v = Vector<i32>::new()
+            v.push(10)
+            v.push(20)
+            v.push(30)
+            v.push(40)
+
+            let min = 25
+            v.retain(|value| value >= min)
+
+            if v.len() != 2 {
+                return 1
+            }
+
+            let first = match v.at(0) {
+                Option::Some(value) => value,
+                Option::None => return 2,
+            }
+            let second = match v.at(1) {
+                Option::Some(value) => value,
+                Option::None => return 3,
+            }
+            if first != 30 {
+                return 4
+            }
+            if second != 40 {
+                return 5
+            }
+
+            return 58
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn vector_filter_accepts_capturing_closure() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let mut v = Vector<i32>::new()
+            v.push(10)
+            v.push(20)
+            v.push(30)
+            v.push(40)
+
+            let min = 25
+            let kept = v.filter(|value| value >= min)
+
+            if kept.len() != 2 {
+                return 1
+            }
+
+            let first = match kept.at(0) {
+                Option::Some(value) => value,
+                Option::None => return 2,
+            }
+            let second = match kept.at(1) {
+                Option::Some(value) => value,
+                Option::None => return 3,
+            }
+            if first != 30 {
+                return 4
+            }
+            if second != 40 {
+                return 5
+            }
+
+            return 58
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn string_push_line_appends_newline() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let mut out = String::new()
+            out.push_line("alpha")
+            out.push_line("beta")
+
+            if out.as_str() != "alpha\nbeta\n" {
+                return 1
+            }
+
+            return 58
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
 fn option_some_infers_struct_without_explicit_args() -> anyhow::Result<()> {
     let program = r#"
         struct S {

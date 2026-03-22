@@ -297,6 +297,7 @@ pub enum BuiltinFnCallKind {
     SliceFromRawParts,
     PointerAdd,
     SizeOf,
+    TypeSize(Rc<Ty>),
     Panic,
 }
 

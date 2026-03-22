@@ -69,6 +69,11 @@ impl String {
         }
     }
 
+    pub fn push_line(mut self, s: str) {
+        self.push_str(s)
+        self.push('\n')
+    }
+
     // Returns substring from start (inclusive) to end (exclusive). Like [start:end] slice syntax.
     // Returns empty string if start >= end or start >= len.
     pub fn slice(self, start: u64, end: u64): String {
