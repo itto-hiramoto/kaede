@@ -56,7 +56,7 @@ function createCommentItem(comment) {
 
   const author = document.createElement("strong");
   author.className = "comment-author";
-  author.textContent = comment.author || "anonymous";
+  author.textContent = comment.author || "匿名";
 
   const id = document.createElement("span");
   id.className = "comment-id";

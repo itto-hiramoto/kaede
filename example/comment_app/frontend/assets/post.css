@@ -177,6 +177,7 @@ button {
   background: var(--panel-strong);
   color: var(--ink);
   resize: vertical;
+  font-size: 16px;
 }
 
 .field input:focus,
@@ -280,30 +281,116 @@ button:disabled {
 
 @media (max-width: 720px) {
   .shell {
-    width: min(100% - 20px, 1120px);
-    padding: 28px 0 44px;
+    width: 100%;
+    padding: 28px 12px 40px;
+    gap: 16px;
+  }
+
+  .hero {
+    padding: 10px 16px 0;
+  }
+
+  .hero h1 {
+    font-size: 1.8rem;
+    margin-top: 4px;
+  }
+
+  .lede {
+    margin-top: 8px;
+    font-size: 0.95rem;
+  }
+
+  .card {
+    border-radius: 18px;
   }
 
   .composer,
   .timeline {
-    padding: 22px;
+    padding: 18px 16px;
   }
 
   .section-head {
-    flex-direction: column;
-    align-items: start;
+    margin-bottom: 16px;
+  }
+
+  .section-head h2 {
+    font-size: 1.15rem;
+  }
+
+  .field span {
+    font-size: 0.88rem;
+  }
+
+  .field input,
+  .field textarea {
+    font-size: 16px;
+    padding: 0.8rem 0.9rem;
+    border-radius: 14px;
+  }
+
+  .composer-form {
+    gap: 14px;
   }
 
   .composer-foot {
-    align-items: start;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
   }
 
   .composer-actions {
-    width: 100%;
+    display: flex;
+    flex-direction: row;
+    align-items: center;
     justify-content: space-between;
+    gap: 12px;
   }
 
   button {
     flex: 1;
+    padding: 0.9rem 1rem;
+    font-size: 1rem;
+    min-height: 48px;
+  }
+
+  .comment-item {
+    padding: 12px 14px;
+    border-radius: 14px;
+  }
+
+  .comment-body {
+    font-size: 0.95rem;
+  }
+}
+
+@media (max-width: 420px) {
+  .shell {
+    padding: 24px 10px calc(36px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .hero {
+    padding: 6px 14px 0;
+  }
+
+  .hero h1 {
+    font-size: 1.5rem;
+  }
+
+  .eyebrow {
+    font-size: 0.72rem;
+  }
+
+  .card {
+    border-radius: 14px;
+  }
+
+  .composer,
+  .timeline {
+    padding: 14px 14px;
+  }
+
+  .status-pill {
+    padding: 0.36rem 0.6rem;
+    font-size: 0.75rem;
   }
 }

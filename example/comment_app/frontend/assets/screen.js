@@ -87,10 +87,7 @@ function forwardSlideKey(event) {
       bubbles: true,
       cancelable: true,
     };
-    const forwarded = new targetWindow.KeyboardEvent("keydown", init);
-    targetWindow.dispatchEvent(forwarded);
     targetWindow.document.dispatchEvent(new targetWindow.KeyboardEvent("keydown", init));
-    targetWindow.document.body?.dispatchEvent(new targetWindow.KeyboardEvent("keydown", init));
     targetWindow.focus();
     event.preventDefault();
   } catch (error) {
@@ -182,7 +179,7 @@ function createFloatingComment(comment) {
 
   const author = document.createElement("span");
   author.className = "floating-comment__author";
-  author.textContent = comment.author || "anonymous";
+  author.textContent = comment.author || "匿名";
 
   const body = document.createElement("span");
   body.className = "floating-comment__body";
