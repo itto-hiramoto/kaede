@@ -7,6 +7,7 @@ use kaede_ast::{
 use kaede_ast_type::{Mutability, Ty};
 use kaede_lex::token::TokenKind;
 use kaede_span::Location;
+use kaede_symbol::Ident;
 
 use crate::{
     error::{ParseError, ParseResult},
@@ -58,23 +59,7 @@ impl Parser {
             if let Ok(name) = self.ident() {
                 if self.consume_b(&TokenKind::ColonEq) {
                     self.discard_checkpoint();
-                    let init = self.expr()?;
-                    let finish = init.span.finish;
-                    let span = self.new_span(mut_start, finish);
-                    let l = Let {
-                        kind: LetKind::NormalLet(NormalLet {
-                            name,
-                            mutability: Mutability::Mut,
-                            init: Some(init.into()),
-                            ty: Rc::new(Ty::new_var(span)),
-                            span,
-                        }),
-                        span,
-                    };
-                    return Ok(Stmt {
-                        span: l.span,
-                        kind: StmtKind::Let(l),
-                    });
+                    return self.short_decl_let_stmt(name, Mutability::Mut, mut_start);
                 }
             }
             self.backtrack();
@@ -118,22 +103,7 @@ impl Parser {
         if self.consume_b(&TokenKind::ColonEq) {
             return match expr.kind {
                 ExprKind::Ident(name) => {
-                    let rhs = self.expr()?;
-                    let span = self.new_span(expr.span.start, rhs.span.finish);
-                    let l = Let {
-                        kind: LetKind::NormalLet(NormalLet {
-                            name,
-                            mutability: Mutability::Not,
-                            init: Some(Rc::new(rhs)),
-                            ty: Rc::new(Ty::new_var(span)),
-                            span,
-                        }),
-                        span,
-                    };
-                    Ok(Stmt {
-                        span: l.span,
-                        kind: StmtKind::Let(l),
-                    })
+                    self.short_decl_let_stmt(name, Mutability::Not, expr.span.start)
                 }
                 _ => Err(ParseError::ExpectedError {
                     expected: "identifier before ':='".to_string(),
@@ -152,6 +122,33 @@ impl Parser {
             span: e.span,
             kind: StmtKind::Expr(Rc::new(e)),
         }
+    }
+
+    /// Short declaration (`name := rhs` / `mut name := rhs`): `:=` and the binding name are
+    /// already consumed; parses `rhs` and builds the same `NormalLet` as `let` / `let mut`.
+    fn short_decl_let_stmt(
+        &mut self,
+        name: Ident,
+        mutability: Mutability,
+        decl_start: Location,
+    ) -> ParseResult<Stmt> {
+        let init = self.expr()?;
+        let finish = init.span.finish;
+        let span = self.new_span(decl_start, finish);
+        let l = Let {
+            kind: LetKind::NormalLet(NormalLet {
+                name,
+                mutability,
+                init: Some(init.into()),
+                ty: Rc::new(Ty::new_var(span)),
+                span,
+            }),
+            span,
+        };
+        Ok(Stmt {
+            span: l.span,
+            kind: StmtKind::Let(l),
+        })
     }
 
     fn let_(&mut self) -> ParseResult<Let> {
