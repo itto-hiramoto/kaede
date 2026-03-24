@@ -2,6 +2,7 @@
 // And this is not included in the standard library and will not be compiled
 
 import std.collections
+import std.io
 import std.option
 import std.string
 import std.sync
@@ -13,3 +14,7 @@ pub use std.option.Option
 pub use std.string.String
 pub use std.sync.Channel
 pub use std.ffi.args.__prepare_command_line_arguments
+pub use std.io.print
+pub use std.io.println
+pub use std.io.eprint
+pub use std.io.eprintln

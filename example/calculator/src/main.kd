@@ -1,7 +1,6 @@
 import tokenize
 import eval
 import parse
-import std.io
 
 use tokenize.Tokenizer
 use parse.Parser
@@ -12,7 +11,7 @@ fn main(args: Vector<str>): i32 {
         Option::Some(expr) => expr,
 
         Option::None => {
-            std.io.puts("Please provide an expression as an command line argument!\n")
+            println("Please provide an expression as an command line argument!")
             return 1
         }
     })

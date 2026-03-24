@@ -1,5 +1,7 @@
 #pragma once
 
+#include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 
 #ifdef __cplusplus
@@ -23,6 +25,9 @@ FILE *kaede_rt_stdout(void);
 
 /* Standard error */
 FILE *kaede_rt_stderr(void);
+
+/* fd / buffer / length — thin wrapper around POSIX write(2) */
+int32_t kaede_io_write(int32_t fd, const void *buf, size_t len);
 
 #ifdef __cplusplus
 }
