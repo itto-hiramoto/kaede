@@ -4,9 +4,10 @@
 > [!WARNING]
 > As this project is still in the pre-release phase, there is still a possibility that the language specifications could change significantly!
 
-**Kaede** is a statically-typed, compiled language for writing servers concisely without giving up performance.
+**Kaede** is a statically-typed, compiled language with a rich feature set for writing servers concisely without giving up performance.
 
-- **Write concisely** — GC eliminates ownership complexity; just write your logic
+- **Write concisely** — Garbage collection manages memory for you so you can focus on your program's logic
+- **Rich types and syntax** — Mostly expression-oriented code, with sum types, pattern matching (`match`), generics, structs and methods, closures, and modules
 - **Concurrency made easy** — Lightweight threads, typed channels (`<-`), and non-blocking I/O
 - **Rust when you need it** — `import rust::<crate>` to call Rust functions directly
 
