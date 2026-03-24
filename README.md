@@ -4,16 +4,33 @@
 > [!WARNING]
 > As this project is still in the pre-release phase, there is still a possibility that the language specifications could change significantly!
 
-**Kaede** is an experimental systems programming language that combines:
+**Kaede** is a statically-typed, compiled language for writing servers concisely without giving up performance.
 
-- **Seamless Rust interop** — Import Rust crates directly from Kaede
-- **Go-style green threads** — Lightweight concurrent tasks with multi-core scheduling
-- **CSP-style concurrency** — Typed channels with buffered/unbuffered semantics and Go-like `<-` send/receive syntax
-- **Non-blocking network I/O** — Keep worker threads responsive while serving many concurrent socket connections
-- **Built-in HTTP/WebSocket server library** — Build concurrent HTTP APIs and real-time services out of the box
-- **Rust-like syntax** — Modern, expressive syntax with static typing
-- **Garbage collection** — Automatic memory management without ownership complexity
-- **Bidirectional type inference** — Minimal type annotations with full type safety
+- **Write concisely** — GC eliminates ownership complexity; just write your logic
+- **Concurrency made easy** — Lightweight threads, typed channels (`<-`), and non-blocking I/O
+- **Rust when you need it** — `import rust::<crate>` to call Rust functions directly
+
+```rust
+import std.http
+
+mut app := std.http.App::new()
+
+app.get("/", |req, res| {
+    res.send_text("hello, world!")
+})
+
+app.ws("/ws/echo", |req, ws| {
+    loop {
+        let msg = ws.receive().unwrap()
+        match msg.kind {
+            std.http.WebSocketMessageKind::Close => return
+            _ => ws.send(msg)
+        }
+    }
+})
+
+app.listen(port=8080)
+```
 
 ## Installation
 
