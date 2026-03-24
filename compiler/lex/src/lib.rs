@@ -230,6 +230,10 @@ impl Cursor<'_> {
                     // ::
                     self.bump().unwrap();
                     self.create_token(TokenKind::DoubleColon)
+                } else if self.first() == '=' {
+                    // :=
+                    self.bump().unwrap();
+                    self.create_token(TokenKind::ColonEq)
                 } else {
                     // :
                     self.create_token(TokenKind::Colon)

@@ -26,7 +26,7 @@ impl Parser {
     }
 
     fn consume(mut self, token: Token): bool {
-        let current_token = self.tokens.at(self.current_idx)
+        current_token := self.tokens.at(self.current_idx)
 
         return match current_token {
             Option::Some(current_token) => {
@@ -43,7 +43,7 @@ impl Parser {
     }
 
     fn expect_number(mut self): mut Node {
-        let token = self.tokens.at(self.current_idx).unwrap()
+        token := self.tokens.at(self.current_idx).unwrap()
 
         match token {
             Token::Num(n) => {
@@ -70,7 +70,7 @@ impl Parser {
 
 
     fn add_or_sub(mut self): mut Node {
-        let mut node = self.mul_or_div()
+        mut node := self.mul_or_div()
 
         loop {
             if self.consume(Token::Add) {
@@ -94,7 +94,7 @@ impl Parser {
     }
 
     fn mul_or_div(mut self): mut Node {
-        let mut node = self.primary()
+        mut node := self.primary()
 
         loop {
             if self.consume(Token::Mul) {
@@ -119,7 +119,7 @@ impl Parser {
 
     fn primary(mut self): mut Node {
         if self.consume(Token::LParen) {
-            let node = self.add_or_sub()
+            node := self.add_or_sub()
             self.consume(Token::RParen)
             return node
         }

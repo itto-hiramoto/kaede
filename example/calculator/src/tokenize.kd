@@ -57,8 +57,8 @@ impl Tokenizer {
     }
 
     fn string_to_int(s: String): i32 {
-        let mut i = 0
-        let mut n = 0
+        mut i := 0
+        mut n := 0
 
         loop {
             match s.at(i) {
@@ -75,12 +75,12 @@ impl Tokenizer {
     }
 
     pub fn tokenize(self, program: String): Option<Vector<Token>> {
-        let mut tokens = Vector<Token>::new()
+        mut tokens := Vector<Token>::new()
 
-        let mut i = 0
+        mut i := 0
 
         loop {
-            let ch = match program.at(i) {
+            ch := match program.at(i) {
                 Option::Some(c) => c,
                 Option::None => break,
             }
@@ -122,10 +122,10 @@ impl Tokenizer {
 
                 _ => {
                     // Expect numbers
-                    let mut n = String::new()
+                    mut n := String::new()
 
                     loop {
-                        let ch = match program.at(i) {
+                        ch := match program.at(i) {
                             Option::Some(ch) => ch,
                             Option::None => break,
                         }

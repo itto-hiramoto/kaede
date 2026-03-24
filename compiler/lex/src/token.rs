@@ -36,6 +36,8 @@ pub enum TokenKind {
     Colon,
     /// "::"
     DoubleColon,
+    /// ":="
+    ColonEq,
     /// "."
     Dot,
     /// ".."
@@ -180,6 +182,7 @@ impl std::fmt::Display for TokenKind {
                 Semi => "';'",
                 Colon => "':'",
                 DoubleColon => "'::'",
+                ColonEq => "':='",
                 Dot => "'.'",
                 DotDot => "'..'",
                 DotDotDot => "'...'",

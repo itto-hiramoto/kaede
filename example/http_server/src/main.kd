@@ -1,10 +1,10 @@
 import std.http
 
-let mut app = std.http.App::new()
+mut app := std.http.App::new()
 
 app.ws("/ws/echo", |req, ws| {
     loop {
-        let msg = ws.receive()
+        msg := ws.receive()
         match msg {
             Option::Some(msg) => {
                 match msg.kind {
@@ -45,7 +45,7 @@ app.get("/status/notfound", |req, res| {
 })
 
 app.get("/query", |req, res| {
-    let name = req.query("name")
+    name := req.query("name")
     res.send_text(match name {
         Option::Some(name) => name.as_str(),
         Option::None => "No name provided"
@@ -53,7 +53,7 @@ app.get("/query", |req, res| {
 })
 
 app.get("/users/:id", |req, res| {
-    let id = req.param("id")
+    id := req.param("id")
     res.send_text(match id {
         Option::Some(id) => id.as_str(),
         Option::None => "No id provided"
