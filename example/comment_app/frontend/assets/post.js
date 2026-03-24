@@ -78,23 +78,22 @@ function appendComment(comment) {
   }
 
   renderedIds.add(comment.id);
-  elements.list.append(createCommentItem(comment));
+  elements.list.prepend(createCommentItem(comment));
 
   while (elements.list.children.length > MAX_VISIBLE_COMMENTS) {
-    const first = elements.list.firstElementChild;
-    if (!first) {
+    const last = elements.list.lastElementChild;
+    if (!last) {
       break;
     }
 
-    const numericId = Number(first.dataset.commentId);
+    const numericId = Number(last.dataset.commentId);
     if (Number.isFinite(numericId)) {
       renderedIds.delete(numericId);
     }
-    first.remove();
+    last.remove();
   }
 
   toggleEmptyState();
-  elements.list.lastElementChild?.scrollIntoView({ block: "nearest" });
 }
 
 function validateForm() {
@@ -131,6 +130,10 @@ async function hydrateHistory() {
 
 async function handleSubmit(event) {
   event.preventDefault();
+  await submitComment();
+}
+
+async function submitComment() {
   setError("");
 
   let payload;
@@ -156,6 +159,15 @@ async function handleSubmit(event) {
     elements.submitButton.disabled = false;
     elements.submitButton.textContent = "送信する";
   }
+}
+
+async function handleMessageKeydown(event) {
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing) {
+    return;
+  }
+
+  event.preventDefault();
+  await submitComment();
 }
 
 async function boot() {
@@ -184,6 +196,7 @@ async function boot() {
 
 elements.form.addEventListener("submit", handleSubmit);
 elements.message.addEventListener("input", updateCharCount);
+elements.message.addEventListener("keydown", handleMessageKeydown);
 window.addEventListener("beforeunload", () => stream?.close());
 
 boot();
