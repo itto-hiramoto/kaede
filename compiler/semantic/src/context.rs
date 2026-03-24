@@ -18,9 +18,9 @@ pub enum AnalyzeCommand {
 
 #[derive(Debug, Clone)]
 pub struct AnalysisContext {
-    // std.io.puts(s) in test.kd -> [std, io]
+    // std.io.print(s) in test.kd -> [std, io]
     current_module_path: ModulePath,
-    // std.io.puts(s) in test.kd -> [test]
+    // std.io.print(s) in test.kd -> [test]
     module_path: ModulePath,
     fallback_lookup_module_path: Option<ModulePath>,
 

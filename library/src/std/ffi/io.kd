@@ -2,6 +2,12 @@ pub extern "C" fn kaede_rt_stdin(): *i8
 pub extern "C" fn kaede_rt_stdout(): *i8
 pub extern "C" fn kaede_rt_stderr(): *i8
 
+pub extern "C" fn kaede_io_write(fd: i32, buf: *i8, byte: u64): i32
+
+pub fn write(fd: i32, msg: str): i32 {
+    return kaede_io_write(fd, msg.as_ptr(), msg.len())
+}
+
 pub fn __stdin(): *i8 {
     return kaede_rt_stdin()
 }

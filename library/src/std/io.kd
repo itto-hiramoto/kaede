@@ -1,13 +1,21 @@
-pub extern "C" fn write(fd: i32, buf: *i8, byte: u64): i32
+import std.ffi.io
 
-fn c_write(fd: i32, msg: str): i32 {
-    return write(fd, msg.as_ptr(), msg.len())
+use std.ffi.io.write
+
+pub fn print(msg: str): i32 {
+    return write(1, msg)
 }
 
-pub fn puts(msg: str): i32 {
-    return c_write(1, msg)
+pub fn println(msg: str): i32 {
+    print(msg)
+    return write(1, "\n")
 }
 
-pub fn eputs(msg: str): i32 {
-    return c_write(2, msg)
+pub fn eprint(msg: str): i32 {
+    return write(2, msg)
+}
+
+pub fn eprintln(msg: str): i32 {
+    eprint(msg)
+    return write(2, "\n")
 }

@@ -1,6 +1,5 @@
 import ast
 import tokenize
-import std.io
 
 use ast.*
 use tokenize.Token
@@ -59,7 +58,7 @@ impl Parser {
             _ => {}
         }
 
-        std.io.eputs("expect number")
+        eprintln("expect number")
         __unreachable()
     }
 
