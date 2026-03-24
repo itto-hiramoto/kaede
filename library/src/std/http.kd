@@ -375,6 +375,30 @@ fn bytes_eq(left: [u8], right: [u8]): bool {
     return true
 }
 
+fn byte_to_lower(b: u8): u8 {
+    if b >= b'A' && b <= b'Z' {
+        return b + 32
+    }
+    return b
+}
+
+// Compares two byte slices for ASCII-case-insensitive equality.
+fn bytes_eq_ci(left: [u8], right: [u8]): bool {
+    if left.len() != right.len() {
+        return false
+    }
+
+    let mut i = 0
+    while i < left.len() {
+        if byte_to_lower(left[i]) != byte_to_lower(right[i]) {
+            return false
+        }
+        i += 1
+    }
+
+    return true
+}
+
 // Trims leading and trailing spaces used in HTTP header values.
 fn trim_http_whitespace(value: [u8]): [u8] {
     let mut start = 0
@@ -391,13 +415,13 @@ fn trim_http_whitespace(value: [u8]): [u8] {
     return value[start:end]
 }
 
-// Checks whether an HTTP header line starts with the requested header name.
+// Checks whether an HTTP header line starts with the requested header name (case-insensitive).
 fn line_matches_header_name(line: [u8], name: [u8]): bool {
     if line.len() < name.len() + 1 {
         return false
     }
 
-    if !bytes_eq(line[0:name.len()], name) {
+    if !bytes_eq_ci(line[0:name.len()], name) {
         return false
     }
 
@@ -454,7 +478,7 @@ fn value_has_token(value: [u8], token: [u8]): bool {
         }
 
         let segment = trim_http_whitespace(value[start:i])
-        if bytes_eq(segment, token) {
+        if bytes_eq_ci(segment, token) {
             return true
         }
 
@@ -473,6 +497,28 @@ fn has_connection_upgrade_token(header: [u8]): bool {
         Option::Some(value) => value_has_token(value, b"Upgrade"),
         Option::None => false,
     }
+}
+
+// Checks whether the Connection header contains "close" (case-insensitive).
+fn has_connection_close(header: [u8], version: str): bool {
+    let connection = header_value(header, b"Connection")
+    match connection {
+        Option::Some(value) => {
+            if value_has_token(value, b"close") {
+                return true
+            }
+            if value_has_token(value, b"keep-alive") {
+                return false
+            }
+        }
+        Option::None => {}
+    }
+
+    if version == "HTTP/1.0" {
+        return true
+    }
+
+    return false
 }
 
 // Detects whether a request looks like a WebSocket upgrade attempt.
@@ -515,7 +561,7 @@ fn websocket_upgrade_key(method: str, version: str, header: [u8]): Option<[u8]> 
         Option::Some(value) => value,
         Option::None => return Option<[u8]>::None,
     }
-    if !bytes_eq(upgrade, b"websocket") {
+    if !bytes_eq_ci(upgrade, b"websocket") {
         return Option<[u8]>::None
     }
 
@@ -623,19 +669,15 @@ fn find_path_param_value(params_vec: Vector<PathParam>, name: str): Option<Strin
 }
 
 pub fn parse_content_length(header: [u8]): i32 {
-    let key = b"Content-Length: "
-    let idx = std.sys.find_subslice(header, key)
-    if idx < 0 {
-        return 0
+    let value = match header_value(header, b"Content-Length") {
+        Option::Some(v) => v,
+        Option::None => return 0,
     }
 
-    let mut i = (idx as u64) + key.len()
     let mut val: i32 = 0
-    while i < header.len() {
-        let b = header[i]
-        if b == b'\r' {
-            break
-        }
+    let mut i = 0
+    while i < value.len() {
+        let b = value[i]
         if b < b'0' || b > b'9' {
             return -1
         }
@@ -1563,7 +1605,7 @@ fn handle_conn(conn: Fd, app: App) {
             }
         }
 
-        let want_close = std.sys.header_has_connection_close(header, version.as_str())
+        let want_close = has_connection_close(header, version.as_str())
 
         let mut req = Request {
             method,
