@@ -25,21 +25,21 @@ impl Counter {
     }
 
     fn next(mut self): u64 {
-        let id = self.value
+        id := self.value
         self.value = id + 1
         return id
     }
 }
 
-let max_history = 1024
+max_history := 1024
 
-let mut lock = Mutex::new()
-let mut comments = Vector<Comment>::new()
-let mut next_comment_id = Counter::new(1)
-let mut subscribers = Vector<Subscriber>::new()
-let mut next_subscriber_id = Counter::new(1)
+mut lock := Mutex::new()
+mut comments := Vector<Comment>::new()
+mut next_comment_id := Counter::new(1)
+mut subscribers := Vector<Subscriber>::new()
+mut next_subscriber_id := Counter::new(1)
 
-let mut app = std.http.App::new()
+mut app := std.http.App::new()
 
 app.static_file("/", "frontend/post.html")
 app.static_file("/screen", "frontend/screen.html")
@@ -47,7 +47,7 @@ app.static_dir("/assets", "frontend/assets")
 app.static_dir("/slides", "frontend/slides")
 
 app.get("/comments", |req, res| {
-    let since = match parse_since(req) {
+    since := match parse_since(req) {
         Option::Some(value) => value,
         Option::None => {
             res.status(Status::BadRequest).send_text("since must be u64")
@@ -56,13 +56,13 @@ app.get("/comments", |req, res| {
     }
 
     lock.lock()
-    let pending = comments.filter(|comment| comment.id > since)
+    pending := comments.filter(|comment| comment.id > since)
     lock.unlock()
 
-    let mut out = String::new()
-    let mut i = 0
+    mut out := String::new()
+    mut i := 0
     while i < pending.len() {
-        let comment = pending.at(i).unwrap()
+        comment := pending.at(i).unwrap()
         out.push_line(comment.json.as_str())
         i += 1
     }
@@ -71,12 +71,12 @@ app.get("/comments", |req, res| {
 })
 
 app.post("/comments", |req, res| {
-    let author_input = match req.query("author") {
+    author_input := match req.query("author") {
         Option::Some(value) => value,
         Option::None => String::from("匿名"),
     }
-    let normalized_author = rust::comment_app::normalize_author(author_input.as_str())
-    let author = if normalized_author.len() == 0 {
+    normalized_author := rust::comment_app::normalize_author(author_input.as_str())
+    author := if normalized_author.len() == 0 {
         String::from("匿名")
     } else {
         normalized_author.clone()
@@ -86,8 +86,8 @@ app.post("/comments", |req, res| {
         return
     }
 
-    let body_text = String::from_bytes(req.body)
-    let message = rust::comment_app::normalize_message(body_text.as_str())
+    body_text := String::from_bytes(req.body)
+    message := rust::comment_app::normalize_message(body_text.as_str())
     if message.len() == 0 {
         res.status(Status::BadRequest).send_text("message must not be empty")
         return
@@ -98,15 +98,15 @@ app.post("/comments", |req, res| {
     }
 
     lock.lock()
-    let id = next_comment_id.next()
-    let json = rust::comment_app::comment_json(id, author.as_str(), message.as_str())
+    id := next_comment_id.next()
+    json := rust::comment_app::comment_json(id, author.as_str(), message.as_str())
     comments.push(Comment {
         id,
         json,
     })
     if comments.len() > max_history {
-        let start = comments.len() - max_history
-        let snapshot = comments.as_slice()
+        start := comments.len() - max_history
+        snapshot := comments.as_slice()
         comments = Vector<Comment>::from_slice(snapshot[start:comments.len()])
     }
     subscribers.retain(|subscriber| {
@@ -123,15 +123,15 @@ app.post("/comments", |req, res| {
 })
 
 app.ws("/ws/comments", |req, ws| {
-    let since = match parse_since(req) {
+    since := match parse_since(req) {
         Option::Some(value) => value,
         Option::None => 0,
     }
-    let events = Channel<String>::with_capacity(max_history)
+    events := Channel<String>::with_capacity(max_history)
 
     lock.lock()
-    let pending = comments.filter(|comment| comment.id > since)
-    let subscriber_id = next_subscriber_id.next()
+    pending := comments.filter(|comment| comment.id > since)
+    subscriber_id := next_subscriber_id.next()
     subscribers.push(Subscriber {
         id: subscriber_id,
         events,
@@ -140,9 +140,9 @@ app.ws("/ws/comments", |req, ws| {
 
     spawn ws_reader(ws, events)
 
-    let mut i = 0
+    mut i := 0
     while i < pending.len() {
-        let comment = pending.at(i).unwrap()
+        comment := pending.at(i).unwrap()
         if !ws.send_text(comment.json.as_str()) {
             events.close()
             lock.lock()
@@ -154,7 +154,7 @@ app.ws("/ws/comments", |req, ws| {
     }
 
     loop {
-        let json = match <-events {
+        json := match <-events {
             Option::Some(value) => value,
             Option::None => {
                 events.close()

@@ -7,7 +7,7 @@ use parse.Parser
 use eval.Evaluator
 
 fn main(args: Vector<str>): i32 {
-    let expr = String::from(match args.at(1) {
+    expr := String::from(match args.at(1) {
         Option::Some(expr) => expr,
 
         Option::None => {
@@ -16,12 +16,12 @@ fn main(args: Vector<str>): i32 {
         }
     })
 
-    let tokenizer = Tokenizer::new()
-    let tokens = tokenizer.tokenize(expr).unwrap()
+    tokenizer := Tokenizer::new()
+    tokens := tokenizer.tokenize(expr).unwrap()
 
-    let mut parser = Parser::new()
-    let ast = parser.parse(tokens)
+    mut parser := Parser::new()
+    ast := parser.parse(tokens)
 
-    let evaluator = Evaluator::new()
+    evaluator := Evaluator::new()
     return evaluator.eval(ast)
 }

@@ -1,10 +1,10 @@
 use std::rc::Rc;
 
 use kaede_ast::{
-    expr::Expr,
+    expr::{Expr, ExprKind},
     stmt::{Assign, AssignOp, Block, Let, LetKind, NormalLet, Stmt, StmtKind, TupleUnpack},
 };
-use kaede_ast_type::Ty;
+use kaede_ast_type::{Mutability, Ty};
 use kaede_lex::token::TokenKind;
 use kaede_span::Location;
 
@@ -45,50 +45,106 @@ impl Parser {
     pub(crate) fn stmt(&mut self) -> ParseResult<Stmt> {
         if self.check(&TokenKind::Let) {
             let l = self.let_()?;
-            Ok(Stmt {
+            return Ok(Stmt {
                 span: l.span,
                 kind: StmtKind::Let(l),
-            })
-        } else {
-            let expr = self.expr()?;
-
-            // Assignment statement
-            let assign_op = if self.consume_b(&TokenKind::Eq) {
-                Some(AssignOp::Eq)
-            } else if self.consume_b(&TokenKind::PlusEq) {
-                Some(AssignOp::AddAssign)
-            } else if self.consume_b(&TokenKind::MinusEq) {
-                Some(AssignOp::SubAssign)
-            } else if self.consume_b(&TokenKind::AsteriskEq) {
-                Some(AssignOp::MulAssign)
-            } else if self.consume_b(&TokenKind::SlashEq) {
-                Some(AssignOp::DivAssign)
-            } else if self.consume_b(&TokenKind::PercentEq) {
-                Some(AssignOp::RemAssign)
-            } else {
-                None
-            };
-
-            if let Some(op) = assign_op {
-                let rhs = self.expr()?;
-
-                let span = self.new_span(expr.span.start, rhs.span.finish);
-
-                return Ok(Stmt {
-                    kind: StmtKind::Assign(Box::new(Assign {
-                        lhs: expr,
-                        rhs,
-                        op,
-                        span,
-                    })),
-                    span,
-                });
-            }
-
-            // Expression statement
-            let expr_stmt = self.expr_stmt(expr);
-            Ok(expr_stmt)
+            });
         }
+
+        if self.check(&TokenKind::Mut) {
+            self.checkpoint();
+            let mut_start = self.first().span.start;
+            self.bump();
+            if let Ok(name) = self.ident() {
+                if self.consume_b(&TokenKind::ColonEq) {
+                    self.discard_checkpoint();
+                    let init = self.expr()?;
+                    let finish = init.span.finish;
+                    let span = self.new_span(mut_start, finish);
+                    let l = Let {
+                        kind: LetKind::NormalLet(NormalLet {
+                            name,
+                            mutability: Mutability::Mut,
+                            init: Some(init.into()),
+                            ty: Rc::new(Ty::new_var(span)),
+                            span,
+                        }),
+                        span,
+                    };
+                    return Ok(Stmt {
+                        span: l.span,
+                        kind: StmtKind::Let(l),
+                    });
+                }
+            }
+            self.backtrack();
+        }
+
+        let expr = self.expr()?;
+
+        // Assignment statement
+        let assign_op = if self.consume_b(&TokenKind::Eq) {
+            Some(AssignOp::Eq)
+        } else if self.consume_b(&TokenKind::PlusEq) {
+            Some(AssignOp::AddAssign)
+        } else if self.consume_b(&TokenKind::MinusEq) {
+            Some(AssignOp::SubAssign)
+        } else if self.consume_b(&TokenKind::AsteriskEq) {
+            Some(AssignOp::MulAssign)
+        } else if self.consume_b(&TokenKind::SlashEq) {
+            Some(AssignOp::DivAssign)
+        } else if self.consume_b(&TokenKind::PercentEq) {
+            Some(AssignOp::RemAssign)
+        } else {
+            None
+        };
+
+        if let Some(op) = assign_op {
+            let rhs = self.expr()?;
+
+            let span = self.new_span(expr.span.start, rhs.span.finish);
+
+            return Ok(Stmt {
+                kind: StmtKind::Assign(Box::new(Assign {
+                    lhs: expr,
+                    rhs,
+                    op,
+                    span,
+                })),
+                span,
+            });
+        }
+
+        if self.consume_b(&TokenKind::ColonEq) {
+            return match expr.kind {
+                ExprKind::Ident(name) => {
+                    let rhs = self.expr()?;
+                    let span = self.new_span(expr.span.start, rhs.span.finish);
+                    let l = Let {
+                        kind: LetKind::NormalLet(NormalLet {
+                            name,
+                            mutability: Mutability::Not,
+                            init: Some(Rc::new(rhs)),
+                            ty: Rc::new(Ty::new_var(span)),
+                            span,
+                        }),
+                        span,
+                    };
+                    Ok(Stmt {
+                        span: l.span,
+                        kind: StmtKind::Let(l),
+                    })
+                }
+                _ => Err(ParseError::ExpectedError {
+                    expected: "identifier before ':='".to_string(),
+                    but: "non-identifier expression".to_string(),
+                    span: expr.span,
+                }
+                .into()),
+            };
+        }
+
+        Ok(self.expr_stmt(expr))
     }
 
     fn expr_stmt(&mut self, e: Expr) -> Stmt {

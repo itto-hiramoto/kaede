@@ -18,8 +18,8 @@ impl Evaluator {
             _ => {}
         }
 
-        let left = self.eval(node.left.unwrap())
-        let right = self.eval(node.right.unwrap())
+        left := self.eval(node.left.unwrap())
+        right := self.eval(node.right.unwrap())
 
         return match node.kind {
             NodeKind::Add => left + right,

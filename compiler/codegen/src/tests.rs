@@ -412,6 +412,34 @@ fn let_statement() -> anyhow::Result<()> {
 }
 
 #[test]
+fn short_decl_colon_eq() -> anyhow::Result<()> {
+    let program = r"fn main(): i32 {
+        x := 48
+        y := 10
+        return x + y
+    }";
+
+    assert_eq!(exec(program)?, 58);
+
+    let program = r"fn main(): i32 {
+        mut x := 58
+        return x
+    }";
+
+    assert_eq!(exec(program)?, 58);
+
+    let program = r"fn main(): i32 {
+        mut x := 0
+        x = 58
+        return x
+    }";
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
 fn call_function() -> anyhow::Result<()> {
     let program = r"fn f1(): i32 {
         return 48
