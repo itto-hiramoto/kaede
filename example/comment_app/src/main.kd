@@ -31,7 +31,7 @@ impl Counter {
     }
 }
 
-let max_history = 128
+let max_history = 1024
 
 let mut lock = Mutex::new()
 let mut comments = Vector<Comment>::new()
@@ -73,11 +73,11 @@ app.get("/comments", |req, res| {
 app.post("/comments", |req, res| {
     let author_input = match req.query("author") {
         Option::Some(value) => value,
-        Option::None => String::from("anonymous"),
+        Option::None => String::from("匿名"),
     }
     let normalized_author = rust::comment_app::normalize_author(author_input.as_str())
     let author = if normalized_author.len() == 0 {
-        String::from("anonymous")
+        String::from("匿名")
     } else {
         normalized_author.clone()
     }
