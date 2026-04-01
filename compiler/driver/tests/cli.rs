@@ -1,7 +1,7 @@
 use assert_cmd::prelude::*;
 use assert_fs::prelude::*;
 use predicates::prelude::*;
-use std::process::Command;
+use std::{fs, process::Command};
 
 #[test]
 fn failed_to_open_file() -> anyhow::Result<()> {
@@ -20,6 +20,30 @@ fn no_input_files() -> anyhow::Result<()> {
         .assert()
         .failure()
         .stderr(predicate::str::contains("No input files"));
+
+    Ok(())
+}
+
+#[test]
+fn new_creates_hello_world_main() -> anyhow::Result<()> {
+    let temp_dir = assert_fs::TempDir::new()?;
+    let project_name = "hello_kaede";
+    let project_dir = temp_dir.child(project_name);
+    let main = project_dir.child("src/main.kd");
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .current_dir(temp_dir.path())
+        .args(["new", project_name])
+        .assert()
+        .success();
+
+    main.assert(predicate::path::is_file());
+    assert_eq!(
+        fs::read_to_string(main.path())?,
+        r#"fn main() {
+    println("hello, world!")
+}"#,
+    );
 
     Ok(())
 }
