@@ -396,6 +396,32 @@ impl SemanticAnalyzer {
         Symbol::from(name)
     }
 
+    fn build_qualified_symbol_lookup(
+        &self,
+    ) -> HashMap<QualifiedSymbol, Rc<RefCell<SymbolTableValue>>> {
+        let mut lookup = HashMap::new();
+
+        for (module_path, module_context) in &self.modules {
+            for table in module_context.get_symbol_tables() {
+                for (symbol, value) in table.iter() {
+                    lookup.insert(
+                        QualifiedSymbol::new(module_path.clone(), *symbol),
+                        value.clone(),
+                    );
+                }
+            }
+
+            for (symbol, value) in module_context.get_private_symbol_table().iter() {
+                lookup.insert(
+                    QualifiedSymbol::new(module_path.clone(), *symbol),
+                    value.clone(),
+                );
+            }
+        }
+
+        lookup
+    }
+
     pub fn take_additional_native_libs(&mut self) -> Vec<PathBuf> {
         std::mem::take(&mut self.additional_native_libs)
     }
@@ -1364,10 +1390,12 @@ impl SemanticAnalyzer {
         // Merge all symbol tables from the stack (includes root scope + all local scopes)
         // This allows type inference to see all symbols: globals, function params, and locals
         let symbol_table_view = ScopedSymbolTable::merge_for_inference(module.get_symbol_tables());
+        let qualified_symbol_lookup = self.build_qualified_symbol_lookup();
 
         // Create a type inferrer with the merged symbol table
         let mut inferrer = TypeInferrer::new(
             symbol_table_view,
+            qualified_symbol_lookup,
             decl.return_ty.clone(),
             self.infer_context.type_var_allocator.clone(),
         );
@@ -1403,9 +1431,11 @@ impl SemanticAnalyzer {
 
         let tables = vec![SymbolTable::new()];
         let symbol_table_view = ScopedSymbolTable::merge_for_inference(&tables);
+        let qualified_symbol_lookup = self.build_qualified_symbol_lookup();
 
         let mut inferrer = TypeInferrer::new(
             symbol_table_view,
+            qualified_symbol_lookup,
             decl.return_ty.clone(),
             self.infer_context.type_var_allocator.clone(),
         );

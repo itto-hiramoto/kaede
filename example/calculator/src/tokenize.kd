@@ -143,6 +143,6 @@ impl Tokenizer {
             }
         }
 
-        return Option<Vector<Token>>::Some(tokens)
+        return Option::Some(tokens)
     }
 }

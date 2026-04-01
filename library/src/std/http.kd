@@ -71,7 +71,7 @@ impl WebSocket {
     // Reads the next WebSocket frame and maps it to a high-level message.
     pub fn receive(mut self): Option<WebSocketMessage> {
         if self.closed {
-            return Option<WebSocketMessage>::None
+            return Option::None
         }
 
         loop {
@@ -84,20 +84,20 @@ impl WebSocket {
                         }
                         WebSocketMessageKind::Close => {
                             self.close_with_body(msg.payload.as_slice())
-                            return Option<WebSocketMessage>::Some(msg)
+                            return Option::Some(msg)
                         }
                         _ => {
-                            return Option<WebSocketMessage>::Some(msg)
+                            return Option::Some(msg)
                         }
                     }
                 }
                 FrameReadResult::Closed => {
                     self.closed = true
-                    return Option<WebSocketMessage>::None
+                    return Option::None
                 }
                 FrameReadResult::ProtocolError => {
                     self.close()
-                    return Option<WebSocketMessage>::None
+                    return Option::None
                 }
             }
         }
@@ -451,16 +451,16 @@ fn header_value(header: [u8], name: [u8]): Option<[u8]> {
         if line_matches_header_name(line, name) {
             let colon = find_byte(line, b':')
             if colon < 0 {
-                return Option<[u8]>::None
+                return Option::None
             }
 
-            return Option<[u8]>::Some(trim_http_whitespace(line[(colon as u64 + 1):line.len()]))
+            return Option::Some(trim_http_whitespace(line[(colon as u64 + 1):line.len()]))
         }
 
         line_start = line_end + 2
     }
 
-    return Option<[u8]>::None
+    return Option::None
 }
 
 // Checks whether a comma-separated header value contains a given token.
@@ -550,42 +550,42 @@ fn is_websocket_upgrade_candidate(header: [u8]): bool {
 // Validates the upgrade request and returns the Sec-WebSocket-Key.
 fn websocket_upgrade_key(method: str, version: str, header: [u8]): Option<[u8]> {
     if method != "GET" {
-        return Option<[u8]>::None
+        return Option::None
     }
 
     if version != "HTTP/1.1" {
-        return Option<[u8]>::None
+        return Option::None
     }
 
     let upgrade = match header_value(header, b"Upgrade") {
         Option::Some(value) => value,
-        Option::None => return Option<[u8]>::None,
+        Option::None => return Option::None,
     }
     if !bytes_eq_ci(upgrade, b"websocket") {
-        return Option<[u8]>::None
+        return Option::None
     }
 
     if !has_connection_upgrade_token(header) {
-        return Option<[u8]>::None
+        return Option::None
     }
 
     let version_header = match header_value(header, b"Sec-WebSocket-Version") {
         Option::Some(value) => value,
-        Option::None => return Option<[u8]>::None,
+        Option::None => return Option::None,
     }
     if !bytes_eq(version_header, b"13") {
-        return Option<[u8]>::None
+        return Option::None
     }
 
     let key = match header_value(header, b"Sec-WebSocket-Key") {
         Option::Some(value) => value,
-        Option::None => return Option<[u8]>::None,
+        Option::None => return Option::None,
     }
     if key.len() == 0 {
-        return Option<[u8]>::None
+        return Option::None
     }
 
-    return Option<[u8]>::Some(key)
+    return Option::Some(key)
 }
 
 // Parses query string "key1=val1&key2=val2" and returns the value for the given name.
@@ -600,7 +600,7 @@ fn find_query_param_value(query: String, name: str): Option<String> {
         if eq_pos < seg_end {
             let key = decode_query_component(query.slice(seg_start, eq_pos))
             if key.as_str() == name {
-                return Option<String>::Some(decode_query_component(query.slice(eq_pos + 1, seg_end)))
+                return Option::Some(decode_query_component(query.slice(eq_pos + 1, seg_end)))
             }
         }
 
@@ -609,7 +609,7 @@ fn find_query_param_value(query: String, name: str): Option<String> {
         }
         seg_start = seg_end + 1
     }
-    return Option<String>::None
+    return Option::None
 }
 
 fn decode_query_component(component: String): String {
@@ -661,11 +661,11 @@ fn find_path_param_value(params_vec: Vector<PathParam>, name: str): Option<Strin
     while i < params_vec.len() {
         let p = params_vec.at(i).unwrap()
         if p.name.as_str() == name {
-            return Option<String>::Some(p.value)
+            return Option::Some(p.value)
         }
         i += 1
     }
-    return Option<String>::None
+    return Option::None
 }
 
 pub fn parse_content_length(header: [u8]): i32 {
@@ -855,17 +855,17 @@ fn read_exact_bytes(fd: Fd, buf: mut [u8], len: u64): bool {
 fn read_ws_len16(conn: Fd): Option<u64> {
     let mut buf = [0; 2]
     if !read_exact_bytes(conn, buf, 2) {
-        return Option<u64>::None
+        return Option::None
     }
 
-    return Option<u64>::Some(((buf[0] as u64) << 8) + (buf[1] as u64))
+    return Option::Some(((buf[0] as u64) << 8) + (buf[1] as u64))
 }
 
 // Reads a 64-bit extended WebSocket payload length.
 fn read_ws_len64(conn: Fd): Option<u64> {
     let mut buf = [0; 8]
     if !read_exact_bytes(conn, buf, 8) {
-        return Option<u64>::None
+        return Option::None
     }
 
     let len =
@@ -878,7 +878,7 @@ fn read_ws_len64(conn: Fd): Option<u64> {
         ((buf[6] as u64) << 8) +
         (buf[7] as u64)
 
-    return Option<u64>::Some(len)
+    return Option::Some(len)
 }
 
 // Reads and unmasks a WebSocket payload body.
@@ -892,10 +892,10 @@ fn read_ws_payload(conn: Fd, payload_len: u64, mask_key: [u8]): Option<Vector<u8
         let want = if remaining > chunk.len() { chunk.len() } else { remaining }
         let read = match std.sys.read_exact(conn, chunk, want) {
             Option::Some(value) => value,
-            Option::None => return Option<Vector<u8>>::None,
+            Option::None => return Option::None,
         }
         if read != want {
-            return Option<Vector<u8>>::None
+            return Option::None
         }
 
         let mut i = 0
@@ -908,7 +908,7 @@ fn read_ws_payload(conn: Fd, payload_len: u64, mask_key: [u8]): Option<Vector<u8
         remaining -= want
     }
 
-    return Option<Vector<u8>>::Some(out)
+    return Option::Some(out)
 }
 
 // Discards a bounded amount of frame body bytes so the server can send a close
@@ -1135,7 +1135,7 @@ impl App {
                 match r.kind {
                     RouteKind::Http(handler) => {
                         if !r.has_params && r.method.as_str() == method && r.path.as_str() == path {
-                            return Option<HttpRouteMatch>::Some(HttpRouteMatch {
+                            return Option::Some(HttpRouteMatch {
                                 handler,
                                 params: Vector<PathParam>::new(),
                             })
@@ -1157,7 +1157,7 @@ impl App {
                             let mut params = Vector<PathParam>::new()
                             let matched = match_route_path(r.path, String::from(path), params)
                             if matched {
-                                return Option<HttpRouteMatch>::Some(HttpRouteMatch { handler, params })
+                                return Option::Some(HttpRouteMatch { handler, params })
                             }
                         }
                     }
@@ -1167,7 +1167,7 @@ impl App {
             }
         }
 
-        return Option<HttpRouteMatch>::None
+        return Option::None
     }
 
     // Finds the WebSocket handler that matches an incoming request path.
@@ -1179,7 +1179,7 @@ impl App {
                 match r.kind {
                     RouteKind::Ws(handler) => {
                         if !r.has_params && r.method.as_str() == method && r.path.as_str() == path {
-                            return Option<WsRouteMatch>::Some(WsRouteMatch {
+                            return Option::Some(WsRouteMatch {
                                 handler,
                                 params: Vector<PathParam>::new(),
                             })
@@ -1201,7 +1201,7 @@ impl App {
                             let mut params = Vector<PathParam>::new()
                             let matched = match_route_path(r.path, String::from(path), params)
                             if matched {
-                                return Option<WsRouteMatch>::Some(WsRouteMatch { handler, params })
+                                return Option::Some(WsRouteMatch { handler, params })
                             }
                         }
                     }
@@ -1211,7 +1211,7 @@ impl App {
             }
         }
 
-        return Option<WsRouteMatch>::None
+        return Option::None
     }
 
     // Resolves a GET request against explicit static files first, then static directories.
@@ -1243,12 +1243,12 @@ impl App {
         while i < self.static_files.len() {
             let route = self.static_files.at(i).unwrap()
             if route.url_path.as_str() == path {
-                return Option<StaticFileRoute>::Some(route)
+                return Option::Some(route)
             }
             i += 1
         }
 
-        return Option<StaticFileRoute>::None
+        return Option::None
     }
 
     // Maps a URL under a static directory prefix to a safe filesystem path.
@@ -1264,16 +1264,16 @@ impl App {
             if relative.len() > 0 {
                 let safe_relative = match sanitize_static_relative_path(relative) {
                     Option::Some(value) => value,
-                    Option::None => return Option<String>::Some(String::from("")),
+                    Option::None => return Option::Some(String::from("")),
                 }
 
-                return Option<String>::Some(join_static_fs_path(route.fs_dir, safe_relative))
+                return Option::Some(join_static_fs_path(route.fs_dir, safe_relative))
             }
 
             i += 1
         }
 
-        return Option<String>::None
+        return Option::None
     }
 }
 
@@ -1369,38 +1369,38 @@ fn normalize_static_prefix(prefix: str): String {
 fn strip_static_prefix(path: str, prefix: str): Option<String> {
     if prefix == "/" {
         if path.len() <= 1 || path[0] != '/' {
-            return Option<String>::None
+            return Option::None
         }
 
-        return Option<String>::Some(String::from(path).slice(1, path.len()))
+        return Option::Some(String::from(path).slice(1, path.len()))
     }
 
     if !path.starts_with(prefix) {
-        return Option<String>::None
+        return Option::None
     }
 
     if path.len() <= prefix.len() {
-        return Option<String>::None
+        return Option::None
     }
 
     if path[prefix.len()] != '/' {
-        return Option<String>::None
+        return Option::None
     }
 
-    return Option<String>::Some(String::from(path).slice(prefix.len() + 1, path.len()))
+    return Option::Some(String::from(path).slice(prefix.len() + 1, path.len()))
 }
 
 // Rejects traversal-like paths and returns a normalized relative path for static serving.
 fn sanitize_static_relative_path(relative: String): Option<String> {
     if relative.len() == 0 {
-        return Option<String>::None
+        return Option::None
     }
 
     let mut i = 0
     while i < relative.len() {
         let ch = relative.at(i).unwrap()
         if ch == '%' || ch == '\\' {
-            return Option<String>::None
+            return Option::None
         }
         i += 1
     }
@@ -1412,7 +1412,7 @@ fn sanitize_static_relative_path(relative: String): Option<String> {
     while idx < segments.len() {
         let segment = segments.at(idx).unwrap()
         if segment.len() == 0 || segment.as_str() == "." || segment.as_str() == ".." {
-            return Option<String>::None
+            return Option::None
         }
 
         if out.len() > 0 {
@@ -1423,10 +1423,10 @@ fn sanitize_static_relative_path(relative: String): Option<String> {
     }
 
     if out.len() == 0 {
-        return Option<String>::None
+        return Option::None
     }
 
-    return Option<String>::Some(out)
+    return Option::Some(out)
 }
 
 // Joins a static directory root and a sanitized relative path into one filesystem path.

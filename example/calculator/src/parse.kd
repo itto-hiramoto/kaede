@@ -76,14 +76,14 @@ impl Parser {
             if self.consume(Token::Add) {
                 node = Node {
                     kind: NodeKind::Add,
-                    left: Option<Node>::Some(node),
-                    right: Option<Node>::Some(self.mul_or_div()),
+                    left: Option::Some(node),
+                    right: Option::Some(self.mul_or_div()),
                 }
             } else if self.consume(Token::Sub) {
                 node = Node {
                     kind: NodeKind::Sub,
-                    left: Option<Node>::Some(node),
-                    right: Option<Node>::Some(self.mul_or_div()),
+                    left: Option::Some(node),
+                    right: Option::Some(self.mul_or_div()),
                 }
             } else {
                 return node
@@ -100,14 +100,14 @@ impl Parser {
             if self.consume(Token::Mul) {
                 node = Node {
                     kind: NodeKind::Mul,
-                    left: Option<Node>::Some(node),
-                    right: Option<Node>::Some(self.primary()),
+                    left: Option::Some(node),
+                    right: Option::Some(self.primary()),
                 }
             } else if self.consume(Token::Div) {
                 node = Node {
                     kind: NodeKind::Div,
-                    left: Option<Node>::Some(node),
-                    right: Option<Node>::Some(self.primary()),
+                    left: Option::Some(node),
+                    right: Option::Some(self.primary()),
                 }
             } else {
                 return node

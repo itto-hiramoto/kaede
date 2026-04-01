@@ -473,6 +473,50 @@ fn option_some_struct_payload_without_explicit_args() -> anyhow::Result<()> {
 }
 
 #[test]
+fn option_none_allows_omitted_type_args_when_expected_type_is_known() -> anyhow::Result<()> {
+    semantic_analyze(
+        r#"
+        fn wrap(flag: bool): Option<i32> {
+            if flag {
+                return Option::Some(58)
+            }
+
+            return Option::None
+        }
+
+        fn main(): i32 {
+            let opt: Option<i32> = Option::None
+            return match wrap(false) {
+                Option::Some(n) => n,
+                Option::None => match opt {
+                    Option::Some(n) => n,
+                    Option::None => 58,
+                },
+            }
+        }
+        "#,
+    )?;
+
+    Ok(())
+}
+
+#[test]
+fn option_none_without_context_still_requires_type_args() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error(
+        r#"
+        fn main(): i32 {
+            let opt = Option::None
+            return 0
+        }
+        "#,
+    )?;
+
+    assert!(err.to_string().contains("cannot infer type for expression"));
+
+    Ok(())
+}
+
+#[test]
 fn type_alias_struct() -> anyhow::Result<()> {
     semantic_analyze(
         "struct S { x: i32 }
