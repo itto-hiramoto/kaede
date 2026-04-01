@@ -1071,7 +1071,7 @@ impl SemanticAnalyzer {
         let argv_ty = Rc::new(ir::ty::Ty::wrap_in_pointer(
             ir::ty::Ty::wrap_in_pointer(
                 ir::ty::make_fundamental_type(
-                    ir::ty::FundamentalTypeKind::Char,
+                    ir::ty::FundamentalTypeKind::U8,
                     ir::ty::Mutability::Not,
                 )
                 .into(),
@@ -1141,7 +1141,7 @@ impl SemanticAnalyzer {
                 ty: ir::ty::Ty::wrap_in_pointer(
                     ir::ty::Ty::wrap_in_pointer(
                         ir::ty::make_fundamental_type(
-                            ir::ty::FundamentalTypeKind::Char,
+                            ir::ty::FundamentalTypeKind::U8,
                             ir::ty::Mutability::Not,
                         )
                         .into(),

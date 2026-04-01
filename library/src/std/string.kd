@@ -4,67 +4,88 @@ import std.option
 use std.collections.Vector
 use std.option.Option
 
+extern "C" fn kaede_utf8_char_at(s: *u8, len: u64, index: u64): char
+extern "C" fn kaede_utf8_char_count(s: *u8, len: u64): u64
+extern "C" fn kaede_utf8_byte_index_of_char(s: *u8, len: u64, index: u64): u64
+
 pub struct String {
-    chars: Vector<char>,
+    bytes: Vector<u8>,
 }
 
 impl String {
     pub fn new(): mut String {
-        return String { chars: Vector<char>::new() }
+        return String { bytes: Vector<u8>::new() }
     }
 
     pub fn from(s: str): mut String {
-        let mut chars = Vector<char>::new()
-
-        let mut i = 0
-        while i < s.len() {
-            chars.push(s[i])
-            i += 1
-        }
-
-        return String { chars }
+        return String { bytes: s.to_bytes() }
     }
 
     pub fn from_bytes(bytes: [u8]): String {
-        let mut chars = Vector<char>::new()
-
-        let mut i = 0
-        while i < bytes.len() {
-            chars.push(bytes[i] as char)
-            i += 1
-        }
-
-        return String { chars }
+        return String { bytes: Vector<u8>::from_slice(bytes) }
     }
 
-    pub fn as_ptr(self): *char {
-        return self.chars.as_ptr()
+    pub fn as_ptr(self): *u8 {
+        return self.bytes.as_ptr()
     }
 
     pub fn len(self): u64 {
-        return self.chars.len()
+        return kaede_utf8_char_count(self.as_ptr(), self.bytes.len())
     }
 
     pub fn as_str(self): str {
-        return __str(self.as_ptr(), self.len())
+        return __str(self.as_ptr(), self.bytes.len())
     }
 
     pub fn at(self, idx: u64): Option<char> {
-        return self.chars.at(idx)
+        if idx >= self.len() {
+            return Option<char>::None
+        }
+
+        return Option<char>::Some(kaede_utf8_char_at(self.as_ptr(), self.bytes.len(), idx))
     }
 
     pub fn push(mut self, ch: char) {
-        self.chars.push(ch)
+        let code = ch as u32
+
+        if code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF) {
+            panic("invalid Unicode scalar value")
+        }
+
+        if code <= 0x7F {
+            self.bytes.push(code as u8)
+            return
+        }
+
+        if code <= 0x7FF {
+            self.bytes.push((0xC0 + (code >> 6)) as u8)
+            self.bytes.push((0x80 + (code & 0x3F)) as u8)
+            return
+        }
+
+        if code <= 0xFFFF {
+            self.bytes.push((0xE0 + (code >> 12)) as u8)
+            self.bytes.push((0x80 + ((code >> 6) & 0x3F)) as u8)
+            self.bytes.push((0x80 + (code & 0x3F)) as u8)
+            return
+        }
+
+        self.bytes.push((0xF0 + (code >> 18)) as u8)
+        self.bytes.push((0x80 + ((code >> 12) & 0x3F)) as u8)
+        self.bytes.push((0x80 + ((code >> 6) & 0x3F)) as u8)
+        self.bytes.push((0x80 + (code & 0x3F)) as u8)
     }
 
     pub fn clone(self): String {
-        return String::from(self.as_str())
+        return String { bytes: Vector<u8>::from_slice(self.bytes.as_slice()) }
     }
 
     pub fn push_str(mut self, s: str) {
+        let bytes = s.to_bytes()
+        let slice = bytes.as_slice()
         let mut i = 0
-        while i < s.len() {
-            self.push(s[i])
+        while i < bytes.len() {
+            self.bytes.push(slice[i])
             i += 1
         }
     }
@@ -77,20 +98,22 @@ impl String {
     // Returns substring from start (inclusive) to end (exclusive). Like [start:end] slice syntax.
     // Returns empty string if start >= end or start >= len.
     pub fn slice(self, start: u64, end: u64): String {
-        let chars = self.chars.as_slice()
-        let len = chars.len()
+        let len = self.len()
         let safe_start = if start > len { len } else { start }
         let safe_end = if end > len { len } else { end }
         if safe_start >= safe_end {
             return String::new()
         }
 
-        return String { chars: Vector<char>::from_slice(chars[safe_start:safe_end]) }
+        let byte_start = kaede_utf8_byte_index_of_char(self.as_ptr(), self.bytes.len(), safe_start)
+        let byte_end = kaede_utf8_byte_index_of_char(self.as_ptr(), self.bytes.len(), safe_end)
+        return String { bytes: Vector<u8>::from_slice(self.bytes.as_slice()[byte_start:byte_end]) }
     }
 }
 
 fn parse_u64_from_str(s: str): Option<u64> {
-    if s.len() == 0 {
+    let chars_len = kaede_utf8_char_count(s.as_ptr(), s.len())
+    if chars_len == 0 {
         return Option<u64>::None
     }
 
@@ -100,7 +123,7 @@ fn parse_u64_from_str(s: str): Option<u64> {
 
     let mut i = 0
     let mut val: u64 = 0
-    while i < s.len() {
+    while i < chars_len {
         let ch = s[i]
         if ch < '0' || ch > '9' {
             return Option<u64>::None
@@ -119,7 +142,8 @@ fn parse_u64_from_str(s: str): Option<u64> {
 }
 
 fn parse_i64_from_str(s: str): Option<i64> {
-    if s.len() == 0 {
+    let chars_len = kaede_utf8_char_count(s.as_ptr(), s.len())
+    if chars_len == 0 {
         return Option<i64>::None
     }
 
@@ -131,7 +155,7 @@ fn parse_i64_from_str(s: str): Option<i64> {
     if s[0] == '-' {
         neg = true
         i = 1
-        if i >= s.len() {
+        if i >= chars_len {
             return Option<i64>::None
         }
     }
@@ -141,7 +165,7 @@ fn parse_i64_from_str(s: str): Option<i64> {
     let mod10 = limit % 10
 
     let mut val: u64 = 0
-    while i < s.len() {
+    while i < chars_len {
         let ch = s[i]
         if ch < '0' || ch > '9' {
             return Option<i64>::None
@@ -214,24 +238,26 @@ fn i64_to_string(n: i64): String {
 impl str {
     // Converts a string slice to a byte vector.
     pub fn to_bytes(self): Vector<u8> {
-        let mut bytes = Vector<u8>::new()
-        let mut i = 0
-        while i < self.len() {
-            bytes.push(self[i] as u8)
-            i += 1
-        }
-        return bytes
+        return Vector<u8>::from_slice(__slice_from_raw_parts(self.as_ptr(), self.len()))
+    }
+
+    pub fn chars_len(self): u64 {
+        return kaede_utf8_char_count(self.as_ptr(), self.len())
     }
 
     // Returns true when `self` begins with `prefix`.
     pub fn starts_with(self, prefix: str): bool {
-        if prefix.len() > self.len() {
+        let bytes = self.to_bytes()
+        let prefix_bytes = prefix.to_bytes()
+        if prefix_bytes.len() > bytes.len() {
             return false
         }
 
+        let byte_slice = bytes.as_slice()
+        let prefix_slice = prefix_bytes.as_slice()
         let mut i = 0
-        while i < prefix.len() {
-            if self[i] != prefix[i] {
+        while i < prefix_bytes.len() {
+            if byte_slice[i] != prefix_slice[i] {
                 return false
             }
             i += 1
@@ -242,14 +268,18 @@ impl str {
 
     // Returns true when `self` ends with `suffix`.
     pub fn ends_with(self, suffix: str): bool {
-        if suffix.len() > self.len() {
+        let bytes = self.to_bytes()
+        let suffix_bytes = suffix.to_bytes()
+        if suffix_bytes.len() > bytes.len() {
             return false
         }
 
-        let start = self.len() - suffix.len()
+        let byte_slice = bytes.as_slice()
+        let suffix_slice = suffix_bytes.as_slice()
+        let start = bytes.len() - suffix_bytes.len()
         let mut i = 0
-        while i < suffix.len() {
-            if self[start + i] != suffix[i] {
+        while i < suffix_bytes.len() {
+            if byte_slice[start + i] != suffix_slice[i] {
                 return false
             }
             i += 1

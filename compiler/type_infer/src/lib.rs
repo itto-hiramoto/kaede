@@ -873,12 +873,12 @@ impl TypeInferrer {
                 }
             }
             TyKind::Fundamental(fty) if matches!(fty.kind, FundamentalTypeKind::Str) => {
-                // str is a tuple-like type: (ptr: *i8, len: u64)
+                // str is a tuple-like type: (ptr: *u8, len: u64)
                 let element_ty = match tuple_idx.index {
                     0 => {
-                        // str.0 is *i8
+                        // str.0 is *u8
                         Rc::new(Ty::wrap_in_pointer(Rc::new(make_fundamental_type(
-                            FundamentalTypeKind::I8,
+                            FundamentalTypeKind::U8,
                             Mutability::Not,
                         ))))
                     }

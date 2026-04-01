@@ -3098,12 +3098,12 @@ impl SemanticAnalyzer {
             _ => unreachable!(),
         };
 
-        // (*i8, u64)
+        // (*u8, u64)
         let ty = Rc::new(match index {
             0 => ir_type::Ty {
                 kind: ir_type::TyKind::Pointer(ir_type::PointerType {
                     pointee_ty: ir_type::make_fundamental_type(
-                        ir_type::FundamentalTypeKind::I8,
+                        ir_type::FundamentalTypeKind::U8,
                         ir_type::Mutability::Not,
                     )
                     .into(),
@@ -3245,14 +3245,14 @@ impl SemanticAnalyzer {
                 _ => Err(SemanticError::HasNoFields { span }.into()),
             },
 
-            // str is internally represented as (*i8, u64) tuple
+            // str is internally represented as (*u8, u64) tuple
             ir_type::TyKind::Fundamental(fty) if fty.kind == ir_type::FundamentalTypeKind::Str => {
-                // str type: (*i8, u64)
+                // str type: (*u8, u64)
                 let elements_ty = vec![
                     Rc::new(ir_type::Ty {
                         kind: ir_type::TyKind::Pointer(ir_type::PointerType {
                             pointee_ty: Rc::new(ir_type::make_fundamental_type(
-                                ir_type::FundamentalTypeKind::I8,
+                                ir_type::FundamentalTypeKind::U8,
                                 ir_type::Mutability::Not,
                             )),
                         })

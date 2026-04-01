@@ -6,8 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-int32_t kaede_http_ws_accept(const char *key, size_t key_len, char *out,
-                             size_t out_len) {
+int32_t kaede_http_ws_accept(const unsigned char *key, size_t key_len,
+                             unsigned char *out, size_t out_len) {
   static const char guid[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
   const size_t guid_len = sizeof(guid) - 1U;
   unsigned char digest[SHA_DIGEST_LENGTH];

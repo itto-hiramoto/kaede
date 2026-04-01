@@ -1232,7 +1232,7 @@ fn import_extern_c() -> anyhow::Result<()> {
     let tempdir = assert_fs::TempDir::new()?;
 
     let extern_c = tempdir.child("extern_c.kd");
-    extern_c.write_str(r#"pub extern "C" fn printf(format: *i8, ...): i32"#)?;
+    extern_c.write_str(r#"pub extern "C" fn printf(format: *u8, ...): i32"#)?;
 
     let module = tempdir.child("m.kd");
     module.write_str(
@@ -1490,7 +1490,49 @@ pub fn unicode() -> String { "あ".to_string() }"#,
 }
 
 #[test]
-fn import_rust_skips_str_return_but_keeps_supported_ones() -> anyhow::Result<()> {
+fn import_rust_function_with_string_param_str_return_and_char() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+    let crate_name = "string_char_probe";
+
+    write_rust_import_crate(
+        tempdir.path(),
+        crate_name,
+        r#"pub fn count_chars(s: String) -> i32 { s.chars().count() as i32 }
+pub fn borrowed() -> &'static str { "かえで" }
+pub fn bounce(ch: char) -> char { if ch == 'あ' { 'い' } else { ch } }"#,
+    )?;
+
+    let main = tempdir.child("main.kd");
+    main.write_str(
+        r#"import rust::string_char_probe
+
+        fn main(): i32 {
+            let owned = String::from("あい")
+            if rust::string_char_probe::count_chars(owned) != 2 {
+                return 1
+            }
+
+            let borrowed = rust::string_char_probe::borrowed()
+            if borrowed.len() != 3 {
+                return 2
+            }
+            if borrowed.as_str() != "かえで" {
+                return 3
+            }
+
+            if rust::string_char_probe::bounce('あ') != 'い' {
+                return 4
+            }
+
+            return 58
+        }"#,
+    )?;
+
+    test(58, &[main.path()], &tempdir)
+}
+
+#[test]
+fn import_rust_skips_unsupported_pointer_but_keeps_supported_ones() -> anyhow::Result<()> {
     let tempdir = assert_fs::TempDir::new()?;
     let crate_name = "skip_probe";
 
@@ -1499,8 +1541,6 @@ fn import_rust_skips_str_return_but_keeps_supported_ones() -> anyhow::Result<()>
         crate_name,
         r#"pub fn strlen(v: &str) -> i32 { v.len() as i32 }
 pub fn ok_i64(v: i64) -> i64 { v }
-pub fn ng_char(v: char) -> char { v }
-pub fn ng_str(v: &str) -> &str { v }
 pub fn ng_ptr(v: *const i8) -> *const i8 { v }"#,
     )?;
 
@@ -1516,11 +1556,6 @@ pub fn ng_ptr(v: *const i8) -> *const i8 { v }"#,
     let (exe, output) = compile_project(&[main.path()], tempdir.path())?;
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    assert!(stderr.contains("warning: skipped rust function in `skip_probe`: ng_char"));
-    assert!(stderr.contains("unsupported primitive type `char`"));
-    assert!(stderr.contains("warning: skipped rust function in `skip_probe`: ng_str"));
-    assert!(stderr
-        .contains("unsupported return type: borrowed reference type `&str` is not supported yet"));
     assert!(stderr.contains("warning: skipped rust function in `skip_probe`: ng_ptr"));
     assert!(stderr.contains("unsupported raw pointer type `*const i8`"));
 

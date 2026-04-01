@@ -56,8 +56,7 @@ static sys_fd_t set_nonblocking_or_close(sys_fd_t fd) {
 }
 
 sys_fd_t kaede_sys_socket_tcp4(void) {
-  return set_nonblocking_or_close(
-      (sys_fd_t)socket(AF_INET, SOCK_STREAM, 0));
+  return set_nonblocking_or_close((sys_fd_t)socket(AF_INET, SOCK_STREAM, 0));
 }
 
 int kaede_sys_set_reuseaddr(sys_fd_t fd) {
@@ -65,7 +64,8 @@ int kaede_sys_set_reuseaddr(sys_fd_t fd) {
   return setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, (socklen_t)sizeof(yes));
 }
 
-int kaede_sys_bind_ipv4(sys_fd_t fd, const char *ip_or_null, uint16_t port) {
+int kaede_sys_bind_ipv4(sys_fd_t fd, const unsigned char *ip_or_null,
+                        uint16_t port) {
   struct sockaddr_in addr;
   memset(&addr, 0, sizeof(addr));
 
@@ -76,7 +76,7 @@ int kaede_sys_bind_ipv4(sys_fd_t fd, const char *ip_or_null, uint16_t port) {
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
   } else {
     // inet_pton returns 1 on success, 0 invalid, -1 error
-    int ok = inet_pton(AF_INET, ip_or_null, &addr.sin_addr);
+    int ok = inet_pton(AF_INET, (const char *)ip_or_null, &addr.sin_addr);
     if (ok != 1) {
       errno = EINVAL;
       return -1;
@@ -108,8 +108,8 @@ sys_fd_t kaede_sys_accept(sys_fd_t listen_fd) {
   }
 }
 
-sys_fd_t kaede_sys_open_read(const char *path, size_t path_len) {
-  char *owned_path = (char *)malloc(path_len + 1);
+sys_fd_t kaede_sys_open_read(const unsigned char *path, size_t path_len) {
+  unsigned char *owned_path = (unsigned char *)malloc(path_len + 1);
   if (owned_path == NULL)
     return (sys_fd_t)-1;
 
@@ -117,7 +117,7 @@ sys_fd_t kaede_sys_open_read(const char *path, size_t path_len) {
   owned_path[path_len] = '\0';
 
   for (;;) {
-    int fd = open(owned_path, O_RDONLY);
+    int fd = open((const char *)owned_path, O_RDONLY);
     if (fd >= 0) {
       free(owned_path);
       return (sys_fd_t)fd;
@@ -129,7 +129,7 @@ sys_fd_t kaede_sys_open_read(const char *path, size_t path_len) {
   }
 }
 
-long kaede_sys_read(sys_fd_t fd, void *buf, size_t len) {
+long kaede_sys_read(sys_fd_t fd, unsigned char *buf, size_t len) {
   for (;;) {
     ssize_t n = read((int)fd, buf, len);
     if (n >= 0)
@@ -149,7 +149,7 @@ long kaede_sys_read(sys_fd_t fd, void *buf, size_t len) {
   }
 }
 
-long kaede_sys_write(sys_fd_t fd, const void *buf, size_t len) {
+long kaede_sys_write(sys_fd_t fd, const unsigned char *buf, size_t len) {
   for (;;) {
     ssize_t n = write((int)fd, buf, len);
     if (n >= 0)
@@ -199,11 +199,127 @@ int kaede_sys_sleep_ms(uint64_t ms) {
 
 int kaede_sys_errno(void) { return errno; }
 
-int kaede_strcmp(const char *s1, size_t len1, const char *s2, size_t len2) {
+int kaede_strcmp(const unsigned char *s1, size_t len1, const unsigned char *s2,
+                 size_t len2) {
   if (len1 != len2)
     return 1;
 
   return memcmp(s1, s2, len1);
+}
+
+static uint32_t kaede_utf8_decode_one(const unsigned char *s, uint64_t len,
+                                      uint64_t offset, uint64_t *width_out) {
+  // Out-of-bounds means "no character here". Callers use width==0 to detect
+  // that they reached the end of the byte slice.
+  if (offset >= len) {
+    *width_out = 0;
+    return 0;
+  }
+
+  unsigned char first = s[offset];
+  // Fast path for ASCII: UTF-8 encodes U+0000..U+007F as a single byte.
+  if ((first & 0x80u) == 0) {
+    *width_out = 1;
+    return first;
+  }
+
+  // 110xxxxx 10xxxxxx
+  // Rejects truncated sequences, non-continuation trailing bytes, and
+  // overlong encodings such as representing ASCII with 2 bytes.
+  if ((first & 0xE0u) == 0xC0u && offset + 1 < len) {
+    unsigned char b1 = s[offset + 1];
+    if ((b1 & 0xC0u) == 0x80u) {
+      uint32_t code = ((uint32_t)(first & 0x1Fu) << 6) | (uint32_t)(b1 & 0x3Fu);
+      if (code >= 0x80u) {
+        *width_out = 2;
+        return code;
+      }
+    }
+  // 1110xxxx 10xxxxxx 10xxxxxx
+  // Rejects overlong encodings and UTF-16 surrogate code points, which are
+  // not valid Unicode scalar values.
+  } else if ((first & 0xF0u) == 0xE0u && offset + 2 < len) {
+    unsigned char b1 = s[offset + 1];
+    unsigned char b2 = s[offset + 2];
+    if ((b1 & 0xC0u) == 0x80u && (b2 & 0xC0u) == 0x80u) {
+      uint32_t code = ((uint32_t)(first & 0x0Fu) << 12) |
+                      ((uint32_t)(b1 & 0x3Fu) << 6) | (uint32_t)(b2 & 0x3Fu);
+      if (code >= 0x800u && !(code >= 0xD800u && code <= 0xDFFFu)) {
+        *width_out = 3;
+        return code;
+      }
+    }
+  // 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx
+  // Rejects overlong encodings and code points past Unicode's upper bound.
+  } else if ((first & 0xF8u) == 0xF0u && offset + 3 < len) {
+    unsigned char b1 = s[offset + 1];
+    unsigned char b2 = s[offset + 2];
+    unsigned char b3 = s[offset + 3];
+    if ((b1 & 0xC0u) == 0x80u && (b2 & 0xC0u) == 0x80u &&
+        (b3 & 0xC0u) == 0x80u) {
+      uint32_t code = ((uint32_t)(first & 0x07u) << 18) |
+                      ((uint32_t)(b1 & 0x3Fu) << 12) |
+                      ((uint32_t)(b2 & 0x3Fu) << 6) | (uint32_t)(b3 & 0x3Fu);
+      if (code >= 0x10000u && code <= 0x10FFFFu) {
+        *width_out = 4;
+        return code;
+      }
+    }
+  }
+
+  // Invalid UTF-8 is surfaced as U+FFFD and consumes one byte so callers
+  // always make forward progress instead of looping forever on bad input.
+  *width_out = 1;
+  return 0xFFFDu;
+}
+
+uint64_t kaede_utf8_char_count(const unsigned char *s, uint64_t len) {
+  const unsigned char *bytes = s;
+  uint64_t offset = 0;
+  uint64_t count = 0;
+
+  // Count Unicode scalar values, not bytes. Invalid sequences count as one
+  // replacement character because decode_one consumes one byte on failure.
+  while (offset < len) {
+    uint64_t width = 0;
+    kaede_utf8_decode_one(bytes, len, offset, &width);
+    offset += width == 0 ? 1 : width;
+    count += 1;
+  }
+
+  return count;
+}
+
+uint64_t kaede_utf8_byte_index_of_char(const unsigned char *s, uint64_t len,
+                                       uint64_t index) {
+  const unsigned char *bytes = s;
+  uint64_t offset = 0;
+  uint64_t current = 0;
+
+  // Walk character-by-character until we reach the requested character index,
+  // then return the corresponding byte offset into the UTF-8 buffer.
+  while (offset < len && current < index) {
+    uint64_t width = 0;
+    kaede_utf8_decode_one(bytes, len, offset, &width);
+    offset += width == 0 ? 1 : width;
+    current += 1;
+  }
+
+  return offset;
+}
+
+uint32_t kaede_utf8_char_at(const unsigned char *s, uint64_t len,
+                            uint64_t index) {
+  const unsigned char *bytes = s;
+  // Convert the character index to a byte offset, then decode exactly one
+  // scalar value from that position.
+  uint64_t offset = kaede_utf8_byte_index_of_char(s, len, index);
+  uint64_t width = 0;
+
+  if (offset >= len)
+    return 0;
+
+  return kaede_utf8_decode_one(bytes, len, offset, &width);
 }
 
 int kaede_sys_somaxconn(void) {

@@ -205,6 +205,13 @@ fn is_kaede_string_ty(ty: &ir_type::Ty) -> bool {
     )
 }
 
+fn is_kaede_char_ty(ty: &ir_type::Ty) -> bool {
+    matches!(
+        ty.kind.as_ref(),
+        ir_type::TyKind::Fundamental(fty) if fty.kind == ir_type::FundamentalTypeKind::Char
+    )
+}
+
 fn resolved_path_segments(
     value: &Value,
     paths: Option<&serde_json::Map<String, Value>>,
@@ -258,9 +265,7 @@ fn parse_borrowed_ref_ty(value: &Value, position: TyPosition) -> Result<Rc<ir_ty
 
         return match position {
             TyPosition::Param => Ok(kaede_str_ir_ty()),
-            TyPosition::Return => {
-                Err("borrowed reference type `&str` is not supported yet".to_string())
-            }
+            TyPosition::Return => Ok(kaede_string_ir_ty()),
         };
     }
 
@@ -281,10 +286,10 @@ fn parse_supported_ty(
 
     if let Some(primitive) = value.get("primitive").and_then(Value::as_str) {
         if primitive == "char" {
-            return Err(
-                "unsupported primitive type `char` (Kaede `char` is not ABI-compatible with Rust `char`)"
-                    .to_string(),
-            );
+            return Ok(Rc::new(ir_type::make_fundamental_type(
+                ir_type::FundamentalTypeKind::Char,
+                ir_type::Mutability::Not,
+            )));
         }
 
         if let Some(kind) = fundamental_kind_from_rustdoc_primitive(primitive) {
@@ -310,10 +315,7 @@ fn parse_supported_ty(
     }
 
     if value.get("resolved_path").is_some() && is_rust_string_resolved_path(value, paths) {
-        return match position {
-            TyPosition::Param => Err("owned string type `String` is not supported yet".to_string()),
-            TyPosition::Return => Ok(kaede_string_ir_ty()),
-        };
+        return Ok(kaede_string_ir_ty());
     }
 
     if value.get("raw_pointer").is_some() {
@@ -664,7 +666,7 @@ fn rust_ty_to_shim_rs(ty: &ir_type::Ty, position: ShimTyPosition) -> anyhow::Res
 
     if is_kaede_string_ty(ty) {
         return match position {
-            ShimTyPosition::Param => Err(anyhow!("unsupported shim type: {}", ty.kind)),
+            ShimTyPosition::Param => Ok("*const KaedeString"),
             ShimTyPosition::Return => Ok("*mut KaedeString"),
         };
     }
@@ -680,9 +682,8 @@ fn rust_ty_to_shim_rs(ty: &ir_type::Ty, position: ShimTyPosition) -> anyhow::Res
             ir_type::FundamentalTypeKind::I64 => Ok("i64"),
             ir_type::FundamentalTypeKind::U64 => Ok("u64"),
             ir_type::FundamentalTypeKind::Bool => Ok("bool"),
-            ir_type::FundamentalTypeKind::Char | ir_type::FundamentalTypeKind::Str => {
-                Err(anyhow!("unsupported shim type: {}", ty.kind))
-            }
+            ir_type::FundamentalTypeKind::Char => Ok("u32"),
+            ir_type::FundamentalTypeKind::Str => Err(anyhow!("unsupported shim type: {}", ty.kind)),
         },
         ir_type::TyKind::Unit => Ok("()"),
         _ => Err(anyhow!("unsupported shim type: {}", ty.kind)),
@@ -692,6 +693,16 @@ fn rust_ty_to_shim_rs(ty: &ir_type::Ty, position: ShimTyPosition) -> anyhow::Res
 fn shim_arg_expr(name: &str, ty: &ir_type::Ty) -> anyhow::Result<String> {
     if is_kaede_str_ty(ty) {
         return Ok(format!("unsafe {{ kaede_str_as_rust_str({name}) }}"));
+    }
+
+    if is_kaede_string_ty(ty) {
+        return Ok(format!("unsafe {{ kaede_string_as_rust_string({name}) }}"));
+    }
+
+    if is_kaede_char_ty(ty) {
+        return Ok(format!(
+            "std::char::from_u32({name}).expect(\"invalid Kaede char\")"
+        ));
     }
 
     rust_ty_to_shim_rs(ty, ShimTyPosition::Param)?;
@@ -706,21 +717,25 @@ fn shim_needs_kaede_str_helpers(functions: &[RustImportedFn]) -> bool {
 }
 
 fn shim_needs_kaede_string_helpers(functions: &[RustImportedFn]) -> bool {
-    functions
-        .iter()
-        .any(|func| is_kaede_string_ty(&func.return_ty))
+    functions.iter().any(|func| {
+        is_kaede_string_ty(&func.return_ty)
+            || func.params.iter().any(|(_, ty)| is_kaede_string_ty(ty))
+    })
 }
 
 fn generate_kaede_str_helpers() -> &'static str {
     r#"#[repr(C)]
 pub struct KaedeStr {
-    ptr: *const i8,
+    ptr: *const u8,
     len: u64,
 }
 
 unsafe fn kaede_str_as_rust_str<'a>(value: *const KaedeStr) -> &'a str {
     let value = unsafe { &*value };
-    let bytes = unsafe { std::slice::from_raw_parts(value.ptr.cast::<u8>(), value.len as usize) };
+    if value.len == 0 {
+        return "";
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(value.ptr, value.len as usize) };
     unsafe { std::str::from_utf8_unchecked(bytes) }
 }
 
@@ -729,42 +744,52 @@ unsafe fn kaede_str_as_rust_str<'a>(value: *const KaedeStr) -> &'a str {
 
 fn generate_kaede_string_helpers() -> &'static str {
     r#"#[repr(C)]
-pub struct KaedeVectorChar {
-    ptr: *mut i8,
+pub struct KaedeVectorU8 {
+    ptr: *mut u8,
     len: u64,
     capacity: u64,
 }
 
 #[repr(C)]
 pub struct KaedeString {
-    chars: *mut KaedeVectorChar,
+    bytes: *mut KaedeVectorU8,
 }
 
 unsafe extern "C" {
     fn kaede_mem_alloc(size: usize) -> *mut std::ffi::c_void;
 }
 
-fn rust_string_into_kaede_string(value: String) -> *mut KaedeString {
-    let bytes = value.into_bytes();
+unsafe fn kaede_string_as_rust_string(value: *const KaedeString) -> String {
+    let value = unsafe { &*value };
+    let bytes = unsafe { &*value.bytes };
+    if bytes.len == 0 {
+        return String::new();
+    }
+    let slice = unsafe { std::slice::from_raw_parts(bytes.ptr, bytes.len as usize) };
+    unsafe { String::from_utf8_unchecked(slice.to_vec()) }
+}
+
+fn rust_str_into_kaede_string(value: impl AsRef<str>) -> *mut KaedeString {
+    let bytes = value.as_ref().as_bytes();
     let len = bytes.len();
-    let ptr = unsafe { kaede_mem_alloc(len) }.cast::<i8>();
+    let ptr = unsafe { kaede_mem_alloc(len) }.cast::<u8>();
     if len > 0 {
         unsafe {
-            std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr.cast::<u8>(), len);
+            std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr, len);
         }
     }
 
     let string_ptr =
         unsafe { kaede_mem_alloc(std::mem::size_of::<KaedeString>()) }.cast::<KaedeString>();
-    let chars_ptr =
-        unsafe { kaede_mem_alloc(std::mem::size_of::<KaedeVectorChar>()) }.cast::<KaedeVectorChar>();
+    let bytes_ptr =
+        unsafe { kaede_mem_alloc(std::mem::size_of::<KaedeVectorU8>()) }.cast::<KaedeVectorU8>();
     unsafe {
-        chars_ptr.write(KaedeVectorChar {
+        bytes_ptr.write(KaedeVectorU8 {
             ptr,
             len: len as u64,
             capacity: len as u64,
         });
-        string_ptr.write(KaedeString { chars: chars_ptr });
+        string_ptr.write(KaedeString { bytes: bytes_ptr });
     }
 
     string_ptr
@@ -908,7 +933,16 @@ fn generate_shim_crate(
             ));
         } else if is_kaede_string_ty(&func.return_ty) {
             lib_rs.push_str(&format!(
-                "pub extern \"C\" fn {}({}) -> {} {{\n    rust_string_into_kaede_string(kaede_user_crate::{}({}))\n}}\n\n",
+                "pub extern \"C\" fn {}({}) -> {} {{\n    rust_str_into_kaede_string(kaede_user_crate::{}({}))\n}}\n\n",
+                func.export_name.as_str(),
+                param_decls,
+                return_ty,
+                func.kaede_name.as_str(),
+                args
+            ));
+        } else if is_kaede_char_ty(&func.return_ty) {
+            lib_rs.push_str(&format!(
+                "pub extern \"C\" fn {}({}) -> {} {{\n    kaede_user_crate::{}({}) as u32\n}}\n\n",
                 func.export_name.as_str(),
                 param_decls,
                 return_ty,
@@ -1067,6 +1101,36 @@ mod tests {
     }
 
     #[test]
+    fn parse_supported_ty_accepts_char_and_owned_string_shapes() {
+        let char_ty =
+            parse_supported_ty(&json!({ "primitive": "char" }), TyPosition::Param, None).unwrap();
+        assert_eq!(char_ty, fundamental(ir_type::FundamentalTypeKind::Char));
+
+        let paths = rust_string_paths();
+        let string_param = parse_supported_ty(
+            &rust_string_resolved_path_ty(),
+            TyPosition::Param,
+            Some(&paths),
+        )
+        .unwrap();
+        assert!(is_kaede_string_ty(&string_param));
+
+        let str_return = parse_supported_ty(
+            &json!({
+                "borrowed_ref": {
+                    "lifetime": null,
+                    "is_mutable": false,
+                    "type": { "primitive": "str" }
+                }
+            }),
+            TyPosition::Return,
+            None,
+        )
+        .unwrap();
+        assert!(is_kaede_string_ty(&str_return));
+    }
+
+    #[test]
     fn parse_supported_ty_accepts_rust_string_return() {
         let paths = rust_string_paths();
         let parsed = parse_supported_ty(
@@ -1082,24 +1146,6 @@ mod tests {
 
     #[test]
     fn parse_supported_ty_rejects_unsupported_shapes_with_reason() {
-        let char_err = parse_supported_ty(&json!({ "primitive": "char" }), TyPosition::Param, None)
-            .unwrap_err();
-        assert!(char_err.contains("primitive type `char`"));
-
-        let str_ref_err = parse_supported_ty(
-            &json!({
-                "borrowed_ref": {
-                    "lifetime": null,
-                    "is_mutable": false,
-                    "type": { "primitive": "str" }
-                }
-            }),
-            TyPosition::Return,
-            None,
-        )
-        .unwrap_err();
-        assert!(str_ref_err.contains("`&str` is not supported yet"));
-
         let mut_str_err = parse_supported_ty(
             &json!({
                 "borrowed_ref": {
@@ -1142,13 +1188,13 @@ mod tests {
         assert!(raw_ptr_err.contains("raw pointer type `*const i8`"));
 
         let string_paths = rust_string_paths();
-        let string_err = parse_supported_ty(
+        let string_param = parse_supported_ty(
             &rust_string_resolved_path_ty(),
             TyPosition::Param,
             Some(&string_paths),
         )
-        .unwrap_err();
-        assert!(string_err.contains("owned string type `String` is not supported yet"));
+        .unwrap();
+        assert!(is_kaede_string_ty(&string_param));
     }
 
     #[test]
@@ -1163,6 +1209,7 @@ mod tests {
             (fundamental(ir_type::FundamentalTypeKind::I64), "i64"),
             (fundamental(ir_type::FundamentalTypeKind::U64), "u64"),
             (fundamental(ir_type::FundamentalTypeKind::Bool), "bool"),
+            (fundamental(ir_type::FundamentalTypeKind::Char), "u32"),
             (Rc::new(ir_type::Ty::new_unit()), "()"),
         ];
 
@@ -1181,21 +1228,19 @@ mod tests {
             rust_ty_to_shim_rs(&kaede_string_ir_ty(), ShimTyPosition::Return).unwrap(),
             "*mut KaedeString"
         );
+        assert_eq!(
+            rust_ty_to_shim_rs(&kaede_string_ir_ty(), ShimTyPosition::Param).unwrap(),
+            "*const KaedeString"
+        );
     }
 
     #[test]
     fn rust_ty_to_shim_rs_rejects_unsupported_types() {
         assert!(rust_ty_to_shim_rs(
-            &fundamental(ir_type::FundamentalTypeKind::Char),
-            ShimTyPosition::Param,
-        )
-        .is_err());
-        assert!(rust_ty_to_shim_rs(
             &fundamental(ir_type::FundamentalTypeKind::Str),
             ShimTyPosition::Param,
         )
         .is_err());
-        assert!(rust_ty_to_shim_rs(&kaede_string_ir_ty(), ShimTyPosition::Param,).is_err());
         assert!(rust_ty_to_shim_rs(
             &ir_type::Ty::wrap_in_pointer(fundamental(ir_type::FundamentalTypeKind::I8,)),
             ShimTyPosition::Param,
@@ -1209,6 +1254,14 @@ mod tests {
         assert_eq!(
             shim_arg_expr("value", &kaede_str_ir_ty()).unwrap(),
             "unsafe { kaede_str_as_rust_str(value) }"
+        );
+        assert_eq!(
+            shim_arg_expr("value", &kaede_string_ir_ty()).unwrap(),
+            "unsafe { kaede_string_as_rust_string(value) }"
+        );
+        assert_eq!(
+            shim_arg_expr("value", &fundamental(ir_type::FundamentalTypeKind::Char)).unwrap(),
+            "std::char::from_u32(value).expect(\"invalid Kaede char\")"
         );
         assert_eq!(
             shim_arg_expr("value", &fundamental(ir_type::FundamentalTypeKind::I32)).unwrap(),

@@ -2981,7 +2981,7 @@ fn c_ffi() -> anyhow::Result<()> {
 
 #[test]
 fn c_ffi_with_ptr_and_vararg() -> anyhow::Result<()> {
-    let program = r#"extern "C" fn printf(format: *i8, ...): i32
+    let program = r#"extern "C" fn printf(format: *u8, ...): i32
 
     fn main(): i32 {
         let format = "%s%d\n"
@@ -3089,7 +3089,7 @@ fn all_integer_types_arithmetic_and_casts() -> anyhow::Result<()> {
 #[test]
 fn cast_str_to_pointer() -> anyhow::Result<()> {
     let program = r#"fn main(): i32 {
-        let s = "hello, world" as *str as *i8
+        let s = "hello, world" as *str as *u8
         return 58
     }"#;
 
@@ -3999,6 +3999,48 @@ fn char_type() -> anyhow::Result<()> {
 
     assert_eq!(exec(program)?, 123);
 
+    Ok(())
+}
+
+#[test]
+fn unicode_string_indexing_returns_unicode_scalar() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let s = "aあb"
+            if s[1] == 'あ' {
+                return 58
+            }
+            return 0
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn string_len_counts_unicode_scalars() -> anyhow::Result<()> {
+    let program = r#"
+        import std.string
+
+        use std.string.String
+
+        fn main(): i32 {
+            let s = String::from("aあb")
+            if s.len() != 3 {
+                return 1
+            }
+            if s.as_str().len() != 5 {
+                return 2
+            }
+            if s.slice(1, 2).as_str() != "あ" {
+                return 3
+            }
+            return 58
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
     Ok(())
 }
 

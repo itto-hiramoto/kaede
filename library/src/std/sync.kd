@@ -7,7 +7,7 @@ use std.ffi.mem.__mem_alloc
 use std.option.Option
 
 pub struct Mutex {
-    ptr: *i8,
+    ptr: *u8,
 }
 
 impl Mutex {
@@ -25,7 +25,7 @@ impl Mutex {
 }
 
 pub struct WaitGroup {
-    ptr: *i8,
+    ptr: *u8,
 }
 
 impl WaitGroup {
@@ -47,7 +47,7 @@ impl WaitGroup {
 }
 
 pub struct Channel<T> {
-    ptr: *i8,
+    ptr: *u8,
 }
 
 impl<T> Channel<T> {
@@ -65,19 +65,19 @@ impl<T> Channel<T> {
 
     pub fn send(self, value: T) {
         let slot = [value]
-        if kaede_chan_send(self.ptr, slot.as_ptr() as *i8) != 0 {
+        if kaede_chan_send(self.ptr, slot.as_ptr() as *u8) != 0 {
             panic("send on closed channel")
         }
     }
 
     pub fn try_send(self, value: T): bool {
         let slot = [value]
-        return kaede_chan_try_send(self.ptr, slot.as_ptr() as *i8) == 1
+        return kaede_chan_try_send(self.ptr, slot.as_ptr() as *u8) == 1
     }
 
     pub fn recv(self): Option<T> {
         let slot = __mem_alloc(__type_size<T>()) as *T
-        let status = kaede_chan_recv(self.ptr, slot as *i8)
+        let status = kaede_chan_recv(self.ptr, slot as *u8)
         if status == 0 {
             return Option<T>::Some(slot[0])
         }
@@ -86,7 +86,7 @@ impl<T> Channel<T> {
 
     pub fn try_recv(self): Option<T> {
         let slot = __mem_alloc(__type_size<T>()) as *T
-        if kaede_chan_try_recv(self.ptr, slot as *i8) == 1 {
+        if kaede_chan_try_recv(self.ptr, slot as *u8) == 1 {
             return Option<T>::Some(slot[0])
         }
         return Option<T>::None

@@ -168,7 +168,7 @@ impl<T> Vector<T> {
 
         let new_capacity = self.capacity * 2
         let new_size = elem_size * new_capacity
-        self.ptr = __mem_realloc(self.ptr as *i8, new_size) as *T
+        self.ptr = __mem_realloc(self.ptr as *u8, new_size) as *T
         self.capacity = new_capacity
     }
 }
@@ -401,8 +401,8 @@ impl<K, V> HashMap<K, V> {
 }
 
 pub fn hash_str(s: str): u64 {
-    let mut h: u64 = 14695981039346656037
-    let prime: u64 = 1099511628211
+    let mut h: u64 = 0xcbf29ce484222325 // FNV-1a 64-bit offset basis
+    let prime: u64 = 0x100000001b3 // FNV-1a 64-bit prime
 
     let mut i = 0
     while i < s.len() {
