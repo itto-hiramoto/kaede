@@ -716,11 +716,17 @@ fn shim_needs_kaede_str_helpers(functions: &[RustImportedFn]) -> bool {
         .any(|(_, ty)| is_kaede_str_ty(ty))
 }
 
-fn shim_needs_kaede_string_helpers(functions: &[RustImportedFn]) -> bool {
-    functions.iter().any(|func| {
-        is_kaede_string_ty(&func.return_ty)
-            || func.params.iter().any(|(_, ty)| is_kaede_string_ty(ty))
-    })
+fn shim_needs_kaede_string_param_helpers(functions: &[RustImportedFn]) -> bool {
+    functions
+        .iter()
+        .flat_map(|func| func.params.iter())
+        .any(|(_, ty)| is_kaede_string_ty(ty))
+}
+
+fn shim_needs_kaede_string_return_helpers(functions: &[RustImportedFn]) -> bool {
+    functions
+        .iter()
+        .any(|func| is_kaede_string_ty(&func.return_ty))
 }
 
 fn generate_kaede_str_helpers() -> &'static str {
@@ -742,7 +748,7 @@ unsafe fn kaede_str_as_rust_str<'a>(value: *const KaedeStr) -> &'a str {
 "#
 }
 
-fn generate_kaede_string_helpers() -> &'static str {
+fn generate_kaede_string_types() -> &'static str {
     r#"#[repr(C)]
 pub struct KaedeVectorU8 {
     ptr: *mut u8,
@@ -755,11 +761,11 @@ pub struct KaedeString {
     bytes: *mut KaedeVectorU8,
 }
 
-unsafe extern "C" {
-    fn kaede_mem_alloc(size: usize) -> *mut std::ffi::c_void;
+"#
 }
 
-unsafe fn kaede_string_as_rust_string(value: *const KaedeString) -> String {
+fn generate_kaede_string_param_helper() -> &'static str {
+    r#"unsafe fn kaede_string_as_rust_string(value: *const KaedeString) -> String {
     let value = unsafe { &*value };
     let bytes = unsafe { &*value.bytes };
     if bytes.len == 0 {
@@ -767,6 +773,14 @@ unsafe fn kaede_string_as_rust_string(value: *const KaedeString) -> String {
     }
     let slice = unsafe { std::slice::from_raw_parts(bytes.ptr, bytes.len as usize) };
     unsafe { String::from_utf8_unchecked(slice.to_vec()) }
+}
+
+"#
+}
+
+fn generate_kaede_string_return_helper() -> &'static str {
+    r#"unsafe extern "C" {
+    fn kaede_mem_alloc(size: usize) -> *mut std::ffi::c_void;
 }
 
 fn rust_str_into_kaede_string(value: impl AsRef<str>) -> *mut KaedeString {
@@ -796,6 +810,23 @@ fn rust_str_into_kaede_string(value: impl AsRef<str>) -> *mut KaedeString {
 }
 
 "#
+}
+
+fn generate_kaede_string_helpers(functions: &[RustImportedFn]) -> String {
+    let needs_param_helper = shim_needs_kaede_string_param_helpers(functions);
+    let needs_return_helper = shim_needs_kaede_string_return_helpers(functions);
+    if !needs_param_helper && !needs_return_helper {
+        return String::new();
+    }
+
+    let mut helpers = String::from(generate_kaede_string_types());
+    if needs_param_helper {
+        helpers.push_str(generate_kaede_string_param_helper());
+    }
+    if needs_return_helper {
+        helpers.push_str(generate_kaede_string_return_helper());
+    }
+    helpers
 }
 
 fn generate_shim_build_script() -> &'static str {
@@ -892,9 +923,7 @@ fn generate_shim_crate(
     if shim_needs_kaede_str_helpers(functions) {
         lib_rs.push_str(generate_kaede_str_helpers());
     }
-    if shim_needs_kaede_string_helpers(functions) {
-        lib_rs.push_str(generate_kaede_string_helpers());
-    }
+    lib_rs.push_str(&generate_kaede_string_helpers(functions));
 
     for func in functions {
         let param_decls = func
@@ -1045,6 +1074,18 @@ mod tests {
         .as_object()
         .unwrap()
         .clone()
+    }
+
+    fn rust_imported_fn(
+        params: Vec<(Symbol, Rc<ir_type::Ty>)>,
+        return_ty: Rc<ir_type::Ty>,
+    ) -> RustImportedFn {
+        RustImportedFn {
+            kaede_name: Symbol::from("probe".to_string()),
+            export_name: Symbol::from("shim_probe".to_string()),
+            params,
+            return_ty,
+        }
     }
 
     #[test]
@@ -1267,5 +1308,36 @@ mod tests {
             shim_arg_expr("value", &fundamental(ir_type::FundamentalTypeKind::I32)).unwrap(),
             "value"
         );
+    }
+
+    #[test]
+    fn generate_kaede_string_helpers_only_emits_needed_helpers() {
+        let return_only = [rust_imported_fn(
+            vec![(Symbol::from("input".to_string()), kaede_str_ir_ty())],
+            kaede_string_ir_ty(),
+        )];
+        let return_helpers = generate_kaede_string_helpers(&return_only);
+        assert!(return_helpers.contains("pub struct KaedeString"));
+        assert!(!return_helpers.contains("kaede_string_as_rust_string"));
+        assert!(return_helpers.contains("rust_str_into_kaede_string"));
+        assert!(return_helpers.contains("kaede_mem_alloc"));
+
+        let param_only = [rust_imported_fn(
+            vec![(Symbol::from("input".to_string()), kaede_string_ir_ty())],
+            fundamental(ir_type::FundamentalTypeKind::I32),
+        )];
+        let param_helpers = generate_kaede_string_helpers(&param_only);
+        assert!(param_helpers.contains("pub struct KaedeString"));
+        assert!(param_helpers.contains("kaede_string_as_rust_string"));
+        assert!(!param_helpers.contains("rust_str_into_kaede_string"));
+        assert!(!param_helpers.contains("kaede_mem_alloc"));
+
+        let both = [rust_imported_fn(
+            vec![(Symbol::from("input".to_string()), kaede_string_ir_ty())],
+            kaede_string_ir_ty(),
+        )];
+        let both_helpers = generate_kaede_string_helpers(&both);
+        assert!(both_helpers.contains("kaede_string_as_rust_string"));
+        assert!(both_helpers.contains("rust_str_into_kaede_string"));
     }
 }
