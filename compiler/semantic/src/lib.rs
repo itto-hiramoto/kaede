@@ -1409,6 +1409,11 @@ impl SemanticAnalyzer {
     fn fn_decl_has_unresolved_types(decl: &ir::top::FnDecl) -> bool {
         decl.params.iter().any(|p| ir::ty::contains_type_var(&p.ty))
             || ir::ty::contains_type_var(&decl.return_ty)
+            // Generated generic symbols can still hide unresolved type variables inside
+            // instantiated user-defined types even when the signature no longer exposes a direct
+            // `TyKind::Var`. Keep delaying body inference until those `_var...` instantiations are
+            // specialized from call-site constraints.
+            || (decl.link_once && decl.name.symbol().as_str().contains("_var"))
     }
 
     fn infer_function_body_with_decl(
