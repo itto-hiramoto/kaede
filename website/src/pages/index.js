@@ -82,7 +82,7 @@ export default function Home() {
   return (
     <Layout
       title="Kaede"
-      description="Kaede is a statically typed, compiled language for concise servers."
+      description="Kaede is a language for concise servers without giving up performance."
     >
       <main className="kaede-home">
         <section className="kaede-hero">
@@ -90,7 +90,7 @@ export default function Home() {
             <div className="kaede-hero__copy">
               <p className="kaede-eyebrow">🍁 Kaede</p>
               <h1 className="kaede-hero__title">
-                A statically typed compiled language for concise servers.
+                A language for concise servers without giving up performance.
               </h1>
               <p className="kaede-hero__subtitle">
                 Write compact services with garbage collection, concurrency

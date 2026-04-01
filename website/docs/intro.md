@@ -6,7 +6,7 @@ sidebar_position: 1
 
 # Introduction
 
-Kaede is a statically typed, compiled language designed to make server-side programs compact without giving up performance.
+Kaede is a language for concise servers without giving up performance.
 
 It currently emphasizes:
 
