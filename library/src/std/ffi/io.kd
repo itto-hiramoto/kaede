@@ -1,21 +1,21 @@
-pub extern "C" fn kaede_rt_stdin(): *i8
-pub extern "C" fn kaede_rt_stdout(): *i8
-pub extern "C" fn kaede_rt_stderr(): *i8
+pub extern "C" fn kaede_rt_stdin(): *u8
+pub extern "C" fn kaede_rt_stdout(): *u8
+pub extern "C" fn kaede_rt_stderr(): *u8
 
-pub extern "C" fn kaede_io_write(fd: i32, buf: *i8, byte: u64): i32
+pub extern "C" fn kaede_io_write(fd: i32, buf: *u8, byte: u64): i32
 
 pub fn write(fd: i32, msg: str): i32 {
     return kaede_io_write(fd, msg.as_ptr(), msg.len())
 }
 
-pub fn __stdin(): *i8 {
+pub fn __stdin(): *u8 {
     return kaede_rt_stdin()
 }
 
-pub fn __stdout(): *i8 {
+pub fn __stdout(): *u8 {
     return kaede_rt_stdout()
 }
 
-pub fn __stderr(): *i8 {
+pub fn __stderr(): *u8 {
     return kaede_rt_stderr()
 }

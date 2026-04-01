@@ -1,19 +1,19 @@
 // Mutex FFI
-pub extern "C" fn kaede_mutex_new(): *i8
-pub extern "C" fn kaede_mutex_lock(m: *i8)
-pub extern "C" fn kaede_mutex_unlock(m: *i8)
+pub extern "C" fn kaede_mutex_new(): *u8
+pub extern "C" fn kaede_mutex_lock(m: *u8)
+pub extern "C" fn kaede_mutex_unlock(m: *u8)
 
 // WaitGroup FFI
-pub extern "C" fn kaede_wg_new(): *i8
-pub extern "C" fn kaede_wg_add(wg: *i8, delta: i32)
-pub extern "C" fn kaede_wg_done(wg: *i8)
-pub extern "C" fn kaede_wg_wait(wg: *i8)
+pub extern "C" fn kaede_wg_new(): *u8
+pub extern "C" fn kaede_wg_add(wg: *u8, delta: i32)
+pub extern "C" fn kaede_wg_done(wg: *u8)
+pub extern "C" fn kaede_wg_wait(wg: *u8)
 
 // Channel FFI
-pub extern "C" fn kaede_chan_new(elem_size: u64, capacity: u64): *i8
-pub extern "C" fn kaede_chan_send(ch: *i8, value: *i8): i32
-pub extern "C" fn kaede_chan_try_send(ch: *i8, value: *i8): i32
-pub extern "C" fn kaede_chan_recv(ch: *i8, out: *i8): i32
-pub extern "C" fn kaede_chan_try_recv(ch: *i8, out: *i8): i32
-pub extern "C" fn kaede_chan_close(ch: *i8)
-pub extern "C" fn kaede_chan_is_closed(ch: *i8): i32
+pub extern "C" fn kaede_chan_new(elem_size: u64, capacity: u64): *u8
+pub extern "C" fn kaede_chan_send(ch: *u8, value: *u8): i32
+pub extern "C" fn kaede_chan_try_send(ch: *u8, value: *u8): i32
+pub extern "C" fn kaede_chan_recv(ch: *u8, out: *u8): i32
+pub extern "C" fn kaede_chan_try_recv(ch: *u8, out: *u8): i32
+pub extern "C" fn kaede_chan_close(ch: *u8)
+pub extern "C" fn kaede_chan_is_closed(ch: *u8): i32

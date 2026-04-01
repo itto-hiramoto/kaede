@@ -1,5 +1,5 @@
 impl str {
-    pub fn as_ptr(self): *i8 {
+    pub fn as_ptr(self): *u8 {
         return self.0
     }
 

@@ -14,6 +14,6 @@ FILE *kaede_rt_stdout(void) { return stdout; }
 
 FILE *kaede_rt_stderr(void) { return stderr; }
 
-int32_t kaede_io_write(int32_t fd, const void *buf, size_t len) {
+int32_t kaede_io_write(int32_t fd, const unsigned char *buf, size_t len) {
     return (int32_t)write((int)fd, buf, len);
 }

@@ -411,7 +411,7 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     fn build_panic(&mut self, node: &BuiltinFnCall) -> anyhow::Result<()> {
-        // Declare write(fd: i32, buf: *i8, len: u64) -> i32
+        // Declare write(fd: i32, buf: *u8, len: u64) -> i32
         let i32_ty = self.context().i32_type();
         let i64_ty = self.context().i64_type();
         let ptr_ty = self.context().ptr_type(inkwell::AddressSpace::default());
@@ -1039,7 +1039,7 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     fn build_char_literal(&mut self, node: &CharLiteral) -> anyhow::Result<Value<'ctx>> {
-        let char_val = self.context().i8_type().const_int(node.ch as u64, false);
+        let char_val = self.context().i32_type().const_int(node.ch as u64, false);
         Ok(Some(char_val.into()))
     }
 
@@ -1880,47 +1880,24 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     fn build_string_indexing(&mut self, node: &Indexing) -> anyhow::Result<Value<'ctx>> {
         let string_ref_value = self.build_expr(&node.operand)?.unwrap();
-
-        let string_llvm_ty = FundamentalType::create_llvm_str_type(self.context());
-
-        let index = self.build_expr(&node.index)?.unwrap();
-
-        let gep = unsafe {
-            self.builder.build_in_bounds_gep(
-                string_llvm_ty,
-                string_ref_value.into_pointer_value(),
-                &[
-                    self.context().i32_type().const_zero(),
-                    self.context().i32_type().const_zero(),
-                ],
-                "",
-            )?
+        let index = self.build_expr(&node.index)?.unwrap().into_int_value();
+        let index = if index.get_type() == self.context().i64_type() {
+            index
+        } else {
+            self.builder
+                .build_int_cast(index, self.context().i64_type(), "")?
         };
 
-        let loaded = self.builder.build_load(
-            string_llvm_ty
-                .into_struct_type()
-                .get_field_type_at_index(0)
-                .unwrap(),
-            gep,
+        let str_llvm_ty = FundamentalType::create_llvm_str_type(self.context()).into_struct_type();
+        let (data_ptr, data_len) = self.load_str_ptr_and_len(string_ref_value, str_llvm_ty)?;
+        let utf8_char_at_fn = self.utf8_char_at_fn(str_llvm_ty);
+        let result = self.builder.build_call(
+            utf8_char_at_fn,
+            &[data_ptr.into(), data_len.into(), index.into()],
             "",
         )?;
 
-        let char_llvm_ty = self.conv_to_llvm_type(&make_fundamental_type(
-            FundamentalTypeKind::Char,
-            Mutability::Not,
-        ));
-
-        let char_gep = unsafe {
-            self.builder.build_in_bounds_gep(
-                char_llvm_ty,
-                loaded.into_pointer_value(),
-                &[index.into_int_value()],
-                "",
-            )?
-        };
-
-        Ok(Some(self.builder.build_load(char_llvm_ty, char_gep, "")?))
+        Ok(Some(result.try_as_basic_value().left().unwrap()))
     }
 
     fn build_arithmetic_binary(&mut self, node: &Binary) -> anyhow::Result<Value<'ctx>> {
@@ -2208,6 +2185,23 @@ impl<'ctx> CodeGenerator<'ctx> {
         )?;
 
         Ok(cmp.try_as_basic_value().left().unwrap().into_int_value())
+    }
+
+    fn utf8_char_at_fn(&mut self, str_llvm_ty: StructType<'ctx>) -> FunctionValue<'ctx> {
+        match self.module.get_function("kaede_utf8_char_at") {
+            Some(f) => f,
+            None => {
+                let ptr_ty = str_llvm_ty.get_field_type_at_index(0).unwrap();
+                let len_ty = str_llvm_ty.get_field_type_at_index(1).unwrap();
+                let fn_type = self
+                    .context()
+                    .i32_type()
+                    .fn_type(&[ptr_ty.into(), len_ty.into(), len_ty.into()], false);
+
+                self.module
+                    .add_function("kaede_utf8_char_at", fn_type, Some(Linkage::External))
+            }
+        }
     }
 
     fn load_str_ptr_and_len(

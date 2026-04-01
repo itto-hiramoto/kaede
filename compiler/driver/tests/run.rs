@@ -129,7 +129,7 @@ fn run_forwards_args_after_double_dash() -> anyhow::Result<()> {
 
     create_project(
         &temp_dir,
-        r#"extern "C" fn strcmp(s1: *i8, s2: *i8): i32
+        r#"extern "C" fn strcmp(s1: *u8, s2: *u8): i32
 
 fn main(args: Vector<str>): i32 {
     if args.len() < 2 {

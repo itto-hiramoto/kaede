@@ -525,7 +525,7 @@ impl FundamentalType {
     pub fn create_llvm_str_type(context: &Context) -> BasicTypeEnum<'_> {
         let str_ty = context.ptr_type(AddressSpace::default());
         let len_ty = context.i64_type();
-        // { *i8, i64 }
+        // { *u8, i64 }
         context
             .struct_type(&[str_ty.into(), len_ty.into()], true)
             .into()
@@ -543,7 +543,7 @@ impl FundamentalType {
             U32 => context.i32_type().as_basic_type_enum(),
             I64 => context.i64_type().as_basic_type_enum(),
             U64 => context.i64_type().as_basic_type_enum(),
-            Char => context.i8_type().as_basic_type_enum(),
+            Char => context.i32_type().as_basic_type_enum(),
             Bool => context.bool_type().as_basic_type_enum(),
             Str => Self::create_llvm_str_type(context),
         }
@@ -557,7 +557,7 @@ impl FundamentalType {
             U8 | U16 | U32 | U64 => false,
             Bool => false,
             Str => false,
-            Char => true,
+            Char => false,
         }
     }
 

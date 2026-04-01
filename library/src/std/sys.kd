@@ -89,7 +89,7 @@ pub fn sleep_ms(ms: u64) {
 // ===== I/O =====
 
 pub fn open_read(path: str): Option<Fd> {
-    let fd = __sys_open_read(path.as_ptr() as *i8, path.len())
+    let fd = __sys_open_read(path.as_ptr(), path.len())
     if fd < 0 {
         return Option<Fd>::None
     }
@@ -102,7 +102,7 @@ pub fn is_regular_file(fd: Fd): bool {
 }
 
 pub fn read(fd: Fd, buf: mut [u8]): Option<u64> {
-    let n = __sys_read(fd.raw, buf.as_ptr() as *i8, buf.len())
+    let n = __sys_read(fd.raw, buf.as_ptr(), buf.len())
     if n < 0 {
         return Option<u64>::None
     }
@@ -140,7 +140,7 @@ fn write_all(fd: Fd, buf: [u8]): Option<u64> {
         let ptr = __ptr_add(buf.as_ptr(), off)
         let rem = total - off
 
-        let n = __sys_write(fd.raw, ptr as *i8, rem)
+        let n = __sys_write(fd.raw, ptr, rem)
 
         if n < 0 {
             return Option<u64>::None

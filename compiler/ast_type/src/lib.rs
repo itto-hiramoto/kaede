@@ -357,7 +357,7 @@ impl FundamentalType {
             Str => {
                 let str_ty = context.ptr_type(AddressSpace::default());
                 let len_ty = context.i64_type();
-                // { *i8, i64 }
+                // { *u8, i64 }
                 context
                     .struct_type(&[str_ty.into(), len_ty.into()], true)
                     .into()

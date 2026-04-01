@@ -2,9 +2,9 @@ import std.collections
 
 use std.collections.Vector
 
-pub extern "C" fn strlen(s: *char): u64
+pub extern "C" fn strlen(s: *u8): u64
 
-pub fn __prepare_command_line_arguments(argc: i32, argv: **char): Vector<str> {
+pub fn __prepare_command_line_arguments(argc: i32, argv: **u8): Vector<str> {
     let mut i = 0
     let mut args = Vector<str>::new()
     while i < argc {

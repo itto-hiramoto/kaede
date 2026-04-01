@@ -17,10 +17,10 @@
 //!
 //! ## Technical Details:
 //! - Uses extern C strcmp function for string comparison
-//! - Demonstrates Kaede's *i8 pointer type for C string interop
+//! - Demonstrates Kaede's *u8 pointer type for C string interop
 //! - Shows Vector<str> usage for command line arguments
 //! - Includes safe argument count validation before accessing arguments
-//! - Tests proper type casting (u32 for Vector::len(), *i8 for str::as_ptr())
+//! - Tests proper type casting (u32 for Vector::len(), *u8 for FFI calls)
 //!
 //! Based on the original test.kd, enhanced with proper argument validation to prevent
 //! runtime panics when insufficient arguments are provided.
@@ -31,7 +31,7 @@ use predicates::prelude::*;
 use std::process::Command;
 
 /// Test program that checks command line arguments with safe validation
-const TEST_PROGRAM: &str = r#"extern "C" fn strcmp(s1: *i8, s2: *i8): i32
+const TEST_PROGRAM: &str = r#"extern "C" fn strcmp(s1: *u8, s2: *u8): i32
 
 fn main(args: Vector<str>): i32 {
     let mut i = 0
