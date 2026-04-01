@@ -1,5 +1,16 @@
-[![CI (Linux)](https://github.com/itto-hiramoto/kaede/actions/workflows/ci-linux.yml/badge.svg)](https://github.com/itto-hiramoto/kaede/actions/workflows/ci-linux.yml)
-[![CI (macOS)](https://github.com/itto-hiramoto/kaede/actions/workflows/ci-macos.yml/badge.svg)](https://github.com/itto-hiramoto/kaede/actions/workflows/ci-macos.yml)
+<div align="center">
+<h1>The Kaede Programming Language</h1>
+
+[Official site](https://itto-hiramoto.github.io/kaede/)
+| [Docs](https://itto-hiramoto.github.io/kaede/docs/intro)
+| [Examples](https://itto-hiramoto.github.io/kaede/docs/examples)
+| [VSCode extension](https://github.com/itto-hiramoto/kaede/tree/main/editors/vscode)
+</div>
+
+<p align="center">
+  <a href="https://github.com/itto-hiramoto/kaede/actions/workflows/ci-linux.yml"><img alt="CI (Linux)" src="https://github.com/itto-hiramoto/kaede/actions/workflows/ci-linux.yml/badge.svg"></a>
+  <a href="https://github.com/itto-hiramoto/kaede/actions/workflows/ci-macos.yml"><img alt="CI (macOS)" src="https://github.com/itto-hiramoto/kaede/actions/workflows/ci-macos.yml/badge.svg"></a>
+</p>
 
 > [!WARNING]
 > As this project is still in the pre-release phase, there is still a possibility that the language specifications could change significantly!
@@ -75,6 +86,30 @@ $ cd myproject
 
 # Run the project
 $ kaede run
+```
+
+## Documentation
+
+The official site is built with Docusaurus and lives in `website/`.
+
+- Site: <https://itto-hiramoto.github.io/kaede/>
+- Docs: <https://itto-hiramoto.github.io/kaede/docs/intro>
+
+### Website Development
+
+Use Node 20-24 when working on the site.
+
+```bash
+$ cd website
+$ npm install
+$ npm start
+```
+
+To produce a static build:
+
+```bash
+$ cd website
+$ npm run build
 ```
 
 ## Editor Support

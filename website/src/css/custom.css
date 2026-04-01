@@ -1,0 +1,200 @@
+:root {
+  --ifm-color-primary: #b65d31;
+  --ifm-color-primary-dark: #a4532c;
+  --ifm-color-primary-darker: #9b4e2a;
+  --ifm-color-primary-darkest: #804024;
+  --ifm-color-primary-light: #c5693b;
+  --ifm-color-primary-lighter: #cf7548;
+  --ifm-color-primary-lightest: #db8c65;
+  --ifm-code-font-size: 0.94rem;
+  --ifm-font-family-base:
+    "Avenir Next", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --ifm-heading-font-family:
+    "Avenir Next", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --kaede-bg: #fffaf5;
+  --kaede-surface: #fff3e8;
+  --kaede-border: rgba(102, 57, 30, 0.12);
+  --kaede-hero: linear-gradient(135deg, #fff6ed 0%, #fffaf5 48%, #f8ede2 100%);
+  --kaede-shadow: 0 20px 60px rgba(92, 48, 21, 0.08);
+}
+
+html[data-theme='dark'] {
+  --ifm-color-primary: #df8c58;
+  --ifm-color-primary-dark: #d67e45;
+  --ifm-color-primary-darker: #d07239;
+  --ifm-color-primary-darkest: #b85d24;
+  --ifm-color-primary-light: #e59a6b;
+  --ifm-color-primary-lighter: #e8a475;
+  --ifm-color-primary-lightest: #efbc97;
+  --kaede-bg: #1f1712;
+  --kaede-surface: #291d17;
+  --kaede-border: rgba(255, 224, 200, 0.1);
+  --kaede-hero: linear-gradient(135deg, #2a1e17 0%, #1f1712 54%, #241a15 100%);
+  --kaede-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+}
+
+body {
+  background: var(--kaede-bg);
+}
+
+.kaede-home {
+  padding-bottom: 4rem;
+}
+
+.kaede-hero {
+  background: var(--kaede-hero);
+  border-bottom: 1px solid var(--kaede-border);
+  padding: 4.5rem 0 3.5rem;
+}
+
+.kaede-hero__grid {
+  display: grid;
+  gap: 2rem;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  align-items: center;
+}
+
+.kaede-eyebrow {
+  color: var(--ifm-color-primary-dark);
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  margin-bottom: 0.85rem;
+  text-transform: uppercase;
+}
+
+.kaede-hero__title {
+  font-size: clamp(2.6rem, 6vw, 4.4rem);
+  line-height: 1.03;
+  margin-bottom: 1rem;
+}
+
+.kaede-hero__subtitle {
+  color: var(--ifm-color-emphasis-700);
+  font-size: 1.08rem;
+  line-height: 1.65;
+  margin-bottom: 1.5rem;
+  max-width: 40rem;
+}
+
+.kaede-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+}
+
+.kaede-sample,
+.kaede-card {
+  background: var(--kaede-surface);
+  border: 1px solid var(--kaede-border);
+  border-radius: 1.25rem;
+  box-shadow: var(--kaede-shadow);
+}
+
+.kaede-sample {
+  padding: 1rem;
+}
+
+.kaede-sample__label {
+  color: var(--ifm-color-emphasis-700);
+  font-size: 0.85rem;
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+  text-transform: uppercase;
+}
+
+.kaede-sample__code {
+  margin: 0;
+}
+
+.kaede-sample__code pre {
+  border-radius: 0.95rem;
+  margin: 0;
+}
+
+.kaede-sample__code .theme-code-block {
+  box-shadow: none;
+}
+
+.kaede-section {
+  padding-top: 3.25rem;
+}
+
+.kaede-section__heading {
+  margin-bottom: 1.4rem;
+}
+
+.kaede-section__heading h2 {
+  margin-bottom: 0;
+}
+
+.kaede-feature-grid,
+.kaede-link-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.kaede-feature-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.kaede-card {
+  color: inherit;
+  display: block;
+  padding: 1.25rem;
+  text-decoration: none;
+}
+
+.kaede-card h3 {
+  margin-bottom: 0.5rem;
+}
+
+.kaede-card p {
+  color: var(--ifm-color-emphasis-700);
+  margin-bottom: 0;
+}
+
+.kaede-card--link {
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.kaede-card--link:hover {
+  border-color: rgba(182, 93, 49, 0.42);
+  box-shadow: 0 24px 70px rgba(92, 48, 21, 0.12);
+  text-decoration: none;
+  transform: translateY(-2px);
+}
+
+html[data-theme='dark'] .kaede-card--link:hover {
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
+}
+
+@media (max-width: 996px) {
+  .kaede-hero {
+    padding-top: 3.25rem;
+  }
+
+  .kaede-hero__grid,
+  .kaede-feature-grid,
+  .kaede-link-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 576px) {
+  .kaede-hero__title {
+    font-size: 2.4rem;
+  }
+
+  .kaede-hero__actions {
+    flex-direction: column;
+  }
+
+  .kaede-hero__actions .button {
+    width: 100%;
+  }
+}

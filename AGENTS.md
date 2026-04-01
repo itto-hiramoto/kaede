@@ -28,6 +28,7 @@
 ## Commit & Pull Request Guidelines
 - Follow conventional commits seen in history (`feat:`, `fix:`, `refactor:`, `chore:`, etc.).
 - Each PR should describe behavior changes, linked issues, and how to verify (commands run, sample input/output). Add screenshots only if UI output is relevant.
+- If you change compiler behavior, language syntax, CLI usage, standard-library APIs, or examples that user-facing docs rely on, update the relevant docs in the same change set (`README.md`, `website/`, example docs, or other affected documentation) or explicitly state why no doc update was needed.
 - If any Rust files are changed, run `cargo fmt --all` before committing.
 - If any Rust files are changed, run `cargo clippy -- -D warnings` before committing.
 - If formatting cannot be run or fails, report it explicitly and do not claim formatting was completed.

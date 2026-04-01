@@ -16,8 +16,8 @@ fn create_kaede_only_project(project_dir: &Path, project_name: &str) -> anyhow::
     fs::create_dir_all(&src_dir)?;
     fs::write(
         src_dir.join("main.kd"),
-        r#"fn main(): i32 {
-    return 0
+        r#"fn main() {
+    println("hello, world!")
 }"#,
     )?;
 
