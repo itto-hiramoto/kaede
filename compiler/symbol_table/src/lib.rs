@@ -240,6 +240,67 @@ impl ScopedSymbolTable {
     }
 }
 
+pub struct QualifiedSymbolTable {
+    table: HashMap<QualifiedSymbol, Rc<RefCell<SymbolTableValue>>>,
+}
+
+impl Default for QualifiedSymbolTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl QualifiedSymbolTable {
+    pub fn new() -> Self {
+        Self {
+            table: HashMap::new(),
+        }
+    }
+
+    pub fn bind(&mut self, symbol: QualifiedSymbol, value: Rc<RefCell<SymbolTableValue>>) {
+        self.table.insert(symbol, value);
+    }
+
+    pub fn extend_from_symbol_table(&mut self, module_path: &ModulePath, table: &SymbolTable) {
+        for (symbol, value) in table.iter() {
+            self.bind(
+                QualifiedSymbol::new(module_path.clone(), *symbol),
+                value.clone(),
+            );
+        }
+    }
+
+    pub fn lookup(&self, symbol: &QualifiedSymbol) -> Option<Rc<RefCell<SymbolTableValue>>> {
+        self.table.get(symbol).cloned()
+    }
+}
+
+pub struct SymbolResolver {
+    scoped: ScopedSymbolTable,
+    qualified: QualifiedSymbolTable,
+}
+
+impl SymbolResolver {
+    pub fn new(scoped: ScopedSymbolTable, qualified: QualifiedSymbolTable) -> Self {
+        Self { scoped, qualified }
+    }
+
+    pub fn merge_for_inference(tables: &[SymbolTable], qualified: QualifiedSymbolTable) -> Self {
+        Self::new(ScopedSymbolTable::merge_for_inference(tables), qualified)
+    }
+
+    pub fn lookup(&self, symbol: &Symbol) -> Option<Rc<RefCell<SymbolTableValue>>> {
+        self.scoped.lookup(symbol)
+    }
+
+    pub fn lookup_qualified(
+        &self,
+        symbol: &QualifiedSymbol,
+    ) -> Option<Rc<RefCell<SymbolTableValue>>> {
+        self.qualified.lookup(symbol)
+    }
+}
+
 pub struct GenericArgumentTable {
     pub map: HashMap<Symbol, Rc<ir_type::Ty>>,
 }

@@ -1,13 +1,12 @@
 //! Bidirectional Type Inference
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::mem;
 use std::rc::Rc;
 
 use kaede_span::Span;
 use kaede_symbol::Symbol;
-use kaede_symbol_table::{ScopedSymbolTable, SymbolTableValueKind};
+use kaede_symbol_table::{SymbolResolver, SymbolTableValueKind};
 
 pub use crate::context::InferContext;
 pub use crate::error::TypeInferError;
@@ -33,9 +32,7 @@ mod error;
 
 pub struct TypeInferrer {
     context: InferContext,
-    symbol_table_view: ScopedSymbolTable,
-    qualified_symbol_lookup:
-        HashMap<QualifiedSymbol, Rc<RefCell<kaede_symbol_table::SymbolTableValue>>>,
+    resolver: SymbolResolver,
     env: Env,
     function_return_ty: Rc<Ty>,
     specialized_enums: HashMap<QualifiedSymbol, Rc<IrEnum>>,
@@ -45,19 +42,14 @@ pub struct TypeInferrer {
 
 impl TypeInferrer {
     pub fn new(
-        symbol_table_view: ScopedSymbolTable,
-        qualified_symbol_lookup: HashMap<
-            QualifiedSymbol,
-            Rc<RefCell<kaede_symbol_table::SymbolTableValue>>,
-        >,
+        resolver: SymbolResolver,
         function_return_ty: Rc<Ty>,
         type_var_allocator: SharedTypeVarAllocator,
     ) -> Self {
         let context = InferContext::new(type_var_allocator.clone());
         Self {
             context,
-            symbol_table_view,
-            qualified_symbol_lookup,
+            resolver,
             env: Env::new(),
             function_return_ty,
             specialized_enums: HashMap::new(),
@@ -125,7 +117,7 @@ impl TypeInferrer {
         match &udt.kind {
             UserDefinedTypeKind::Enum(enum_info) => Some(enum_info.clone()),
             UserDefinedTypeKind::Placeholder(qsym) => {
-                let value = self.qualified_symbol_lookup.get(qsym)?.clone();
+                let value = self.resolver.lookup_qualified(qsym)?;
                 let borrowed = value.borrow();
                 match &borrowed.kind {
                     SymbolTableValueKind::Enum(enum_info) => Some(enum_info.clone()),
@@ -213,7 +205,7 @@ impl TypeInferrer {
 
         let candidate: Symbol = common_prefix[..split_idx].to_string().into();
         let qualified = QualifiedSymbol::new(actual.name.module_path().clone(), candidate);
-        let Some(value) = self.qualified_symbol_lookup.get(&qualified) else {
+        let Some(value) = self.resolver.lookup_qualified(&qualified) else {
             return false;
         };
         let borrowed = value.borrow();
@@ -325,7 +317,7 @@ impl TypeInferrer {
         match &udt.kind {
             kaede_ir::ty::UserDefinedTypeKind::Struct(info) => Ok(info.clone()),
             kaede_ir::ty::UserDefinedTypeKind::Placeholder(qsym) => {
-                let Some(value) = self.symbol_table_view.lookup(&qsym.symbol()) else {
+                let Some(value) = self.resolver.lookup_qualified(qsym) else {
                     return Err(TypeInferError::FieldAccessOnNonStruct {
                         actual: unwrapped.kind.to_string(),
                         span,
@@ -336,7 +328,7 @@ impl TypeInferrer {
                 match &borrowed.kind {
                     SymbolTableValueKind::Struct(info) => Ok(info.clone()),
                     SymbolTableValueKind::Placeholder(qualified) => {
-                        let Some(next) = self.symbol_table_view.lookup(&qualified.symbol()) else {
+                        let Some(next) = self.resolver.lookup_qualified(qualified) else {
                             return Err(TypeInferError::FieldAccessOnNonStruct {
                                 actual: unwrapped.kind.to_string(),
                                 span,
@@ -908,7 +900,7 @@ impl TypeInferrer {
         }
 
         // Fallback to symbol table
-        if let Some(symbol_value) = self.symbol_table_view.lookup(&var.name) {
+        if let Some(symbol_value) = self.resolver.lookup(&var.name) {
             let borrowed = symbol_value.borrow();
             if let SymbolTableValueKind::Variable(var_info) = &borrowed.kind {
                 // Unify var.ty with var_info.ty
@@ -2037,7 +2029,7 @@ impl TypeInferrer {
                     });
                 }
 
-                if let Some(symbol) = self.symbol_table_view.lookup(&let_stmt.name)
+                if let Some(symbol) = self.resolver.lookup(&let_stmt.name)
                     && let SymbolTableValueKind::Variable(var_info) = &mut symbol.borrow_mut().kind
                 {
                     var_info.ty = let_stmt.ty.clone();
@@ -2094,7 +2086,7 @@ impl TypeInferrer {
 
 #[cfg(test)]
 mod tests {
-    use std::{cell::RefCell, collections::HashMap, rc::Rc};
+    use std::{cell::RefCell, rc::Rc};
 
     use kaede_common::LangLinkage;
     use kaede_ir::{
@@ -2109,7 +2101,7 @@ mod tests {
     };
     use kaede_span::Span;
     use kaede_symbol::Symbol;
-    use kaede_symbol_table::{ScopedSymbolTable, SymbolTable};
+    use kaede_symbol_table::{QualifiedSymbolTable, SymbolResolver, SymbolTable};
 
     use super::{TypeInferError, TypeInferrer};
     use crate::context::TypeVarAllocator;
@@ -2131,8 +2123,7 @@ mod tests {
     fn make_inferrer() -> TypeInferrer {
         let tables = vec![SymbolTable::new()];
         TypeInferrer::new(
-            ScopedSymbolTable::merge_for_inference(&tables),
-            HashMap::new(),
+            SymbolResolver::merge_for_inference(&tables, QualifiedSymbolTable::new()),
             i32_ty(),
             Rc::new(RefCell::new(TypeVarAllocator::default())),
         )
