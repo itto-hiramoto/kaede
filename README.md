@@ -16,7 +16,7 @@
 > Kaede is still in pre-release. The language specification and standard-library
 > APIs may change significantly before 1.0.
 
-Kaede is a statically-typed, compiled language with a rich feature set for
+**Kaede** is a statically-typed, compiled language with a rich feature set for
 writing servers concisely without giving up performance.
 
 ## Why Kaede?
