@@ -30,6 +30,15 @@ pub enum TopLevelAnalysisResult {
 }
 
 impl SemanticAnalyzer {
+    fn fn_decl_requires_delayed_inference(decl: &ir::top::FnDecl) -> bool {
+        Self::fn_decl_has_unresolved_types(decl)
+            // Generated generic symbols can still hide unresolved type variables inside
+            // instantiated user-defined types even when the signature no longer exposes a direct
+            // `TyKind::Var`. Delay the first body inference pass until call-site substitutions are
+            // applied; the post-substitution pass only relies on structural type information.
+            || (decl.link_once && decl.name.symbol().as_str().contains("_var"))
+    }
+
     pub fn analyze_top_level(
         &mut self,
         top_level: ast::top::TopLevel,
@@ -684,7 +693,7 @@ impl SemanticAnalyzer {
         // Delay inference for generated generic functions that still carry unresolved
         // type variables in their signatures. These are resolved from call-site
         // constraints later in type inference.
-        if !Self::fn_decl_has_unresolved_types(&fn_decl) {
+        if !Self::fn_decl_requires_delayed_inference(&fn_decl) {
             self.infer_function_body_inline(&mut fn_body, &fn_decl)?;
         }
 

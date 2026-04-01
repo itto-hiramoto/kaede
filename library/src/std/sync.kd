@@ -81,7 +81,7 @@ impl<T> Channel<T> {
         if status == 0 {
             return Option::Some(slot[0])
         }
-        return Option::None
+        return Option<T>::None
     }
 
     pub fn try_recv(self): Option<T> {
@@ -89,7 +89,7 @@ impl<T> Channel<T> {
         if kaede_chan_try_recv(self.ptr, slot as *u8) == 1 {
             return Option::Some(slot[0])
         }
-        return Option::None
+        return Option<T>::None
     }
 
     pub fn close(self) {
