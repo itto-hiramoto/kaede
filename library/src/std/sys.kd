@@ -91,10 +91,10 @@ pub fn sleep_ms(ms: u64) {
 pub fn open_read(path: str): Option<Fd> {
     let fd = __sys_open_read(path.as_ptr(), path.len())
     if fd < 0 {
-        return Option<Fd>::None
+        return Option::None
     }
 
-    return Option<Fd>::Some(Fd::new(fd))
+    return Option::Some(Fd::new(fd))
 }
 
 pub fn is_regular_file(fd: Fd): bool {
@@ -104,9 +104,9 @@ pub fn is_regular_file(fd: Fd): bool {
 pub fn read(fd: Fd, buf: mut [u8]): Option<u64> {
     let n = __sys_read(fd.raw, buf.as_ptr(), buf.len())
     if n < 0 {
-        return Option<u64>::None
+        return Option::None
     }
-    return Option<u64>::Some(n as u64)
+    return Option::Some(n as u64)
 }
 
 // Read exactly `len` bytes unless EOF is hit; returns bytes read.
@@ -116,14 +116,14 @@ pub fn read_exact(fd: Fd, buf: mut [u8], len: u64): Option<u64> {
         let mut slice = buf[read_total:buf.len()]
         let n = match std.sys.read(fd, slice) {
             Option::Some(value) => value,
-            Option::None => return Option<u64>::None,
+            Option::None => return Option::None,
         }
         if n == 0 {
             break
         }
         read_total += n
     }
-    return Option<u64>::Some(read_total)
+    return Option::Some(read_total)
 }
 
 pub fn write(fd: Fd, buf: [u8]): Option<u64> {
@@ -143,17 +143,17 @@ fn write_all(fd: Fd, buf: [u8]): Option<u64> {
         let n = __sys_write(fd.raw, ptr, rem)
 
         if n < 0 {
-            return Option<u64>::None
+            return Option::None
         }
 
         if n == 0 {
-            return Option<u64>::None
+            return Option::None
         }
 
         off += n as u64
     }
 
-    return Option<u64>::Some(total)
+    return Option::Some(total)
 }
 
 pub fn read_all(fd: Fd, max_bytes: u64): Option<Vector<u8>> {
@@ -163,7 +163,7 @@ pub fn read_all(fd: Fd, max_bytes: u64): Option<Vector<u8>> {
     loop {
         let n = match read(fd, buf) {
             Option::Some(value) => value,
-            Option::None => return Option<Vector<u8>>::None,
+            Option::None => return Option::None,
         }
 
         if n == 0 {
@@ -171,7 +171,7 @@ pub fn read_all(fd: Fd, max_bytes: u64): Option<Vector<u8>> {
         }
 
         if out.len() + n > max_bytes {
-            return Option<Vector<u8>>::None
+            return Option::None
         }
 
         let mut i = 0
@@ -181,7 +181,7 @@ pub fn read_all(fd: Fd, max_bytes: u64): Option<Vector<u8>> {
         }
     }
 
-    return Option<Vector<u8>>::Some(out)
+    return Option::Some(out)
 }
 
 pub fn read_until(fd: Fd, buf: mut [u8], delim: [u8]): Option<u64> {
@@ -197,18 +197,18 @@ pub fn read_until(fd: Fd, buf: mut [u8], delim: [u8]): Option<u64> {
         let mut tail = buf[filled:(filled + 1)]
         let n = match std.sys.read(fd, tail) {
             Option::Some(value) => value,
-            Option::None => return Option<u64>::None,
+            Option::None => return Option::None,
         }
         if n == 0 {
             // EOF: caller decides how to handle closed connection
-            return Option<u64>::Some(0)
+            return Option::Some(0)
         }
 
         filled += n
 
         let p = find_subslice(buf[0:filled], delim)
         if p >= 0 {
-            return Option<u64>::Some((p as u64) + delim.len())
+            return Option::Some((p as u64) + delim.len())
         }
     }
 

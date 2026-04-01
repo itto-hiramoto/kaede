@@ -79,7 +79,7 @@ impl<T> Channel<T> {
         let slot = __mem_alloc(__type_size<T>()) as *T
         let status = kaede_chan_recv(self.ptr, slot as *u8)
         if status == 0 {
-            return Option<T>::Some(slot[0])
+            return Option::Some(slot[0])
         }
         return Option<T>::None
     }
@@ -87,7 +87,7 @@ impl<T> Channel<T> {
     pub fn try_recv(self): Option<T> {
         let slot = __mem_alloc(__type_size<T>()) as *T
         if kaede_chan_try_recv(self.ptr, slot as *u8) == 1 {
-            return Option<T>::Some(slot[0])
+            return Option::Some(slot[0])
         }
         return Option<T>::None
     }

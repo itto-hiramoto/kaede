@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 use kaede_span::Span;
 use kaede_symbol::Symbol;
-use kaede_symbol_table::{ScopedSymbolTable, SymbolTableValueKind};
+use kaede_symbol_table::{SymbolResolver, SymbolTableValueKind};
 
 pub use crate::context::InferContext;
 pub use crate::error::TypeInferError;
@@ -18,10 +18,12 @@ use kaede_ir::{
         ExprKind, FieldAccess, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Slicing,
         Spawn, TupleIndexing, UnresolvedFieldAccess,
     },
+    qualified_symbol::QualifiedSymbol,
     stmt::{Assign, Block, Let, Stmt, TupleUnpack},
+    top::Enum as IrEnum,
     ty::{
-        FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind, VarId,
-        collect_type_var_bindings, make_fundamental_type,
+        FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind, UserDefinedTypeKind, VarId,
+        collect_type_var_bindings, contains_type_var, make_fundamental_type,
     },
 };
 mod context;
@@ -30,25 +32,27 @@ mod error;
 
 pub struct TypeInferrer {
     context: InferContext,
-    symbol_table_view: ScopedSymbolTable,
+    resolver: SymbolResolver,
     env: Env,
     function_return_ty: Rc<Ty>,
+    specialized_enums: HashMap<QualifiedSymbol, Rc<IrEnum>>,
     generic_fn_substitutions:
         HashMap<kaede_ir::qualified_symbol::QualifiedSymbol, HashMap<VarId, Rc<Ty>>>,
 }
 
 impl TypeInferrer {
     pub fn new(
-        symbol_table_view: ScopedSymbolTable,
+        resolver: SymbolResolver,
         function_return_ty: Rc<Ty>,
         type_var_allocator: SharedTypeVarAllocator,
     ) -> Self {
         let context = InferContext::new(type_var_allocator.clone());
         Self {
             context,
-            symbol_table_view,
+            resolver,
             env: Env::new(),
             function_return_ty,
+            specialized_enums: HashMap::new(),
             generic_fn_substitutions: HashMap::new(),
         }
     }
@@ -104,6 +108,194 @@ impl TypeInferrer {
         }
     }
 
+    fn enum_info_from_ty(&self, ty: &Rc<Ty>) -> Option<Rc<IrEnum>> {
+        let unwrapped = Self::unwrap_reference(ty);
+        let TyKind::UserDefined(udt) = unwrapped.kind.as_ref() else {
+            return None;
+        };
+
+        match &udt.kind {
+            UserDefinedTypeKind::Enum(enum_info) => Some(enum_info.clone()),
+            UserDefinedTypeKind::Placeholder(qsym) => {
+                let value = self.resolver.lookup_qualified(qsym)?;
+                let borrowed = value.borrow();
+                match &borrowed.kind {
+                    SymbolTableValueKind::Enum(enum_info) => Some(enum_info.clone()),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    fn apply_enum_info(&self, enum_info: &Rc<IrEnum>) -> Rc<IrEnum> {
+        let mut enum_info = enum_info.clone();
+        let enum_mut = Rc::make_mut(&mut enum_info);
+        for variant in &mut enum_mut.variants {
+            if let Some(ty) = &variant.ty {
+                variant.ty = Some(self.context.apply(ty));
+            }
+        }
+
+        enum_info
+    }
+
+    fn enum_ty_from_info(enum_info: Rc<IrEnum>) -> Rc<Ty> {
+        Rc::new(Ty {
+            kind: TyKind::UserDefined(kaede_ir::ty::UserDefinedType::new(
+                UserDefinedTypeKind::Enum(enum_info),
+            ))
+            .into(),
+            mutability: Mutability::Not,
+        })
+    }
+
+    fn rebuild_enum_variant_expr_ty(original_ty: &Rc<Ty>, enum_info: Rc<IrEnum>) -> Rc<Ty> {
+        let enum_ty = Rc::new(Ty {
+            kind: TyKind::UserDefined(kaede_ir::ty::UserDefinedType::new(
+                UserDefinedTypeKind::Enum(enum_info),
+            ))
+            .into(),
+            mutability: original_ty.mutability,
+        });
+
+        match original_ty.kind.as_ref() {
+            TyKind::Reference(_) => Rc::new(Ty {
+                kind: TyKind::Reference(ReferenceType {
+                    refee_ty: Rc::new(Ty {
+                        kind: enum_ty.kind.clone(),
+                        mutability: Mutability::Not,
+                    }),
+                })
+                .into(),
+                mutability: original_ty.mutability,
+            }),
+            _ => enum_ty,
+        }
+    }
+
+    // Generic enum instantiations get generated names such as `Option_var12` or `Option_i32`.
+    // For expected-type checking we still want to treat those as the same enum family when they
+    // come from the same generic enum definition, so we recover the shared base name and verify
+    // that it resolves to a generic enum symbol in the same module.
+    fn enum_origins_match(&self, actual: &Rc<IrEnum>, expected: &Rc<IrEnum>) -> bool {
+        if actual.name == expected.name {
+            return true;
+        }
+
+        let actual_name = actual.name.symbol();
+        let expected_name = expected.name.symbol();
+        let actual_name = actual_name.as_str().as_bytes();
+        let expected_name = expected_name.as_str().as_bytes();
+
+        let common_len = actual_name
+            .iter()
+            .zip(expected_name.iter())
+            .take_while(|(lhs, rhs)| lhs == rhs)
+            .count();
+        let Ok(common_prefix) = std::str::from_utf8(&actual_name[..common_len]) else {
+            return false;
+        };
+        let Some(split_idx) = common_prefix.rfind('_') else {
+            return false;
+        };
+        if split_idx == 0 {
+            return false;
+        }
+
+        let candidate: Symbol = common_prefix[..split_idx].to_string().into();
+        let qualified = QualifiedSymbol::new(actual.name.module_path().clone(), candidate);
+        let Some(value) = self.resolver.lookup_qualified(&qualified) else {
+            return false;
+        };
+        let borrowed = value.borrow();
+
+        matches!(
+            &borrowed.kind,
+            SymbolTableValueKind::Generic(info)
+                if matches!(info.kind, kaede_symbol_table::GenericKind::Enum(_))
+        )
+    }
+
+    fn unify_enum_variants(
+        &mut self,
+        actual: &Rc<IrEnum>,
+        expected: &Rc<IrEnum>,
+        span: Span,
+    ) -> Result<(), TypeInferError> {
+        if actual.variants.len() != expected.variants.len() {
+            return Err(TypeInferError::CannotUnify {
+                a: actual.name.symbol().to_string(),
+                b: expected.name.symbol().to_string(),
+                span,
+            });
+        }
+
+        for (actual_variant, expected_variant) in
+            actual.variants.iter().zip(expected.variants.iter())
+        {
+            if actual_variant.name != expected_variant.name
+                || actual_variant.offset != expected_variant.offset
+            {
+                return Err(TypeInferError::CannotUnify {
+                    a: actual.name.symbol().to_string(),
+                    b: expected.name.symbol().to_string(),
+                    span,
+                });
+            }
+
+            match (&actual_variant.ty, &expected_variant.ty) {
+                (Some(actual_ty), Some(expected_ty)) => {
+                    self.context.unify(actual_ty, expected_ty, span)?;
+                }
+                (None, None) => {}
+                _ => {
+                    return Err(TypeInferError::CannotUnify {
+                        a: actual.name.symbol().to_string(),
+                        b: expected.name.symbol().to_string(),
+                        span,
+                    });
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn enum_info_contains_type_var(enum_info: &IrEnum) -> bool {
+        enum_info
+            .variants
+            .iter()
+            .filter_map(|variant| variant.ty.as_ref())
+            .any(contains_type_var)
+    }
+
+    // Unit variants like `Option::None` carry no payload, so this helper does nothing for them.
+    // Payload variants like `Option::Some(value)` can still constrain generic arguments before we
+    // look at the surrounding expected type by unifying the payload expression with the declared
+    // payload type of the selected variant.
+    fn constrain_enum_variant_payload(
+        &mut self,
+        enum_var: &EnumVariant,
+    ) -> Result<(), TypeInferError> {
+        if let Some(value_expr) = &enum_var.value {
+            let value_ty = self.infer_expr(value_expr)?;
+            if let Some(declared_payload_ty) = enum_var
+                .enum_info
+                .variants
+                .iter()
+                .find(|variant| variant.offset == enum_var.variant_offset)
+                .and_then(|variant| variant.ty.clone())
+            {
+                // Feed payload constraints (e.g. `Some(S)` => `T = S`) into unification.
+                self.context
+                    .unify(&value_ty, &declared_payload_ty, enum_var.span)?;
+            }
+        }
+
+        Ok(())
+    }
+
     fn resolve_struct_info_from_ty(
         &self,
         ty: &Rc<Ty>,
@@ -125,7 +317,7 @@ impl TypeInferrer {
         match &udt.kind {
             kaede_ir::ty::UserDefinedTypeKind::Struct(info) => Ok(info.clone()),
             kaede_ir::ty::UserDefinedTypeKind::Placeholder(qsym) => {
-                let Some(value) = self.symbol_table_view.lookup(&qsym.symbol()) else {
+                let Some(value) = self.resolver.lookup_qualified(qsym) else {
                     return Err(TypeInferError::FieldAccessOnNonStruct {
                         actual: unwrapped.kind.to_string(),
                         span,
@@ -136,7 +328,7 @@ impl TypeInferrer {
                 match &borrowed.kind {
                     SymbolTableValueKind::Struct(info) => Ok(info.clone()),
                     SymbolTableValueKind::Placeholder(qualified) => {
-                        let Some(next) = self.symbol_table_view.lookup(&qualified.symbol()) else {
+                        let Some(next) = self.resolver.lookup_qualified(qualified) else {
                             return Err(TypeInferError::FieldAccessOnNonStruct {
                                 actual: unwrapped.kind.to_string(),
                                 span,
@@ -327,6 +519,7 @@ impl TypeInferrer {
             ArrayLiteral(arr_lit) => self.check_array_literal(arr_lit, expected_ty, expr.span),
             ArrayRepeat(arr_rep) => self.check_array_repeat(arr_rep, expected_ty, expr.span),
             TupleLiteral(tuple_lit) => self.check_tuple_literal(tuple_lit, expected_ty, expr.span),
+            EnumVariant(enum_var) => self.check_enum_variant(expr, enum_var, expected_ty),
 
             // Control flow can use expected type
             If(if_expr) => self.check_if(if_expr, expected_ty),
@@ -342,6 +535,35 @@ impl TypeInferrer {
                 Ok(self.context.apply(expected_ty))
             }
         }
+    }
+
+    fn check_enum_variant(
+        &mut self,
+        expr: &Expr,
+        enum_var: &EnumVariant,
+        expected_ty: &Rc<Ty>,
+    ) -> Result<Rc<Ty>, TypeInferError> {
+        self.constrain_enum_variant_payload(enum_var)?;
+
+        let expected_ty = self.context.apply(expected_ty);
+        if let Some(expected_enum) = self.enum_info_from_ty(&expected_ty)
+            && self.enum_origins_match(&enum_var.enum_info, &expected_enum)
+        {
+            self.unify_enum_variants(&enum_var.enum_info, &expected_enum, expr.span)?;
+
+            if enum_var.enum_info.name != expected_enum.name {
+                self.specialized_enums.insert(
+                    enum_var.enum_info.name.clone(),
+                    self.apply_enum_info(&expected_enum),
+                );
+            }
+
+            return Ok(expected_ty);
+        }
+
+        let inferred_ty = self.infer_enum_variant(enum_var)?;
+        self.context.unify(&inferred_ty, &expected_ty, expr.span)?;
+        Ok(self.context.apply(&expected_ty))
     }
 
     /// Specialized checking for closures to flow expected param/return types into the body
@@ -678,7 +900,7 @@ impl TypeInferrer {
         }
 
         // Fallback to symbol table
-        if let Some(symbol_value) = self.symbol_table_view.lookup(&var.name) {
+        if let Some(symbol_value) = self.resolver.lookup(&var.name) {
             let borrowed = symbol_value.borrow();
             if let SymbolTableValueKind::Variable(var_info) = &borrowed.kind {
                 // Unify var.ty with var_info.ty
@@ -1006,37 +1228,10 @@ impl TypeInferrer {
     }
 
     fn infer_enum_variant(&mut self, enum_var: &EnumVariant) -> Result<Rc<Ty>, TypeInferError> {
-        if let Some(value_expr) = &enum_var.value {
-            let value_ty = self.infer_expr(value_expr)?;
-            if let Some(pattern_ty) = enum_var
-                .enum_info
-                .variants
-                .iter()
-                .find(|variant| variant.offset == enum_var.variant_offset)
-                .and_then(|variant| variant.ty.clone())
-            {
-                // Feed payload constraints (e.g. `Some(S)` => `T = S`) into unification.
-                self.context.unify(&value_ty, &pattern_ty, enum_var.span)?;
-            }
-        }
-
-        // Keep enum payload metadata in sync with current substitutions so match-unpack
-        // variables receive concrete types in the apply phase.
-        let mut enum_info = enum_var.enum_info.clone();
-        let enum_mut = Rc::make_mut(&mut enum_info);
-        for variant in &mut enum_mut.variants {
-            if let Some(ty) = &variant.ty {
-                variant.ty = Some(self.context.apply(ty));
-            }
-        }
-
-        Ok(Rc::new(Ty {
-            kind: TyKind::UserDefined(kaede_ir::ty::UserDefinedType::new(
-                kaede_ir::ty::UserDefinedTypeKind::Enum(enum_info),
-            ))
-            .into(),
-            mutability: Mutability::Not,
-        }))
+        self.constrain_enum_variant_payload(enum_var)?;
+        Ok(Self::enum_ty_from_info(
+            self.apply_enum_info(&enum_var.enum_info),
+        ))
     }
 
     // Function calls
@@ -1639,11 +1834,21 @@ impl TypeInferrer {
                 if let Some(value_expr) = &mut enum_var.value {
                     self.apply_expr(value_expr)?;
                 }
-                let enum_info = Rc::make_mut(&mut enum_var.enum_info);
-                for variant in &mut enum_info.variants {
-                    if let Some(ty) = &variant.ty {
-                        variant.ty = Some(self.context.apply(ty));
-                    }
+
+                let specialized_enum = self
+                    .specialized_enums
+                    .get(&enum_var.enum_info.name)
+                    .cloned()
+                    .unwrap_or_else(|| self.apply_enum_info(&enum_var.enum_info));
+                enum_var.enum_info = specialized_enum.clone();
+                // Expected-type checking may have specialized a generic enum expression from a
+                // placeholder/generated instantiation such as `Option_var12` to a concrete one
+                // such as `Option_i32`. Rebuild `expr.ty` with that concrete enum info so later
+                // passes do not keep seeing the stale generated name.
+                expr.ty = Self::rebuild_enum_variant_expr_ty(&expr.ty, specialized_enum);
+
+                if Self::enum_info_contains_type_var(enum_var.enum_info.as_ref()) {
+                    return Err(TypeInferError::CannotInferType { span: expr.span });
                 }
             }
 
@@ -1824,7 +2029,7 @@ impl TypeInferrer {
                     });
                 }
 
-                if let Some(symbol) = self.symbol_table_view.lookup(&let_stmt.name)
+                if let Some(symbol) = self.resolver.lookup(&let_stmt.name)
                     && let SymbolTableValueKind::Variable(var_info) = &mut symbol.borrow_mut().kind
                 {
                     var_info.ty = let_stmt.ty.clone();
@@ -1896,7 +2101,7 @@ mod tests {
     };
     use kaede_span::Span;
     use kaede_symbol::Symbol;
-    use kaede_symbol_table::{ScopedSymbolTable, SymbolTable};
+    use kaede_symbol_table::{QualifiedSymbolTable, SymbolResolver, SymbolTable};
 
     use super::{TypeInferError, TypeInferrer};
     use crate::context::TypeVarAllocator;
@@ -1918,7 +2123,7 @@ mod tests {
     fn make_inferrer() -> TypeInferrer {
         let tables = vec![SymbolTable::new()];
         TypeInferrer::new(
-            ScopedSymbolTable::merge_for_inference(&tables),
+            SymbolResolver::merge_for_inference(&tables, QualifiedSymbolTable::new()),
             i32_ty(),
             Rc::new(RefCell::new(TypeVarAllocator::default())),
         )

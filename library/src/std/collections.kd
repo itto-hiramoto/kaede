@@ -47,7 +47,7 @@ impl<T> Vector<T> {
         }
 
         self.len -= 1
-        return Option<T>::Some(self.ptr[self.len])
+        return Option::Some(self.ptr[self.len])
     }
 
     pub fn at(self, idx: u64): Option<T> {
@@ -55,7 +55,7 @@ impl<T> Vector<T> {
             return Option<T>::None
         }
 
-        return Option<T>::Some(self.ptr[idx])
+        return Option::Some(self.ptr[idx])
     }
 
     pub fn set(mut self, idx: u64, value: T): bool {
@@ -74,7 +74,7 @@ impl<T> Vector<T> {
 
         let old = self.ptr[idx]
         self.ptr[idx] = value
-        return Option<T>::Some(old)
+        return Option::Some(old)
     }
 
     pub fn remove(mut self, idx: u64): Option<T> {
@@ -91,7 +91,7 @@ impl<T> Vector<T> {
         }
 
         self.len -= 1
-        return Option<T>::Some(removed)
+        return Option::Some(removed)
     }
 
     // Removes an element in O(1) by replacing it with the last element.
@@ -108,7 +108,7 @@ impl<T> Vector<T> {
             self.ptr[idx] = self.ptr[self.len]
         }
 
-        return Option<T>::Some(removed)
+        return Option::Some(removed)
     }
 
     pub fn retain(mut self, pred: fn(T) -> bool) {
@@ -259,8 +259,8 @@ impl<K, V> HashMap<K, V> {
             return Option<V>::None
         }
 
-        self.keys.set(idx, Option<K>::None)
-        let old_value = self.values.replace(idx, Option<V>::None).unwrap()
+        self.keys.set(idx, Option::None)
+        let old_value = self.values.replace(idx, Option::None).unwrap()
         self.states.set(idx, HashSlotState::Deleted)
         self.len -= 1
 
@@ -285,8 +285,8 @@ impl<K, V> HashMap<K, V> {
 
         let mut i = 0
         while i < capacity {
-            self.keys.push(Option<K>::None)
-            self.values.push(Option<V>::None)
+            self.keys.push(Option::None)
+            self.values.push(Option::None)
             self.states.push(HashSlotState::Empty)
             i += 1
         }
@@ -349,13 +349,13 @@ impl<K, V> HashMap<K, V> {
                 Option::Some(v) => Option<V>::Some(v),
                 Option::None => Option<V>::None,
             }
-            self.keys.set(idx, Option<K>::Some(key))
-            self.values.set(idx, Option<V>::Some(value))
+            self.keys.set(idx, Option::Some(key))
+            self.values.set(idx, Option::Some(value))
             return old_value
         }
 
-        self.keys.set(idx, Option<K>::Some(key))
-        self.values.set(idx, Option<V>::Some(value))
+        self.keys.set(idx, Option::Some(key))
+        self.values.set(idx, Option::Some(value))
         self.states.set(idx, HashSlotState::Filled)
 
         self.len += 1

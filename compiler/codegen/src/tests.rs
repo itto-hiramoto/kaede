@@ -3527,6 +3527,89 @@ fn option_some_infers_type_without_explicit_args() -> anyhow::Result<()> {
 }
 
 #[test]
+fn option_none_infers_type_without_explicit_args_from_return() -> anyhow::Result<()> {
+    let program = r#"
+        fn maybe_number(flag: bool): Option<i32> {
+            if flag {
+                return Option::Some(58)
+            }
+
+            return Option::None
+        }
+
+        fn main(): i32 {
+            return match maybe_number(false) {
+                Option::Some(n) => n,
+                Option::None => 58,
+            }
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn option_none_infers_type_without_explicit_args_from_annotated_let() -> anyhow::Result<()> {
+    let program = r#"
+        fn main(): i32 {
+            let opt: Option<i32> = Option::None
+            return match opt {
+                Option::Some(n) => n,
+                Option::None => 58,
+            }
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn option_none_infers_type_without_explicit_args_from_fn_param() -> anyhow::Result<()> {
+    let program = r#"
+        fn unwrap_or_default(opt: Option<i32>): i32 {
+            return match opt {
+                Option::Some(n) => n,
+                Option::None => 58,
+            }
+        }
+
+        fn main(): i32 {
+            return unwrap_or_default(Option::None)
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn generic_enum_unit_variant_infers_type_without_explicit_args() -> anyhow::Result<()> {
+    let program = r#"
+        enum MyOption<T> {
+            Some(T),
+            None,
+        }
+
+        fn main(): i32 {
+            let opt: MyOption<i32> = MyOption::None
+            return match opt {
+                MyOption::Some(value) => value,
+                MyOption::None => 58,
+            }
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
 fn vector_new_infers_struct_from_push() -> anyhow::Result<()> {
     let program = r#"
         struct S {

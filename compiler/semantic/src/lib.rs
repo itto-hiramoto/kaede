@@ -17,8 +17,8 @@ use kaede_parse::Parser;
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::{Ident, Symbol};
 use kaede_symbol_table::{
-    GenericInfo, GenericKind, GenericSliceInfo, ScopedSymbolTable, SymbolTable, SymbolTableValue,
-    SymbolTableValueKind,
+    GenericInfo, GenericKind, GenericSliceInfo, QualifiedSymbolTable, SymbolResolver, SymbolTable,
+    SymbolTableValue, SymbolTableValueKind,
 };
 
 mod context;
@@ -394,6 +394,20 @@ impl SemanticAnalyzer {
         let name = format!("{prefix}{}", self.temp_symbol_counter);
         self.temp_symbol_counter += 1;
         Symbol::from(name)
+    }
+
+    fn build_qualified_symbol_table(&self) -> QualifiedSymbolTable {
+        let mut lookup = QualifiedSymbolTable::new();
+
+        for (module_path, module_context) in &self.modules {
+            for table in module_context.get_symbol_tables() {
+                lookup.extend_from_symbol_table(module_path, table);
+            }
+
+            lookup.extend_from_symbol_table(module_path, module_context.get_private_symbol_table());
+        }
+
+        lookup
     }
 
     pub fn take_additional_native_libs(&mut self) -> Vec<PathBuf> {
@@ -1363,11 +1377,14 @@ impl SemanticAnalyzer {
 
         // Merge all symbol tables from the stack (includes root scope + all local scopes)
         // This allows type inference to see all symbols: globals, function params, and locals
-        let symbol_table_view = ScopedSymbolTable::merge_for_inference(module.get_symbol_tables());
+        let resolver = SymbolResolver::merge_for_inference(
+            module.get_symbol_tables(),
+            self.build_qualified_symbol_table(),
+        );
 
         // Create a type inferrer with the merged symbol table
         let mut inferrer = TypeInferrer::new(
-            symbol_table_view,
+            resolver,
             decl.return_ty.clone(),
             self.infer_context.type_var_allocator.clone(),
         );
@@ -1402,10 +1419,11 @@ impl SemanticAnalyzer {
         use kaede_type_infer::TypeInferrer;
 
         let tables = vec![SymbolTable::new()];
-        let symbol_table_view = ScopedSymbolTable::merge_for_inference(&tables);
+        let resolver =
+            SymbolResolver::merge_for_inference(&tables, self.build_qualified_symbol_table());
 
         let mut inferrer = TypeInferrer::new(
-            symbol_table_view,
+            resolver,
             decl.return_ty.clone(),
             self.infer_context.type_var_allocator.clone(),
         );
