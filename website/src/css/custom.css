@@ -54,6 +54,11 @@ body {
   align-items: center;
 }
 
+.kaede-hero__copy,
+.kaede-sample {
+  min-width: 0;
+}
+
 .kaede-eyebrow {
   color: var(--ifm-color-primary-dark);
   font-size: 0.85rem;
@@ -92,6 +97,7 @@ body {
 }
 
 .kaede-sample {
+  overflow: hidden;
   padding: 1rem;
 }
 
@@ -110,6 +116,8 @@ body {
 .kaede-sample__code pre {
   border-radius: 0.95rem;
   margin: 0;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .kaede-sample__code .theme-code-block {
@@ -173,15 +181,49 @@ html[data-theme='dark'] .kaede-card--link:hover {
   box-shadow: 0 24px 70px rgba(0, 0, 0, 0.32);
 }
 
+@media (max-width: 1200px) {
+  .kaede-link-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 996px) {
   .kaede-hero {
     padding-top: 3.25rem;
   }
 
   .kaede-hero__grid,
+  .kaede-link-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .kaede-feature-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .kaede-home {
+    padding-bottom: 3rem;
+  }
+
+  .kaede-hero {
+    padding: 2.75rem 0 2.5rem;
+  }
+
+  .kaede-hero__grid,
   .kaede-feature-grid,
   .kaede-link-grid {
     grid-template-columns: 1fr;
+  }
+
+  .kaede-section {
+    padding-top: 2.5rem;
+  }
+
+  .kaede-card,
+  .kaede-sample {
+    border-radius: 1rem;
   }
 }
 
@@ -190,11 +232,27 @@ html[data-theme='dark'] .kaede-card--link:hover {
     font-size: 2.4rem;
   }
 
+  .kaede-hero__subtitle {
+    font-size: 1rem;
+  }
+
   .kaede-hero__actions {
     flex-direction: column;
   }
 
   .kaede-hero__actions .button {
     width: 100%;
+  }
+
+  .kaede-sample {
+    padding: 0.75rem;
+  }
+
+  .kaede-sample__code {
+    font-size: 0.85rem;
+  }
+
+  .kaede-card {
+    padding: 1rem;
   }
 }
