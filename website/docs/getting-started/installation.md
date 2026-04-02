@@ -8,19 +8,19 @@ sidebar_position: 2
 
 ## Prerequisites
 
-Kaede currently expects:
-
 - LLVM 17
 - Rust toolchain (`rustc` and `cargo`)
 - Python 3
 - CMake
 - C compiler such as `gcc` or `clang`
 - `pkg-config`
-- OpenSSL development files
+- OpenSSL dev package
 
 Optional:
 
 - Cargo nightly, when you want Rust interop support that depends on nightly tooling
+
+Run the block for your platform.
 
 Supported architectures:
 
@@ -30,31 +30,47 @@ Supported architectures:
 ## macOS / Linux (Homebrew)
 
 ```bash
-brew install llvm@17 cmake python
-export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"
-```
+brew install git llvm@17 cmake python pkg-config openssl@3
+curl https://sh.rustup.rs -sSf | sh -s -- -y
+. "$HOME/.cargo/env"
 
-If you want that `LIBRARY_PATH` change to persist, add it to your shell profile:
-
-```bash
 echo 'export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"' >> ~/.profile
-```
+. ~/.profile
 
-## Build and install Kaede
+git clone --recursive https://github.com/itto-hiramoto/kaede.git
+cd kaede
 
-From the repository root:
-
-```bash
 ./install.py
+. "$HOME/.kaede/env"
 kaede -h
 ```
 
-If OpenSSL support is missing on your machine, confirm this command succeeds:
+## Ubuntu / Debian
 
 ```bash
-pkg-config --cflags --libs openssl
+sudo apt update
+sudo apt install -y build-essential cmake python3 pkg-config libssl-dev curl wget git
+wget https://apt.llvm.org/llvm.sh
+chmod +x llvm.sh
+sudo ./llvm.sh 17
+curl https://sh.rustup.rs -sSf | sh -s -- -y
+. "$HOME/.cargo/env"
+
+git clone --recursive https://github.com/itto-hiramoto/kaede.git
+cd kaede
+
+export LLVM_SYS_170_PREFIX=/usr/lib/llvm-17
+./install.py
+. "$HOME/.kaede/env"
+kaede -h
 ```
 
-## Verify the install
+## Rust interop
+
+If you need nightly-only Rust interop support:
+
+```bash
+rustup toolchain install nightly --profile minimal
+```
 
 Once `kaede -h` works, continue to [First program](./first-program.md).
