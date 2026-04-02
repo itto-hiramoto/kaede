@@ -13,7 +13,7 @@ app.get("/", |req, res| {
 
 app.ws("/ws/echo", |req, ws| {
     loop {
-        let msg = ws.receive().unwrap()
+        msg := ws.receive().unwrap()
         match msg.kind {
             std.http.WebSocketMessageKind::Close => return
             _ => ws.send(msg)
