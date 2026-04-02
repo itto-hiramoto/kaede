@@ -6,7 +6,7 @@ sidebar_position: 8
 
 # Concurrency
 
-Kaede includes built-in concurrency primitives that are already exercised in the test suite and the standard library.
+Kaede includes built-in primitives for spawning tasks, passing values across channels, and waiting for concurrent work to finish.
 
 ## Spawning work
 
@@ -56,7 +56,7 @@ value := match <-ch {
 
 ## Synchronization helpers
 
-The current tests also use a `WaitGroup`:
+Use `WaitGroup` when one task needs to wait for other spawned tasks to finish:
 
 ```rust
 mut wg := WaitGroup::new()
@@ -65,4 +65,4 @@ spawn sender(ch, wg)
 wg.wait()
 ```
 
-This keeps concurrent examples straightforward when you need to wait for spawned work to finish.
+Call `add()` before spawning work, then `wait()` in the coordinating task. Each worker should call `done()` when it completes.
