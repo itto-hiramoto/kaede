@@ -32,11 +32,6 @@ pub enum TopLevelAnalysisResult {
 impl SemanticAnalyzer {
     fn fn_decl_requires_delayed_inference(decl: &ir::top::FnDecl) -> bool {
         Self::fn_decl_has_unresolved_types(decl)
-            // Generated generic symbols can still hide unresolved type variables inside
-            // instantiated user-defined types even when the signature no longer exposes a direct
-            // `TyKind::Var`. Delay the first body inference pass until call-site substitutions are
-            // applied; the post-substitution pass only relies on structural type information.
-            || (decl.link_once && decl.name.symbol().as_str().contains("_var"))
     }
 
     pub fn analyze_top_level(
@@ -405,6 +400,7 @@ impl SemanticAnalyzer {
                     .collect(),
                 is_c_variadic: false,
                 return_ty: func.return_ty.clone(),
+                generic_instance: None,
             };
 
             let symbol_value = SymbolTableValue::new(
@@ -757,6 +753,7 @@ impl SemanticAnalyzer {
             is_c_variadic: matches!(node.params.variadic, ast::top::VariadicKind::C),
             params,
             return_ty: self.analyze_type(&node.return_ty)?,
+            generic_instance: self.pending_generic_instance(),
         };
 
         let symbol_table_value = SymbolTableValue::new(
@@ -820,6 +817,7 @@ impl SemanticAnalyzer {
         let ir = Rc::new(ir::top::Struct {
             name: qualified_name,
             fields,
+            generic_instance: self.pending_generic_instance(),
         });
 
         let symbol_table_value = SymbolTableValue::new(
@@ -885,6 +883,7 @@ impl SemanticAnalyzer {
         let ir = Rc::new(ir::top::Enum {
             name: qualified_name,
             variants,
+            generic_instance: self.pending_generic_instance(),
         });
 
         let symbol_table_value = SymbolTableValue::new(

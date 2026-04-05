@@ -66,6 +66,7 @@ pub struct SemanticAnalyzer {
     closure_capture_stack: Vec<ClosureCapture>,
     temp_symbol_counter: usize,
     generic_fn_substitutions: HashMap<QualifiedSymbol, HashMap<ir_type::VarId, Rc<ir_type::Ty>>>,
+    pending_generic_instance: Option<ir_type::GenericInstanceInfo>,
 }
 
 impl SemanticAnalyzer {
@@ -332,6 +333,7 @@ impl SemanticAnalyzer {
             closure_capture_stack: Vec::new(),
             temp_symbol_counter: 0,
             generic_fn_substitutions: HashMap::new(),
+            pending_generic_instance: None,
         }
     }
 
@@ -358,6 +360,7 @@ impl SemanticAnalyzer {
             closure_capture_stack: Vec::new(),
             temp_symbol_counter: 0,
             generic_fn_substitutions: HashMap::new(),
+            pending_generic_instance: None,
         }
     }
 
@@ -658,6 +661,34 @@ impl SemanticAnalyzer {
         }
     }
 
+    fn with_pending_generic_instance<R>(
+        &mut self,
+        generic_instance: Option<ir_type::GenericInstanceInfo>,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let previous = std::mem::replace(&mut self.pending_generic_instance, generic_instance);
+        let result = f(self);
+        self.pending_generic_instance = previous;
+        result
+    }
+
+    fn pending_generic_instance(&self) -> Option<ir_type::GenericInstanceInfo> {
+        self.pending_generic_instance.clone()
+    }
+
+    fn apply_var_subst_to_generic_instance(
+        generic_instance: &mut Option<ir_type::GenericInstanceInfo>,
+        subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
+    ) {
+        if let Some(instance) = generic_instance {
+            instance.args = instance
+                .args
+                .iter()
+                .map(|arg| Self::apply_var_subst_to_ty(arg, subst))
+                .collect();
+        }
+    }
+
     fn apply_var_subst_to_ty(
         ty: &Rc<ir_type::Ty>,
         subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
@@ -676,6 +707,7 @@ impl SemanticAnalyzer {
             }
         }
         decl.return_ty = Self::apply_var_subst_to_ty(&decl.return_ty, subst);
+        Self::apply_var_subst_to_generic_instance(&mut decl.generic_instance, subst);
     }
 
     fn apply_var_subst_to_struct(
@@ -685,6 +717,7 @@ impl SemanticAnalyzer {
         for field in &mut struct_.fields {
             field.ty = Self::apply_var_subst_to_ty(&field.ty, subst);
         }
+        Self::apply_var_subst_to_generic_instance(&mut struct_.generic_instance, subst);
     }
 
     fn apply_var_subst_to_enum(
@@ -696,6 +729,7 @@ impl SemanticAnalyzer {
                 variant.ty = Some(Self::apply_var_subst_to_ty(ty, subst));
             }
         }
+        Self::apply_var_subst_to_generic_instance(&mut enum_.generic_instance, subst);
     }
 
     fn apply_var_subst_to_stmt(
@@ -759,6 +793,9 @@ impl SemanticAnalyzer {
                 for (_, value) in &mut lit.values {
                     Self::apply_var_subst_to_expr(value, subst);
                 }
+                let mut struct_info = (*lit.struct_info).clone();
+                Self::apply_var_subst_to_struct(&mut struct_info, subst);
+                lit.struct_info = Rc::new(struct_info);
             }
             ir::expr::ExprKind::Binary(bin) => {
                 Self::apply_var_subst_to_expr(Rc::make_mut(&mut bin.lhs), subst);
@@ -770,6 +807,9 @@ impl SemanticAnalyzer {
             }
             ir::expr::ExprKind::FieldAccess(field) => {
                 Self::apply_var_subst_to_expr(&mut field.operand, subst);
+                let mut struct_info = (*field.struct_info).clone();
+                Self::apply_var_subst_to_struct(&mut struct_info, subst);
+                field.struct_info = Rc::new(struct_info);
             }
             ir::expr::ExprKind::UnresolvedFieldAccess(field) => {
                 Self::apply_var_subst_to_expr(&mut field.operand, subst);
@@ -782,6 +822,9 @@ impl SemanticAnalyzer {
                 if let Some(value) = &mut enum_var.value {
                     Self::apply_var_subst_to_expr(value, subst);
                 }
+                let mut enum_info = (*enum_var.enum_info).clone();
+                Self::apply_var_subst_to_enum(&mut enum_info, subst);
+                enum_var.enum_info = Rc::new(enum_info);
             }
             ir::expr::ExprKind::Indexing(idx) => {
                 Self::apply_var_subst_to_expr(Rc::make_mut(&mut idx.operand), subst);
@@ -874,6 +917,20 @@ impl SemanticAnalyzer {
                 }
                 if let Some(enum_unpack) = &mut if_expr.enum_unpack {
                     Self::apply_var_subst_to_expr(Rc::make_mut(&mut enum_unpack.enum_value), subst);
+                    enum_unpack.enum_ty = match &enum_unpack.enum_ty.generic_instance {
+                        Some(instance) => ir_type::UserDefinedType {
+                            kind: enum_unpack.enum_ty.kind.clone(),
+                            generic_instance: Some(ir_type::GenericInstanceInfo::new(
+                                instance.origin.clone(),
+                                instance
+                                    .args
+                                    .iter()
+                                    .map(|arg| Self::apply_var_subst_to_ty(arg, subst))
+                                    .collect(),
+                            )),
+                        },
+                        None => enum_unpack.enum_ty.clone(),
+                    };
                     enum_unpack.variant_ty =
                         Self::apply_var_subst_to_ty(&enum_unpack.variant_ty, subst);
                 }
@@ -1177,6 +1234,7 @@ impl SemanticAnalyzer {
                 ir::ty::FundamentalTypeKind::I32,
                 ir::ty::Mutability::Not,
             )),
+            generic_instance: None,
         };
 
         let runtime_init_decl = ir::top::FnDecl {
@@ -1189,6 +1247,7 @@ impl SemanticAnalyzer {
             params: vec![],
             is_c_variadic: false,
             return_ty: Rc::new(ir::ty::Ty::new_unit()),
+            generic_instance: None,
         };
 
         let runtime_run_decl = ir::top::FnDecl {
@@ -1204,6 +1263,7 @@ impl SemanticAnalyzer {
                 ir::ty::FundamentalTypeKind::I32,
                 ir::ty::Mutability::Not,
             )),
+            generic_instance: None,
         };
 
         let runtime_shutdown_decl = ir::top::FnDecl {
@@ -1216,6 +1276,7 @@ impl SemanticAnalyzer {
             params: vec![],
             is_c_variadic: false,
             return_ty: Rc::new(ir::ty::Ty::new_unit()),
+            generic_instance: None,
         };
 
         top_level_irs.push(ir::top::TopLevel::Fn(Rc::new(ir::top::Fn {
@@ -1409,6 +1470,10 @@ impl SemanticAnalyzer {
     fn fn_decl_has_unresolved_types(decl: &ir::top::FnDecl) -> bool {
         decl.params.iter().any(|p| ir::ty::contains_type_var(&p.ty))
             || ir::ty::contains_type_var(&decl.return_ty)
+            || decl
+                .generic_instance
+                .as_ref()
+                .is_some_and(ir_type::GenericInstanceInfo::contains_type_var)
     }
 
     fn infer_function_body_with_decl(

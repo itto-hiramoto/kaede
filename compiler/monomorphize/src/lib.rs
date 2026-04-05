@@ -48,6 +48,7 @@ mod tests {
             params: vec![],
             is_c_variadic: false,
             return_ty: unit_ty(),
+            generic_instance: None,
         })
     }
 

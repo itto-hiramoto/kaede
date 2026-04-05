@@ -222,6 +222,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 is_c_variadic: false,
                 return_ty,
                 params,
+                generic_instance: None,
             },
         )?;
 

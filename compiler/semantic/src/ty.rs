@@ -145,6 +145,13 @@ impl SemanticAnalyzer {
         ops: GenericTypeOps<T>,
     ) -> anyhow::Result<Rc<ir_type::Ty>> {
         let generic_params = (ops.get_generic_params)(ast);
+        let generic_instance = ir_type::GenericInstanceInfo::new(
+            QualifiedSymbol::new(
+                self.current_module_path().clone(),
+                (ops.get_name)(ast).symbol(),
+            ),
+            generic_args.to_vec(),
+        );
 
         self.verify_generic_argument_length(generic_params, generic_args, generic_params.span)?;
 
@@ -158,12 +165,15 @@ impl SemanticAnalyzer {
         if self.generating_generics.contains(&generated_generic_key) {
             // Circular dependency detected - return a placeholder type
             return Ok(Rc::new(ir_type::Ty {
-                kind: ir_type::TyKind::UserDefined(ir_type::UserDefinedType {
-                    kind: ir_type::UserDefinedTypeKind::Placeholder(QualifiedSymbol::new(
-                        self.current_module_path().clone(),
-                        generated_generic_key,
-                    )),
-                })
+                kind: ir_type::TyKind::UserDefined(
+                    ir_type::UserDefinedType::with_generic_instance(
+                        ir_type::UserDefinedTypeKind::Placeholder(QualifiedSymbol::new(
+                            self.current_module_path().clone(),
+                            generated_generic_key,
+                        )),
+                        generic_instance.clone(),
+                    ),
+                )
                 .into(),
                 mutability: ir_type::Mutability::Not,
             }));
@@ -177,7 +187,10 @@ impl SemanticAnalyzer {
                 return Ok(symbol);
             }
 
-            let top_level = (ops.analyze)(analyzer, modified_ast)?;
+            let top_level = analyzer
+                .with_pending_generic_instance(Some(generic_instance.clone()), |analyzer| {
+                    (ops.analyze)(analyzer, modified_ast)
+                })?;
 
             if let TopLevelAnalysisResult::TopLevel(top_level) = top_level {
                 analyzer.generated_generics.push(top_level);
@@ -189,9 +202,10 @@ impl SemanticAnalyzer {
         })?;
 
         let symbol_value = symbol.borrow();
-        let udt_ir = ir_type::TyKind::UserDefined(ir_type::UserDefinedType {
-            kind: (ops.extract_type)(&symbol_value.kind),
-        });
+        let udt_ir = ir_type::TyKind::UserDefined(ir_type::UserDefinedType::with_generic_instance(
+            (ops.extract_type)(&symbol_value.kind),
+            generic_instance,
+        ));
 
         Ok(Rc::new(ir_type::Ty {
             kind: udt_ir.into(),
@@ -294,7 +308,7 @@ impl SemanticAnalyzer {
 
         let module_path = generic_info.module_path.clone();
 
-        self.with_module(module_path, |analyzer| {
+        self.with_module(module_path.clone(), |analyzer| {
             let generic_info = match &borrowed_symbol.kind {
                 SymbolTableValueKind::Generic(generic_info) => generic_info,
                 _ => unreachable!(),
@@ -391,17 +405,29 @@ impl SemanticAnalyzer {
                         &generic_params,
                         &generic_args,
                         |analyzer| {
+                            let generic_instance = ir_type::GenericInstanceInfo::new(
+                                QualifiedSymbol::new(module_path.clone(), name.symbol()),
+                                generic_args.clone(),
+                            );
                             analyzer.with_analyze_command(
                                 AnalyzeCommand::OnlyFnDeclare,
                                 |analyzer| {
-                                    analyzer.analyze_impl(impl_.clone())?;
+                                    analyzer.with_pending_generic_instance(
+                                        Some(generic_instance.clone()),
+                                        |analyzer| analyzer.analyze_impl(impl_.clone()),
+                                    )?;
                                     Ok::<(), anyhow::Error>(())
                                 },
                             )?;
 
                             let impl_ir = analyzer.with_analyze_command(
                                 AnalyzeCommand::WithoutFnDeclare,
-                                |analyzer| analyzer.analyze_impl(impl_),
+                                |analyzer| {
+                                    analyzer.with_pending_generic_instance(
+                                        Some(generic_instance),
+                                        |analyzer| analyzer.analyze_impl(impl_),
+                                    )
+                                },
                             )?;
 
                             if let TopLevelAnalysisResult::TopLevel(top_level) = impl_ir {

@@ -136,15 +136,26 @@ impl TypeInferrer {
                 variant.ty = Some(self.context.apply(ty));
             }
         }
+        if let Some(instance) = &enum_mut.generic_instance {
+            enum_mut.generic_instance = Some(kaede_ir::ty::GenericInstanceInfo::new(
+                instance.origin.clone(),
+                instance
+                    .args
+                    .iter()
+                    .map(|arg| self.context.apply(arg))
+                    .collect(),
+            ));
+        }
 
         enum_info
     }
 
     fn enum_ty_from_info(enum_info: Rc<IrEnum>) -> Rc<Ty> {
         Rc::new(Ty {
-            kind: TyKind::UserDefined(kaede_ir::ty::UserDefinedType::new(
-                UserDefinedTypeKind::Enum(enum_info),
-            ))
+            kind: TyKind::UserDefined(kaede_ir::ty::UserDefinedType {
+                kind: UserDefinedTypeKind::Enum(enum_info.clone()),
+                generic_instance: enum_info.generic_instance.clone(),
+            })
             .into(),
             mutability: Mutability::Not,
         })
@@ -152,9 +163,10 @@ impl TypeInferrer {
 
     fn rebuild_enum_variant_expr_ty(original_ty: &Rc<Ty>, enum_info: Rc<IrEnum>) -> Rc<Ty> {
         let enum_ty = Rc::new(Ty {
-            kind: TyKind::UserDefined(kaede_ir::ty::UserDefinedType::new(
-                UserDefinedTypeKind::Enum(enum_info),
-            ))
+            kind: TyKind::UserDefined(kaede_ir::ty::UserDefinedType {
+                kind: UserDefinedTypeKind::Enum(enum_info.clone()),
+                generic_instance: enum_info.generic_instance.clone(),
+            })
             .into(),
             mutability: original_ty.mutability,
         });
@@ -174,47 +186,17 @@ impl TypeInferrer {
         }
     }
 
-    // Generic enum instantiations get generated names such as `Option_var12` or `Option_i32`.
-    // For expected-type checking we still want to treat those as the same enum family when they
-    // come from the same generic enum definition, so we recover the shared base name and verify
-    // that it resolves to a generic enum symbol in the same module.
     fn enum_origins_match(&self, actual: &Rc<IrEnum>, expected: &Rc<IrEnum>) -> bool {
         if actual.name == expected.name {
             return true;
         }
 
-        let actual_name = actual.name.symbol();
-        let expected_name = expected.name.symbol();
-        let actual_name = actual_name.as_str().as_bytes();
-        let expected_name = expected_name.as_str().as_bytes();
-
-        let common_len = actual_name
-            .iter()
-            .zip(expected_name.iter())
-            .take_while(|(lhs, rhs)| lhs == rhs)
-            .count();
-        let Ok(common_prefix) = std::str::from_utf8(&actual_name[..common_len]) else {
-            return false;
-        };
-        let Some(split_idx) = common_prefix.rfind('_') else {
-            return false;
-        };
-        if split_idx == 0 {
-            return false;
+        match (&actual.generic_instance, &expected.generic_instance) {
+            (Some(actual), Some(expected)) => {
+                actual.origin == expected.origin && actual.args.len() == expected.args.len()
+            }
+            _ => false,
         }
-
-        let candidate: Symbol = common_prefix[..split_idx].to_string().into();
-        let qualified = QualifiedSymbol::new(actual.name.module_path().clone(), candidate);
-        let Some(value) = self.resolver.lookup_qualified(&qualified) else {
-            return false;
-        };
-        let borrowed = value.borrow();
-
-        matches!(
-            &borrowed.kind,
-            SymbolTableValueKind::Generic(info)
-                if matches!(info.kind, kaede_symbol_table::GenericKind::Enum(_))
-        )
     }
 
     fn unify_enum_variants(
@@ -264,10 +246,14 @@ impl TypeInferrer {
 
     fn enum_info_contains_type_var(enum_info: &IrEnum) -> bool {
         enum_info
-            .variants
-            .iter()
-            .filter_map(|variant| variant.ty.as_ref())
-            .any(contains_type_var)
+            .generic_instance
+            .as_ref()
+            .is_some_and(kaede_ir::ty::GenericInstanceInfo::contains_type_var)
+            || enum_info
+                .variants
+                .iter()
+                .filter_map(|variant| variant.ty.as_ref())
+                .any(contains_type_var)
     }
 
     // Unit variants like `Option::None` carry no payload, so this helper does nothing for them.
@@ -549,6 +535,8 @@ impl TypeInferrer {
         if let Some(expected_enum) = self.enum_info_from_ty(&expected_ty)
             && self.enum_origins_match(&enum_var.enum_info, &expected_enum)
         {
+            let actual_ty = Self::enum_ty_from_info(self.apply_enum_info(&enum_var.enum_info));
+            self.context.unify(&actual_ty, &expected_ty, expr.span)?;
             self.unify_enum_variants(&enum_var.enum_info, &expected_enum, expr.span)?;
 
             if enum_var.enum_info.name != expected_enum.name {
@@ -880,9 +868,10 @@ impl TypeInferrer {
         }
 
         Ok(Rc::new(Ty {
-            kind: TyKind::UserDefined(kaede_ir::ty::UserDefinedType::new(
-                kaede_ir::ty::UserDefinedTypeKind::Struct(struct_lit.struct_info.clone()),
-            ))
+            kind: TyKind::UserDefined(kaede_ir::ty::UserDefinedType {
+                kind: kaede_ir::ty::UserDefinedTypeKind::Struct(struct_lit.struct_info.clone()),
+                generic_instance: struct_lit.struct_info.generic_instance.clone(),
+            })
             .into(),
             mutability: Mutability::Not,
         }))
@@ -2137,6 +2126,7 @@ mod tests {
             params: vec![],
             is_c_variadic: false,
             return_ty: return_ty.clone(),
+            generic_instance: None,
         });
 
         Expr {
@@ -2194,12 +2184,14 @@ mod tests {
                 ty: field_ty.clone(),
                 offset: 0,
             }],
+            generic_instance: None,
         });
         let operand_ty = Rc::new(Ty {
             kind: TyKind::Reference(ReferenceType {
                 refee_ty: Rc::new(Ty {
                     kind: TyKind::UserDefined(UserDefinedType {
                         kind: UserDefinedTypeKind::Struct(struct_info),
+                        generic_instance: None,
                     })
                     .into(),
                     mutability: Mutability::Not,
