@@ -4795,16 +4795,16 @@ fn panic_never_type_in_if() -> anyhow::Result<()> {
 fn panic_never_type_in_match() -> anyhow::Result<()> {
     // Test that panic returns Never type and works in match expressions
     let program = r#"
-        enum Result {
+        enum TestResult {
             Ok(i32),
             Err,
         }
 
         fn main(): i32 {
-            let r = Result::Ok(58)
+            let r = TestResult::Ok(58)
             let x = match r {
-                Result::Ok(v) => v,
-                Result::Err => panic("error occurred"),
+                TestResult::Ok(v) => v,
+                TestResult::Err => panic("error occurred"),
             }
             return x
         }
