@@ -407,10 +407,6 @@ impl GenericInstanceInfo {
         self.args.iter().any(contains_type_var)
     }
 
-    /// Collect the specialization variables referenced by this generic instance.
-    /// Type inference uses these variables to read back resolved generic arguments
-    /// directly from the inference context instead of reconstructing them from
-    /// parameter/return types after the fact.
     pub fn collect_var_ids_in_order(&self) -> Vec<VarId> {
         let mut out = Vec::new();
         let mut seen = HashSet::new();
