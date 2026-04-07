@@ -81,7 +81,7 @@ const examples = [
 export default function Home() {
   return (
     <Layout
-      title="Kaede"
+      title="Kaede Programming Language"
       description="Kaede is a language for concise servers without giving up performance."
     >
       <main className="kaede-home">
