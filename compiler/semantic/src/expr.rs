@@ -30,6 +30,104 @@ struct DecomposedEnumVariantPattern<'p> {
 }
 
 impl SemanticAnalyzer {
+    fn is_std_result_ty(ty: &Rc<ir_type::Ty>) -> bool {
+        let base_ty = match ty.kind.as_ref() {
+            ir_type::TyKind::Reference(rty) => rty.get_base_type(),
+            _ => ty.clone(),
+        };
+
+        let ir_type::TyKind::UserDefined(udt) = base_ty.kind.as_ref() else {
+            return false;
+        };
+
+        let qualified_symbol = udt
+            .generic_instance
+            .as_ref()
+            .map(|instance| instance.origin.clone())
+            .unwrap_or_else(|| udt.qualified_symbol());
+        let module_path = qualified_symbol.module_path().clone();
+        let modules = module_path.get_module_names_from_root();
+
+        matches!(modules, [std, result] if std.as_str() == "std" && result.as_str() == "result")
+            && qualified_symbol.symbol().as_str() == "Result"
+    }
+
+    fn ast_ident_expr(symbol: Symbol, span: Span) -> ast::expr::Expr {
+        ast::expr::Expr {
+            kind: ast::expr::ExprKind::Ident(Ident::new(symbol, span)),
+            span,
+        }
+    }
+
+    fn ast_access_expr(lhs: ast::expr::Expr, rhs: ast::expr::Expr, span: Span) -> ast::expr::Expr {
+        ast::expr::Expr {
+            kind: ast::expr::ExprKind::Binary(ast::expr::Binary::new(
+                lhs.into(),
+                ast::expr::BinaryKind::Access,
+                rhs.into(),
+            )),
+            span,
+        }
+    }
+
+    fn ast_scope_resolution_expr(
+        lhs: ast::expr::Expr,
+        rhs: ast::expr::Expr,
+        span: Span,
+    ) -> ast::expr::Expr {
+        ast::expr::Expr {
+            kind: ast::expr::ExprKind::Binary(ast::expr::Binary::new(
+                lhs.into(),
+                ast::expr::BinaryKind::ScopeResolution,
+                rhs.into(),
+            )),
+            span,
+        }
+    }
+
+    fn ast_variant_expr(
+        &self,
+        variant_name: Symbol,
+        arg: Option<ast::expr::Expr>,
+        span: Span,
+    ) -> ast::expr::Expr {
+        let result_path = Self::ast_access_expr(
+            Self::ast_ident_expr(Symbol::from("std".to_owned()), span),
+            Self::ast_ident_expr(Symbol::from("result".to_owned()), span),
+            span,
+        );
+
+        let variant_expr = match arg {
+            Some(arg) => ast::expr::Expr {
+                kind: ast::expr::ExprKind::FnCall(ast::expr::FnCall {
+                    callee: Box::new(Self::ast_ident_expr(variant_name, span)),
+                    generic_args: None,
+                    args: ast::expr::Args {
+                        args: std::collections::VecDeque::from([ast::expr::Arg {
+                            name: None,
+                            value: arg,
+                            span,
+                        }]),
+                        span,
+                    },
+                    span,
+                }),
+                span,
+            },
+            None => Self::ast_ident_expr(variant_name, span),
+        };
+
+        Self::ast_access_expr(
+            result_path,
+            Self::ast_scope_resolution_expr(
+                Self::ast_ident_expr(Symbol::from("Result".to_owned()), span),
+                variant_expr,
+                span,
+            ),
+            span,
+        )
+    }
+
     pub fn analyze_expr(&mut self, expr: &ast::expr::Expr) -> anyhow::Result<ir::expr::Expr> {
         use ast::expr::ExprKind;
 
@@ -53,6 +151,7 @@ impl SemanticAnalyzer {
             ExprKind::Return(node) => self.analyze_return(node),
             ExprKind::Indexing(node) => self.analyze_array_or_ptr_indexing(node),
             ExprKind::Slicing(node) => self.analyze_slicing(node),
+            ExprKind::Try(node) => self.analyze_try(node),
             ExprKind::FnCall(node) => self.analyze_fn_call(node),
             ExprKind::If(node) => self.analyze_if(node),
             ExprKind::Break(node) => self.analyze_break(node),
@@ -2255,6 +2354,72 @@ impl SemanticAnalyzer {
             ty: Rc::new(ir_type::Ty::new_never()),
             span: node.span,
         })
+    }
+
+    fn analyze_try(&mut self, node: &ast::expr::Try) -> anyhow::Result<ir::expr::Expr> {
+        let current_fn = self.context.get_current_function().ok_or_else(|| {
+            SemanticError::TryOutsideResultFunction {
+                actual: Rc::new(ir_type::Ty::new_unit()).kind.to_string(),
+                span: node.span,
+            }
+        })?;
+
+        if !Self::is_std_result_ty(&current_fn.return_ty) {
+            return Err(SemanticError::TryOutsideResultFunction {
+                actual: current_fn.return_ty.kind.to_string(),
+                span: node.span,
+            }
+            .into());
+        }
+
+        let operand = self.analyze_expr(&node.operand)?;
+        if !Self::is_std_result_ty(&operand.ty) {
+            return Err(SemanticError::TryRequiresResult {
+                actual: operand.ty.kind.to_string(),
+                span: node.span,
+            }
+            .into());
+        }
+
+        let ok_name = self.fresh_temp_symbol("__try_ok");
+        let err_name = self.fresh_temp_symbol("__try_err");
+
+        let synthesized_match = ast::expr::Match {
+            value: node.operand.clone(),
+            arms: vec![
+                ast::expr::MatchArm {
+                    pattern: Box::new(self.ast_variant_expr(
+                        Symbol::from("Ok".to_owned()),
+                        Some(Self::ast_ident_expr(ok_name, node.span)),
+                        node.span,
+                    )),
+                    code: Rc::new(Self::ast_ident_expr(ok_name, node.span)),
+                    is_catch_all: false,
+                },
+                ast::expr::MatchArm {
+                    pattern: Box::new(self.ast_variant_expr(
+                        Symbol::from("Err".to_owned()),
+                        Some(Self::ast_ident_expr(err_name, node.span)),
+                        node.span,
+                    )),
+                    code: Rc::new(ast::expr::Expr {
+                        kind: ast::expr::ExprKind::Return(ast::expr::Return {
+                            val: Some(Box::new(self.ast_variant_expr(
+                                Symbol::from("Err".to_owned()),
+                                Some(Self::ast_ident_expr(err_name, node.span)),
+                                node.span,
+                            ))),
+                            span: node.span,
+                        }),
+                        span: node.span,
+                    }),
+                    is_catch_all: false,
+                },
+            ],
+            span: node.span,
+        };
+
+        self.analyze_match(&synthesized_match)
     }
 
     fn analyze_logical_not(

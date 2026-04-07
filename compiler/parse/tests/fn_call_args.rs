@@ -266,3 +266,35 @@ fn parse_impl_body_rejects_statements() -> Result<()> {
 
     Ok(())
 }
+
+#[test]
+fn parse_try_postfix() -> Result<()> {
+    let mut parser = Parser::new("foo()?", FilePath::from(PathBuf::from("test.kd")));
+    let expr = parser.expr()?;
+
+    let try_expr = match expr.kind {
+        ExprKind::Try(try_expr) => try_expr,
+        other => panic!("expected try expr, got {other:?}"),
+    };
+
+    assert!(matches!(try_expr.operand.kind, ExprKind::FnCall(_)));
+
+    Ok(())
+}
+
+#[test]
+fn parse_try_chains_with_following_postfix() -> Result<()> {
+    let mut parser = Parser::new("foo()?.bar()", FilePath::from(PathBuf::from("test.kd")));
+    let expr = parser.expr()?;
+
+    let access = match expr.kind {
+        ExprKind::Binary(binary) => binary,
+        other => panic!("expected access binary, got {other:?}"),
+    };
+
+    assert!(matches!(access.rhs.kind, ExprKind::FnCall(_)));
+
+    assert!(matches!(access.lhs.kind, ExprKind::Try(_)));
+
+    Ok(())
+}

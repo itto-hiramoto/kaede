@@ -301,7 +301,9 @@ fn semantic_error_span(err: &SemanticError) -> Option<Span> {
         | SemanticError::FormatTemplateMustBeStringLiteral { span }
         | SemanticError::FormatArgumentMustBeStr { span, .. }
         | SemanticError::InvalidFormatTemplate { span, .. }
-        | SemanticError::FormatPlaceholderCountMismatch { span, .. } => Some(*span),
+        | SemanticError::FormatPlaceholderCountMismatch { span, .. }
+        | SemanticError::TryRequiresResult { span, .. }
+        | SemanticError::TryOutsideResultFunction { span, .. } => Some(*span),
         SemanticError::MainNotFound
         | SemanticError::LLVMError { .. }
         | SemanticError::FailedToLookupTarget { .. }

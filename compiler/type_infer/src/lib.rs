@@ -1854,7 +1854,6 @@ impl TypeInferrer {
                     }
                 }
             }
-
             // Enum
             EnumVariant(enum_var) => {
                 if let Some(value_expr) = &mut enum_var.value {

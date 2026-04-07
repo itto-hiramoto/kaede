@@ -4,7 +4,7 @@ use kaede_ast::expr::{
     Arg, Args, ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BitNot, Break, ByteLiteral,
     ByteStringLiteral, ChannelRecv, ChannelSend, CharLiteral, Closure, Else, Expr, ExprKind,
     FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, Return, Slicing, Spawn,
-    StringLiteral, StructLiteral, TupleLiteral, While,
+    StringLiteral, StructLiteral, Try, TupleLiteral, While,
 };
 use kaede_ast_type::{GenericArgs, Ty, TyKind};
 use kaede_lex::token::TokenKind;
@@ -380,7 +380,8 @@ impl Parser {
         }
     }
 
-    /// Postfix operators: field access (.), indexing ([]), slicing ([start:end]), and function calls (())
+    /// Postfix operators: field access (.), indexing ([]), slicing ([start:end]), function calls (()),
+    /// and try propagation (?)
     /// All have the same precedence and are evaluated left-to-right
     fn postfix(&mut self) -> ParseResult<Expr> {
         let mut node = self.scope_resolution()?;
@@ -462,6 +463,15 @@ impl Parser {
             } else if self.check(&TokenKind::OpenParen) {
                 // Function call
                 node = self.fn_call_from_expr(node)?;
+            } else if let Ok(question_span) = self.consume(&TokenKind::Question) {
+                let span = self.new_span(node.span.start, question_span.finish);
+                node = Expr {
+                    span,
+                    kind: ExprKind::Try(Try {
+                        operand: Box::new(node),
+                        span,
+                    }),
+                };
             } else {
                 break;
             }

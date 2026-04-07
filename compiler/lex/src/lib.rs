@@ -209,6 +209,7 @@ impl Cursor<'_> {
             ',' => self.create_token(TokenKind::Comma),
             ';' => self.create_token(TokenKind::Semi),
             '$' => self.create_token(TokenKind::Dollar),
+            '?' => self.create_token(TokenKind::Question),
             '.' => {
                 if self.first() == '.' {
                     self.bump().unwrap();

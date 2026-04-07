@@ -6,7 +6,7 @@ use kaede_symbol::Ident;
 
 use crate::expr::Expr;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Assign {
     pub lhs: Expr,
     pub rhs: Expr,
@@ -24,19 +24,19 @@ pub enum AssignOp {
     RemAssign,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Let {
     pub kind: LetKind,
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum LetKind {
     NormalLet(NormalLet),
     TupleUnpack(TupleUnpack),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct NormalLet {
     pub name: Ident,
     pub mutability: Mutability,
@@ -45,7 +45,7 @@ pub struct NormalLet {
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TupleUnpack {
     /// None if ignore field
     pub names: Vec<Option<(Ident, Mutability)>>,
@@ -54,13 +54,13 @@ pub struct TupleUnpack {
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Stmt {
     pub kind: StmtKind,
     pub span: Span,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum StmtKind {
     Expr(Rc<Expr>),
     Let(Let),
@@ -70,7 +70,7 @@ pub enum StmtKind {
 
 /// Statement list
 /// May be handled as expression
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Block {
     pub body: Vec<Stmt>,
     pub span: Span,
