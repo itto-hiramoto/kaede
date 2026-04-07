@@ -23,7 +23,7 @@ use kaede_ir::{
     top::Enum as IrEnum,
     ty::{
         FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind, UserDefinedTypeKind, VarId,
-        collect_type_var_bindings, contains_type_var, make_fundamental_type,
+        contains_type_var, make_fundamental_type,
     },
 };
 mod context;
@@ -61,6 +61,43 @@ impl TypeInferrer {
         self,
     ) -> HashMap<kaede_ir::qualified_symbol::QualifiedSymbol, HashMap<VarId, Rc<Ty>>> {
         self.generic_fn_substitutions
+    }
+
+    fn apply_fn_decl(
+        &mut self,
+        decl: &kaede_ir::top::FnDecl,
+    ) -> Result<kaede_ir::top::FnDecl, TypeInferError> {
+        let mut applied = decl.clone();
+        for param in applied.params.iter_mut() {
+            if let Some(default) = &mut param.default {
+                self.apply_expr(std::rc::Rc::make_mut(default))?;
+            }
+            param.ty = self.context.apply(&param.ty);
+        }
+        applied.return_ty = self.context.apply(&applied.return_ty);
+        applied.generic_instance = applied
+            .generic_instance
+            .as_ref()
+            .map(|instance| self.context.apply_generic_instance(instance));
+        Ok(applied)
+    }
+
+    /// Preserve the original type-variable-to-type mapping so semantic analysis
+    /// can substitute through the generated generic body after inference.
+    fn record_generic_fn_substitutions(&mut self, callee: &kaede_ir::top::FnDecl) {
+        let Some(instance) = &callee.generic_instance else {
+            return;
+        };
+
+        let bindings = self.context.bindings_for_generic_instance(instance);
+        if bindings.is_empty() {
+            return;
+        }
+
+        self.generic_fn_substitutions
+            .entry(callee.name.clone())
+            .or_default()
+            .extend(bindings);
     }
 
     fn with_new_scope<R>(
@@ -1847,77 +1884,24 @@ impl TypeInferrer {
                     self.apply_expr(arg)?;
                 }
 
-                let original_param_tys = fn_call
-                    .callee
-                    .params
-                    .iter()
-                    .map(|p| p.ty.clone())
-                    .collect::<Vec<_>>();
-                let original_ret_ty = fn_call.callee.return_ty.clone();
-                let mut applied_callee = (*fn_call.callee).clone();
-                for param in applied_callee.params.iter_mut() {
-                    if let Some(default) = &mut param.default {
-                        self.apply_expr(std::rc::Rc::make_mut(default))?;
-                    }
-                    param.ty = self.context.apply(&param.ty);
-                }
-                applied_callee.return_ty = self.context.apply(&applied_callee.return_ty);
-                fn_call.callee = applied_callee.into();
-
-                let mut bindings = HashMap::new();
-                for (pattern, resolved) in original_param_tys
-                    .iter()
-                    .zip(fn_call.callee.params.iter().map(|p| &p.ty))
-                {
-                    collect_type_var_bindings(pattern, resolved, &mut bindings);
-                }
-                collect_type_var_bindings(
-                    &original_ret_ty,
-                    &fn_call.callee.return_ty,
-                    &mut bindings,
-                );
-                if !bindings.is_empty() {
-                    self.generic_fn_substitutions
-                        .entry(fn_call.callee.name.clone())
-                        .or_default()
-                        .extend(bindings);
-                }
+                let original_callee = fn_call.callee.clone();
+                fn_call.callee = Rc::new(self.apply_fn_decl(&fn_call.callee)?);
+                self.record_generic_fn_substitutions(&original_callee);
             }
             GenericFnCall(fn_call) => {
                 for arg in &mut fn_call.args.0 {
                     self.apply_expr(arg)?;
                 }
 
-                let original_generic_args = fn_call.generic_args.clone();
-                let mut applied_callee = (*fn_call.callee).clone();
-                for param in applied_callee.params.iter_mut() {
-                    if let Some(default) = &mut param.default {
-                        self.apply_expr(std::rc::Rc::make_mut(default))?;
-                    }
-                    param.ty = self.context.apply(&param.ty);
-                }
-                applied_callee.return_ty = self.context.apply(&applied_callee.return_ty);
-                fn_call.callee = applied_callee.into();
+                let original_callee = fn_call.callee.clone();
+                fn_call.callee = Rc::new(self.apply_fn_decl(&fn_call.callee)?);
 
                 fn_call.generic_args = fn_call
                     .generic_args
                     .iter()
                     .map(|ty| self.context.apply(ty))
                     .collect();
-
-                let mut bindings = HashMap::new();
-                for (pattern, resolved) in original_generic_args
-                    .iter()
-                    .zip(fn_call.generic_args.iter())
-                {
-                    collect_type_var_bindings(pattern, resolved, &mut bindings);
-                }
-                if !bindings.is_empty() {
-                    self.generic_fn_substitutions
-                        .entry(fn_call.callee.name.clone())
-                        .or_default()
-                        .extend(bindings);
-                }
+                self.record_generic_fn_substitutions(&original_callee);
 
                 if fn_call
                     .generic_args
@@ -2084,8 +2068,8 @@ mod tests {
         qualified_symbol::QualifiedSymbol,
         top::{FnDecl, Struct, StructField},
         ty::{
-            FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind, UserDefinedType,
-            UserDefinedTypeKind, make_fundamental_type,
+            FundamentalTypeKind, GenericInstanceInfo, Mutability, ReferenceType, Ty, TyKind,
+            UserDefinedType, UserDefinedTypeKind, make_fundamental_type,
         },
     };
     use kaede_span::Span;
@@ -2118,6 +2102,13 @@ mod tests {
         )
     }
 
+    fn generic_instance(args: Vec<Rc<Ty>>) -> GenericInstanceInfo {
+        GenericInstanceInfo::new(
+            QualifiedSymbol::new(ModulePath::new(vec![]), Symbol::from("id".to_owned())),
+            args,
+        )
+    }
+
     fn generic_call_expr(return_ty: Rc<Ty>, generic_arg: Rc<Ty>) -> Expr {
         let callee = Rc::new(FnDecl {
             lang_linkage: LangLinkage::Default,
@@ -2126,7 +2117,7 @@ mod tests {
             params: vec![],
             is_c_variadic: false,
             return_ty: return_ty.clone(),
-            generic_instance: None,
+            generic_instance: Some(generic_instance(vec![generic_arg.clone()])),
         });
 
         Expr {
@@ -2158,6 +2149,14 @@ mod tests {
             panic!("expected generic function call");
         };
         assert!(!kaede_ir::ty::contains_type_var(&call.generic_args[0]));
+        assert!(
+            !call
+                .callee
+                .generic_instance
+                .as_ref()
+                .unwrap()
+                .contains_type_var()
+        );
     }
 
     #[test]
@@ -2170,6 +2169,77 @@ mod tests {
         assert!(matches!(
             err,
             TypeInferError::CannotInferGenericArguments { .. }
+        ));
+    }
+
+    #[test]
+    fn generic_instance_collects_unique_var_ids_from_nested_args() {
+        let instance = generic_instance(vec![
+            Rc::new(Ty {
+                kind: TyKind::Tuple(vec![var_ty(0), var_ty(0), var_ty(1)]).into(),
+                mutability: Mutability::Not,
+            }),
+            Rc::new(Ty {
+                kind: TyKind::UserDefined(UserDefinedType::with_generic_instance(
+                    UserDefinedTypeKind::Placeholder(QualifiedSymbol::new(
+                        ModulePath::new(vec![]),
+                        Symbol::from("Option".to_owned()),
+                    )),
+                    GenericInstanceInfo::new(
+                        QualifiedSymbol::new(
+                            ModulePath::new(vec![]),
+                            Symbol::from("Option".to_owned()),
+                        ),
+                        vec![var_ty(1), var_ty(2)],
+                    ),
+                ))
+                .into(),
+                mutability: Mutability::Not,
+            }),
+        ]);
+
+        assert_eq!(instance.collect_var_ids_in_order(), vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn generic_instance_bindings_come_from_infer_context() {
+        let mut inferrer = make_inferrer();
+        let instance = generic_instance(vec![var_ty(0), var_ty(1), var_ty(0)]);
+
+        inferrer.context.bind_var(0, i32_ty());
+        inferrer.context.bind_var(1, var_ty(2));
+        inferrer.context.bind_var(2, i32_ty());
+
+        let bindings = inferrer.context.bindings_for_generic_instance(&instance);
+        assert_eq!(bindings.len(), 2);
+        assert!(matches!(
+            bindings.get(&0).unwrap().kind.as_ref(),
+            TyKind::Fundamental(fty) if fty.kind == FundamentalTypeKind::I32
+        ));
+        assert!(matches!(
+            bindings.get(&1).unwrap().kind.as_ref(),
+            TyKind::Fundamental(fty) if fty.kind == FundamentalTypeKind::I32
+        ));
+    }
+
+    #[test]
+    fn generic_call_records_substitutions_from_callee_generic_instance() {
+        let mut inferrer = make_inferrer();
+        let mut expr = generic_call_expr(var_ty(0), var_ty(0));
+
+        inferrer.check_expr(&expr, &i32_ty()).unwrap();
+        inferrer.apply_expr(&mut expr).unwrap();
+
+        let substitutions = inferrer.into_generic_fn_substitutions();
+        let bindings = substitutions
+            .get(&QualifiedSymbol::new(
+                ModulePath::new(vec![]),
+                Symbol::from("id".to_owned()),
+            ))
+            .unwrap();
+        assert!(matches!(
+            bindings.get(&0).unwrap().kind.as_ref(),
+            TyKind::Fundamental(fty) if fty.kind == FundamentalTypeKind::I32
         ));
     }
 

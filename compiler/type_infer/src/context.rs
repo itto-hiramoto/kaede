@@ -40,7 +40,10 @@ pub struct InferContext {
 }
 
 impl InferContext {
-    fn apply_generic_instance(&self, instance: &GenericInstanceInfo) -> GenericInstanceInfo {
+    pub(crate) fn apply_generic_instance(
+        &self,
+        instance: &GenericInstanceInfo,
+    ) -> GenericInstanceInfo {
         GenericInstanceInfo::new(
             instance.origin.clone(),
             instance.args.iter().map(|arg| self.apply(arg)).collect(),
@@ -64,6 +67,21 @@ impl InferContext {
             kind: TyKind::Var(id).into(),
             mutability: Mutability::Not,
         })
+    }
+
+    pub fn resolve_var(&self, id: VarId) -> Rc<Ty> {
+        self.apply(&self.new_var(id))
+    }
+
+    pub fn bindings_for_generic_instance(
+        &self,
+        instance: &GenericInstanceInfo,
+    ) -> HashMap<VarId, Rc<Ty>> {
+        instance
+            .collect_var_ids_in_order()
+            .into_iter()
+            .map(|id| (id, self.resolve_var(id)))
+            .collect()
     }
 
     /// Recursively substitute type variables using current bindings, rebuilding composite types.

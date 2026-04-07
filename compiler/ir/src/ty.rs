@@ -1,4 +1,8 @@
-use std::{collections::HashMap, fmt::Display, rc::Rc};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Display,
+    rc::Rc,
+};
 
 use inkwell::{
     context::Context,
@@ -125,54 +129,6 @@ pub fn contains_type_var(ty: &Rc<Ty>) -> bool {
             .as_ref()
             .is_some_and(GenericInstanceInfo::contains_type_var),
         TyKind::Fundamental(_) | TyKind::Unit | TyKind::Never => false,
-    }
-}
-
-pub fn collect_type_var_bindings(
-    pattern: &Rc<Ty>,
-    resolved: &Rc<Ty>,
-    out: &mut HashMap<VarId, Rc<Ty>>,
-) {
-    match (pattern.kind.as_ref(), resolved.kind.as_ref()) {
-        (TyKind::Var(id), _) => {
-            out.insert(*id, resolved.clone());
-        }
-        (TyKind::Pointer(p1), TyKind::Pointer(p2)) => {
-            collect_type_var_bindings(&p1.pointee_ty, &p2.pointee_ty, out);
-        }
-        (TyKind::Reference(r1), TyKind::Reference(r2)) => {
-            collect_type_var_bindings(&r1.refee_ty, &r2.refee_ty, out);
-        }
-        (TyKind::Slice(e1), TyKind::Slice(e2)) => {
-            collect_type_var_bindings(e1, e2, out);
-        }
-        (TyKind::Array((e1, _)), TyKind::Array((e2, _))) => {
-            collect_type_var_bindings(e1, e2, out);
-        }
-        (TyKind::Tuple(ts1), TyKind::Tuple(ts2)) => {
-            for (t1, t2) in ts1.iter().zip(ts2.iter()) {
-                collect_type_var_bindings(t1, t2, out);
-            }
-        }
-        (TyKind::Closure(c1), TyKind::Closure(c2)) => {
-            for (p1, p2) in c1.param_tys.iter().zip(c2.param_tys.iter()) {
-                collect_type_var_bindings(p1, p2, out);
-            }
-            collect_type_var_bindings(&c1.ret_ty, &c2.ret_ty, out);
-            for (cap1, cap2) in c1.captures.iter().zip(c2.captures.iter()) {
-                collect_type_var_bindings(cap1, cap2, out);
-            }
-        }
-        (TyKind::UserDefined(u1), TyKind::UserDefined(u2)) => {
-            if let (Some(lhs), Some(rhs)) = (&u1.generic_instance, &u2.generic_instance) {
-                if lhs.origin == rhs.origin && lhs.args.len() == rhs.args.len() {
-                    for (lhs, rhs) in lhs.args.iter().zip(rhs.args.iter()) {
-                        collect_type_var_bindings(lhs, rhs, out);
-                    }
-                }
-            }
-        }
-        _ => {}
     }
 }
 
@@ -449,6 +405,57 @@ impl GenericInstanceInfo {
 
     pub fn contains_type_var(&self) -> bool {
         self.args.iter().any(contains_type_var)
+    }
+
+    /// Collect the specialization variables referenced by this generic instance.
+    /// Type inference uses these variables to read back resolved generic arguments
+    /// directly from the inference context instead of reconstructing them from
+    /// parameter/return types after the fact.
+    pub fn collect_var_ids_in_order(&self) -> Vec<VarId> {
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+
+        for arg in &self.args {
+            collect_type_var_ids(arg, &mut out, &mut seen);
+        }
+
+        out
+    }
+}
+
+fn collect_type_var_ids(ty: &Rc<Ty>, out: &mut Vec<VarId>, seen: &mut HashSet<VarId>) {
+    match ty.kind.as_ref() {
+        TyKind::Var(id) => {
+            if seen.insert(*id) {
+                out.push(*id);
+            }
+        }
+        TyKind::Pointer(pty) => collect_type_var_ids(&pty.pointee_ty, out, seen),
+        TyKind::Reference(rty) => collect_type_var_ids(&rty.refee_ty, out, seen),
+        TyKind::Slice(elem) => collect_type_var_ids(elem, out, seen),
+        TyKind::Array((elem, _)) => collect_type_var_ids(elem, out, seen),
+        TyKind::Tuple(elems) => {
+            for elem in elems {
+                collect_type_var_ids(elem, out, seen);
+            }
+        }
+        TyKind::Closure(closure) => {
+            for param in &closure.param_tys {
+                collect_type_var_ids(param, out, seen);
+            }
+            collect_type_var_ids(&closure.ret_ty, out, seen);
+            for capture in &closure.captures {
+                collect_type_var_ids(capture, out, seen);
+            }
+        }
+        TyKind::UserDefined(udt) => {
+            if let Some(instance) = &udt.generic_instance {
+                for arg in &instance.args {
+                    collect_type_var_ids(arg, out, seen);
+                }
+            }
+        }
+        TyKind::Fundamental(_) | TyKind::Unit | TyKind::Never => {}
     }
 }
 
