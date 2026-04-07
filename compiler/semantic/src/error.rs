@@ -220,4 +220,10 @@ pub enum SemanticError {
         actual: usize,
         span: Span,
     },
+
+    #[error("{}:{}:{} `?` requires `Result<T, E>`, got `{}`", span.file, span.start.line, span.start.column, actual)]
+    TryRequiresResult { actual: String, span: Span },
+
+    #[error("{}:{}:{} `?` can only be used in functions returning `Result<T, E>`, got `{}`", span.file, span.start.line, span.start.column, actual)]
+    TryOutsideResultFunction { actual: String, span: Span },
 }

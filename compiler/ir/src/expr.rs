@@ -246,14 +246,6 @@ pub struct Slicing {
 }
 
 #[derive(Debug, Clone)]
-pub struct Try {
-    pub operand: Box<Expr>,
-    pub ok_ty: Rc<Ty>,
-    pub err_ty: Rc<Ty>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
 pub struct Loop {
     pub body: Block,
     pub span: Span,
@@ -343,7 +335,6 @@ pub enum ExprKind {
     EnumVariant(EnumVariant),
     Indexing(Indexing),
     Slicing(Slicing),
-    Try(Try),
     LogicalNot(LogicalNot),
     BitNot(BitNot),
     FnCall(FnCall),

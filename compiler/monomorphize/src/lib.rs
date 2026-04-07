@@ -91,7 +91,6 @@ mod tests {
                     || contains_generic_call(&slicing.start)
                     || contains_generic_call(&slicing.end)
             }
-            ExprKind::Try(try_expr) => contains_generic_call(&try_expr.operand),
             ExprKind::LogicalNot(not) => contains_generic_call(&not.operand),
             ExprKind::BitNot(not) => contains_generic_call(&not.operand),
             ExprKind::Closure(closure) => {
@@ -349,7 +348,6 @@ impl Monomorphizer {
                     self.rewrite_expr(elem)?;
                 }
             }
-            ExprKind::Try(try_expr) => self.rewrite_expr(&mut try_expr.operand)?,
             ExprKind::Binary(bin) => {
                 self.rewrite_expr(Rc::make_mut(&mut bin.lhs))?;
                 self.rewrite_expr(Rc::make_mut(&mut bin.rhs))?;

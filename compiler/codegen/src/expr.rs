@@ -18,8 +18,7 @@ use kaede_ir::{
         ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BitNot, BuiltinFnCall, BuiltinFnCallKind,
         ByteLiteral, ByteStringLiteral, Cast, CharLiteral, Closure, Else, EnumUnpack, EnumVariant,
         Expr, ExprKind, FieldAccess, FnCall, FnPointer, FormatPart, If, Indexing, Int, LogicalNot,
-        Loop, Slicing, Spawn, StringLiteral, StructLiteral, Try, TupleIndexing, TupleLiteral,
-        Variable,
+        Loop, Slicing, Spawn, StringLiteral, StructLiteral, TupleIndexing, TupleLiteral, Variable,
     },
     stmt::Block,
     ty::{
@@ -169,7 +168,6 @@ impl<'ctx> CodeGenerator<'ctx> {
 
             ExprKind::Indexing(node) => self.build_indexing(node)?,
             ExprKind::Slicing(node) => self.build_slicing(node)?,
-            ExprKind::Try(node) => self.build_try(node)?,
 
             ExprKind::Binary(node) => self.build_arithmetic_binary(node)?,
 
@@ -907,101 +905,6 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         phi.add_incoming(&[(&then_val.unwrap(), then_bb), (&else_val.unwrap(), else_bb)]);
 
-        Ok(Some(phi.as_basic_value()))
-    }
-
-    fn build_try(&mut self, node: &Try) -> anyhow::Result<Value<'ctx>> {
-        let result_ptr = self
-            .build_expr(&node.operand)?
-            .unwrap()
-            .into_pointer_value();
-        let result_base_ty = match node.operand.ty.kind.as_ref() {
-            TyKind::Reference(rty) => rty.get_base_type(),
-            _ => node.operand.ty.clone(),
-        };
-        let result_struct_ty = self.conv_to_llvm_type(&result_base_ty).into_struct_type();
-
-        let tag_ptr = unsafe {
-            self.builder.build_in_bounds_gep(
-                result_struct_ty,
-                result_ptr,
-                &[
-                    self.context().i32_type().const_zero(),
-                    self.context().i32_type().const_zero(),
-                ],
-                "try.tag.ptr",
-            )?
-        };
-        let tag = self
-            .builder
-            .build_load(self.context().i32_type(), tag_ptr, "try.tag")?
-            .into_int_value();
-        let is_err = self.builder.build_int_compare(
-            IntPredicate::EQ,
-            tag,
-            self.context().i32_type().const_int(1, false),
-            "try.is_err",
-        )?;
-
-        let parent = self.get_current_fn();
-        let err_bb = self.context().append_basic_block(parent, "try.err");
-        let ok_bb = self.context().append_basic_block(parent, "try.ok");
-        let cont_bb = self.context().append_basic_block(parent, "try.cont");
-
-        let payload_ptr = unsafe {
-            self.builder.build_in_bounds_gep(
-                result_struct_ty,
-                result_ptr,
-                &[
-                    self.context().i32_type().const_zero(),
-                    self.context().i32_type().const_int(1, false),
-                ],
-                "try.payload.ptr",
-            )?
-        };
-
-        self.builder
-            .build_conditional_branch(is_err, err_bb, ok_bb)?;
-
-        self.builder.position_at_end(err_bb);
-        let err_llvm_ty = self.conv_to_llvm_type(&node.err_ty);
-        let err_value = self
-            .builder
-            .build_load(err_llvm_ty, payload_ptr, "try.err.value")?;
-
-        let fn_return_ty = self
-            .fn_return_ty_stack
-            .last()
-            .expect("current function return type")
-            .clone();
-        let fn_result_base_ty = match fn_return_ty.kind.as_ref() {
-            TyKind::Reference(rty) => rty.get_base_type(),
-            _ => fn_return_ty,
-        };
-        let fn_result_llvm_ty = self.conv_to_llvm_type(&fn_result_base_ty);
-        let err_result = self.create_gc_struct(
-            fn_result_llvm_ty,
-            &[
-                self.context()
-                    .i32_type()
-                    .const_int(1, false)
-                    .as_basic_value_enum(),
-                err_value,
-            ],
-        )?;
-        self.builder.build_return(Some(&err_result))?;
-
-        self.builder.position_at_end(ok_bb);
-        let ok_llvm_ty = self.conv_to_llvm_type(&node.ok_ty);
-        let ok_value = self
-            .builder
-            .build_load(ok_llvm_ty, payload_ptr, "try.ok.value")?;
-        self.builder.build_unconditional_branch(cont_bb)?;
-        let ok_bb = self.builder.get_insert_block().unwrap();
-
-        self.builder.position_at_end(cont_bb);
-        let phi = self.builder.build_phi(ok_llvm_ty, "try.ok.phi")?;
-        phi.add_incoming(&[(&ok_value, ok_bb)]);
         Ok(Some(phi.as_basic_value()))
     }
 

@@ -143,11 +143,6 @@ impl<'a> GenericSubstituter<'a> {
                 self.apply_expr(&mut slicing.end);
                 slicing.elem_ty = self.apply_ty(&slicing.elem_ty);
             }
-            ir::expr::ExprKind::Try(try_expr) => {
-                self.apply_expr(&mut try_expr.operand);
-                try_expr.ok_ty = self.apply_ty(&try_expr.ok_ty);
-                try_expr.err_ty = self.apply_ty(&try_expr.err_ty);
-            }
             ir::expr::ExprKind::LogicalNot(not) => {
                 self.apply_expr(&mut not.operand);
             }

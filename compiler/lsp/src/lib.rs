@@ -301,7 +301,9 @@ fn semantic_error_span(err: &SemanticError) -> Option<Span> {
         | SemanticError::FormatTemplateMustBeStringLiteral { span }
         | SemanticError::FormatArgumentMustBeStr { span, .. }
         | SemanticError::InvalidFormatTemplate { span, .. }
-        | SemanticError::FormatPlaceholderCountMismatch { span, .. } => Some(*span),
+        | SemanticError::FormatPlaceholderCountMismatch { span, .. }
+        | SemanticError::TryRequiresResult { span, .. }
+        | SemanticError::TryOutsideResultFunction { span, .. } => Some(*span),
         SemanticError::MainNotFound
         | SemanticError::LLVMError { .. }
         | SemanticError::FailedToLookupTarget { .. }
@@ -332,9 +334,6 @@ fn type_infer_error_span(err: &TypeInferError) -> Option<Span> {
         | TypeInferError::ExpectedIntegerTypeForBitOp { span, .. }
         | TypeInferError::ExpectedIntegerTypeForBitNot { span, .. }
         | TypeInferError::EnumEqRequiresUnitVariants { span, .. }
-        | TypeInferError::TryRequiresResult { span, .. }
-        | TypeInferError::TryOutsideResultFunction { span, .. }
-        | TypeInferError::TryErrorTypeMismatch { span, .. }
         | TypeInferError::CannotUnify { span, .. } => Some(*span),
         TypeInferError::OccursCheckFailed { .. }
         | TypeInferError::TupleArityMismatchInUnify { .. } => None,
