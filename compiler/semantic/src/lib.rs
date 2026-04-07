@@ -26,6 +26,7 @@ mod error;
 mod expr;
 mod rust_import;
 mod stmt;
+mod subst;
 mod symbol_table;
 mod top;
 mod ty;
@@ -35,6 +36,7 @@ use kaede_ast::{self as ast, top::Visibility};
 use kaede_ast_type::{self as ast_type, FundamentalTypeKind};
 use kaede_ir as ir;
 use kaede_type_infer::InferContext;
+use subst::GenericSubstituter;
 pub use top::TopLevelAnalysisResult;
 
 use crate::context::{AnalyzeCommand, ModuleContext};
@@ -676,286 +678,6 @@ impl SemanticAnalyzer {
         self.pending_generic_instance.clone()
     }
 
-    fn apply_var_subst_to_generic_instance(
-        generic_instance: &mut Option<ir_type::GenericInstanceInfo>,
-        subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
-    ) {
-        if let Some(instance) = generic_instance {
-            instance.args = instance
-                .args
-                .iter()
-                .map(|arg| Self::apply_var_subst_to_ty(arg, subst))
-                .collect();
-        }
-    }
-
-    fn apply_var_subst_to_ty(
-        ty: &Rc<ir_type::Ty>,
-        subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
-    ) -> Rc<ir_type::Ty> {
-        ir_type::apply_type_var_bindings(ty, subst)
-    }
-
-    fn apply_var_subst_to_fn_decl(
-        decl: &mut ir::top::FnDecl,
-        subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
-    ) {
-        for param in &mut decl.params {
-            param.ty = Self::apply_var_subst_to_ty(&param.ty, subst);
-            if let Some(default) = &mut param.default {
-                Self::apply_var_subst_to_expr(Rc::make_mut(default), subst);
-            }
-        }
-        decl.return_ty = Self::apply_var_subst_to_ty(&decl.return_ty, subst);
-        Self::apply_var_subst_to_generic_instance(&mut decl.generic_instance, subst);
-    }
-
-    fn apply_var_subst_to_struct(
-        struct_: &mut ir::top::Struct,
-        subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
-    ) {
-        for field in &mut struct_.fields {
-            field.ty = Self::apply_var_subst_to_ty(&field.ty, subst);
-        }
-        Self::apply_var_subst_to_generic_instance(&mut struct_.generic_instance, subst);
-    }
-
-    fn apply_var_subst_to_enum(
-        enum_: &mut ir::top::Enum,
-        subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
-    ) {
-        for variant in &mut enum_.variants {
-            if let Some(ty) = &variant.ty {
-                variant.ty = Some(Self::apply_var_subst_to_ty(ty, subst));
-            }
-        }
-        Self::apply_var_subst_to_generic_instance(&mut enum_.generic_instance, subst);
-    }
-
-    fn apply_var_subst_to_stmt(
-        stmt: &mut ir::stmt::Stmt,
-        subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
-    ) {
-        match stmt {
-            ir::stmt::Stmt::Expr(expr) => Self::apply_var_subst_to_expr(Rc::make_mut(expr), subst),
-            ir::stmt::Stmt::Let(let_stmt) => {
-                let_stmt.ty = Self::apply_var_subst_to_ty(&let_stmt.ty, subst);
-                if let Some(init) = &mut let_stmt.init {
-                    Self::apply_var_subst_to_expr(init, subst);
-                }
-            }
-            ir::stmt::Stmt::TupleUnpack(tuple_unpack) => {
-                Self::apply_var_subst_to_expr(&mut tuple_unpack.init, subst);
-            }
-            ir::stmt::Stmt::Assign(assign) => {
-                Self::apply_var_subst_to_expr(&mut assign.assignee, subst);
-                Self::apply_var_subst_to_expr(&mut assign.value, subst);
-            }
-        }
-    }
-
-    fn apply_var_subst_to_block(
-        block: &mut ir::stmt::Block,
-        subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
-    ) {
-        for stmt in &mut block.body {
-            Self::apply_var_subst_to_stmt(stmt, subst);
-        }
-        if let Some(last_expr) = &mut block.last_expr {
-            Self::apply_var_subst_to_expr(last_expr, subst);
-        }
-    }
-
-    fn apply_var_subst_to_expr(
-        expr: &mut ir::expr::Expr,
-        subst: &HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
-    ) {
-        expr.ty = Self::apply_var_subst_to_ty(&expr.ty, subst);
-
-        match &mut expr.kind {
-            ir::expr::ExprKind::Variable(var) => {
-                var.ty = Self::apply_var_subst_to_ty(&var.ty, subst);
-            }
-            ir::expr::ExprKind::ArrayLiteral(arr) => {
-                for elem in &mut arr.elements {
-                    Self::apply_var_subst_to_expr(elem, subst);
-                }
-            }
-            ir::expr::ExprKind::ArrayRepeat(rep) => {
-                Self::apply_var_subst_to_expr(&mut rep.value, subst);
-            }
-            ir::expr::ExprKind::TupleLiteral(tuple) => {
-                for elem in &mut tuple.elements {
-                    Self::apply_var_subst_to_expr(elem, subst);
-                }
-            }
-            ir::expr::ExprKind::StructLiteral(lit) => {
-                for (_, value) in &mut lit.values {
-                    Self::apply_var_subst_to_expr(value, subst);
-                }
-                let mut struct_info = (*lit.struct_info).clone();
-                Self::apply_var_subst_to_struct(&mut struct_info, subst);
-                lit.struct_info = Rc::new(struct_info);
-            }
-            ir::expr::ExprKind::Binary(bin) => {
-                Self::apply_var_subst_to_expr(Rc::make_mut(&mut bin.lhs), subst);
-                Self::apply_var_subst_to_expr(Rc::make_mut(&mut bin.rhs), subst);
-            }
-            ir::expr::ExprKind::Cast(cast) => {
-                Self::apply_var_subst_to_expr(&mut cast.operand, subst);
-                cast.target_ty = Self::apply_var_subst_to_ty(&cast.target_ty, subst);
-            }
-            ir::expr::ExprKind::FieldAccess(field) => {
-                Self::apply_var_subst_to_expr(&mut field.operand, subst);
-                let mut struct_info = (*field.struct_info).clone();
-                Self::apply_var_subst_to_struct(&mut struct_info, subst);
-                field.struct_info = Rc::new(struct_info);
-            }
-            ir::expr::ExprKind::UnresolvedFieldAccess(field) => {
-                Self::apply_var_subst_to_expr(&mut field.operand, subst);
-            }
-            ir::expr::ExprKind::TupleIndexing(tuple_idx) => {
-                Self::apply_var_subst_to_expr(Rc::make_mut(&mut tuple_idx.tuple), subst);
-                tuple_idx.element_ty = Self::apply_var_subst_to_ty(&tuple_idx.element_ty, subst);
-            }
-            ir::expr::ExprKind::EnumVariant(enum_var) => {
-                if let Some(value) = &mut enum_var.value {
-                    Self::apply_var_subst_to_expr(value, subst);
-                }
-                let mut enum_info = (*enum_var.enum_info).clone();
-                Self::apply_var_subst_to_enum(&mut enum_info, subst);
-                enum_var.enum_info = Rc::new(enum_info);
-            }
-            ir::expr::ExprKind::Indexing(idx) => {
-                Self::apply_var_subst_to_expr(Rc::make_mut(&mut idx.operand), subst);
-                Self::apply_var_subst_to_expr(&mut idx.index, subst);
-            }
-            ir::expr::ExprKind::Slicing(slicing) => {
-                Self::apply_var_subst_to_expr(Rc::make_mut(&mut slicing.operand), subst);
-                Self::apply_var_subst_to_expr(&mut slicing.start, subst);
-                Self::apply_var_subst_to_expr(&mut slicing.end, subst);
-                slicing.elem_ty = Self::apply_var_subst_to_ty(&slicing.elem_ty, subst);
-            }
-            ir::expr::ExprKind::LogicalNot(not) => {
-                Self::apply_var_subst_to_expr(&mut not.operand, subst);
-            }
-            ir::expr::ExprKind::BitNot(not) => {
-                Self::apply_var_subst_to_expr(&mut not.operand, subst);
-            }
-            ir::expr::ExprKind::FnCall(call) => {
-                for arg in &mut call.args.0 {
-                    Self::apply_var_subst_to_expr(arg, subst);
-                }
-                let mut callee = (*call.callee).clone();
-                Self::apply_var_subst_to_fn_decl(&mut callee, subst);
-                call.callee = Rc::new(callee);
-            }
-            ir::expr::ExprKind::GenericFnCall(call) => {
-                for arg in &mut call.args.0 {
-                    Self::apply_var_subst_to_expr(arg, subst);
-                }
-                let mut callee = (*call.callee).clone();
-                Self::apply_var_subst_to_fn_decl(&mut callee, subst);
-                call.callee = Rc::new(callee);
-                call.generic_args = call
-                    .generic_args
-                    .iter()
-                    .map(|arg| Self::apply_var_subst_to_ty(arg, subst))
-                    .collect();
-            }
-            ir::expr::ExprKind::Spawn(spawn) => {
-                for arg in &mut spawn.args {
-                    Self::apply_var_subst_to_expr(arg, subst);
-                }
-                let mut callee = (*spawn.callee).clone();
-                Self::apply_var_subst_to_fn_decl(&mut callee, subst);
-                spawn.callee = Rc::new(callee);
-                spawn.arg_types = spawn
-                    .arg_types
-                    .iter()
-                    .map(|ty| Self::apply_var_subst_to_ty(ty, subst))
-                    .collect();
-            }
-            ir::expr::ExprKind::FnPointer(fn_ptr) => {
-                let mut decl = (*fn_ptr.decl).clone();
-                Self::apply_var_subst_to_fn_decl(&mut decl, subst);
-                fn_ptr.decl = Rc::new(decl);
-            }
-            ir::expr::ExprKind::Closure(closure) => {
-                for capture in &mut closure.captures {
-                    Self::apply_var_subst_to_expr(capture, subst);
-                }
-                Self::apply_var_subst_to_expr(&mut closure.body, subst);
-            }
-            ir::expr::ExprKind::Return(ret) => {
-                if let Some(value) = ret {
-                    Self::apply_var_subst_to_expr(value, subst);
-                }
-            }
-            ir::expr::ExprKind::If(if_expr) => {
-                Self::apply_var_subst_to_expr(&mut if_expr.cond, subst);
-                Self::apply_var_subst_to_expr(&mut if_expr.then, subst);
-                if let Some(else_) = &mut if_expr.else_ {
-                    match else_.as_mut() {
-                        ir::expr::Else::If(if_) => {
-                            let mut wrapped = ir::expr::Expr {
-                                kind: ir::expr::ExprKind::If(if_.clone()),
-                                ty: if_.then.ty.clone(),
-                                span: if_.span,
-                            };
-                            Self::apply_var_subst_to_expr(&mut wrapped, subst);
-                            if let ir::expr::ExprKind::If(updated_if) = wrapped.kind {
-                                *if_ = updated_if;
-                            } else {
-                                unreachable!()
-                            }
-                        }
-                        ir::expr::Else::Block(block) => {
-                            Self::apply_var_subst_to_expr(block, subst);
-                        }
-                    }
-                }
-                if let Some(enum_unpack) = &mut if_expr.enum_unpack {
-                    Self::apply_var_subst_to_expr(Rc::make_mut(&mut enum_unpack.enum_value), subst);
-                    enum_unpack.enum_ty = match &enum_unpack.enum_ty.generic_instance {
-                        Some(instance) => ir_type::UserDefinedType {
-                            kind: enum_unpack.enum_ty.kind.clone(),
-                            generic_instance: Some(ir_type::GenericInstanceInfo::new(
-                                instance.origin.clone(),
-                                instance
-                                    .args
-                                    .iter()
-                                    .map(|arg| Self::apply_var_subst_to_ty(arg, subst))
-                                    .collect(),
-                            )),
-                        },
-                        None => enum_unpack.enum_ty.clone(),
-                    };
-                    enum_unpack.variant_ty =
-                        Self::apply_var_subst_to_ty(&enum_unpack.variant_ty, subst);
-                }
-            }
-            ir::expr::ExprKind::Loop(loop_expr) => {
-                Self::apply_var_subst_to_block(&mut loop_expr.body, subst);
-            }
-            ir::expr::ExprKind::Block(block) => {
-                Self::apply_var_subst_to_block(block, subst);
-            }
-            ir::expr::ExprKind::BuiltinFnCall(call) => {
-                for arg in &mut call.args.0 {
-                    Self::apply_var_subst_to_expr(arg, subst);
-                }
-            }
-            ir::expr::ExprKind::Int(_)
-            | ir::expr::ExprKind::StringLiteral(_)
-            | ir::expr::ExprKind::ByteStringLiteral(_)
-            | ir::expr::ExprKind::ByteLiteral(_)
-            | ir::expr::ExprKind::CharLiteral(_)
-            | ir::expr::ExprKind::BooleanLiteral(_)
-            | ir::expr::ExprKind::Break => {}
-        }
-    }
-
     fn apply_substitutions_to_generated_generic_functions(&mut self) {
         if self.generic_fn_substitutions.is_empty() {
             return;
@@ -973,29 +695,31 @@ impl SemanticAnalyzer {
                 ir::top::TopLevel::Fn(fn_) => {
                     let fn_ = Rc::get_mut(fn_).expect("generated function must be uniquely owned");
                     if !global_subst.is_empty() {
-                        Self::apply_var_subst_to_fn_decl(&mut fn_.decl, &global_subst);
+                        let substituter = GenericSubstituter::new(&global_subst);
+                        substituter.apply_fn_decl(&mut fn_.decl);
                         if let Some(body) = &mut fn_.body {
-                            Self::apply_var_subst_to_block(body, &global_subst);
+                            substituter.apply_block(body);
                         }
                     }
                     if let Some(subst) = self.generic_fn_substitutions.get(&fn_.decl.name) {
-                        Self::apply_var_subst_to_fn_decl(&mut fn_.decl, subst);
+                        let substituter = GenericSubstituter::new(subst);
+                        substituter.apply_fn_decl(&mut fn_.decl);
                         if let Some(body) = &mut fn_.body {
-                            Self::apply_var_subst_to_block(body, subst);
+                            substituter.apply_block(body);
                         }
                     }
                 }
                 ir::top::TopLevel::Struct(struct_) => {
                     if !global_subst.is_empty() {
                         let mut new_struct = (**struct_).clone();
-                        Self::apply_var_subst_to_struct(&mut new_struct, &global_subst);
+                        GenericSubstituter::new(&global_subst).apply_struct(&mut new_struct);
                         *struct_ = Rc::new(new_struct);
                     }
                 }
                 ir::top::TopLevel::Enum(enum_) => {
                     if !global_subst.is_empty() {
                         let mut new_enum = (**enum_).clone();
-                        Self::apply_var_subst_to_enum(&mut new_enum, &global_subst);
+                        GenericSubstituter::new(&global_subst).apply_enum(&mut new_enum);
                         *enum_ = Rc::new(new_enum);
                     }
                 }
@@ -1005,15 +729,17 @@ impl SemanticAnalyzer {
                         let method = Rc::get_mut(method)
                             .expect("generated impl method must be uniquely owned");
                         if !global_subst.is_empty() {
-                            Self::apply_var_subst_to_fn_decl(&mut method.decl, &global_subst);
+                            let substituter = GenericSubstituter::new(&global_subst);
+                            substituter.apply_fn_decl(&mut method.decl);
                             if let Some(body) = &mut method.body {
-                                Self::apply_var_subst_to_block(body, &global_subst);
+                                substituter.apply_block(body);
                             }
                         }
                         if let Some(subst) = self.generic_fn_substitutions.get(&method.decl.name) {
-                            Self::apply_var_subst_to_fn_decl(&mut method.decl, subst);
+                            let substituter = GenericSubstituter::new(subst);
+                            substituter.apply_fn_decl(&mut method.decl);
                             if let Some(body) = &mut method.body {
-                                Self::apply_var_subst_to_block(body, subst);
+                                substituter.apply_block(body);
                             }
                         }
                     }
