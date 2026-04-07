@@ -45,6 +45,7 @@ const config = {
     },
   ],
   themeConfig: /** @type {import('@docusaurus/preset-classic').ThemeConfig} */ ({
+    image: 'img/ogp.svg',
     announcementBar: {
       id: 'pre-release-banner',
       content: 'Kaede is pre-release. Language details may change before 1.0.',
