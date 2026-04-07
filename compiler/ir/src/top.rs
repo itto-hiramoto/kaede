@@ -3,7 +3,12 @@ use std::rc::Rc;
 use kaede_common::LangLinkage;
 use kaede_symbol::Symbol;
 
-use crate::{expr, qualified_symbol::QualifiedSymbol, stmt::Block, ty::Ty};
+use crate::{
+    expr,
+    qualified_symbol::QualifiedSymbol,
+    stmt::Block,
+    ty::{GenericInstanceInfo, Ty},
+};
 
 #[derive(Debug, Clone)]
 pub struct StructField {
@@ -16,6 +21,7 @@ pub struct StructField {
 pub struct Struct {
     pub name: QualifiedSymbol,
     pub fields: Vec<StructField>,
+    pub generic_instance: Option<GenericInstanceInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +54,7 @@ pub struct FnDecl {
     pub params: Vec<Param>,
     pub is_c_variadic: bool,
     pub return_ty: Rc<Ty>,
+    pub generic_instance: Option<GenericInstanceInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +83,7 @@ pub struct EnumVariant {
 pub struct Enum {
     pub name: QualifiedSymbol,
     pub variants: Vec<EnumVariant>,
+    pub generic_instance: Option<GenericInstanceInfo>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

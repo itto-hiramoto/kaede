@@ -343,6 +343,14 @@ fn generated_generic_function_has_concrete_types_after_inference() -> anyhow::Re
         !contains_type_var(&generated_fn.decl.return_ty),
         "generated function return type should be concrete after inference"
     );
+    assert!(
+        generated_fn
+            .decl
+            .generic_instance
+            .as_ref()
+            .is_some_and(|instance| !instance.contains_type_var()),
+        "generated function should retain a concrete structural generic instance"
+    );
 
     Ok(())
 }
@@ -392,6 +400,14 @@ fn generated_generic_impl_method_has_concrete_types_after_inference() -> anyhow:
     assert!(
         !contains_type_var(&generated_method.decl.return_ty),
         "generated method return type should be concrete after inference"
+    );
+    assert!(
+        generated_method
+            .decl
+            .generic_instance
+            .as_ref()
+            .is_some_and(|instance| !instance.contains_type_var()),
+        "generated method should retain a concrete structural generic instance"
     );
 
     Ok(())

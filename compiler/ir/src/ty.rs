@@ -1,4 +1,8 @@
-use std::{collections::HashMap, fmt::Display, rc::Rc};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::Display,
+    rc::Rc,
+};
 
 use inkwell::{
     context::Context,
@@ -65,6 +69,48 @@ pub fn is_same_type(t1: &Ty, t2: &Ty) -> bool {
     false
 }
 
+fn is_exact_same_type(t1: &Ty, t2: &Ty) -> bool {
+    match (t1.kind.as_ref(), t2.kind.as_ref()) {
+        (TyKind::Fundamental(lhs), TyKind::Fundamental(rhs)) => lhs == rhs,
+        (TyKind::UserDefined(lhs), TyKind::UserDefined(rhs)) => lhs == rhs,
+        (TyKind::Closure(lhs), TyKind::Closure(rhs)) => {
+            lhs.param_tys.len() == rhs.param_tys.len()
+                && lhs
+                    .param_tys
+                    .iter()
+                    .zip(rhs.param_tys.iter())
+                    .all(|(lhs, rhs)| is_exact_same_type(lhs, rhs))
+                && is_exact_same_type(&lhs.ret_ty, &rhs.ret_ty)
+                && lhs.captures.len() == rhs.captures.len()
+                && lhs
+                    .captures
+                    .iter()
+                    .zip(rhs.captures.iter())
+                    .all(|(lhs, rhs)| is_exact_same_type(lhs, rhs))
+        }
+        (TyKind::Reference(lhs), TyKind::Reference(rhs)) => {
+            is_exact_same_type(&lhs.refee_ty, &rhs.refee_ty)
+        }
+        (TyKind::Pointer(lhs), TyKind::Pointer(rhs)) => {
+            is_exact_same_type(&lhs.pointee_ty, &rhs.pointee_ty)
+        }
+        (TyKind::Slice(lhs), TyKind::Slice(rhs)) => is_exact_same_type(lhs, rhs),
+        (TyKind::Array((lhs, lhs_size)), TyKind::Array((rhs, rhs_size))) => {
+            lhs_size == rhs_size && is_exact_same_type(lhs, rhs)
+        }
+        (TyKind::Tuple(lhs), TyKind::Tuple(rhs)) => {
+            lhs.len() == rhs.len()
+                && lhs
+                    .iter()
+                    .zip(rhs.iter())
+                    .all(|(lhs, rhs)| is_exact_same_type(lhs, rhs))
+        }
+        (TyKind::Var(lhs), TyKind::Var(rhs)) => lhs == rhs,
+        (TyKind::Unit, TyKind::Unit) | (TyKind::Never, TyKind::Never) => true,
+        _ => false,
+    }
+}
+
 pub fn contains_type_var(ty: &Rc<Ty>) -> bool {
     match ty.kind.as_ref() {
         TyKind::Var(_) => true,
@@ -78,46 +124,11 @@ pub fn contains_type_var(ty: &Rc<Ty>) -> bool {
                 || contains_type_var(&closure.ret_ty)
                 || closure.captures.iter().any(contains_type_var)
         }
-        TyKind::Fundamental(_) | TyKind::UserDefined(_) | TyKind::Unit | TyKind::Never => false,
-    }
-}
-
-pub fn collect_type_var_bindings(
-    pattern: &Rc<Ty>,
-    resolved: &Rc<Ty>,
-    out: &mut HashMap<VarId, Rc<Ty>>,
-) {
-    match (pattern.kind.as_ref(), resolved.kind.as_ref()) {
-        (TyKind::Var(id), _) => {
-            out.insert(*id, resolved.clone());
-        }
-        (TyKind::Pointer(p1), TyKind::Pointer(p2)) => {
-            collect_type_var_bindings(&p1.pointee_ty, &p2.pointee_ty, out);
-        }
-        (TyKind::Reference(r1), TyKind::Reference(r2)) => {
-            collect_type_var_bindings(&r1.refee_ty, &r2.refee_ty, out);
-        }
-        (TyKind::Slice(e1), TyKind::Slice(e2)) => {
-            collect_type_var_bindings(e1, e2, out);
-        }
-        (TyKind::Array((e1, _)), TyKind::Array((e2, _))) => {
-            collect_type_var_bindings(e1, e2, out);
-        }
-        (TyKind::Tuple(ts1), TyKind::Tuple(ts2)) => {
-            for (t1, t2) in ts1.iter().zip(ts2.iter()) {
-                collect_type_var_bindings(t1, t2, out);
-            }
-        }
-        (TyKind::Closure(c1), TyKind::Closure(c2)) => {
-            for (p1, p2) in c1.param_tys.iter().zip(c2.param_tys.iter()) {
-                collect_type_var_bindings(p1, p2, out);
-            }
-            collect_type_var_bindings(&c1.ret_ty, &c2.ret_ty, out);
-            for (cap1, cap2) in c1.captures.iter().zip(c2.captures.iter()) {
-                collect_type_var_bindings(cap1, cap2, out);
-            }
-        }
-        _ => {}
+        TyKind::UserDefined(udt) => udt
+            .generic_instance
+            .as_ref()
+            .is_some_and(GenericInstanceInfo::contains_type_var),
+        TyKind::Fundamental(_) | TyKind::Unit | TyKind::Never => false,
     }
 }
 
@@ -173,9 +184,24 @@ pub fn apply_type_var_bindings(ty: &Rc<Ty>, bindings: &HashMap<VarId, Rc<Ty>>) -
             .into(),
             mutability: ty.mutability,
         }),
-        TyKind::Fundamental(_) | TyKind::UserDefined(_) | TyKind::Unit | TyKind::Never => {
-            ty.clone()
-        }
+        TyKind::UserDefined(udt) => Rc::new(Ty {
+            kind: TyKind::UserDefined(UserDefinedType {
+                kind: udt.kind.clone(),
+                generic_instance: udt.generic_instance.as_ref().map(|instance| {
+                    GenericInstanceInfo::new(
+                        instance.origin.clone(),
+                        instance
+                            .args
+                            .iter()
+                            .map(|arg| apply_type_var_bindings(arg, bindings))
+                            .collect(),
+                    )
+                }),
+            })
+            .into(),
+            mutability: ty.mutability,
+        }),
+        TyKind::Fundamental(_) | TyKind::Unit | TyKind::Never => ty.clone(),
     }
 }
 
@@ -233,6 +259,7 @@ impl Ty {
                     rty.get_base_type().kind.as_ref(),
                     TyKind::UserDefined(UserDefinedType {
                         kind: UserDefinedTypeKind::Enum(_),
+                        ..
                     })
                 )
             }
@@ -364,6 +391,83 @@ pub fn make_fundamental_type(kind: FundamentalTypeKind, mutability: Mutability) 
 }
 
 pub type VarId = usize;
+
+#[derive(Debug, Clone)]
+pub struct GenericInstanceInfo {
+    pub origin: QualifiedSymbol,
+    pub args: Vec<Rc<Ty>>,
+}
+
+impl GenericInstanceInfo {
+    pub fn new(origin: QualifiedSymbol, args: Vec<Rc<Ty>>) -> Self {
+        Self { origin, args }
+    }
+
+    pub fn contains_type_var(&self) -> bool {
+        self.args.iter().any(contains_type_var)
+    }
+
+    pub fn collect_var_ids_in_order(&self) -> Vec<VarId> {
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+
+        for arg in &self.args {
+            collect_type_var_ids(arg, &mut out, &mut seen);
+        }
+
+        out
+    }
+}
+
+fn collect_type_var_ids(ty: &Rc<Ty>, out: &mut Vec<VarId>, seen: &mut HashSet<VarId>) {
+    match ty.kind.as_ref() {
+        TyKind::Var(id) => {
+            if seen.insert(*id) {
+                out.push(*id);
+            }
+        }
+        TyKind::Pointer(pty) => collect_type_var_ids(&pty.pointee_ty, out, seen),
+        TyKind::Reference(rty) => collect_type_var_ids(&rty.refee_ty, out, seen),
+        TyKind::Slice(elem) => collect_type_var_ids(elem, out, seen),
+        TyKind::Array((elem, _)) => collect_type_var_ids(elem, out, seen),
+        TyKind::Tuple(elems) => {
+            for elem in elems {
+                collect_type_var_ids(elem, out, seen);
+            }
+        }
+        TyKind::Closure(closure) => {
+            for param in &closure.param_tys {
+                collect_type_var_ids(param, out, seen);
+            }
+            collect_type_var_ids(&closure.ret_ty, out, seen);
+            for capture in &closure.captures {
+                collect_type_var_ids(capture, out, seen);
+            }
+        }
+        TyKind::UserDefined(udt) => {
+            if let Some(instance) = &udt.generic_instance {
+                for arg in &instance.args {
+                    collect_type_var_ids(arg, out, seen);
+                }
+            }
+        }
+        TyKind::Fundamental(_) | TyKind::Unit | TyKind::Never => {}
+    }
+}
+
+impl PartialEq for GenericInstanceInfo {
+    fn eq(&self, other: &Self) -> bool {
+        self.origin == other.origin
+            && self.args.len() == other.args.len()
+            && self
+                .args
+                .iter()
+                .zip(other.args.iter())
+                .all(|(lhs, rhs)| is_exact_same_type(lhs, rhs))
+    }
+}
+
+impl Eq for GenericInstanceInfo {}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TyKind {
@@ -615,11 +719,25 @@ pub enum UserDefinedTypeKind {
 #[derive(Debug, Clone)]
 pub struct UserDefinedType {
     pub kind: UserDefinedTypeKind,
+    pub generic_instance: Option<GenericInstanceInfo>,
 }
 
 impl UserDefinedType {
     pub fn new(kind: UserDefinedTypeKind) -> Self {
-        Self { kind }
+        Self {
+            kind,
+            generic_instance: None,
+        }
+    }
+
+    pub fn with_generic_instance(
+        kind: UserDefinedTypeKind,
+        generic_instance: GenericInstanceInfo,
+    ) -> Self {
+        Self {
+            kind,
+            generic_instance: Some(generic_instance),
+        }
     }
 
     pub fn module_path(&self) -> ModulePath {
@@ -656,6 +774,7 @@ impl Display for UserDefinedType {
 impl PartialEq for UserDefinedType {
     fn eq(&self, other: &Self) -> bool {
         self.qualified_symbol() == other.qualified_symbol()
+            && self.generic_instance == other.generic_instance
     }
 }
 

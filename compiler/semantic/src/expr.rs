@@ -644,6 +644,7 @@ impl SemanticAnalyzer {
 
             let udt = ir_type::UserDefinedType {
                 kind: ir_type::UserDefinedTypeKind::Enum(enum_ir.clone()),
+                generic_instance: enum_ir.generic_instance.clone(),
             };
 
             let name = match &params.args.front().unwrap().value.kind {
@@ -1128,6 +1129,7 @@ impl SemanticAnalyzer {
 
     fn generate_generic_fn(
         &mut self,
+        origin: QualifiedSymbol,
         info: &GenericFuncInfo,
         generic_args: &[Rc<ir_type::Ty>],
     ) -> anyhow::Result<Rc<ir::top::FnDecl>> {
@@ -1157,7 +1159,13 @@ impl SemanticAnalyzer {
                 // Because generic functions maybe generated multiple times (across multiple files),
                 // we need to set link_once to true to avoid errors
                 fn_.decl.link_once = true;
-                analyzer.analyze_fn_internal(fn_)
+                analyzer.with_pending_generic_instance(
+                    Some(ir_type::GenericInstanceInfo::new(
+                        origin.clone(),
+                        generic_args.to_vec(),
+                    )),
+                    |analyzer| analyzer.analyze_fn_internal(fn_),
+                )
             })
         })?;
 
@@ -1176,11 +1184,18 @@ impl SemanticAnalyzer {
             GenericKind::Func(info) => info,
             _ => unreachable!(),
         };
-        self.analyze_generic_func_call_core(func_info, node, None, node.span)
+        self.analyze_generic_func_call_core(
+            QualifiedSymbol::new(info.module_path.clone(), func_info.ast.decl.name.symbol()),
+            func_info,
+            node,
+            None,
+            node.span,
+        )
     }
 
     fn analyze_generic_func_call_core(
         &mut self,
+        origin: QualifiedSymbol,
         func_info: &GenericFuncInfo,
         node: &ast::expr::FnCall,
         this_arg: Option<ir::expr::Expr>,
@@ -1269,7 +1284,7 @@ impl SemanticAnalyzer {
 
         // Generate the generic function immediately; a later monomorphize pass rewrites
         // GenericFnCall into a regular FnCall for codegen.
-        let callee_decl = self.generate_generic_fn(func_info, &generic_args)?;
+        let callee_decl = self.generate_generic_fn(origin, func_info, &generic_args)?;
 
         let params_without_self = if has_this {
             &callee_decl.params[1..]
@@ -1363,6 +1378,7 @@ impl SemanticAnalyzer {
             params,
             is_c_variadic: false,
             return_ty: closure_ty.ret_ty.clone(),
+            generic_instance: None,
         }
         .into()
     }
@@ -2876,7 +2892,13 @@ impl SemanticAnalyzer {
                 GenericKind::Func(func_info) => func_info,
                 _ => unreachable!(),
             };
-            return self.analyze_generic_func_call_core(func_info, call_node, None, call_node.span);
+            return self.analyze_generic_func_call_core(
+                QualifiedSymbol::new(info.module_path.clone(), func_info.ast.decl.name.symbol()),
+                func_info,
+                call_node,
+                None,
+                call_node.span,
+            );
         }
 
         let method_decl = match &borrowed.kind {
@@ -3412,6 +3434,10 @@ impl SemanticAnalyzer {
                                 _ => return Err(no_method_err().into()),
                             };
                             return self.analyze_generic_func_call_core(
+                                QualifiedSymbol::new(
+                                    info.module_path.clone(),
+                                    func_info.ast.decl.name.symbol(),
+                                ),
                                 func_info,
                                 call_node,
                                 Some(this),

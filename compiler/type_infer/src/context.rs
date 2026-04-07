@@ -1,6 +1,8 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
-use kaede_ir::ty::{Mutability, PointerType, ReferenceType, Ty, TyKind, VarId};
+use kaede_ir::ty::{
+    GenericInstanceInfo, Mutability, PointerType, ReferenceType, Ty, TyKind, UserDefinedType, VarId,
+};
 use kaede_span::Span;
 
 use crate::error::TypeInferError;
@@ -38,6 +40,16 @@ pub struct InferContext {
 }
 
 impl InferContext {
+    pub(crate) fn apply_generic_instance(
+        &self,
+        instance: &GenericInstanceInfo,
+    ) -> GenericInstanceInfo {
+        GenericInstanceInfo::new(
+            instance.origin.clone(),
+            instance.args.iter().map(|arg| self.apply(arg)).collect(),
+        )
+    }
+
     pub fn new(type_var_allocator: SharedTypeVarAllocator) -> Self {
         Self {
             type_var_allocator,
@@ -55,6 +67,21 @@ impl InferContext {
             kind: TyKind::Var(id).into(),
             mutability: Mutability::Not,
         })
+    }
+
+    pub fn resolve_var(&self, id: VarId) -> Rc<Ty> {
+        self.apply(&self.new_var(id))
+    }
+
+    pub fn bindings_for_generic_instance(
+        &self,
+        instance: &GenericInstanceInfo,
+    ) -> HashMap<VarId, Rc<Ty>> {
+        instance
+            .collect_var_ids_in_order()
+            .into_iter()
+            .map(|id| (id, self.resolve_var(id)))
+            .collect()
     }
 
     /// Recursively substitute type variables using current bindings, rebuilding composite types.
@@ -115,6 +142,19 @@ impl InferContext {
             }
             .into(),
 
+            TyKind::UserDefined(udt) => Ty {
+                kind: TyKind::UserDefined(UserDefinedType {
+                    kind: udt.kind.clone(),
+                    generic_instance: udt
+                        .generic_instance
+                        .as_ref()
+                        .map(|instance| self.apply_generic_instance(instance)),
+                })
+                .into(),
+                mutability: t.mutability,
+            }
+            .into(),
+
             _ => t.clone(),
         }
     }
@@ -133,7 +173,36 @@ impl InferContext {
                     || self.occurs(var_id, &closure_ty.ret_ty)
                     || closure_ty.captures.iter().any(|t| self.occurs(var_id, t))
             }
+            TyKind::UserDefined(udt) => udt
+                .generic_instance
+                .as_ref()
+                .is_some_and(|instance| instance.args.iter().any(|arg| self.occurs(var_id, arg))),
             _ => false,
+        }
+    }
+
+    fn unify_user_defined(
+        &mut self,
+        lhs: &UserDefinedType,
+        rhs: &UserDefinedType,
+        span: Span,
+    ) -> Result<(), TypeInferError> {
+        match (&lhs.generic_instance, &rhs.generic_instance) {
+            (Some(lhs_instance), Some(rhs_instance))
+                if lhs_instance.origin == rhs_instance.origin
+                    && lhs_instance.args.len() == rhs_instance.args.len() =>
+            {
+                for (lhs_arg, rhs_arg) in lhs_instance.args.iter().zip(rhs_instance.args.iter()) {
+                    self.unify(lhs_arg, rhs_arg, span)?;
+                }
+                Ok(())
+            }
+            _ if lhs == rhs => Ok(()),
+            _ => Err(TypeInferError::CannotUnify {
+                a: lhs.to_string(),
+                b: rhs.to_string(),
+                span,
+            }),
         }
     }
 
@@ -260,6 +329,10 @@ impl InferContext {
                 self.unify(&c1.ret_ty, &c2.ret_ty, span)?;
 
                 Ok(())
+            }
+
+            (TyKind::UserDefined(lhs), TyKind::UserDefined(rhs)) => {
+                self.unify_user_defined(lhs, rhs, span)
             }
 
             // Handle unifying non-reference with reference by unwrapping

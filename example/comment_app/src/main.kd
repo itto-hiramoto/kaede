@@ -180,7 +180,7 @@ app.listen(port=8080)
 fn parse_since(req: std.http.Request): Option<u64> {
     return match req.query("since") {
         Option::Some(value) => value.as_str().parse_u64(),
-        Option::None => Option<u64>::Some(0),
+        Option::None => Option::Some(0),
     }
 }
 
