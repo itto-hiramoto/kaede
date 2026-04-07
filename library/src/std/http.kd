@@ -613,33 +613,34 @@ fn find_query_param_value(query: String, name: str): Option<String> {
 }
 
 fn decode_query_component(component: String): String {
-    let mut out = String::new()
+    let bytes = component.as_str().to_bytes()
+    let mut out = Vector<u8>::new()
     let mut i = 0
 
-    while i < component.len() {
-        let ch = component.as_str()[i]
+    while i < bytes.len() {
+        let b = bytes.at(i).unwrap()
 
-        if ch == '+' {
-            out.push(' ')
+        if b == b'+' {
+            out.push(b' ')
             i += 1
-        } else if ch == '%' && i + 2 < component.len() {
-            let hi = hex_nibble(component.as_str()[i + 1])
-            let lo = hex_nibble(component.as_str()[i + 2])
+        } else if b == b'%' && i + 2 < bytes.len() {
+            let hi = hex_nibble(bytes.at(i + 1).unwrap() as char)
+            let lo = hex_nibble(bytes.at(i + 2).unwrap() as char)
 
             if hi >= 0 && lo >= 0 {
-                out.push(((hi << 4) | lo) as char)
+                out.push(((hi << 4) | lo) as u8)
                 i += 3
             } else {
-                out.push(ch)
+                out.push(b)
                 i += 1
             }
         } else {
-            out.push(ch)
+            out.push(b)
             i += 1
         }
     }
 
-    return out
+    return String::from_bytes(out.as_slice())
 }
 
 fn hex_nibble(ch: char): i32 {

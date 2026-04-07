@@ -27,6 +27,14 @@ app.get("/hello", |req, res| {{
     res.send_text("hello")
 }})
 
+app.get("/query", |req, res| {{
+    author := match req.query("author") {{
+        std.option.Option::Some(value) => value,
+        std.option.Option::None => std.string.String::from("missing"),
+    }}
+    res.send_text(author.as_str())
+}})
+
 app.post("/echo", |req, res| {{
     res.send_bytes(req.body)
 }})
@@ -139,6 +147,19 @@ fn std_http_honors_close_semantics_and_rejects_bad_content_length() -> anyhow::R
         assert!(response.body.is_empty());
         assert_stream_closed(&mut stream)?;
     }
+
+    let _ = fs::remove_file(binary_path);
+    Ok(())
+}
+
+#[test]
+fn std_http_query_percent_decoding_preserves_utf8() -> anyhow::Result<()> {
+    let (_tempdir, _server, port, binary_path) = spawn_http_server()?;
+
+    let response =
+        http_test_support::http_get(port, "/query?author=%E3%83%9E%E3%82%A4%E3%82%B1%E3%83%AB")?;
+    assert_eq!(response.status_code, 200);
+    assert_eq!(std::str::from_utf8(&response.body)?, "マイケル");
 
     let _ = fs::remove_file(binary_path);
     Ok(())
