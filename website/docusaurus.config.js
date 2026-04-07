@@ -5,7 +5,7 @@ const autumnFavicon =
 
 /** @type {import('@docusaurus/types').Config} */
 const config = {
-  title: 'Kaede',
+  title: 'Kaede Programming Language',
   tagline: 'A statically typed compiled language for concise servers.',
   url: 'https://itto-hiramoto.github.io',
   baseUrl: '/kaede/',
