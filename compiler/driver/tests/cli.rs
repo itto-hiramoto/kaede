@@ -100,3 +100,40 @@ fn direct_compile_fails_when_entry_candidate_is_ambiguous() -> anyhow::Result<()
 
     Ok(())
 }
+
+#[test]
+fn direct_compile_rejects_try_outside_result_function() -> anyhow::Result<()> {
+    let temp_dir = assert_fs::TempDir::new()?;
+    let app = temp_dir.child("app.kd");
+    let exe = temp_dir.child("a.out");
+
+    app.write_str(
+        r#"import std.result
+use std.result.Result
+
+fn fail(): i32 {
+    value := Result::Ok(1)?;
+    return value
+}
+
+fn main(): i32 {
+    return fail()
+}"#,
+    )?;
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .args([
+            app.path().to_str().unwrap(),
+            "-o",
+            exe.path().to_str().unwrap(),
+            "--root-dir",
+            temp_dir.path().to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "`?` can only be used in functions returning `Result<T, E>`",
+        ));
+
+    Ok(())
+}

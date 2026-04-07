@@ -166,3 +166,38 @@ fn main(args: Vector<str>): i32 {
 
     Ok(())
 }
+
+#[test]
+fn run_executes_result_try_program() -> anyhow::Result<()> {
+    let temp_dir = assert_fs::TempDir::new()?;
+
+    create_project(
+        &temp_dir,
+        r#"import std.result
+use std.result.Result
+
+fn inner(): Result<i32, str> {
+    return Result::Ok(42)
+}
+
+fn outer(): Result<i32, str> {
+    value := inner()?;
+    return Result::Ok(value)
+}
+
+fn main(): i32 {
+    return match outer() {
+        Result::Ok(value) => value,
+        Result::Err(_) => 1,
+    }
+}"#,
+    )?;
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .current_dir(temp_dir.path())
+        .arg("run")
+        .assert()
+        .code(predicate::eq(42));
+
+    Ok(())
+}

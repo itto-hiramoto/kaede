@@ -85,4 +85,16 @@ fn foo(): i32 {
 }
 ```
 
+Functions returning `Result<T, E>` can use postfix `?` for early returns:
+
+```rust
+import std.result
+use std.result.Result
+
+fn read_value(): Result<i32, str> {
+    value := parse()?
+    return Result::Ok(value)
+}
+```
+
 Continue with [Concurrency](./concurrency.md) for channels and `spawn`.

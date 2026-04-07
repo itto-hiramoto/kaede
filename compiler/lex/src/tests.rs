@@ -100,6 +100,11 @@ fn left_arrow() {
 }
 
 #[test]
+fn question() {
+    lex_test("foo?", vec![Ident("foo".to_string()), Question, Eoi]);
+}
+
+#[test]
 fn span() {
     let mut r = Lexer::new("\n48 + 10;", PathBuf::from("test").into())
         .run()

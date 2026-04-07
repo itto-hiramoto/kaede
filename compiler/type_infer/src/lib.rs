@@ -16,7 +16,7 @@ use kaede_ir::{
     expr::{
         Binary, BinaryKind, BitNot, BuiltinFnCall, BuiltinFnCallKind, Cast, EnumVariant, Expr,
         ExprKind, FieldAccess, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Slicing,
-        Spawn, TupleIndexing, UnresolvedFieldAccess,
+        Spawn, Try, TupleIndexing, UnresolvedFieldAccess,
     },
     qualified_symbol::QualifiedSymbol,
     stmt::{Assign, Block, Let, Stmt, TupleUnpack},
@@ -293,6 +293,26 @@ impl TypeInferrer {
                 .any(contains_type_var)
     }
 
+    fn is_std_result_origin(&self, qsym: &QualifiedSymbol) -> bool {
+        let modules = qsym.module_path().get_module_names_from_root();
+        matches!(modules, [std, result] if std.as_str() == "std" && result.as_str() == "result")
+            && qsym.symbol().as_str() == "Result"
+    }
+
+    fn decompose_result_ty(&self, ty: &Rc<Ty>) -> Option<(Rc<Ty>, Rc<Ty>)> {
+        let unwrapped = Self::unwrap_reference(ty);
+        let TyKind::UserDefined(udt) = unwrapped.kind.as_ref() else {
+            return None;
+        };
+
+        let instance = udt.generic_instance.as_ref()?;
+        if !self.is_std_result_origin(&instance.origin) || instance.args.len() != 2 {
+            return None;
+        }
+
+        Some((instance.args[0].clone(), instance.args[1].clone()))
+    }
+
     // Unit variants like `Option::None` carry no payload, so this helper does nothing for them.
     // Payload variants like `Option::Some(value)` can still constrain generic arguments before we
     // look at the surrounding expected type by unifying the payload expression with the declared
@@ -470,6 +490,7 @@ impl TypeInferrer {
 
             // Enum
             EnumVariant(enum_var) => self.infer_enum_variant(enum_var),
+            Try(try_expr) => self.infer_try(try_expr),
 
             // Function calls
             FnCall(fn_call) => self.infer_fn_call(fn_call),
@@ -1260,6 +1281,43 @@ impl TypeInferrer {
         ))
     }
 
+    fn infer_try(&mut self, try_expr: &Try) -> Result<Rc<Ty>, TypeInferError> {
+        let operand_ty = self.infer_expr(&try_expr.operand)?;
+        let Some((ok_ty, err_ty)) = self.decompose_result_ty(&operand_ty) else {
+            return Err(TypeInferError::TryRequiresResult {
+                actual: self.context.apply(&operand_ty).kind.to_string(),
+                span: try_expr.span,
+            });
+        };
+
+        let Some((_, fn_err_ty)) = self.decompose_result_ty(&self.function_return_ty) else {
+            return Err(TypeInferError::TryOutsideResultFunction {
+                actual: self
+                    .context
+                    .apply(&self.function_return_ty)
+                    .kind
+                    .to_string(),
+                span: try_expr.span,
+            });
+        };
+
+        if let Err(TypeInferError::CannotUnify { .. }) =
+            self.context.unify(&err_ty, &fn_err_ty, try_expr.span)
+        {
+            return Err(TypeInferError::TryErrorTypeMismatch {
+                actual: self.context.apply(&err_ty).kind.to_string(),
+                expected: self.context.apply(&fn_err_ty).kind.to_string(),
+                span: try_expr.span,
+            });
+        }
+
+        self.context.unify(&ok_ty, &try_expr.ok_ty, try_expr.span)?;
+        self.context
+            .unify(&err_ty, &try_expr.err_ty, try_expr.span)?;
+
+        Ok(self.context.apply(&ok_ty))
+    }
+
     // Function calls
     fn infer_fn_call(&mut self, fn_call: &FnCall) -> Result<Rc<Ty>, TypeInferError> {
         let decl = &fn_call.callee;
@@ -1853,6 +1911,11 @@ impl TypeInferrer {
                         });
                     }
                 }
+            }
+            Try(try_expr) => {
+                self.apply_expr(&mut try_expr.operand)?;
+                try_expr.ok_ty = self.context.apply(&try_expr.ok_ty);
+                try_expr.err_ty = self.context.apply(&try_expr.err_ty);
             }
 
             // Enum

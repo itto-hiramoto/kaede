@@ -94,6 +94,19 @@ pub enum TypeInferError {
     #[error("{}:{}:{} enum `{}` can be compared only when all variants are unit variants", span.file, span.start.line, span.start.column, enum_name)]
     EnumEqRequiresUnitVariants { enum_name: Symbol, span: Span },
 
+    #[error("{}:{}:{} `?` requires `Result<T, E>`, got `{}`", span.file, span.start.line, span.start.column, actual)]
+    TryRequiresResult { actual: String, span: Span },
+
+    #[error("{}:{}:{} `?` can only be used in functions returning `Result<T, E>`, got `{}`", span.file, span.start.line, span.start.column, actual)]
+    TryOutsideResultFunction { actual: String, span: Span },
+
+    #[error("{}:{}:{} `?` error type `{}` does not match function error type `{}`", span.file, span.start.line, span.start.column, actual, expected)]
+    TryErrorTypeMismatch {
+        actual: String,
+        expected: String,
+        span: Span,
+    },
+
     #[error("occurs check failed: α{} occurs in {:?}", var_id, ty)]
     OccursCheckFailed { var_id: usize, ty: String },
 

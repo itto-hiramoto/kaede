@@ -332,6 +332,9 @@ fn type_infer_error_span(err: &TypeInferError) -> Option<Span> {
         | TypeInferError::ExpectedIntegerTypeForBitOp { span, .. }
         | TypeInferError::ExpectedIntegerTypeForBitNot { span, .. }
         | TypeInferError::EnumEqRequiresUnitVariants { span, .. }
+        | TypeInferError::TryRequiresResult { span, .. }
+        | TypeInferError::TryOutsideResultFunction { span, .. }
+        | TypeInferError::TryErrorTypeMismatch { span, .. }
         | TypeInferError::CannotUnify { span, .. } => Some(*span),
         TypeInferError::OccursCheckFailed { .. }
         | TypeInferError::TupleArityMismatchInUnify { .. } => None,

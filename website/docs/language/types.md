@@ -36,6 +36,17 @@ match <-ch {
     Option::Some(v) => v,
     Option::None => return 1,
 }
+
+`Result<T, E>` is available from `std.result`:
+
+```rust
+import std.result
+use std.result.Result
+
+fn parse_id(): Result<i32, str> {
+    return Result::Ok(42)
+}
+```
 ```
 
 For generic functions, generic structs, and generic `impl` blocks, see [Generics](./generics.md).

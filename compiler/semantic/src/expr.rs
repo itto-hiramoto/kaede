@@ -53,6 +53,7 @@ impl SemanticAnalyzer {
             ExprKind::Return(node) => self.analyze_return(node),
             ExprKind::Indexing(node) => self.analyze_array_or_ptr_indexing(node),
             ExprKind::Slicing(node) => self.analyze_slicing(node),
+            ExprKind::Try(node) => self.analyze_try(node),
             ExprKind::FnCall(node) => self.analyze_fn_call(node),
             ExprKind::If(node) => self.analyze_if(node),
             ExprKind::Break(node) => self.analyze_break(node),
@@ -2253,6 +2254,23 @@ impl SemanticAnalyzer {
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::Return(expr),
             ty: Rc::new(ir_type::Ty::new_never()),
+            span: node.span,
+        })
+    }
+
+    fn analyze_try(&mut self, node: &ast::expr::Try) -> anyhow::Result<ir::expr::Expr> {
+        let operand = self.analyze_expr(&node.operand)?;
+        let ok_ty = self.infer_context.fresh();
+        let err_ty = self.infer_context.fresh();
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::Try(ir::expr::Try {
+                operand: Box::new(operand),
+                ok_ty: ok_ty.clone(),
+                err_ty,
+                span: node.span,
+            }),
+            ty: ok_ty,
             span: node.span,
         })
     }
