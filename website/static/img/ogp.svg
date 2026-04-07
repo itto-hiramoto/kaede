@@ -1,0 +1,32 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Kaede Open Graph image">
+  <defs>
+    <linearGradient id="bg" x1="110" y1="72" x2="1098" y2="566" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF6ED"/>
+      <stop offset="0.52" stop-color="#FFFAF5"/>
+      <stop offset="1" stop-color="#F8EDE2"/>
+    </linearGradient>
+    <radialGradient id="glowLeft" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(214 486) rotate(90) scale(222 272)">
+      <stop stop-color="#F1D8C1" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#F1D8C1" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowRight" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1024 128) rotate(90) scale(186 186)">
+      <stop stop-color="#EFCFB3" stop-opacity="0.65"/>
+      <stop offset="1" stop-color="#EFCFB3" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="1200" height="630" rx="28" fill="url(#bg)"/>
+  <circle cx="214" cy="486" r="222" fill="url(#glowLeft)"/>
+  <circle cx="1024" cy="128" r="186" fill="url(#glowRight)"/>
+
+  <text x="188" y="346" fill="#23150E" font-size="172">
+    🍁
+  </text>
+
+  <text x="430" y="316" fill="#23150E" font-family="Avenir Next, Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="116" font-weight="700">
+    Kaede
+  </text>
+  <text x="436" y="374" fill="#8E532F" font-family="Avenir Next, Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="34" font-weight="600" letter-spacing="0.16em">
+    PROGRAMMING LANGUAGE
+  </text>
+</svg>
