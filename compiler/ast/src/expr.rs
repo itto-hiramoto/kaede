@@ -9,38 +9,38 @@ use kaede_symbol::{Ident, Symbol};
 
 use crate::stmt::Block;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct StringLiteral {
     pub syb: Symbol,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ByteStringLiteral {
     pub bytes: Vec<u8>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct CharLiteral {
     pub ch: char,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ByteLiteral {
     pub byte: u8,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct StructLiteral {
     pub struct_ty: UserDefinedType,
     pub values: Vec<(Ident, Expr)>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Arg {
     /// `None` for positional arguments, `Some(name)` for keyword arguments.
     pub name: Option<Ident>,
@@ -48,13 +48,13 @@ pub struct Arg {
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Args {
     pub args: VecDeque<Arg>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct FnCall {
     pub callee: Box<Expr>,
     pub generic_args: Option<GenericArgs>,
@@ -62,32 +62,32 @@ pub struct FnCall {
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Spawn {
     pub callee: Box<Expr>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ChannelSend {
     pub channel: Box<Expr>,
     pub value: Box<Expr>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ChannelRecv {
     pub channel: Box<Expr>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Int {
     pub kind: IntKind,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 /// Integer literals are always non-negative.
 /// Negative numbers like `-123` are represented as unary minus operator applied to `123`.
 /// Type suffixes are not yet supported; all literals have inferred types.
@@ -160,7 +160,7 @@ pub enum BinaryKind {
     Cast,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Binary {
     pub lhs: Box<Expr>,
     pub kind: BinaryKind,
@@ -173,38 +173,38 @@ impl Binary {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct LogicalNot {
     pub operand: Box<Expr>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct BitNot {
     pub operand: Box<Expr>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ArrayLiteral {
     pub elements: Vec<Expr>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ArrayRepeat {
     pub value: Box<Expr>,
     pub count: Box<Expr>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct TupleLiteral {
     pub elements: VecDeque<Expr>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Closure {
     pub params: Vec<Ident>,
     pub body: Box<Expr>,
@@ -213,14 +213,14 @@ pub struct Closure {
 }
 
 /// Sometimes called `Array subscripting`
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Indexing {
     pub operand: Box<Expr>,
     pub index: Box<Expr>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Slicing {
     pub operand: Box<Expr>,
     pub start: Option<Box<Expr>>,
@@ -228,37 +228,37 @@ pub struct Slicing {
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Try {
     pub operand: Box<Expr>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Loop {
     pub body: Block,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct While {
     pub cond: Box<Expr>,
     pub body: Block,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Break {
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum Else {
     If(If),
     Block(Rc<Block>),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct If {
     pub cond: Box<Expr>,
     pub then: Block,
@@ -266,27 +266,27 @@ pub struct If {
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Return {
     pub val: Option<Box<Expr>>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct MatchArm {
     pub pattern: Box<Expr>,
     pub code: Rc<Expr>,
     pub is_catch_all: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Match {
     pub value: Box<Expr>,
     pub arms: Vec<MatchArm>,
     pub span: Span,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Expr {
     pub kind: ExprKind,
     pub span: Span,
@@ -343,7 +343,7 @@ impl Expr {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum ExprKind {
     Int(Int),
     StringLiteral(StringLiteral),

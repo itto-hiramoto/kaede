@@ -52,80 +52,132 @@ impl SemanticAnalyzer {
             && qualified_symbol.symbol().as_str() == "Result"
     }
 
-    fn ast_ident_expr(symbol: Symbol, span: Span) -> ast::expr::Expr {
-        ast::expr::Expr {
-            kind: ast::expr::ExprKind::Ident(Ident::new(symbol, span)),
-            span,
-        }
-    }
-
-    fn ast_access_expr(lhs: ast::expr::Expr, rhs: ast::expr::Expr, span: Span) -> ast::expr::Expr {
-        ast::expr::Expr {
-            kind: ast::expr::ExprKind::Binary(ast::expr::Binary::new(
-                lhs.into(),
-                ast::expr::BinaryKind::Access,
-                rhs.into(),
-            )),
-            span,
-        }
-    }
-
-    fn ast_scope_resolution_expr(
-        lhs: ast::expr::Expr,
-        rhs: ast::expr::Expr,
-        span: Span,
-    ) -> ast::expr::Expr {
-        ast::expr::Expr {
-            kind: ast::expr::ExprKind::Binary(ast::expr::Binary::new(
-                lhs.into(),
-                ast::expr::BinaryKind::ScopeResolution,
-                rhs.into(),
-            )),
-            span,
-        }
-    }
-
-    fn ast_variant_expr(
+    fn resolve_enum_from_ty(
         &self,
-        variant_name: Symbol,
-        arg: Option<ast::expr::Expr>,
-        span: Span,
-    ) -> ast::expr::Expr {
-        let result_path = Self::ast_access_expr(
-            Self::ast_ident_expr(Symbol::from("std".to_owned()), span),
-            Self::ast_ident_expr(Symbol::from("result".to_owned()), span),
-            span,
-        );
+        ty: &Rc<ir_type::Ty>,
+    ) -> anyhow::Result<(ir_type::UserDefinedType, Rc<ir::top::Enum>)> {
+        let base_ty = match ty.kind.as_ref() {
+            ir_type::TyKind::Reference(rty) => rty.get_base_type(),
+            _ => ty.clone(),
+        };
 
-        let variant_expr = match arg {
-            Some(arg) => ast::expr::Expr {
-                kind: ast::expr::ExprKind::FnCall(ast::expr::FnCall {
-                    callee: Box::new(Self::ast_ident_expr(variant_name, span)),
-                    generic_args: None,
-                    args: ast::expr::Args {
-                        args: std::collections::VecDeque::from([ast::expr::Arg {
-                            name: None,
-                            value: arg,
-                            span,
-                        }]),
+        let ir_type::TyKind::UserDefined(udt) = base_ty.kind.as_ref() else {
+            unreachable!("result type must resolve to a user-defined enum");
+        };
+
+        let enum_ir = match &udt.kind {
+            ir_type::UserDefinedTypeKind::Enum(enum_ir) => enum_ir.clone(),
+            ir_type::UserDefinedTypeKind::Placeholder(qsym) => {
+                match &self
+                    .lookup_qualified_symbol(qsym.clone())
+                    .expect("result enum must exist")
+                    .borrow()
+                    .kind
+                {
+                    SymbolTableValueKind::Enum(enum_ir) => enum_ir.clone(),
+                    _ => unreachable!("result type must resolve to an enum"),
+                }
+            }
+            _ => unreachable!("result type must resolve to an enum"),
+        };
+
+        Ok((udt.clone(), enum_ir))
+    }
+
+    fn result_variant<'a>(enum_ir: &'a ir::top::Enum, name: &str) -> &'a ir::top::EnumVariant {
+        enum_ir
+            .variants
+            .iter()
+            .find(|variant| variant.name.as_str() == name)
+            .expect("std.result.Result must have the requested variant")
+    }
+
+    fn build_variable_expr(&self, name: Symbol, ty: Rc<ir_type::Ty>, span: Span) -> ir::expr::Expr {
+        ir::expr::Expr {
+            kind: ir::expr::ExprKind::Variable(ir::expr::Variable {
+                name,
+                ty: ty.clone(),
+                span,
+            }),
+            ty,
+            span,
+        }
+    }
+
+    fn build_variant_match_condition(
+        &self,
+        target: Rc<ir::expr::Expr>,
+        variant_offset: u32,
+        span: Span,
+    ) -> ir::expr::Expr {
+        let discr_ty = Rc::new(make_fundamental_type(
+            ir_type::FundamentalTypeKind::I32,
+            ir_type::Mutability::Not,
+        ));
+
+        ir::expr::Expr {
+            kind: ir::expr::ExprKind::Binary(ir::expr::Binary {
+                kind: ir::expr::BinaryKind::Eq,
+                lhs: Rc::new(ir::expr::Expr {
+                    kind: ir::expr::ExprKind::TupleIndexing(ir::expr::TupleIndexing {
+                        tuple: target,
+                        element_ty: discr_ty.clone(),
+                        index: 0,
                         span,
-                    },
+                    }),
+                    ty: discr_ty.clone(),
+                    span,
+                }),
+                rhs: Rc::new(ir::expr::Expr {
+                    kind: ir::expr::ExprKind::Int(ir::expr::Int {
+                        kind: ir::expr::IntKind::I32(variant_offset as i32),
+                        span,
+                    }),
+                    ty: discr_ty,
                     span,
                 }),
                 span,
-            },
-            None => Self::ast_ident_expr(variant_name, span),
+            }),
+            ty: Rc::new(make_fundamental_type(
+                ir_type::FundamentalTypeKind::Bool,
+                ir_type::Mutability::Not,
+            )),
+            span,
+        }
+    }
+
+    fn build_result_err_return_expr(
+        &self,
+        return_result_udt: &ir_type::UserDefinedType,
+        return_result_enum: Rc<ir::top::Enum>,
+        err_binding_name: Symbol,
+        err_binding_ty: Rc<ir_type::Ty>,
+        span: Span,
+    ) -> ir::expr::Expr {
+        let err_variant_offset = Self::result_variant(return_result_enum.as_ref(), "Err").offset;
+        let err_payload = self.build_variable_expr(err_binding_name, err_binding_ty, span);
+        let err_expr = ir::expr::Expr {
+            kind: ir::expr::ExprKind::EnumVariant(ir::expr::EnumVariant {
+                enum_info: return_result_enum,
+                variant_offset: err_variant_offset,
+                value: Some(Box::new(err_payload)),
+                span,
+            }),
+            ty: Rc::new(ir_type::wrap_in_ref(
+                Rc::new(ir_type::Ty {
+                    kind: ir_type::TyKind::UserDefined(return_result_udt.clone()).into(),
+                    mutability: ir_type::Mutability::Not,
+                }),
+                ir_type::Mutability::Mut,
+            )),
+            span,
         };
 
-        Self::ast_access_expr(
-            result_path,
-            Self::ast_scope_resolution_expr(
-                Self::ast_ident_expr(Symbol::from("Result".to_owned()), span),
-                variant_expr,
-                span,
-            ),
+        ir::expr::Expr {
+            kind: ir::expr::ExprKind::Return(Some(Box::new(err_expr))),
+            ty: Rc::new(ir_type::Ty::new_never()),
             span,
-        )
+        }
     }
 
     pub fn analyze_expr(&mut self, expr: &ast::expr::Expr) -> anyhow::Result<ir::expr::Expr> {
@@ -2381,45 +2433,114 @@ impl SemanticAnalyzer {
             .into());
         }
 
+        let operand_ty = operand.ty.clone();
+        let (return_result_udt, return_result_enum) =
+            self.resolve_enum_from_ty(&current_fn.return_ty)?;
+        let (operand_result_udt, operand_result_enum) = self.resolve_enum_from_ty(&operand.ty)?;
+        let ok_variant = Self::result_variant(operand_result_enum.as_ref(), "Ok");
+        let err_variant = Self::result_variant(operand_result_enum.as_ref(), "Err");
+        let ok_ty = change_mutability_dup(
+            ok_variant
+                .ty
+                .clone()
+                .expect("std.result.Result::Ok must have a payload"),
+            operand.ty.mutability,
+        );
+        let err_ty = change_mutability_dup(
+            err_variant
+                .ty
+                .clone()
+                .expect("std.result.Result::Err must have a payload"),
+            operand.ty.mutability,
+        );
+
+        let target_name = self.fresh_temp_symbol("__try_target");
         let ok_name = self.fresh_temp_symbol("__try_ok");
         let err_name = self.fresh_temp_symbol("__try_err");
 
-        let synthesized_match = ast::expr::Match {
-            value: node.operand.clone(),
-            arms: vec![
-                ast::expr::MatchArm {
-                    pattern: Box::new(self.ast_variant_expr(
-                        Symbol::from("Ok".to_owned()),
-                        Some(Self::ast_ident_expr(ok_name, node.span)),
-                        node.span,
-                    )),
-                    code: Rc::new(Self::ast_ident_expr(ok_name, node.span)),
-                    is_catch_all: false,
-                },
-                ast::expr::MatchArm {
-                    pattern: Box::new(self.ast_variant_expr(
-                        Symbol::from("Err".to_owned()),
-                        Some(Self::ast_ident_expr(err_name, node.span)),
-                        node.span,
-                    )),
-                    code: Rc::new(ast::expr::Expr {
-                        kind: ast::expr::ExprKind::Return(ast::expr::Return {
-                            val: Some(Box::new(self.ast_variant_expr(
-                                Symbol::from("Err".to_owned()),
-                                Some(Self::ast_ident_expr(err_name, node.span)),
-                                node.span,
-                            ))),
-                            span: node.span,
-                        }),
-                        span: node.span,
-                    }),
-                    is_catch_all: false,
-                },
-            ],
+        self.push_scope(SymbolTable::new());
+        self.insert_symbol_to_current_scope(
+            ok_name,
+            SymbolTableValue::new(
+                SymbolTableValueKind::Variable(VariableInfo { ty: ok_ty.clone() }),
+                self.current_module_path().clone(),
+            ),
+            node.span,
+        )?;
+        self.insert_symbol_to_current_scope(
+            err_name,
+            SymbolTableValue::new(
+                SymbolTableValueKind::Variable(VariableInfo { ty: err_ty.clone() }),
+                self.current_module_path().clone(),
+            ),
+            node.span,
+        )?;
+
+        let target = Rc::new(self.build_variable_expr(target_name, operand_ty.clone(), node.span));
+        let err_if = ir::expr::If {
+            cond: Box::new(self.build_variant_match_condition(
+                target.clone(),
+                err_variant.offset,
+                node.span,
+            )),
+            then: Box::new(self.build_result_err_return_expr(
+                &return_result_udt,
+                return_result_enum,
+                err_name,
+                err_ty.clone(),
+                node.span,
+            )),
+            else_: None,
+            enum_unpack: Some(Box::new(ir::expr::EnumUnpack {
+                name: err_name,
+                enum_ty: operand_result_udt.clone(),
+                enum_value: target.clone(),
+                variant_ty: err_ty,
+                span: node.span,
+            })),
+            is_match: true,
             span: node.span,
         };
 
-        self.analyze_match(&synthesized_match)
+        let result = ir::expr::Expr {
+            kind: ir::expr::ExprKind::If(ir::expr::If {
+                cond: Box::new(self.build_variant_match_condition(
+                    target.clone(),
+                    ok_variant.offset,
+                    node.span,
+                )),
+                then: Box::new(self.build_variable_expr(ok_name, ok_ty.clone(), node.span)),
+                else_: Some(Box::new(ir::expr::Else::If(err_if))),
+                enum_unpack: Some(Box::new(ir::expr::EnumUnpack {
+                    name: ok_name,
+                    enum_ty: operand_result_udt,
+                    enum_value: target,
+                    variant_ty: ok_ty.clone(),
+                    span: node.span,
+                })),
+                is_match: true,
+                span: node.span,
+            }),
+            ty: ok_ty.clone(),
+            span: node.span,
+        };
+
+        self.pop_scope();
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::Block(ir::stmt::Block {
+                body: vec![ir::stmt::Stmt::Let(ir::stmt::Let {
+                    name: target_name,
+                    init: Some(operand),
+                    ty: operand_ty,
+                    span: node.span,
+                })],
+                last_expr: Some(Box::new(result)),
+                span: node.span,
+            }),
+            ty: ok_ty,
+            span: node.span,
+        })
     }
 
     fn analyze_logical_not(
