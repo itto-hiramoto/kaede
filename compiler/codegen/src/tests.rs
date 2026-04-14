@@ -4816,3 +4816,95 @@ fn panic_never_type_in_match() -> anyhow::Result<()> {
     assert_eq!(exec(program)?, 58);
     Ok(())
 }
+
+#[test]
+fn interface_dispatch_through_vector() -> anyhow::Result<()> {
+    let program = r#"
+        interface Scorer {
+            fun score(self) -> i32
+        }
+
+        struct Alpha {
+            n: i32,
+        }
+
+        struct Beta {
+            n: i32,
+        }
+
+        impl Alpha {
+            fun score(self) -> i32 {
+                return self.n + 10
+            }
+        }
+
+        impl Beta {
+            fun score(self) -> i32 {
+                return self.n * 2
+            }
+        }
+
+        fun main() -> i32 {
+            let mut v = Vector<Scorer>::new()
+            v.push(Alpha { n: 40 })
+            v.push(Beta { n: 4 })
+
+            let a = match v.at(0) {
+                Option::Some(s) => s.score(),
+                Option::None => 0,
+            }
+            let b = match v.at(1) {
+                Option::Some(s) => s.score(),
+                Option::None => 0,
+            }
+            return a + b
+        }
+    "#;
+
+    // Alpha: 40 + 10 = 50, Beta: 4 * 2 = 8, total 58.
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn interface_dispatch_selects_concrete_method_per_type() -> anyhow::Result<()> {
+    let program = r#"
+        interface Scorer {
+            fun score(self) -> i32
+        }
+
+        struct Alpha {
+            n: i32,
+        }
+
+        struct Beta {
+            n: i32,
+        }
+
+        impl Alpha {
+            fun score(self) -> i32 {
+                return self.n + 10
+            }
+        }
+
+        impl Beta {
+            fun score(self) -> i32 {
+                return self.n * 2
+            }
+        }
+
+        fun run(s: Scorer) -> i32 {
+            return s.score()
+        }
+
+        fun main() -> i32 {
+            let a = Alpha { n: 40 }
+            let b = Beta { n: 4 }
+            return run(a) + run(b)
+        }
+    "#;
+
+    // Alpha: 40 + 10 = 50, Beta: 4 * 2 = 8, total 58.
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
