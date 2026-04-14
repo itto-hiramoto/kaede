@@ -23,9 +23,7 @@ mod tests {
 
     use kaede_common::LangLinkage;
     use kaede_ir::{
-        expr::{
-            Args, Expr, ExprKind, GenericFnCall, ITable, InterfaceBox, InterfaceMethodCall,
-        },
+        expr::{Args, Expr, ExprKind, GenericFnCall, ITable, InterfaceBox, InterfaceMethodCall},
         module_path::ModulePath,
         qualified_symbol::QualifiedSymbol,
         stmt::{Block, Stmt},
