@@ -6,76 +6,76 @@ use std.ffi.sync.*
 use std.ffi.mem.__mem_alloc
 use std.option.Option
 
-pub struct Mutex {
+export struct Mutex {
     ptr: *u8,
 }
 
 impl Mutex {
-    pub fn new(): mut Mutex {
+    export fun new() -> mut Mutex {
         return Mutex { ptr: kaede_mutex_new() }
     }
 
-    pub fn lock(mut self) {
+    export fun lock(mut self) {
         kaede_mutex_lock(self.ptr)
     }
 
-    pub fn unlock(mut self) {
+    export fun unlock(mut self) {
         kaede_mutex_unlock(self.ptr)
     }
 }
 
-pub struct WaitGroup {
+export struct WaitGroup {
     ptr: *u8,
 }
 
 impl WaitGroup {
-    pub fn new(): mut WaitGroup {
+    export fun new() -> mut WaitGroup {
         return WaitGroup { ptr: kaede_wg_new() }
     }
 
-    pub fn add(mut self, delta: i32) {
+    export fun add(mut self, delta: i32) {
         kaede_wg_add(self.ptr, delta)
     }
 
-    pub fn done(mut self) {
+    export fun done(mut self) {
         kaede_wg_done(self.ptr)
     }
 
-    pub fn wait(self) {
+    export fun wait(self) {
         kaede_wg_wait(self.ptr)
     }
 }
 
-pub struct Channel<T> {
+export struct Channel<T> {
     ptr: *u8,
 }
 
 impl<T> Channel<T> {
-    pub fn new(): Channel<T> {
+    export fun new() -> Channel<T> {
         return Channel<T> {
             ptr: kaede_chan_new(__type_size<T>(), 0),
         }
     }
 
-    pub fn with_capacity(capacity: u64): Channel<T> {
+    export fun with_capacity(capacity: u64) -> Channel<T> {
         return Channel<T> {
             ptr: kaede_chan_new(__type_size<T>(), capacity),
         }
     }
 
-    pub fn send(self, value: T) {
+    export fun send(self, value: T) {
         let slot = [value]
         if kaede_chan_send(self.ptr, slot.as_ptr() as *u8) != 0 {
             panic("send on closed channel")
         }
     }
 
-    pub fn try_send(self, value: T): bool {
+    export fun try_send(self, value: T) -> bool {
         let slot = [value]
         return kaede_chan_try_send(self.ptr, slot.as_ptr() as *u8) == 1
     }
 
-    pub fn recv(self): Option<T> {
+    export fun recv(self) -> Option<T> {
         let slot = __mem_alloc(__type_size<T>()) as *T
         let status = kaede_chan_recv(self.ptr, slot as *u8)
         if status == 0 {
@@ -84,7 +84,7 @@ impl<T> Channel<T> {
         return Option::None
     }
 
-    pub fn try_recv(self): Option<T> {
+    export fun try_recv(self) -> Option<T> {
         let slot = __mem_alloc(__type_size<T>()) as *T
         if kaede_chan_try_recv(self.ptr, slot as *u8) == 1 {
             return Option::Some(slot[0])
@@ -92,11 +92,11 @@ impl<T> Channel<T> {
         return Option::None
     }
 
-    pub fn close(self) {
+    export fun close(self) {
         kaede_chan_close(self.ptr)
     }
 
-    pub fn is_closed(self): bool {
+    export fun is_closed(self) -> bool {
         return kaede_chan_is_closed(self.ptr) == 1
     }
 }

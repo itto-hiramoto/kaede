@@ -43,7 +43,7 @@ match <-ch {
 import std.result
 use std.result.Result
 
-fn parse_id(): Result<i32, str> {
+fun parse_id() -> Result<i32, str> {
     return Result::Ok(42)
 }
 ```
@@ -76,7 +76,7 @@ Comment {
 Enums can carry values:
 
 ```rust
-pub enum Token {
+export enum Token {
     Num(i32),
     Add,
     Sub,
@@ -100,7 +100,7 @@ Methods live in `impl` blocks:
 
 ```rust
 impl Counter {
-    fn next(mut self): u64 {
+    fun next(mut self) -> u64 {
         id := self.value
         self.value = id + 1
         return id

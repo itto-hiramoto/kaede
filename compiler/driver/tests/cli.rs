@@ -40,7 +40,7 @@ fn new_creates_hello_world_main() -> anyhow::Result<()> {
     main.assert(predicate::path::is_file());
     assert_eq!(
         fs::read_to_string(main.path())?,
-        r#"fn main() {
+        r#"fun main() {
     println("hello, world!")
 }"#,
     );
@@ -55,7 +55,7 @@ fn direct_compile_uses_unique_entry_candidate_even_if_not_main_kd() -> anyhow::R
     let app = temp_dir.child("app.kd");
     let exe = temp_dir.child("a.out");
 
-    lib.write_str("fn helper(): i32 { return 0 }")?;
+    lib.write_str("fun helper() -> i32 { return 0 }")?;
     app.write_str("return 42")?;
 
     Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
@@ -83,7 +83,7 @@ fn direct_compile_fails_when_entry_candidate_is_ambiguous() -> anyhow::Result<()
     let exe = temp_dir.child("a.out");
 
     app1.write_str("return 1")?;
-    app2.write_str("fn main(): i32 { return 2 }")?;
+    app2.write_str("fun main() -> i32 { return 2 }")?;
 
     Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
         .args([
@@ -111,12 +111,12 @@ fn direct_compile_rejects_try_outside_result_function() -> anyhow::Result<()> {
         r#"import std.result
 use std.result.Result
 
-fn fail(): i32 {
+fun fail() -> i32 {
     value := Result::Ok(1)?;
     return value
 }
 
-fn main(): i32 {
+fun main() -> i32 {
     return fail()
 }"#,
     )?;

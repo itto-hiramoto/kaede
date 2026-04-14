@@ -3,14 +3,14 @@ import std.io
 
 use ast.NodeKind
 
-pub struct Evaluator {}
+export struct Evaluator {}
 
 impl Evaluator {
-    pub fn new(): Evaluator {
+    export fun new() -> Evaluator {
         return Evaluator {}
     }
 
-    pub fn eval(self, node: ast.Node): i32 {
+    export fun eval(self, node: ast.Node) -> i32 {
         match node.kind {
             NodeKind::Num(n) => {
                 return n

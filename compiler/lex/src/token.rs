@@ -104,8 +104,10 @@ pub enum TokenKind {
     Tilde,
 
     // Reserved words
-    /// "fn"
-    Fn,
+    /// "fun"
+    Fun,
+    /// "fn" (reserved old syntax)
+    OldFn,
     /// "return"
     Return,
     /// "let"
@@ -126,8 +128,10 @@ pub enum TokenKind {
     Struct,
     /// "import"
     Import,
-    /// "pub"
-    Pub,
+    /// "export"
+    Export,
+    /// "pub" (reserved old syntax)
+    OldPub,
     /// "impl"
     Impl,
     /// "enum"
@@ -218,7 +222,8 @@ impl std::fmt::Display for TokenKind {
                 Caret => "'^'",
                 Tilde => "'~'",
 
-                Fn => "'fn'",
+                Fun => "'fun'",
+                OldFn => "'fn'",
                 Return => "'return'",
                 Let => "'let'",
                 Mut => "'mut'",
@@ -229,7 +234,8 @@ impl std::fmt::Display for TokenKind {
                 While => "'while'",
                 Struct => "'struct'",
                 Import => "'import'",
-                Pub => "'pub'",
+                Export => "'export'",
+                OldPub => "'pub'",
                 Impl => "'impl'",
                 Enum => "'enum'",
                 Match => "'match'",

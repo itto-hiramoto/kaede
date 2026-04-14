@@ -510,7 +510,7 @@ impl std::fmt::Display for TyKind {
                     .map(|t| t.kind.to_string())
                     .collect::<Vec<_>>()
                     .join(", ");
-                write!(f, "fn({params}) -> {}", closure.ret_ty.kind)
+                write!(f, "fun({params}) -> {}", closure.ret_ty.kind)
             }
 
             Self::Reference(refee) => write!(f, "&{}", refee.refee_ty.kind),

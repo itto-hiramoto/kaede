@@ -13,11 +13,11 @@ Kaede includes built-in primitives for spawning tasks, passing values across cha
 Use `spawn` to start work in another task:
 
 ```rust
-fn producer(ch: Channel<i32>) {
+fun producer(ch: Channel<i32>) {
     ch.send(42)
 }
 
-fn main(): i32 {
+fun main() -> i32 {
     ch := Channel<i32>::new()
     spawn producer(ch)
     return 0

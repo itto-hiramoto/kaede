@@ -4,28 +4,28 @@ import tokenize
 use ast.*
 use tokenize.Token
 
-pub struct Parser {
+export struct Parser {
     current_idx: u64,
     tokens: Vector<Token>,
 }
 
 impl Parser {
-    pub fn new(): mut Parser {
+    export fun new() -> mut Parser {
         return Parser {
             current_idx: 0,
             tokens: Vector<Token>::new(),
         }
     }
 
-    fn clear(mut self) {
+    fun clear(mut self) {
         self.current_idx = 0
     }
 
-    fn increment_current_idx(mut self) {
+    fun increment_current_idx(mut self) {
         self.current_idx += 1
     }
 
-    fn consume(mut self, token: Token): bool {
+    fun consume(mut self, token: Token) -> bool {
         current_token := self.tokens.at(self.current_idx)
 
         return match current_token {
@@ -42,7 +42,7 @@ impl Parser {
         }
     }
 
-    fn expect_number(mut self): mut Node {
+    fun expect_number(mut self) -> mut Node {
         token := self.tokens.at(self.current_idx).unwrap()
 
         match token {
@@ -62,14 +62,14 @@ impl Parser {
         __unreachable()
     }
 
-    pub fn parse(mut self, tokens: Vector<Token>): Node {
+    export fun parse(mut self, tokens: Vector<Token>) -> Node {
         self.clear()
         self.tokens = tokens
         return self.add_or_sub()
     }
 
 
-    fn add_or_sub(mut self): mut Node {
+    fun add_or_sub(mut self) -> mut Node {
         mut node := self.mul_or_div()
 
         loop {
@@ -93,7 +93,7 @@ impl Parser {
         __unreachable()
     }
 
-    fn mul_or_div(mut self): mut Node {
+    fun mul_or_div(mut self) -> mut Node {
         mut node := self.primary()
 
         loop {
@@ -117,7 +117,7 @@ impl Parser {
         __unreachable()
     }
 
-    fn primary(mut self): mut Node {
+    fun primary(mut self) -> mut Node {
         if self.consume(Token::LParen) {
             node := self.add_or_sub()
             self.consume(Token::RParen)

@@ -49,7 +49,7 @@ fn parse_positional_then_keyword_arguments() -> Result<()> {
 #[test]
 fn parse_fn_param_default() -> Result<()> {
     let mut parser = Parser::new(
-        "fn f(a: i32 = 1, b: i32) {}",
+        "fun f(a: i32 = 1, b: i32) {}",
         FilePath::from(PathBuf::from("test.kd")),
     );
     let compile_unit = parser.run()?;
@@ -59,7 +59,7 @@ fn parse_fn_param_default() -> Result<()> {
     };
 
     let TopLevelKind::Fn(func) = &top_level.kind else {
-        panic!("expected fn top-level");
+        panic!("expected function top-level");
     };
 
     let params: Vec<_> = func.decl.params.v.iter().collect();
@@ -159,7 +159,7 @@ fn parse_hex_integer_literal() -> Result<()> {
 #[test]
 fn parse_hex_array_size() -> Result<()> {
     let mut parser = Parser::new(
-        "fn f(values: [i32; 0x10]) {}",
+        "fun f(values: [i32; 0x10]) {}",
         FilePath::from(PathBuf::from("test.kd")),
     );
     let unit = parser.run()?;
@@ -169,7 +169,7 @@ fn parse_hex_array_size() -> Result<()> {
     };
 
     let TopLevelKind::Fn(func) = &top_level.kind else {
-        panic!("expected fn top-level");
+        panic!("expected function top-level");
     };
 
     let param = func.decl.params.v.front().expect("function parameter");
@@ -180,6 +180,37 @@ fn parse_hex_array_size() -> Result<()> {
         },
         other => panic!("expected reference type, got {other:?}"),
     }
+
+    Ok(())
+}
+
+#[test]
+fn parse_fun_type() -> Result<()> {
+    let mut parser = Parser::new("fun(i32) -> bool", FilePath::from(PathBuf::from("test.kd")));
+    let ty = parser.ty()?;
+
+    match ty.kind.as_ref() {
+        TyKind::Closure(closure) => {
+            assert_eq!(closure.param_tys.len(), 1);
+            assert!(matches!(
+                closure.ret_ty.kind.as_ref(),
+                TyKind::Fundamental(_)
+            ));
+        }
+        other => panic!("expected closure type, got {other:?}"),
+    }
+
+    Ok(())
+}
+
+#[test]
+fn parse_old_fn_type_is_rejected() -> Result<()> {
+    let mut parser = Parser::new("fn(i32) -> bool", FilePath::from(PathBuf::from("test.kd")));
+
+    let err = parser.ty().expect_err("old fn type must fail");
+    let parse_err = err.downcast::<ParseError>().expect("expected parse error");
+
+    assert!(matches!(parse_err, ParseError::ExpectedError { .. }));
 
     Ok(())
 }
@@ -213,7 +244,7 @@ fn parse_foreign_rust_import() -> Result<()> {
 #[test]
 fn parse_mixed_module_items_keeps_source_order() -> Result<()> {
     let mut parser = Parser::new(
-        "fn helper() {}\nlet x = 1\nx",
+        "fun helper() {}\nlet x = 1\nx",
         FilePath::from(PathBuf::from("test.kd")),
     );
     let unit = parser.run()?;
@@ -228,7 +259,7 @@ fn parse_mixed_module_items_keeps_source_order() -> Result<()> {
 #[test]
 fn parse_bridge_is_plain_parse_error() -> Result<()> {
     let mut parser = Parser::new(
-        r#"pub bridge "Rust" fn hello()"#,
+        r#"export bridge "Rust" fun hello()"#,
         FilePath::from(PathBuf::from("test.kd")),
     );
 
@@ -241,10 +272,37 @@ fn parse_bridge_is_plain_parse_error() -> Result<()> {
 }
 
 #[test]
-fn parse_pub_let_is_rejected() -> Result<()> {
-    let mut parser = Parser::new("pub let x = 1", FilePath::from(PathBuf::from("test.kd")));
+fn parse_export_let_is_rejected() -> Result<()> {
+    let mut parser = Parser::new("export let x = 1", FilePath::from(PathBuf::from("test.kd")));
 
-    let err = parser.run().expect_err("pub let must fail");
+    let err = parser.run().expect_err("export let must fail");
+    let parse_err = err.downcast::<ParseError>().expect("expected parse error");
+
+    assert!(matches!(parse_err, ParseError::ExpectedError { .. }));
+
+    Ok(())
+}
+
+#[test]
+fn parse_old_fn_keyword_is_rejected() -> Result<()> {
+    let mut parser = Parser::new("fn legacy() {}", FilePath::from(PathBuf::from("test.kd")));
+
+    let err = parser.run().expect_err("old fn keyword must fail");
+    let parse_err = err.downcast::<ParseError>().expect("expected parse error");
+
+    assert!(matches!(parse_err, ParseError::ExpectedError { .. }));
+
+    Ok(())
+}
+
+#[test]
+fn parse_old_pub_keyword_is_rejected() -> Result<()> {
+    let mut parser = Parser::new(
+        "pub fun current() {}",
+        FilePath::from(PathBuf::from("test.kd")),
+    );
+
+    let err = parser.run().expect_err("old pub keyword must fail");
     let parse_err = err.downcast::<ParseError>().expect("expected parse error");
 
     assert!(matches!(parse_err, ParseError::ExpectedError { .. }));

@@ -65,11 +65,11 @@ import std.option
 use std.sync.Channel
 use std.option.Option
 
-fn producer(ch: Channel<i32>) {
+fun producer(ch: Channel<i32>) {
     ch.send(42)
 }
 
-fn main(): i32 {
+fun main() -> i32 {
     let ch = Channel<i32>::new()
     spawn producer(ch)
 
@@ -97,11 +97,11 @@ import std.option
 use std.sync.Channel
 use std.option.Option
 
-fn producer(ch: Channel<i32>) {
+fun producer(ch: Channel<i32>) {
     ch <- 42
 }
 
-fn main(): i32 {
+fun main() -> i32 {
     let ch = Channel<i32>::new()
     spawn producer(ch)
 
@@ -130,13 +130,13 @@ use std.sync.Channel
 use std.sync.WaitGroup
 use std.option.Option
 
-fn sender(ch: Channel<i32>, wg: mut WaitGroup) {
+fun sender(ch: Channel<i32>, wg: mut WaitGroup) {
     ch.send(1)
     ch.send(2)
     wg.done()
 }
 
-fn main(): i32 {
+fun main() -> i32 {
     let ch = Channel<i32>::with_capacity(1)
     let mut wg = WaitGroup::new()
     wg.add(1)
@@ -175,7 +175,7 @@ import std.option
 use std.sync.Channel
 use std.option.Option
 
-fn main(): i32 {
+fun main() -> i32 {
     let ch = Channel<i32>::with_capacity(2)
     ch <- 10
     ch.send(20)
@@ -212,12 +212,12 @@ import std.option
 use std.sync.Channel
 use std.option.Option
 
-fn closer(ch: Channel<i32>) {
+fun closer(ch: Channel<i32>) {
     std.sys.sleep_ms(50)
     ch.close()
 }
 
-fn main(): i32 {
+fun main() -> i32 {
     let ch = Channel<i32>::new()
     spawn closer(ch)
 
@@ -239,7 +239,7 @@ import std.option
 use std.sync.Channel
 use std.option.Option
 
-fn main(): i32 {
+fun main() -> i32 {
     let ch = Channel<i32>::new()
     if ch.try_send(1) {
         return 1

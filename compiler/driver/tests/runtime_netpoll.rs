@@ -115,7 +115,7 @@ import std.sync
 
 use std.sync.WaitGroup
 
-fn handle(conn: std.sys.Fd, wg: mut WaitGroup) {{
+fun handle(conn: std.sys.Fd, wg: mut WaitGroup) {{
     let mut buf = [0; 1]
     let n = match std.sys.read(conn, buf) {{
         std.option.Option::Some(value) => value,
@@ -136,7 +136,7 @@ fn handle(conn: std.sys.Fd, wg: mut WaitGroup) {{
     wg.done()
 }}
 
-fn main(): i32 {{
+fun main() -> i32 {{
     let listener = std.sys.socket_tcp4()
     std.sys.set_reuseaddr(listener)
     std.sys.bind_ipv4(listener, "127.0.0.1", {port})
@@ -207,19 +207,19 @@ import std.sync
 
 use std.sync.WaitGroup
 
-fn reader(conn: std.sys.Fd, wg: mut WaitGroup) {{
+fun reader(conn: std.sys.Fd, wg: mut WaitGroup) {{
     let mut buf = [0; 1]
     let _ = std.sys.read(conn, buf)
     wg.done()
 }}
 
-fn closer(conn: std.sys.Fd, wg: mut WaitGroup) {{
+fun closer(conn: std.sys.Fd, wg: mut WaitGroup) {{
     std.sys.sleep_ms(100)
     std.sys.close_quiet(conn)
     wg.done()
 }}
 
-fn main(): i32 {{
+fun main() -> i32 {{
     let listener = std.sys.socket_tcp4()
     std.sys.set_reuseaddr(listener)
     std.sys.bind_ipv4(listener, "127.0.0.1", {port})
@@ -271,12 +271,12 @@ fn runtime_shutdown_exits_with_background_tasks_still_parked_on_io() -> anyhow::
     main.write_str(&format!(
         r#"import std.sys
 
-fn reader(conn: std.sys.Fd) {{
+fun reader(conn: std.sys.Fd) {{
     let mut buf = [0; 1]
     let _ = std.sys.read(conn, buf)
 }}
 
-fn main(): i32 {{
+fun main() -> i32 {{
     let listener = std.sys.socket_tcp4()
     std.sys.set_reuseaddr(listener)
     std.sys.bind_ipv4(listener, "127.0.0.1", {port})

@@ -1,9 +1,9 @@
 impl str {
-    pub fn as_ptr(self): *u8 {
+    export fun as_ptr(self) -> *u8 {
         return self.0
     }
 
-    pub fn len(self): u64 {
+    export fun len(self) -> u64 {
         return self.1
     }
 }

@@ -46,14 +46,14 @@ In practice, current Kaede code tends to use:
 
 ## Functions and return types
 
-Functions declare return types with `: Type`.
+Functions declare return types with `-> Type`.
 
 ```rust
-fn greet() {
+fun greet() {
     println("hello, world!")
 }
 
-fn add(a: i32, b: i32): i32 {
+fun add(a: i32, b: i32) -> i32 {
     return a + b
 }
 ```
@@ -87,11 +87,11 @@ struct Counter {
 }
 
 impl Counter {
-    fn new(start: u64): mut Counter {
+    fun new(start: u64) -> mut Counter {
         return Counter { value: start }
     }
 
-    fn next(mut self): u64 {
+    fun next(mut self) -> u64 {
         id := self.value
         self.value = id + 1
         return id

@@ -16,7 +16,7 @@ cd hello_kaede
 Kaede creates a project with a `src/` directory and a starter `main.kd` file:
 
 ```rust
-fn main() {
+fun main() {
     println("hello, world!")
 }
 ```

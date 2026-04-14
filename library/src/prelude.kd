@@ -9,14 +9,14 @@ import std.string
 import std.sync
 import std.ffi.args
 
-pub use std.collections.Vector
-pub use std.collections.HashMap
-pub use std.option.Option
-pub use std.result.Result
-pub use std.string.String
-pub use std.sync.Channel
-pub use std.ffi.args.__prepare_command_line_arguments
-pub use std.io.print
-pub use std.io.println
-pub use std.io.eprint
-pub use std.io.eprintln
+export use std.collections.Vector
+export use std.collections.HashMap
+export use std.option.Option
+export use std.result.Result
+export use std.string.String
+export use std.sync.Channel
+export use std.ffi.args.__prepare_command_line_arguments
+export use std.io.print
+export use std.io.println
+export use std.io.eprint
+export use std.io.eprintln

@@ -8,45 +8,45 @@ use kaede_symbol::Symbol;
 
 #[test]
 fn int() -> anyhow::Result<()> {
-    semantic_analyze("fn f() { 1 }")?;
+    semantic_analyze("fun f() { 1 }")?;
     Ok(())
 }
 
 #[test]
 fn array_literal() -> anyhow::Result<()> {
-    semantic_analyze("fn f() { [1, 2, 3] }")?;
+    semantic_analyze("fun f() { [1, 2, 3] }")?;
     Ok(())
 }
 
 #[test]
 fn boolean_literal() -> anyhow::Result<()> {
-    semantic_analyze("fn f() { true }")?;
-    semantic_analyze("fn f() { false }")?;
+    semantic_analyze("fun f() { true }")?;
+    semantic_analyze("fun f() { false }")?;
     Ok(())
 }
 
 #[test]
 fn block() -> anyhow::Result<()> {
-    semantic_analyze("fn f() { { 1 } }")?;
+    semantic_analyze("fun f() { { 1 } }")?;
     Ok(())
 }
 
 #[test]
 fn string_literal() -> anyhow::Result<()> {
-    semantic_analyze("fn f() { \"hello\" }")?;
+    semantic_analyze("fun f() { \"hello\" }")?;
     Ok(())
 }
 
 #[test]
 fn builtin_format() -> anyhow::Result<()> {
-    semantic_analyze("fn f() { __format(\"hello {}\", \"world\") }")?;
+    semantic_analyze("fun f() { __format(\"hello {}\", \"world\") }")?;
     Ok(())
 }
 
 #[test]
 fn builtin_format_requires_literal_template() -> anyhow::Result<()> {
     let err = semantic_analyze_expect_error(
-        "fn f() {
+        "fun f() {
             let t = \"hello {}\"
             __format(t, \"world\")
         }",
@@ -59,68 +59,68 @@ fn builtin_format_requires_literal_template() -> anyhow::Result<()> {
 
 #[test]
 fn builtin_format_requires_str_args() -> anyhow::Result<()> {
-    let err = semantic_analyze_expect_error("fn f() { __format(\"n = {}\", 42) }")?;
+    let err = semantic_analyze_expect_error("fun f() { __format(\"n = {}\", 42) }")?;
     assert!(err.to_string().contains("argument #1 must be `str`"));
     Ok(())
 }
 
 #[test]
 fn builtin_format_requires_matching_placeholder_count() -> anyhow::Result<()> {
-    let err = semantic_analyze_expect_error("fn f() { __format(\"{} {}\", \"x\") }")?;
+    let err = semantic_analyze_expect_error("fun f() { __format(\"{} {}\", \"x\") }")?;
     assert!(err.to_string().contains("placeholder count mismatch"));
     Ok(())
 }
 
 #[test]
 fn format_is_undeclared() -> anyhow::Result<()> {
-    let err = semantic_analyze_expect_error("fn f() { format(\"{}\", \"x\") }")?;
+    let err = semantic_analyze_expect_error("fun f() { format(\"{}\", \"x\") }")?;
     assert!(err.to_string().contains("`format` was not declared"));
     Ok(())
 }
 
 #[test]
 fn interpolated_string() -> anyhow::Result<()> {
-    semantic_analyze("fn f() { let name = \"kaede\"; $\"hello {name}\" }")?;
+    semantic_analyze("fun f() { let name = \"kaede\"; $\"hello {name}\" }")?;
     Ok(())
 }
 
 #[test]
 fn arithmetic_binary() -> anyhow::Result<()> {
-    semantic_analyze("fn f() { 1 + 2 }")?;
-    semantic_analyze("fn f() { 1 - 2 }")?;
-    semantic_analyze("fn f() { 1 * 2 }")?;
-    semantic_analyze("fn f() { 1 / 2 }")?;
-    semantic_analyze("fn f() { 1 % 2 }")?;
-    semantic_analyze("fn f() { 1 & 2 }")?;
-    semantic_analyze("fn f() { 1 | 2 }")?;
-    semantic_analyze("fn f() { 1 ^ 2 }")?;
-    semantic_analyze("fn f() { 1 << 2 }")?;
-    semantic_analyze("fn f() { 8 >> 1 }")?;
-    semantic_analyze("fn f() { 1 < 2 }")?;
-    semantic_analyze("fn f() { 1 <= 2 }")?;
-    semantic_analyze("fn f() { 1 > 2 }")?;
-    semantic_analyze("fn f() { 1 >= 2 }")?;
-    semantic_analyze("fn f() { 1 == 2 }")?;
-    semantic_analyze("fn f() { 1 != 2 }")?;
+    semantic_analyze("fun f() { 1 + 2 }")?;
+    semantic_analyze("fun f() { 1 - 2 }")?;
+    semantic_analyze("fun f() { 1 * 2 }")?;
+    semantic_analyze("fun f() { 1 / 2 }")?;
+    semantic_analyze("fun f() { 1 % 2 }")?;
+    semantic_analyze("fun f() { 1 & 2 }")?;
+    semantic_analyze("fun f() { 1 | 2 }")?;
+    semantic_analyze("fun f() { 1 ^ 2 }")?;
+    semantic_analyze("fun f() { 1 << 2 }")?;
+    semantic_analyze("fun f() { 8 >> 1 }")?;
+    semantic_analyze("fun f() { 1 < 2 }")?;
+    semantic_analyze("fun f() { 1 <= 2 }")?;
+    semantic_analyze("fun f() { 1 > 2 }")?;
+    semantic_analyze("fun f() { 1 >= 2 }")?;
+    semantic_analyze("fun f() { 1 == 2 }")?;
+    semantic_analyze("fun f() { 1 != 2 }")?;
     Ok(())
 }
 
 #[test]
 fn logical_binary() -> anyhow::Result<()> {
-    semantic_analyze("fn f() { true && false }")?;
-    semantic_analyze("fn f() { true || false }")?;
+    semantic_analyze("fun f() { true && false }")?;
+    semantic_analyze("fun f() { true || false }")?;
     Ok(())
 }
 
 #[test]
 fn logical_not() -> anyhow::Result<()> {
-    semantic_analyze("fn f() { !true }")?;
+    semantic_analyze("fun f() { !true }")?;
     Ok(())
 }
 
 #[test]
 fn bit_not() -> anyhow::Result<()> {
-    semantic_analyze("fn f() { ~1 }")?;
+    semantic_analyze("fun f() { ~1 }")?;
     Ok(())
 }
 
@@ -133,7 +133,7 @@ import std.option
 use std.sync.Channel
 use std.option.Option
 
-fn f(): i32 {
+fun f() -> i32 {
     let ch = Channel<i32>::with_capacity(1)
     ch <- 42
 
@@ -148,28 +148,28 @@ fn f(): i32 {
 
 #[test]
 fn channel_recv_requires_channel() -> anyhow::Result<()> {
-    let err = semantic_analyze_expect_error("fn f() { <-1 }")?;
+    let err = semantic_analyze_expect_error("fun f() { <-1 }")?;
     assert!(err.to_string().contains("channel receive requires"));
     Ok(())
 }
 
 #[test]
 fn channel_send_requires_channel() -> anyhow::Result<()> {
-    let err = semantic_analyze_expect_error("fn f() { 1 <- 2 }")?;
+    let err = semantic_analyze_expect_error("fun f() { 1 <- 2 }")?;
     assert!(err.to_string().contains("channel send requires"));
     Ok(())
 }
 
 #[test]
 fn array_indexing() -> anyhow::Result<()> {
-    semantic_analyze("fn f() { [0, 1, 2][1] }")?;
+    semantic_analyze("fun f() { [0, 1, 2][1] }")?;
     Ok(())
 }
 
 #[test]
 fn slice_type_annotation() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn len(s: [i32]) {
+        "fun len(s: [i32]) {
             let _ = s[0]
         }",
     )?;
@@ -179,8 +179,8 @@ fn slice_type_annotation() -> anyhow::Result<()> {
 #[test]
 fn array_to_slice_param() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn take(s: [i32]) { let _ = s[1]; }
-        fn main() {
+        "fun take(s: [i32]) { let _ = s[1]; }
+        fun main() {
             take([1, 2, 3])
         }",
     )?;
@@ -190,8 +190,8 @@ fn array_to_slice_param() -> anyhow::Result<()> {
 #[test]
 fn array_to_slice_return() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn make(): [i32] { [10, 20, 30] }
-        fn use_slice() {
+        "fun make() -> [i32] { [10, 20, 30] }
+        fun use_slice() {
             let s = make()
             let _ = s[2]
         }",
@@ -202,9 +202,9 @@ fn array_to_slice_return() -> anyhow::Result<()> {
 #[test]
 fn array_to_slice_var() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn take(s: [i32]): i32 { return s[1] }
+        "fun take(s: [i32]) -> i32 { return s[1] }
 
-        fn f(): i32 {
+        fun f() -> i32 {
             let a: [i32; 3] = [1, 2, 3]
             return take(a)
         }",
@@ -215,7 +215,7 @@ fn array_to_slice_var() -> anyhow::Result<()> {
 #[test]
 fn slice_full_range() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f() {
+        "fun f() {
             let ar = [0, 1, 2]
             let _ = ar[:]
         }",
@@ -226,7 +226,7 @@ fn slice_full_range() -> anyhow::Result<()> {
 #[test]
 fn slice_from_start() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f() {
+        "fun f() {
             let ar = [0, 1, 2, 3, 4]
             let _ = ar[:3]
         }",
@@ -237,7 +237,7 @@ fn slice_from_start() -> anyhow::Result<()> {
 #[test]
 fn slice_to_end() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f() {
+        "fun f() {
             let ar = [0, 1, 2, 3, 4]
             let _ = ar[2:]
         }",
@@ -248,7 +248,7 @@ fn slice_to_end() -> anyhow::Result<()> {
 #[test]
 fn slice_range() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f() {
+        "fun f() {
             let ar = [0, 1, 2, 3, 4]
             let _ = ar[1:4]
         }",
@@ -259,7 +259,7 @@ fn slice_range() -> anyhow::Result<()> {
 #[test]
 fn slice_of_slice() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f(s: [i32]) {
+        "fun f(s: [i32]) {
             let mid = s[1:4]
             let tail = mid[1:]
             let _ = tail[0]
@@ -271,7 +271,7 @@ fn slice_of_slice() -> anyhow::Result<()> {
 #[test]
 fn slice_type_inference() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f(): [i32] {
+        "fun f() -> [i32] {
             let ar = [1, 2, 3, 4]
             return ar[1:]
         }",
@@ -282,7 +282,7 @@ fn slice_type_inference() -> anyhow::Result<()> {
 #[test]
 fn slice_bounds_error() -> anyhow::Result<()> {
     semantic_analyze_expect_error(
-        "fn f() {
+        "fun f() {
             let _ = true[:]
         }",
     )?;
@@ -292,8 +292,8 @@ fn slice_bounds_error() -> anyhow::Result<()> {
 #[test]
 fn function_call() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f(a: i32, b: i32): i32 { return a + b }\n
-        fn g(): i32 { return f(48, 10) }
+        "fun f(a: i32, b: i32) -> i32 { return a + b }\n
+        fun g() -> i32 { return f(48, 10) }
     ",
     )?;
     Ok(())
@@ -302,7 +302,7 @@ fn function_call() -> anyhow::Result<()> {
 #[test]
 fn if_() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f(a: i32): i32 {
+        "fun f(a: i32) -> i32 {
             return if a == 0 {
                 1
             } else if a > 0 {
@@ -315,7 +315,7 @@ fn if_() -> anyhow::Result<()> {
 
     // Test that `a < 0` is correctly parsed as a comparison, not generic syntax
     semantic_analyze(
-        "fn f(a: i32): i32 {
+        "fun f(a: i32) -> i32 {
             return if a == 0 {
                 1
             } else if a < 0 {
@@ -332,7 +332,7 @@ fn if_() -> anyhow::Result<()> {
 #[test]
 fn tuple_literal() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f(): (i32, bool) {
+        "fun f() -> (i32, bool) {
             return (42, true)
         }",
     )?;
@@ -342,7 +342,7 @@ fn tuple_literal() -> anyhow::Result<()> {
 #[test]
 fn tuple_indexing() -> anyhow::Result<()> {
     semantic_analyze(
-        r#"fn f(): i32 {
+        r#"fun f() -> i32 {
             let t = (42, true, "hello, world")
             return t.0
         }"#,
@@ -354,7 +354,7 @@ fn tuple_indexing() -> anyhow::Result<()> {
 fn struct_literal() -> anyhow::Result<()> {
     semantic_analyze(
         "struct Foo { a: i32, b: bool }
-        fn f(): Foo {
+        fun f() -> Foo {
             return Foo { a: 42, b: true }
         }",
     )?;
@@ -365,7 +365,7 @@ fn struct_literal() -> anyhow::Result<()> {
 fn struct_literal_field_init_shorthand() -> anyhow::Result<()> {
     semantic_analyze(
         "struct Foo { a: i32, b: bool }
-        fn f(): Foo {
+        fun f() -> Foo {
             let a = 42
             let b = true
             return Foo { a, b }
@@ -378,7 +378,7 @@ fn struct_literal_field_init_shorthand() -> anyhow::Result<()> {
 fn struct_access() -> anyhow::Result<()> {
     semantic_analyze(
         "struct Foo { a: i32 }
-        fn f(): i32 {
+        fun f() -> i32 {
             let a = Foo { a: 58 }
             return a.a
         }",
@@ -389,7 +389,7 @@ fn struct_access() -> anyhow::Result<()> {
 #[test]
 fn loop_and_break() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f() {
+        "fun f() {
             loop {
                 break
             }
@@ -401,7 +401,7 @@ fn loop_and_break() -> anyhow::Result<()> {
 #[test]
 fn match_on_bool() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f(x: bool): i32 {
+        "fun f(x: bool) -> i32 {
             return match x {
                 true => 1,
                 false => 0,
@@ -414,7 +414,7 @@ fn match_on_bool() -> anyhow::Result<()> {
 #[test]
 fn match_on_int() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f(x: i32): i32 {
+        "fun f(x: i32) -> i32 {
             return match x {
                 0 => 1,
                 1 => 2,
@@ -429,7 +429,7 @@ fn match_on_int() -> anyhow::Result<()> {
 fn match_on_enum() -> anyhow::Result<()> {
     semantic_analyze(
         "enum Foo { A, B, C }
-        fn f(x: Foo): i32 {
+        fun f(x: Foo) -> i32 {
             return match x {
                 Foo::A => 1,
                 Foo::B => 2,
@@ -443,7 +443,7 @@ fn match_on_enum() -> anyhow::Result<()> {
 #[test]
 fn match_with_catch_all() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f(x: i32): i32 {
+        "fun f(x: i32) -> i32 {
             return match x {
                 0 => 1,
                 _ => 0,
@@ -457,7 +457,7 @@ fn match_with_catch_all() -> anyhow::Result<()> {
 fn match_not_exhaustive_enum() -> anyhow::Result<()> {
     semantic_analyze_expect_error(
         "enum Foo { A, B, C }
-        fn f(x: Foo): i32 {
+        fun f(x: Foo) -> i32 {
             return match x {
                 Foo::A => 1,
                 Foo::B => 2,
@@ -470,7 +470,7 @@ fn match_not_exhaustive_enum() -> anyhow::Result<()> {
 #[test]
 fn match_not_exhaustive_int() -> anyhow::Result<()> {
     semantic_analyze_expect_error(
-        "fn f(x: i32): i32 {
+        "fun f(x: i32) -> i32 {
             return match x {
                 0 => 1,
                 1 => 0,
@@ -483,7 +483,7 @@ fn match_not_exhaustive_int() -> anyhow::Result<()> {
 #[test]
 fn match_not_exhaustive_bool() -> anyhow::Result<()> {
     semantic_analyze_expect_error(
-        "fn f(x: bool): i32 {
+        "fun f(x: bool) -> i32 {
             return match x {
                 true => 1,
             }
@@ -496,7 +496,7 @@ fn match_not_exhaustive_bool() -> anyhow::Result<()> {
 fn enum_variant() -> anyhow::Result<()> {
     semantic_analyze(
         "enum Foo { A, B(i32), C }
-        fn f(): i32 {
+        fun f() -> i32 {
             let x = Foo::B(1)
             return match x {
                 Foo::A => 1,
@@ -511,7 +511,7 @@ fn enum_variant() -> anyhow::Result<()> {
 #[test]
 fn match_catch_all_only_int_error() -> anyhow::Result<()> {
     semantic_analyze_expect_error(
-        "fn f(): i32 {
+        "fun f() -> i32 {
             let x = 42
             return match x {
                 _ => 1
@@ -525,7 +525,7 @@ fn match_catch_all_only_int_error() -> anyhow::Result<()> {
 fn match_catch_all_only_enum_error() -> anyhow::Result<()> {
     semantic_analyze_expect_error(
         "enum Foo { A, B }
-        fn f(): i32 {
+        fun f() -> i32 {
             let x = Foo::A
             return match x {
                 _ => 1
@@ -538,7 +538,7 @@ fn match_catch_all_only_enum_error() -> anyhow::Result<()> {
 #[test]
 fn match_catch_all_undefined_function_int_error() -> anyhow::Result<()> {
     semantic_analyze_expect_error(
-        "fn f(): i32 {
+        "fun f() -> i32 {
             let x = 42
             return match x {
                 1 => 10,
@@ -554,7 +554,7 @@ fn match_catch_all_undefined_function_int_error() -> anyhow::Result<()> {
 fn match_catch_all_undefined_function_enum_error() -> anyhow::Result<()> {
     semantic_analyze_expect_error(
         "enum Foo { A, B }
-        fn f(): i32 {
+        fun f() -> i32 {
             let x = Foo::A
             return match x {
                 Foo::A => 10,
@@ -570,7 +570,7 @@ fn field_access_and_indexing() -> anyhow::Result<()> {
     // Test that field access with indexing works correctly
     semantic_analyze(
         "struct Container { data: [i32; 3] }
-        fn f(): i32 {
+        fun f() -> i32 {
             let c = Container { data: [1, 2, 3] }
             return c.data[0]
         }",
@@ -583,7 +583,7 @@ fn indexing_and_field_access() -> anyhow::Result<()> {
     // Test that indexing followed by field access works correctly
     semantic_analyze(
         "struct Item { value: i32 }
-        fn f(): i32 {
+        fun f() -> i32 {
             let item1 = Item { value: 10 }
             let item2 = Item { value: 20 }
             let item3 = Item { value: 30 }
@@ -598,7 +598,7 @@ fn indexing_and_field_access() -> anyhow::Result<()> {
 fn multiple_indexing() -> anyhow::Result<()> {
     // Test that multiple indexing operations work correctly
     semantic_analyze(
-        "fn f(): i32 {
+        "fun f() -> i32 {
             let row1: [i32; 2] = [1, 2]
             let row2: [i32; 2] = [3, 4]
             let matrix: [[i32; 2]; 2] = [row1, row2]
@@ -614,11 +614,11 @@ fn method_call_and_indexing() -> anyhow::Result<()> {
     semantic_analyze(
         "struct Container { items: [i32; 3] }
         impl Container {
-            fn get_items(self): [i32; 3] {
+            fun get_items(self) -> [i32; 3] {
                 return self.items
             }
         }
-        fn f(): i32 {
+        fun f() -> i32 {
             let c = Container { items: [10, 20, 30] }
             return c.get_items()[1]
         }",
@@ -632,7 +632,7 @@ fn complex_chaining() -> anyhow::Result<()> {
     semantic_analyze(
         "struct Inner { values: [i32; 2] }
         struct Outer { inners: [Inner; 2] }
-        fn f(): i32 {
+        fun f() -> i32 {
             let inner1 = Inner { values: [1, 2] }
             let inner2 = Inner { values: [3, 4] }
             let outer = Outer { inners: [inner1, inner2] }
@@ -657,7 +657,7 @@ fn find_function_body(ir: kaede_ir::CompileUnit, name: &str) -> kaede_ir::stmt::
 fn closure_captures_outer_variables() -> anyhow::Result<()> {
     let ir = semantic_analyze(
         "
-        fn f(): i32 {
+        fun f() -> i32 {
             let a: i32 = 10
             let b: i32 = 2
             let c = | | a + b
@@ -707,8 +707,8 @@ fn closure_captures_outer_variables() -> anyhow::Result<()> {
 #[test]
 fn keyword_arguments_reorder() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn add(a: i32, b: i32): i32 { return a + b }
-        fn main(): i32 { return add(b = 2, a = 1) }",
+        "fun add(a: i32, b: i32) -> i32 { return a + b }
+        fun main() -> i32 { return add(b = 2, a = 1) }",
     )?;
     Ok(())
 }
@@ -716,8 +716,8 @@ fn keyword_arguments_reorder() -> anyhow::Result<()> {
 #[test]
 fn keyword_arguments_mixed_with_positionals() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn mix(a: i32, b: i32, c: i32): i32 { return a + b + c }
-        fn main(): i32 { return mix(1, c = 3, b = 2) }",
+        "fun mix(a: i32, b: i32, c: i32) -> i32 { return a + b + c }
+        fun main() -> i32 { return mix(1, c = 3, b = 2) }",
     )?;
     Ok(())
 }
@@ -725,8 +725,8 @@ fn keyword_arguments_mixed_with_positionals() -> anyhow::Result<()> {
 #[test]
 fn keyword_argument_unknown_param() -> anyhow::Result<()> {
     let err = semantic_analyze_expect_error(
-        "fn f(a: i32) { }
-        fn main() { f(b = 1) }",
+        "fun f(a: i32) { }
+        fun main() { f(b = 1) }",
     )?;
 
     assert!(err.to_string().contains("unknown parameter `b`"));
@@ -736,8 +736,8 @@ fn keyword_argument_unknown_param() -> anyhow::Result<()> {
 #[test]
 fn keyword_argument_duplicate() -> anyhow::Result<()> {
     let err = semantic_analyze_expect_error(
-        "fn f(a: i32) { }
-        fn main() { f(a = 1, a = 2) }",
+        "fun f(a: i32) { }
+        fun main() { f(a = 1, a = 2) }",
     )?;
 
     assert!(err
@@ -749,8 +749,8 @@ fn keyword_argument_duplicate() -> anyhow::Result<()> {
 #[test]
 fn positional_after_keyword_is_error() -> anyhow::Result<()> {
     let err = semantic_analyze_expect_error(
-        "fn f(a: i32, b: i32) { }
-        fn main() { f(a = 1, 2) }",
+        "fun f(a: i32, b: i32) { }
+        fun main() { f(a = 1, 2) }",
     )?;
 
     assert!(err
@@ -762,8 +762,8 @@ fn positional_after_keyword_is_error() -> anyhow::Result<()> {
 #[test]
 fn default_argument_used() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn greet(message: i32 = 7) { let _ = message }
-        fn main() { greet() }",
+        "fun greet(message: i32 = 7) { let _ = message }
+        fun main() { greet() }",
     )?;
     Ok(())
 }
@@ -771,8 +771,8 @@ fn default_argument_used() -> anyhow::Result<()> {
 #[test]
 fn default_argument_with_keyword_override() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn mix(a: i32, b: i32 = 2, c: i32 = 3): i32 { return a + b + c }
-        fn main(): i32 { return mix(1, c = 10) }",
+        "fun mix(a: i32, b: i32 = 2, c: i32 = 3) -> i32 { return a + b + c }
+        fun main() -> i32 { return mix(1, c = 10) }",
     )?;
     Ok(())
 }
@@ -780,8 +780,8 @@ fn default_argument_with_keyword_override() -> anyhow::Result<()> {
 #[test]
 fn missing_required_argument_is_error() -> anyhow::Result<()> {
     let err = semantic_analyze_expect_error(
-        "fn f(a: i32, b: i32 = 1) { }
-        fn main() { f() }",
+        "fun f(a: i32, b: i32 = 1) { }
+        fun main() { f() }",
     )?;
 
     assert!(err.to_string().contains("too few arguments"));

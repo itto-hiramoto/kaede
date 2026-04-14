@@ -261,7 +261,7 @@ fn top_level_statements_can_call_later_functions() -> anyhow::Result<()> {
             r#"
             return add(40, 2)
 
-            fn add(a: i32, b: i32): i32 {
+            fun add(a: i32, b: i32) -> i32 {
                 return a + b
             }
             "#,
@@ -281,66 +281,69 @@ fn top_level_fallthrough_returns_zero() -> anyhow::Result<()> {
 
 #[test]
 fn add() -> anyhow::Result<()> {
-    assert_eq!(exec("fn main(): i32 { return 48 + 10 }")?, 58);
+    assert_eq!(exec("fun main() -> i32 { return 48 + 10 }")?, 58);
 
     Ok(())
 }
 
 #[test]
 fn sub() -> anyhow::Result<()> {
-    assert_eq!(exec("fn main(): i32 { return 68 - 10 }")?, 58);
+    assert_eq!(exec("fun main() -> i32 { return 68 - 10 }")?, 58);
 
     Ok(())
 }
 
 #[test]
 fn mul() -> anyhow::Result<()> {
-    assert_eq!(exec("fn main(): i32 { return 48 * 10 }")?, 480);
+    assert_eq!(exec("fun main() -> i32 { return 48 * 10 }")?, 480);
 
     Ok(())
 }
 
 #[test]
 fn div() -> anyhow::Result<()> {
-    assert_eq!(exec("fn main(): i32 { return 580 / 10 }")?, 58);
+    assert_eq!(exec("fun main() -> i32 { return 580 / 10 }")?, 58);
 
     Ok(())
 }
 
 #[test]
 fn mul_precedence() -> anyhow::Result<()> {
-    assert_eq!(exec("fn main(): i32 { return 48 + 10 * 2 }")?, 68);
+    assert_eq!(exec("fun main() -> i32 { return 48 + 10 * 2 }")?, 68);
 
     Ok(())
 }
 
 #[test]
 fn div_precedence() -> anyhow::Result<()> {
-    assert_eq!(exec("fn main(): i32 { return 48 + 20 / 2 }")?, 58);
+    assert_eq!(exec("fun main() -> i32 { return 48 + 20 / 2 }")?, 58);
 
     Ok(())
 }
 
 #[test]
 fn four_arithmetic_precedence() -> anyhow::Result<()> {
-    assert_eq!(exec("fn main(): i32 { return (48 -10/ 2) + 58 * 2 }")?, 159);
+    assert_eq!(
+        exec("fun main() -> i32 { return (48 -10/ 2) + 58 * 2 }")?,
+        159
+    );
 
     Ok(())
 }
 
 #[test]
 fn unary_plus_and_minus() -> anyhow::Result<()> {
-    assert_eq!(exec("fn main(): i32 { return +(-(-58)) }")?, 58);
+    assert_eq!(exec("fun main() -> i32 { return +(-(-58)) }")?, 58);
 
     Ok(())
 }
 
 #[test]
 fn empty_function() -> anyhow::Result<()> {
-    let program = r"fn f() {
+    let program = r"fun f() {
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         f()
         return 58
     }";
@@ -352,18 +355,18 @@ fn empty_function() -> anyhow::Result<()> {
 
 #[test]
 fn return_() -> anyhow::Result<()> {
-    assert_eq!(exec("fn main(): i32 { return (48*2 +10 * 2) / 2}")?, 58);
+    assert_eq!(exec("fun main() -> i32 { return (48*2 +10 * 2) / 2}")?, 58);
 
     Ok(())
 }
 
 #[test]
 fn empty_return() -> anyhow::Result<()> {
-    let program = r"fn f() {
+    let program = r"fun f() {
         return
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         f()
         return 58
     }";
@@ -376,7 +379,7 @@ fn empty_return() -> anyhow::Result<()> {
 #[test]
 fn let_statement() -> anyhow::Result<()> {
     // Type inference
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let x = 48
         let y = 10
         return x + y
@@ -385,7 +388,7 @@ fn let_statement() -> anyhow::Result<()> {
     assert_eq!(exec(program)?, 58);
 
     // Mutable, Type inference
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let mut x = 58
         return x
     }";
@@ -393,7 +396,7 @@ fn let_statement() -> anyhow::Result<()> {
     assert_eq!(exec(program)?, 58);
 
     // Specified type
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let x: i32 = 58
         return x
     }";
@@ -401,7 +404,7 @@ fn let_statement() -> anyhow::Result<()> {
     assert_eq!(exec(program)?, 58);
 
     // Mutable, Specified type
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let mut x: i32 = 58
         return x
     }";
@@ -413,7 +416,7 @@ fn let_statement() -> anyhow::Result<()> {
 
 #[test]
 fn short_decl_colon_eq() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         x := 48
         y := 10
         return x + y
@@ -421,14 +424,14 @@ fn short_decl_colon_eq() -> anyhow::Result<()> {
 
     assert_eq!(exec(program)?, 58);
 
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         mut x := 58
         return x
     }";
 
     assert_eq!(exec(program)?, 58);
 
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         mut x := 0
         x = 58
         return x
@@ -441,15 +444,15 @@ fn short_decl_colon_eq() -> anyhow::Result<()> {
 
 #[test]
 fn call_function() -> anyhow::Result<()> {
-    let program = r"fn f1(): i32 {
+    let program = r"fun f1() -> i32 {
         return 48
     }
 
-    fn f2(): i32 {
+    fun f2() -> i32 {
         return 10
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         return f1() + f2()
     }";
 
@@ -460,11 +463,11 @@ fn call_function() -> anyhow::Result<()> {
 
 #[test]
 fn function_parameters() -> anyhow::Result<()> {
-    let program = r"fn f(n: i32): i32 {
+    let program = r"fun f(n: i32) -> i32 {
         return n
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         return 58
     }";
 
@@ -475,11 +478,11 @@ fn function_parameters() -> anyhow::Result<()> {
 
 #[test]
 fn function_call_with_one_argument() -> anyhow::Result<()> {
-    let program = r"fn f(n: i32): i32 {
+    let program = r"fun f(n: i32) -> i32 {
         return n
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         return f(58)
     }";
 
@@ -490,11 +493,11 @@ fn function_call_with_one_argument() -> anyhow::Result<()> {
 
 #[test]
 fn function_call_with_multi_args() -> anyhow::Result<()> {
-    let program = r"fn f(x: i32, y: i32): i32 {
+    let program = r"fun f(x: i32, y: i32) -> i32 {
         return x + y
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         return f(48, 10)
     }";
 
@@ -505,11 +508,11 @@ fn function_call_with_multi_args() -> anyhow::Result<()> {
 
 #[test]
 fn function_call_with_keyword_args() -> anyhow::Result<()> {
-    let program = r"fn f(x: i32, y: i32, z: i32): i32 {
+    let program = r"fun f(x: i32, y: i32, z: i32) -> i32 {
         return x * y + z
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         // Reordered keyword arguments should map correctly.
         return f(z=8, x=50, y=0)
     }";
@@ -521,7 +524,7 @@ fn function_call_with_keyword_args() -> anyhow::Result<()> {
 
 #[test]
 fn simple_if() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         if 58 == 58 {
             return 58
         }
@@ -536,7 +539,7 @@ fn simple_if() -> anyhow::Result<()> {
 
 #[test]
 fn if_else() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         if 48 == 10 {
             return 48
         } else if
@@ -557,7 +560,7 @@ fn if_else() -> anyhow::Result<()> {
 
 #[test]
 fn equality_operation() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         if 4810 == 4810 {
             return 58
         }
@@ -572,7 +575,7 @@ fn equality_operation() -> anyhow::Result<()> {
 
 #[test]
 fn loop_() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let mut n = 0
 
         loop {
@@ -593,7 +596,7 @@ fn loop_() -> anyhow::Result<()> {
 
 #[test]
 fn while_() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let mut n = 0
 
         while n < 10 {
@@ -610,7 +613,7 @@ fn while_() -> anyhow::Result<()> {
 
 #[test]
 fn break_() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         loop {
             break
         }
@@ -625,7 +628,7 @@ fn break_() -> anyhow::Result<()> {
 
 #[test]
 fn break_outside_of_loop() {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         break
     }";
 
@@ -637,7 +640,7 @@ fn break_outside_of_loop() {
 
 #[test]
 fn simple_assignment() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let mut n = 0
 
         n = 58
@@ -652,7 +655,7 @@ fn simple_assignment() -> anyhow::Result<()> {
 
 #[test]
 fn assign_to_immutable() {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let n = 58
         n = 4810
         return n
@@ -666,7 +669,7 @@ fn assign_to_immutable() {
 
 #[test]
 fn string_literal() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let s1 = "hello, world"
         let s2 = "こんにちは"
 
@@ -680,7 +683,7 @@ fn string_literal() -> anyhow::Result<()> {
 
 #[test]
 fn builtin_format() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let s = __format("a{}b{}", "x", "yz")
         return s.len() as i32
     }"#;
@@ -691,7 +694,7 @@ fn builtin_format() -> anyhow::Result<()> {
 
 #[test]
 fn builtin_format_requires_literal_template() {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let t = "{}"
         let _ = __format(t, "x")
         return 0
@@ -705,7 +708,7 @@ fn builtin_format_requires_literal_template() {
 
 #[test]
 fn builtin_format_requires_matching_placeholder_count() {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let _ = __format("{} {}", "x")
         return 0
     }"#;
@@ -718,7 +721,7 @@ fn builtin_format_requires_matching_placeholder_count() {
 
 #[test]
 fn format_is_undeclared() {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let _ = format("{}", "x")
         return 0
     }"#;
@@ -731,7 +734,7 @@ fn format_is_undeclared() {
 
 #[test]
 fn interpolated_string() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let name = "xy"
         let s = $"a{name}b"
         return s.len() as i32
@@ -743,7 +746,7 @@ fn interpolated_string() -> anyhow::Result<()> {
 
 #[test]
 fn byte_string_literal() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let bs = b"hi"
         return (bs[0] as i32) + (bs[1] as i32)
     }"#;
@@ -755,7 +758,7 @@ fn byte_string_literal() -> anyhow::Result<()> {
 
 #[test]
 fn byte_string_literal_with_escapes() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let bs = b"a\n\\\""
         return (bs[0] as i32) + (bs[1] as i32) + (bs[2] as i32) + (bs[3] as i32)
     }"#;
@@ -766,7 +769,7 @@ fn byte_string_literal_with_escapes() -> anyhow::Result<()> {
 
 #[test]
 fn byte_literal() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let b = b'A'
         return b as i32
     }"#;
@@ -777,7 +780,7 @@ fn byte_literal() -> anyhow::Result<()> {
 
 #[test]
 fn byte_literal_escape_sequences() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let newline = b'\n'
         let tab = b'\t'
         let backslash = b'\\'
@@ -791,7 +794,7 @@ fn byte_literal_escape_sequences() -> anyhow::Result<()> {
 
 #[test]
 fn byte_literal_arithmetic() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let a = b'a'
         let z = b'z'
         return (z - a) as i32
@@ -803,11 +806,11 @@ fn byte_literal_arithmetic() -> anyhow::Result<()> {
 
 #[test]
 fn string_type() -> anyhow::Result<()> {
-    let program = r#"fn f(s: str): str {
+    let program = r#"fun f(s: str) -> str {
         return s
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let s: str = f("Yohaio")
         return 58
     }"#;
@@ -826,7 +829,7 @@ fn define_struct() -> anyhow::Result<()> {
 
     struct B { a: i32, b: bool }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         return 58
     }";
 
@@ -844,7 +847,7 @@ fn struct_field_access() -> anyhow::Result<()> {
         is_female: bool,
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let person = Person { is_male: false, stature: 48, age: 10, is_female: true }
         return person.age + person.stature
     }";
@@ -856,7 +859,7 @@ fn struct_field_access() -> anyhow::Result<()> {
 
 #[test]
 fn true_() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let b = true
 
         if b {
@@ -873,7 +876,7 @@ fn true_() -> anyhow::Result<()> {
 
 #[test]
 fn false_() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let b = false
 
         if b {
@@ -890,7 +893,7 @@ fn false_() -> anyhow::Result<()> {
 
 #[test]
 fn has_no_fields() {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         4810.shino
     }";
 
@@ -899,7 +902,7 @@ fn has_no_fields() {
 
 #[test]
 fn less_than() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         if 48 < 48 {
             return 123
         } else if 48 < 10 {
@@ -918,7 +921,7 @@ fn less_than() -> anyhow::Result<()> {
 
 #[test]
 fn greater_than() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         if 10 > 10 {
             return 123
         } else if 10 > 48 {
@@ -937,7 +940,7 @@ fn greater_than() -> anyhow::Result<()> {
 
 #[test]
 fn less_than_or_equal() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         if 48 <= 48 {
             return 58
         } else {
@@ -954,7 +957,7 @@ fn less_than_or_equal() -> anyhow::Result<()> {
 
 #[test]
 fn greater_than_or_equal() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         if 10 >= 10 {
             return 58
         } else {
@@ -971,7 +974,7 @@ fn greater_than_or_equal() -> anyhow::Result<()> {
 
 #[test]
 fn not_equal_to() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         if 48 != 48 {
             return 123
         } else if 48 != 10 {
@@ -988,11 +991,11 @@ fn not_equal_to() -> anyhow::Result<()> {
 
 #[test]
 fn logical_not() -> anyhow::Result<()> {
-    let program = r"fn f(fl: bool): bool {
+    let program = r"fun f(fl: bool) -> bool {
         return !fl
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         if !(48 != 10) {
             return 123
         }
@@ -1013,7 +1016,7 @@ fn logical_not() -> anyhow::Result<()> {
 
 #[test]
 fn remainder() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         return 123 % 7
     }";
 
@@ -1025,7 +1028,7 @@ fn remainder() -> anyhow::Result<()> {
 #[test]
 fn bit_and_or_xor() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let a = 5 & 3
             let b = 5 | 2
             let c = 5 ^ 1
@@ -1040,7 +1043,7 @@ fn bit_and_or_xor() -> anyhow::Result<()> {
 #[test]
 fn bit_shift() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let a = 3 << 2
             let b = 16 >> 2
             return a + b
@@ -1054,7 +1057,7 @@ fn bit_shift() -> anyhow::Result<()> {
 #[test]
 fn bit_not() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             return ~0
         }
     "#;
@@ -1066,7 +1069,7 @@ fn bit_not() -> anyhow::Result<()> {
 #[test]
 fn bit_operator_precedence() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let a = 1 + 2 << 3
             let b = 8 >> 1 & 3
             let c = 1 | 2 ^ 3 & 4
@@ -1080,7 +1083,7 @@ fn bit_operator_precedence() -> anyhow::Result<()> {
 
 #[test]
 fn logical_or() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         if false || false {
             return 123
         }
@@ -1103,7 +1106,7 @@ fn logical_or() -> anyhow::Result<()> {
 
 #[test]
 fn logical_and() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         if false && true {
             return 123
         }
@@ -1128,7 +1131,7 @@ fn logical_and() -> anyhow::Result<()> {
 
 #[test]
 fn array_literal() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let a = [48, 10]
         return 58
     }";
@@ -1140,7 +1143,7 @@ fn array_literal() -> anyhow::Result<()> {
 
 #[test]
 fn array_repeat() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let a = [42; 3]
         return a[0] + a[1] + a[2]
     }";
@@ -1152,7 +1155,7 @@ fn array_repeat() -> anyhow::Result<()> {
 
 #[test]
 fn array_repeat_value_evaluated_once() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let mut x = 0
         let arr = [{ x = x + 1; x }; 4]
         return x * 10 + arr[3]
@@ -1165,7 +1168,7 @@ fn array_repeat_value_evaluated_once() -> anyhow::Result<()> {
 
 #[test]
 fn array_repeat_with_type_annotation() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let arr: [i32; 2] = [0; 2]
         return arr[0] + arr[1]
     }";
@@ -1177,7 +1180,7 @@ fn array_repeat_with_type_annotation() -> anyhow::Result<()> {
 
 #[test]
 fn array_indexing() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let a = [48, 10]
         return a[0] + [4][0] + a[1]
     }";
@@ -1189,7 +1192,7 @@ fn array_indexing() -> anyhow::Result<()> {
 
 #[test]
 fn array_type() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let a: [i32; 2] = [48, 10]
         let n: [i32; 1] = [4]
         return a[0] + a[1] + n[0]
@@ -1202,11 +1205,11 @@ fn array_type() -> anyhow::Result<()> {
 
 #[test]
 fn array_as_argument() -> anyhow::Result<()> {
-    let program = r"fn add(a: [i32; 2]): i32 {
+    let program = r"fun add(a: [i32; 2]) -> i32 {
         return a[0] + a[1]
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let a = [48, 10]
 
         return add(a)
@@ -1219,16 +1222,16 @@ fn array_as_argument() -> anyhow::Result<()> {
 
 #[test]
 fn array_as_mutable_argument() -> anyhow::Result<()> {
-    let program = r"fn modify(a: mut [i32; 2]) {
+    let program = r"fun modify(a: mut [i32; 2]) {
         a[0] = 48
         a[1] = 10
     }
 
-    fn add(a: [i32; 2]): i32 {
+    fun add(a: [i32; 2]) -> i32 {
         return a[0] + a[1]
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let mut a = [12, 34]
 
         modify(a)
@@ -1243,16 +1246,16 @@ fn array_as_mutable_argument() -> anyhow::Result<()> {
 
 #[test]
 fn immutable_array_as_mutable_argument() {
-    let program = r"fn modify(a: mut [i32; 2]) {
+    let program = r"fun modify(a: mut [i32; 2]) {
         a[0] = 48
         a[1] = 10
     }
 
-    fn add(a: [i32; 2]): i32 {
+    fun add(a: [i32; 2]) -> i32 {
         return a[0] + a[1]
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let a = [123, 124]
 
         // ERROR!
@@ -1269,7 +1272,7 @@ fn immutable_array_as_mutable_argument() {
 
 #[test]
 fn assign_to_array_elements() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let mut a = [123]
 
         a[0] = 58
@@ -1284,7 +1287,7 @@ fn assign_to_array_elements() -> anyhow::Result<()> {
 
 #[test]
 fn tuple_indexing() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let tup = (58, true, "hello")
 
         if tup.1 {
@@ -1301,7 +1304,7 @@ fn tuple_indexing() -> anyhow::Result<()> {
 
 #[test]
 fn tuple_unpacking() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let tup = (48, true, "hello", 10)
 
         let (n1, f, _, n2) = tup
@@ -1315,7 +1318,7 @@ fn tuple_unpacking() -> anyhow::Result<()> {
 
     assert_eq!(exec(program)?, 58);
 
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let (n1, f, _, n2) = (48, true, "hello", 10)
 
         if f {
@@ -1332,7 +1335,7 @@ fn tuple_unpacking() -> anyhow::Result<()> {
 
 #[test]
 fn tuple_as_argument() -> anyhow::Result<()> {
-    let program = r"fn tup1(a: (i32, bool)): i32 {
+    let program = r"fun tup1(a: (i32, bool)) -> i32 {
         if a.1 {
             return a.0
         }
@@ -1340,7 +1343,7 @@ fn tuple_as_argument() -> anyhow::Result<()> {
         return 123
     }
 
-    fn tup2(a: (i32, bool)): i32 {
+    fun tup2(a: (i32, bool)) -> i32 {
         let (n, f) = a
 
         if f {
@@ -1350,7 +1353,7 @@ fn tuple_as_argument() -> anyhow::Result<()> {
         return 124
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let tup = (58, true)
 
         return tup1(tup) + tup2(tup)
@@ -1363,12 +1366,12 @@ fn tuple_as_argument() -> anyhow::Result<()> {
 
 #[test]
 fn tuple_as_mutable_argument() -> anyhow::Result<()> {
-    let program = r"fn modify(tup: mut (i32, bool)) {
+    let program = r"fun modify(tup: mut (i32, bool)) {
         tup.0 = 58
         tup.1 = true
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let mut tup = (123, false)
 
         modify(tup)
@@ -1387,7 +1390,7 @@ fn tuple_as_mutable_argument() -> anyhow::Result<()> {
 
 #[test]
 fn tuples_require_access_by_index() {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let tup = (58, true)
         tup.llvm
     }";
@@ -1400,7 +1403,7 @@ fn tuples_require_access_by_index() {
 
 #[test]
 fn tuple_in_tuple() -> anyhow::Result<()> {
-    let program = r"fn main(): i32 {
+    let program = r"fun main() -> i32 {
         let mut tuptup = ((48, true), (0, true))
 
         let mut io = tuptup.1
@@ -1423,7 +1426,7 @@ fn assign_to_struct_field() -> anyhow::Result<()> {
         is_female: bool,
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let mut person = Person { is_male: false, stature: 48, age: 0, is_female: true }
         person.age = 10
         return person.age + person.stature
@@ -1443,7 +1446,7 @@ fn assign_to_immutable_struct_field() {
         is_female: bool,
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let person = Person { is_male: false, stature: 48, age: 0, is_female: true }
         person.age = 10
         return person.age + person.stature
@@ -1457,7 +1460,7 @@ fn assign_to_immutable_struct_field() {
 
 #[test]
 fn assign_to_tuple_field() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let mut t = (58, false)
         t.1 = true
 
@@ -1475,7 +1478,7 @@ fn assign_to_tuple_field() -> anyhow::Result<()> {
 
 #[test]
 fn assign_to_immutable_tuple_field() {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let t = (58, false)
         t.1 = true
 
@@ -1500,7 +1503,7 @@ fn comments() -> anyhow::Result<()> {
     hello, world
     world, hello
      */
-    fn main(): i32 {
+    fun main() -> i32 {
         // hello, world
         /* hello, world */
         /*
@@ -1522,7 +1525,7 @@ fn comments() -> anyhow::Result<()> {
 
 #[test]
 fn if_expr_to_initializers_1() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let x = if true {
             58
         } else {
@@ -1539,7 +1542,7 @@ fn if_expr_to_initializers_1() -> anyhow::Result<()> {
 
 #[test]
 fn if_expr_to_initializers_2() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let x = if true {
             58
         } else {
@@ -1556,7 +1559,7 @@ fn if_expr_to_initializers_2() -> anyhow::Result<()> {
 
 #[test]
 fn if_expr_to_initializers_3() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let x = if false {
             123
         } else {
@@ -1573,7 +1576,7 @@ fn if_expr_to_initializers_3() -> anyhow::Result<()> {
 
 #[test]
 fn if_expr_to_initializers_4() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let n = 4810
 
         let x = if false {
@@ -1594,7 +1597,7 @@ fn if_expr_to_initializers_4() -> anyhow::Result<()> {
 
 #[test]
 fn if_expr_in_return_1() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         return if true {
             58
         } else {
@@ -1609,7 +1612,7 @@ fn if_expr_in_return_1() -> anyhow::Result<()> {
 
 #[test]
 fn if_expr_in_return_2() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         return if false {
             123
         } else {
@@ -1624,7 +1627,7 @@ fn if_expr_in_return_2() -> anyhow::Result<()> {
 
 #[test]
 fn if_expr_in_return_3() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         return 122 + if true {
             return 58
         } else {
@@ -1639,7 +1642,7 @@ fn if_expr_in_return_3() -> anyhow::Result<()> {
 
 #[test]
 fn nested_if_expr_1() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let n = 4810
 
         let x = if n == 4810 {
@@ -1666,7 +1669,7 @@ fn nested_if_expr_1() -> anyhow::Result<()> {
 
 #[test]
 fn nested_if_expr_2() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let n = 4810
 
         let x = if false {
@@ -1700,7 +1703,7 @@ fn copy_struct() -> anyhow::Result<()> {
         is_female: bool,
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let mut p1 = Person {
             is_male: false,
             stature: 48,
@@ -1722,7 +1725,7 @@ fn copy_struct() -> anyhow::Result<()> {
 
 #[test]
 fn copy_array() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let mut ar = [128, 256, 512]
 
         let mut arr = ar
@@ -1739,7 +1742,7 @@ fn copy_array() -> anyhow::Result<()> {
 
 #[test]
 fn copy_tuple() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let mut tup = (false, 123)
 
         let mut tupp = tup
@@ -1768,11 +1771,11 @@ fn struct_as_mutable_argument() -> anyhow::Result<()> {
         is_female: bool,
     }
 
-    fn f(p: mut Person) {
+    fun f(p: mut Person) {
         p.age = 10
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let mut p1 = Person {
             is_male: false,
             stature: 48,
@@ -1800,7 +1803,7 @@ fn struct_in_struct() -> anyhow::Result<()> {
         age: Age,
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let mut p = Person {
             age: Age { n: 0 },
         }
@@ -1818,7 +1821,7 @@ fn struct_in_struct() -> anyhow::Result<()> {
 
 #[test]
 fn copy_scalar_type_data() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let n = 58
 
         let mut m = n
@@ -1835,7 +1838,7 @@ fn copy_scalar_type_data() -> anyhow::Result<()> {
 #[test]
 fn assign_to_immutable_to_mutable() {
     // Array
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let ar = [128, 256, 512]
 
         let mut arr = ar
@@ -1849,7 +1852,7 @@ fn assign_to_immutable_to_mutable() {
     ));
 
     // Tuple
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let tup = (58, true)
 
         let mut t = tup
@@ -1867,7 +1870,7 @@ fn assign_to_immutable_to_mutable() {
         n: i32,
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let n = Number { n: 58 }
 
         let mut m = n
@@ -1887,11 +1890,11 @@ fn return_struct() -> anyhow::Result<()> {
         age: i32,
     }
 
-    fn f(): Person {
+    fun f() -> Person {
         return Person { age: 58 }
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let s = f()
 
         return s.age
@@ -1909,7 +1912,7 @@ fn struct_literal_field_init_shorthand() -> anyhow::Result<()> {
         stature: i32,
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let age = 10
         let stature = 48
         let person = Person { age, stature }
@@ -1923,11 +1926,11 @@ fn struct_literal_field_init_shorthand() -> anyhow::Result<()> {
 
 #[test]
 fn return_tuple() -> anyhow::Result<()> {
-    let program = r#"fn f(): (i32, bool) {
+    let program = r#"fun f() -> (i32, bool) {
         return (58, true)
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let t = f()
 
         if t.1 {
@@ -1944,11 +1947,11 @@ fn return_tuple() -> anyhow::Result<()> {
 
 #[test]
 fn return_array() -> anyhow::Result<()> {
-    let program = r#"fn f(): [i32; 2] {
+    let program = r#"fun f() -> [i32; 2] {
         return [48, 10]
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let ar = f()
 
         return ar[0] + ar[1]
@@ -1961,7 +1964,7 @@ fn return_array() -> anyhow::Result<()> {
 
 #[test]
 fn array_to_slice_param_codegen() -> anyhow::Result<()> {
-    let program = r#"fn sum(s: [i32]): i32 {
+    let program = r#"fun sum(s: [i32]) -> i32 {
         let mut sum = 0
         let mut i = 0
 
@@ -1976,7 +1979,7 @@ fn array_to_slice_param_codegen() -> anyhow::Result<()> {
         return sum
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let ar1: [i32; 2] = [1, 2]
         let ar2 = [10, 20, 30]
 
@@ -1990,11 +1993,11 @@ fn array_to_slice_param_codegen() -> anyhow::Result<()> {
 
 #[test]
 fn array_to_slice_return_codegen() -> anyhow::Result<()> {
-    let program = r#"fn make(): [i32] {
+    let program = r#"fun make() -> [i32] {
         return [48, 10]
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let s = make()
 
         return s[0] + s[1]
@@ -2007,11 +2010,11 @@ fn array_to_slice_return_codegen() -> anyhow::Result<()> {
 
 #[test]
 fn slice_len_method_codegen() -> anyhow::Result<()> {
-    let program = r#"fn len_of(s: [i32]): u64 {
+    let program = r#"fun len_of(s: [i32]) -> u64 {
         return s.len()
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let ar = [5, 6, 7]
         return len_of(ar) as i32
     }"#;
@@ -2023,12 +2026,12 @@ fn slice_len_method_codegen() -> anyhow::Result<()> {
 
 #[test]
 fn slice_as_ptr_method_codegen() -> anyhow::Result<()> {
-    let program = r#"fn first_plus_len(s: [i32]): i32 {
+    let program = r#"fun first_plus_len(s: [i32]) -> i32 {
         let ptr = s.as_ptr()
         return ptr[0] + s.len() as i32
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let ar = [10, 20]
         return first_plus_len(ar)
     }"#;
@@ -2040,7 +2043,7 @@ fn slice_as_ptr_method_codegen() -> anyhow::Result<()> {
 
 #[test]
 fn slice_full_range_codegen() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let ar = [1, 2, 3, 4]
         let s = ar[:]
         return s.len() as i32 + s[0] + s[3]
@@ -2053,7 +2056,7 @@ fn slice_full_range_codegen() -> anyhow::Result<()> {
 
 #[test]
 fn slice_range_codegen() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let ar = [5, 6, 7, 8, 9]
         let s = ar[1:4] // 6,7,8
         return s.len() as i32 + s[0] + s[2]
@@ -2066,7 +2069,7 @@ fn slice_range_codegen() -> anyhow::Result<()> {
 
 #[test]
 fn slice_trailing_and_nested_codegen() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let ar = [10, 20, 30, 40]
         let mid = ar[1:4] // 20,30,40
         let tail = mid[1:] // 30,40
@@ -2080,7 +2083,7 @@ fn slice_trailing_and_nested_codegen() -> anyhow::Result<()> {
 
 #[test]
 fn slice_empty_codegen() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let ar = [1, 2, 3]
         let empty = ar[2:2]
         return empty.len() as i32
@@ -2097,11 +2100,11 @@ fn if_in_loop() -> anyhow::Result<()> {
         age: i32,
     }
 
-    fn get_age(p: Person): i32 {
+    fun get_age(p: Person) -> i32 {
         return p.age
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let mut p = Person { age: 0 }
 
         loop {
@@ -2127,12 +2130,12 @@ fn simple_method() -> anyhow::Result<()> {
     }
 
     impl Person {
-        fn get_age(self): i32 {
+        fun get_age(self) -> i32 {
             return self.age
         }
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let mut p = Person { age: 123 }
 
         p.age = 58
@@ -2152,16 +2155,16 @@ fn mutable_method() -> anyhow::Result<()> {
     }
 
     impl Person {
-        fn get_age(self): i32 {
+        fun get_age(self) -> i32 {
             return self.age
         }
 
-        fn change_age_to(mut self, new_age: i32) {
+        fun change_age_to(mut self, new_age: i32) {
             self.age = new_age
         }
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let mut p = Person { age: 123 }
 
         p.change_age_to(58)
@@ -2181,16 +2184,16 @@ fn call_mutable_methods_from_immutable() {
     }
 
     impl Person {
-        fn get_age(self): i32 {
+        fun get_age(self) -> i32 {
             return self.age
         }
 
-        fn change_age_to(mut self, new_age: i32) {
+        fun change_age_to(mut self, new_age: i32) {
             self.age = new_age
         }
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let p = Person { age: 123 }
 
         p.change_age_to(58)
@@ -2211,16 +2214,16 @@ fn modify_fields_in_immutable_methods() {
     }
 
     impl Person {
-        fn get_age(self): i32 {
+        fun get_age(self) -> i32 {
             return self.age
         }
 
-        fn change_age_to(self, new_age: i32) {
+        fun change_age_to(self, new_age: i32) {
             self.age = new_age
         }
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let mut p = Person { age: 123 }
 
         p.change_age_to(58)
@@ -2241,16 +2244,16 @@ fn static_method() -> anyhow::Result<()> {
     }
 
     impl Person {
-        fn new(age: i32): Person {
+        fun new(age: i32) -> Person {
             return Person { age: age }
         }
 
-        fn get_age(self): i32 {
+        fun get_age(self) -> i32 {
             return self.age
         }
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let p = Person::new(58)
 
         return p.get_age()
@@ -2269,7 +2272,7 @@ fn create_simple_enum() -> anyhow::Result<()> {
         C,
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let a = Simple::A
         let b = Simple::B
         let c = Simple::C
@@ -2290,7 +2293,7 @@ fn eq_ne_on_unit_enum_variants() -> anyhow::Result<()> {
         C,
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let a = E::A
         let b = E::B
         let a2 = E::A
@@ -2319,7 +2322,7 @@ fn create_tagged_enum() -> anyhow::Result<()> {
         B(Fruits),
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let e1 = E::A
         let e2 = E::B(Fruits { apple: 48, ichigo: 10 })
         return 58
@@ -2337,7 +2340,7 @@ fn eq_on_tagged_enum_is_rejected() -> anyhow::Result<()> {
         B(i32),
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let a = E::A(1)
         let b = E::B(2)
         if a == b {
@@ -2359,7 +2362,7 @@ fn match_stmt_on_enum() -> anyhow::Result<()> {
         B,
     }
 
-    fn f(): i32 {
+    fun f() -> i32 {
         let e = E::B
 
         match e {
@@ -2370,7 +2373,7 @@ fn match_stmt_on_enum() -> anyhow::Result<()> {
         return 124
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let e = E::A
 
         match e {
@@ -2393,7 +2396,7 @@ fn match_on_enum() -> anyhow::Result<()> {
         B,
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let e = E::A
 
         return match e {
@@ -2414,7 +2417,7 @@ fn match_on_enum_with_wildcard() -> anyhow::Result<()> {
         B,
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let e = E::A
 
         return match e {
@@ -2440,7 +2443,7 @@ fn match_on_tagged_enum() -> anyhow::Result<()> {
         B(Fruits),
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let e = E::B(Fruits { apple: 48, ichigo: 10 })
 
         return match e {
@@ -2466,7 +2469,7 @@ fn match_on_tagged_enum_to_discard_value() -> anyhow::Result<()> {
         B(Fruits),
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let e = E::B(Fruits { apple: 48, ichigo: 10 })
 
         return match e {
@@ -2492,7 +2495,7 @@ fn match_on_tagged_enum_with_wildcard() -> anyhow::Result<()> {
         B(Fruits),
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let e = E::B(Fruits { apple: 48, ichigo: 10 })
 
         return match e {
@@ -2508,7 +2511,7 @@ fn match_on_tagged_enum_with_wildcard() -> anyhow::Result<()> {
 
 #[test]
 fn match_on_int_without_wildcard() {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let n = 25
 
         return match n {
@@ -2526,7 +2529,7 @@ fn match_on_int_without_wildcard() {
 
 #[test]
 fn match_on_int_with_wildcard() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let n = 58
 
         return match n {
@@ -2544,7 +2547,7 @@ fn match_on_int_with_wildcard() -> anyhow::Result<()> {
 
 #[test]
 fn match_on_bool_without_true() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let flag = false
 
         return match flag {
@@ -2562,7 +2565,7 @@ fn match_on_bool_without_true() -> anyhow::Result<()> {
 
 #[test]
 fn match_on_bool_without_false() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let flag = true
 
         return match flag {
@@ -2580,7 +2583,7 @@ fn match_on_bool_without_false() -> anyhow::Result<()> {
 
 #[test]
 fn match_on_bool() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let flag = true
 
         return match flag {
@@ -2596,7 +2599,7 @@ fn match_on_bool() -> anyhow::Result<()> {
 
 #[test]
 fn match_on_bool_with_wildcard() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let flag = true
 
         return match flag {
@@ -2618,7 +2621,7 @@ fn non_exhaustive_patterns() {
         C,
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let e = E::A
 
         return match e {
@@ -2641,7 +2644,7 @@ fn duplicate_pattern() {
         B,
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let e = E::A
 
         return match e {
@@ -2665,7 +2668,7 @@ fn enum_as_argument() -> anyhow::Result<()> {
         C,
     }
 
-    fn f(e: E): i32 {
+    fun f(e: E) -> i32 {
         return match e {
             E::A => 123,
             E::B => 124,
@@ -2673,7 +2676,7 @@ fn enum_as_argument() -> anyhow::Result<()> {
         }
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         return f(E::C)
     }"#;
 
@@ -2694,14 +2697,14 @@ fn tagged_enum_as_argument() -> anyhow::Result<()> {
         B(Fruits),
     }
 
-    fn sum_fruits(e: E): i32 {
+    fun sum_fruits(e: E) -> i32 {
         return match e {
             E::A => 116,
             E::B(fruits) => fruits.apple + fruits.ichigo,
         }
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let e1 = E::A
         let e2 = E::B(Fruits { apple: 48, ichigo: 10 })
         return sum_fruits(e1) - sum_fruits(e2)
@@ -2714,11 +2717,11 @@ fn tagged_enum_as_argument() -> anyhow::Result<()> {
 
 #[test]
 fn generic_function_with_single_parameter() -> anyhow::Result<()> {
-    let program = r#"fn add_10<T>(n: T):T {
+    let program = r#"fun add_10<T>(n: T) -> T {
         return n + 10
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         return add_10<i32>(48)
     }"#;
 
@@ -2729,7 +2732,7 @@ fn generic_function_with_single_parameter() -> anyhow::Result<()> {
 
 #[test]
 fn generic_function_with_multiple_parameters() -> anyhow::Result<()> {
-    let program = r#"fn add_or_mul<T1, T2, SwitchT>(n1: T1, n2: T2, switcher: SwitchT): T1 {
+    let program = r#"fun add_or_mul<T1, T2, SwitchT>(n1: T1, n2: T2, switcher: SwitchT) -> T1 {
         return if switcher {
             n1 + n2
         } else {
@@ -2737,7 +2740,7 @@ fn generic_function_with_multiple_parameters() -> anyhow::Result<()> {
         }
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         return add_or_mul<i32, i32, bool>(48, 10, true)
     }"#;
 
@@ -2748,7 +2751,7 @@ fn generic_function_with_multiple_parameters() -> anyhow::Result<()> {
 
 #[test]
 fn generic_function_param_inference() -> anyhow::Result<()> {
-    let program = r#"fn add_or_mul<T1, T2, SwitchT>(n1: T1, n2: T2, switcher: SwitchT): T1 {
+    let program = r#"fun add_or_mul<T1, T2, SwitchT>(n1: T1, n2: T2, switcher: SwitchT) -> T1 {
         return if switcher {
             n1 + n2
         } else {
@@ -2756,7 +2759,7 @@ fn generic_function_param_inference() -> anyhow::Result<()> {
         }
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         return add_or_mul(48, 10, true)
     }"#;
 
@@ -2767,11 +2770,11 @@ fn generic_function_param_inference() -> anyhow::Result<()> {
 
 #[test]
 fn generic_function_identity_param_inference() -> anyhow::Result<()> {
-    let program = r#"fn id<T>(x: T): T {
+    let program = r#"fun id<T>(x: T) -> T {
         return x
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         return id(58)
     }"#;
 
@@ -2786,11 +2789,11 @@ fn generic_function_with_struct_type() -> anyhow::Result<()> {
         n: i32,
     }
 
-    fn get_n<S>(o: S): i32 {
+    fun get_n<S>(o: S) -> i32 {
         return o.n
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let s = Sample { n: 58 }
         return get_n<Sample>(s)
     }"#;
@@ -2802,11 +2805,11 @@ fn generic_function_with_struct_type() -> anyhow::Result<()> {
 
 #[test]
 fn generic_function_with_tuple_type() -> anyhow::Result<()> {
-    let program = r#"fn get_third<T>(t: T): i32 {
+    let program = r#"fun get_third<T>(t: T) -> i32 {
         return t.2
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let tup = (48, 10, 58)
         return get_third<(i32, i32, i32)>(tup)
     }"#;
@@ -2818,11 +2821,11 @@ fn generic_function_with_tuple_type() -> anyhow::Result<()> {
 
 #[test]
 fn generic_function_with_array_type() -> anyhow::Result<()> {
-    let program = r#"fn get_third<T>(a: T): i32 {
+    let program = r#"fun get_third<T>(a: T) -> i32 {
         return a[2]
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let a = [48, 10, 58]
         return get_third<[i32; 3]>(a)
     }"#;
@@ -2837,7 +2840,7 @@ fn generic_struct_with_single_parameter() -> anyhow::Result<()> {
     let program = r#"struct A<T> {
         value: T,
     }
-    fn main(): i32 {
+    fun main() -> i32 {
         let a = A<i32> { value: 58 }
 
         return a.value
@@ -2854,11 +2857,11 @@ fn generic_struct_as_function_argument() -> anyhow::Result<()> {
         n: T,
     }
 
-    fn get_n(s: Sample<i32>): i32 {
+    fun get_n(s: Sample<i32>) -> i32 {
         return s.n
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let s = Sample<i32> { n: 58 }
         return get_n(s)
     }"#;
@@ -2880,7 +2883,7 @@ fn generic_struct_with_multiple_parameters() -> anyhow::Result<()> {
     struct Number {
         value: i32,
     }
-    fn main(): i32 {
+    fun main() -> i32 {
         let fr1 = Fruits<i32, i32> { apple: 48, ichigo: 10 }
         let fr2 = Fruits<A<i32>, Number> { apple: A<i32> { value: 48 }, ichigo: Number { value: 10 } }
 
@@ -2901,10 +2904,10 @@ fn generic_struct_with_multiple_parameters() -> anyhow::Result<()> {
 
 #[test]
 fn block() -> anyhow::Result<()> {
-    let program = r#"fn f(): i32 {
+    let program = r#"fun f() -> i32 {
         return 58
     }
-    fn main(): i32 {
+    fun main() -> i32 {
         let n = {
             let a = 48
             let b = 10
@@ -2926,7 +2929,7 @@ fn block() -> anyhow::Result<()> {
 
 #[test]
 fn match_with_block() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let n = 58
 
         return match n {
@@ -2951,7 +2954,7 @@ fn match_unpack_unit_variant() {
         B,
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let e = E::A
 
         return match e {
@@ -2968,9 +2971,9 @@ fn match_unpack_unit_variant() {
 
 #[test]
 fn c_ffi() -> anyhow::Result<()> {
-    let program = r#"extern "C" fn abs(n: i32): i32
+    let program = r#"extern "C" fun abs(n: i32) -> i32
 
-    fn main(): i32 {
+    fun main() -> i32 {
         return abs(-48) + abs(10)
     }"#;
 
@@ -2981,9 +2984,9 @@ fn c_ffi() -> anyhow::Result<()> {
 
 #[test]
 fn c_ffi_with_ptr_and_vararg() -> anyhow::Result<()> {
-    let program = r#"extern "C" fn printf(format: *u8, ...): i32
+    let program = r#"extern "C" fun printf(format: *u8, ...) -> i32
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let format = "%s%d\n"
         let n = printf(format.as_ptr(), "hello, ".as_ptr(), 58)
         return 48 + n
@@ -2997,16 +3000,16 @@ fn c_ffi_with_ptr_and_vararg() -> anyhow::Result<()> {
 #[test]
 fn method_for_i32() -> anyhow::Result<()> {
     let program = r#"impl i32 {
-        fn twice(self): i32 {
+        fun twice(self) -> i32 {
             return self * 2
         }
 
-        fn twice_then_add(self, n: i32): i32 {
+        fun twice_then_add(self, n: i32) -> i32 {
             return self.twice() + n
         }
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let n = 14.twice_then_add(1)
         return n.twice()
     }"#;
@@ -3023,16 +3026,16 @@ fn method_forward_reference_in_same_impl() -> anyhow::Result<()> {
     }
 
     impl Counter {
-        fn value_plus_one(self): i32 {
+        fun value_plus_one(self) -> i32 {
             return self.plus(1)
         }
 
-        fn plus(self, add: i32): i32 {
+        fun plus(self, add: i32) -> i32 {
             return self.value + add
         }
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         return Counter { value: 57 }.value_plus_one()
     }"#;
 
@@ -3043,12 +3046,12 @@ fn method_forward_reference_in_same_impl() -> anyhow::Result<()> {
 
 #[test]
 fn cast_integer() -> anyhow::Result<()> {
-    let program = r#"fn f(): i64 {
+    let program = r#"fun f() -> i64 {
         let n = 58
         return n as i64
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         return f() as i32
     }"#;
 
@@ -3059,7 +3062,7 @@ fn cast_integer() -> anyhow::Result<()> {
 
 #[test]
 fn all_integer_types_arithmetic_and_casts() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let i8v: i8 = 1
         let u8v: u8 = 2
         let i16v: i16 = 3
@@ -3088,7 +3091,7 @@ fn all_integer_types_arithmetic_and_casts() -> anyhow::Result<()> {
 
 #[test]
 fn cast_str_to_pointer() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let s = "hello, world" as *str as *u8
         return 58
     }"#;
@@ -3108,7 +3111,7 @@ fn single_variant_enum() -> anyhow::Result<()> {
         B(C),
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let a = A::B(C { apple: 58 })
 
         return match a {
@@ -3128,7 +3131,7 @@ fn generic_enum_with_single_parameter() -> anyhow::Result<()> {
         None,
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let a = Opt<i32>::Some(58)
 
         return match a {
@@ -3149,14 +3152,14 @@ fn generic_enum_as_function_argument() -> anyhow::Result<()> {
         None,
     }
 
-    fn get(opt: Opt<i32>): i32 {
+    fun get(opt: Opt<i32>) -> i32 {
         return match opt {
             Opt::Some(n) => n,
             Opt::None => 123,
         }
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let opt = Opt<i32>::Some(58)
         return get(opt)
     }"#;
@@ -3173,7 +3176,7 @@ fn generic_enum_with_multiple_parameters() -> anyhow::Result<()> {
         Err(T2),
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let res1 = Res<i32, bool>::Err(false)
         let res2 = Res<i32, bool>::Ok(58)
 
@@ -3204,7 +3207,7 @@ fn omit_comma_at_end_of_struct_fields() -> anyhow::Result<()> {
         m: i32
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let a = S { n: 48, m: 10 }
         return a.n + a.m
     }"#;
@@ -3221,7 +3224,7 @@ fn omit_comma_at_end_of_enum_variants() -> anyhow::Result<()> {
         C(i32)
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let a = A::C(58)
 
         return match a {
@@ -3242,7 +3245,7 @@ fn omit_comma_at_end_of_match_arms() -> anyhow::Result<()> {
         C(i32),
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let a = A::C(58)
 
         return match a {
@@ -3258,7 +3261,7 @@ fn omit_comma_at_end_of_match_arms() -> anyhow::Result<()> {
 
 #[test]
 fn less_than_with_variables() -> anyhow::Result<()> {
-    let program = r#"fn main(): i32 {
+    let program = r#"fun main() -> i32 {
         let a = 48
         let b = 10
 
@@ -3282,14 +3285,14 @@ fn static_method_with_no_args() -> anyhow::Result<()> {
         size: i32,
     }
     impl A {
-        fn new(): A {
+        fun new() -> A {
             return A { size: 58 }
         }
-        fn get_size(self): i32 {
+        fun get_size(self) -> i32 {
             return self.size
         }
     }
-    fn main(): i32 {
+    fun main() -> i32 {
         let a = A::new()
         return a.get_size()
     }"#;
@@ -3305,17 +3308,17 @@ fn generic_method() -> anyhow::Result<()> {
         value: T,
     }
     impl<T> A<T> {
-        fn new(value: T): A<T> {
+        fun new(value: T) -> A<T> {
             return A<T> { value: value }
         }
-        fn get_value(self): T {
+        fun get_value(self) -> T {
             return self.value
         }
-        fn is_equal(self, other: A<T>): bool {
+        fun is_equal(self, other: A<T>) -> bool {
             return self.value == other.value
         }
     }
-    fn main(): i32 {
+    fun main() -> i32 {
         let a = A<i32>::new(58)
         if a.is_equal(A<i32>::new(58)) {
             return a.get_value()
@@ -3334,17 +3337,17 @@ fn generic_method_forward_reference_in_same_impl() -> anyhow::Result<()> {
         value: T,
     }
     impl<T> Box<T> {
-        fn new(value: T): Box<T> {
+        fun new(value: T) -> Box<T> {
             return Box<T> { value: value }
         }
-        fn value_plus(self, add: i32): i32 {
+        fun value_plus(self, add: i32) -> i32 {
             return self.plus(add)
         }
-        fn plus(self, add: i32): i32 {
+        fun plus(self, add: i32) -> i32 {
             return self.value + add
         }
     }
-    fn main(): i32 {
+    fun main() -> i32 {
         let b = Box<i32>::new(48)
         return b.value_plus(10)
     }"#;
@@ -3356,7 +3359,7 @@ fn generic_method_forward_reference_in_same_impl() -> anyhow::Result<()> {
 
 #[test]
 fn complex_generic_struct_method() -> anyhow::Result<()> {
-    let program = r#"pub enum MyOption<T> {
+    let program = r#"export enum MyOption<T> {
         Some(T),
         None,
     }
@@ -3367,11 +3370,11 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
     }
 
     impl<T> MyList<T> {
-        fn new(): mut MyList<T> {
+        fun new() -> mut MyList<T> {
             return MyList<T> { value: MyOption<T>::None, next: MyOption<MyList<T>>::None }
         }
 
-        fn len(self): u32 {
+        fun len(self) -> u32 {
             return match self.next {
                 MyOption::Some(ne) => (1 as u32) + ne.len(),
                 MyOption::None => {
@@ -3383,7 +3386,7 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
             }
         }
 
-        fn push(mut self, elem: T) {
+        fun push(mut self, elem: T) {
             match self.next {
                 MyOption::Some(ne) => {
                     ne.push(elem)
@@ -3404,7 +3407,7 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
             }
         }
 
-        fn at(self, idx: u32): MyOption<T> {
+        fun at(self, idx: u32) -> MyOption<T> {
             return match self.next {
                 MyOption::Some(ne) => {
                     if idx == (0 as u32) {
@@ -3421,7 +3424,7 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
         }
     }
 
-    fn main(): i32 {
+    fun main() -> i32 {
         let mut v = MyList<i32>::new()
         v.push(48)
         v.push(10)
@@ -3455,7 +3458,7 @@ fn complex_generic_struct_method() -> anyhow::Result<()> {
 #[test]
 fn recursive_function() -> anyhow::Result<()> {
     let program = r#"
-        fn f(n: i32): i32 {
+        fun f(n: i32) -> i32 {
             if n == 10 {
                 return n
             }
@@ -3463,7 +3466,7 @@ fn recursive_function() -> anyhow::Result<()> {
             return f(n + 1)
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             return f(0)
         }
     "#;
@@ -3476,7 +3479,7 @@ fn recursive_function() -> anyhow::Result<()> {
 #[test]
 fn prelude() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut v = Vector<i32>::new()
             v.push(58)
             return match v.at(0) {
@@ -3494,7 +3497,7 @@ fn prelude() -> anyhow::Result<()> {
 #[test]
 fn prelude_vector_new_infers_type_from_push() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut v = Vector::new()
             v.push(58)
             return match v.at(0) {
@@ -3512,7 +3515,7 @@ fn prelude_vector_new_infers_type_from_push() -> anyhow::Result<()> {
 #[test]
 fn option_some_infers_type_without_explicit_args() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let opt = Option::Some(58)
             return match opt {
                 Option::Some(n) => n,
@@ -3529,7 +3532,7 @@ fn option_some_infers_type_without_explicit_args() -> anyhow::Result<()> {
 #[test]
 fn option_none_infers_type_without_explicit_args_from_return() -> anyhow::Result<()> {
     let program = r#"
-        fn maybe_number(flag: bool): Option<i32> {
+        fun maybe_number(flag: bool) -> Option<i32> {
             if flag {
                 return Option::Some(58)
             }
@@ -3537,7 +3540,7 @@ fn option_none_infers_type_without_explicit_args_from_return() -> anyhow::Result
             return Option::None
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             return match maybe_number(false) {
                 Option::Some(n) => n,
                 Option::None => 58,
@@ -3553,7 +3556,7 @@ fn option_none_infers_type_without_explicit_args_from_return() -> anyhow::Result
 #[test]
 fn option_none_infers_type_without_explicit_args_from_annotated_let() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let opt: Option<i32> = Option::None
             return match opt {
                 Option::Some(n) => n,
@@ -3570,14 +3573,14 @@ fn option_none_infers_type_without_explicit_args_from_annotated_let() -> anyhow:
 #[test]
 fn option_none_infers_type_without_explicit_args_from_fn_param() -> anyhow::Result<()> {
     let program = r#"
-        fn unwrap_or_default(opt: Option<i32>): i32 {
+        fun unwrap_or_default(opt: Option<i32>) -> i32 {
             return match opt {
                 Option::Some(n) => n,
                 Option::None => 58,
             }
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             return unwrap_or_default(Option::None)
         }
     "#;
@@ -3595,7 +3598,7 @@ fn generic_enum_unit_variant_infers_type_without_explicit_args() -> anyhow::Resu
             None,
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let opt: MyOption<i32> = MyOption::None
             return match opt {
                 MyOption::Some(value) => value,
@@ -3616,7 +3619,7 @@ fn vector_new_infers_struct_from_push() -> anyhow::Result<()> {
             x: i32,
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut v = Vector::new()
             v.push(S { x: 123 })
             return 58
@@ -3631,7 +3634,7 @@ fn vector_new_infers_struct_from_push() -> anyhow::Result<()> {
 #[test]
 fn vector_remove_preserves_order() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut v = Vector<i32>::new()
             v.push(10)
             v.push(20)
@@ -3674,7 +3677,7 @@ fn vector_remove_preserves_order() -> anyhow::Result<()> {
 #[test]
 fn vector_swap_remove_replaces_with_last() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut v = Vector<i32>::new()
             v.push(10)
             v.push(20)
@@ -3717,7 +3720,7 @@ fn vector_swap_remove_replaces_with_last() -> anyhow::Result<()> {
 #[test]
 fn vector_retain_accepts_capturing_closure() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut v = Vector<i32>::new()
             v.push(10)
             v.push(20)
@@ -3757,7 +3760,7 @@ fn vector_retain_accepts_capturing_closure() -> anyhow::Result<()> {
 #[test]
 fn vector_filter_accepts_capturing_closure() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut v = Vector<i32>::new()
             v.push(10)
             v.push(20)
@@ -3797,7 +3800,7 @@ fn vector_filter_accepts_capturing_closure() -> anyhow::Result<()> {
 #[test]
 fn string_push_line_appends_newline() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut out = String::new()
             out.push_line("alpha")
             out.push_line("beta")
@@ -3821,7 +3824,7 @@ fn option_some_infers_struct_without_explicit_args() -> anyhow::Result<()> {
             n: i32,
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let opt = Option::Some(S { n: 58 })
             return match opt {
                 Option::Some(v) => v.n,
@@ -3842,11 +3845,11 @@ fn hashmap_basic_crud() -> anyhow::Result<()> {
 
         use std.collections.hash_str
 
-        fn eq_str(a: str, b: str): bool {
+        fun eq_str(a: str, b: str) -> bool {
             return a == b
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut m = HashMap<str, i32>::new(hash_str, eq_str)
             if !m.is_empty() {
                 return 1
@@ -3903,11 +3906,11 @@ fn hashmap_overwrite_returns_old_value() -> anyhow::Result<()> {
 
         use std.collections.hash_str
 
-        fn eq_str(a: str, b: str): bool {
+        fun eq_str(a: str, b: str) -> bool {
             return a == b
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut m = HashMap<str, i32>::new(hash_str, eq_str)
 
             let r1 = m.insert("k", 11)
@@ -3945,7 +3948,7 @@ fn string_push_str_appends_text() -> anyhow::Result<()> {
 
         use std.string.String
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut out = String::from("kae")
             out.push_str("de")
 
@@ -3972,7 +3975,7 @@ fn string_clone_copies_contents() -> anyhow::Result<()> {
 
         use std.string.String
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut first = String::from("kae")
             let second = first.clone()
             first.push_str("de")
@@ -3998,18 +4001,18 @@ fn hashmap_collision_and_rehash() -> anyhow::Result<()> {
     let program = r#"
         import std.collections
 
-        fn hash_i32_const(n: i32): u64 {
+        fun hash_i32_const(n: i32) -> u64 {
             if n == -2147483648 {
                 return 1
             }
             return 1
         }
 
-        fn eq_i32(a: i32, b: i32): bool {
+        fun eq_i32(a: i32, b: i32) -> bool {
             return a == b
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut m = HashMap<i32, i32>::with_capacity(8, hash_i32_const, eq_i32)
 
             let mut i = 0
@@ -4056,7 +4059,7 @@ fn hashmap_collision_and_rehash() -> anyhow::Result<()> {
 #[test]
 fn string_indexing() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let s = "Hello, World!"
             return s[0] as i32
         }
@@ -4070,7 +4073,7 @@ fn string_indexing() -> anyhow::Result<()> {
 #[test]
 fn char_type() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let c1 = 'a'
             let c2 = "abc"[0]
             if c1 == c2 {
@@ -4088,7 +4091,7 @@ fn char_type() -> anyhow::Result<()> {
 #[test]
 fn unicode_string_indexing_returns_unicode_scalar() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let s = "aあb"
             if s[1] == 'あ' {
                 return 58
@@ -4108,7 +4111,7 @@ fn string_len_counts_unicode_scalars() -> anyhow::Result<()> {
 
         use std.string.String
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let s = String::from("aあb")
             if s.len() != 3 {
                 return 1
@@ -4130,7 +4133,7 @@ fn string_len_counts_unicode_scalars() -> anyhow::Result<()> {
 #[test]
 fn match_with_catch_all_and_non_catch_all() {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let n = 123
             return match n {
                 _ => 124
@@ -4153,11 +4156,11 @@ fn match_with_catch_all() -> anyhow::Result<()> {
             C,
         }
 
-        fn f(): i32 {
+        fun f() -> i32 {
             return 123
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let e = E::C
             return match e {
                 E::A => 124,
@@ -4181,7 +4184,7 @@ fn recursive_field_type_on_struct() -> anyhow::Result<()> {
             a: Option<A>,
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let a = A { a: Option<A>::None }
             return 123
         }
@@ -4201,7 +4204,7 @@ fn recursive_field_type_on_enum() -> anyhow::Result<()> {
             C(Option<E>),
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let e = E::C(Option<E>::None)
             return 123
         }
@@ -4219,7 +4222,7 @@ fn not_wrapped_option() {
             opt: Option<i32>,
         }
 
-        fn f(): i32 {
+        fun f() -> i32 {
             let test = Test {
                 opt: 123,
             }
@@ -4235,7 +4238,7 @@ fn not_wrapped_option() {
 #[test]
 fn shadowing_in_match_arms() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let n = Option<i32>::Some(123)
             return match n {
                 Option::Some(n) => n,
@@ -4252,11 +4255,11 @@ fn shadowing_in_match_arms() -> anyhow::Result<()> {
 #[test]
 fn bidirectional_type_inference() -> anyhow::Result<()> {
     let program = r#"
-        fn f(n: u64): i32 {
+        fun f(n: u64) -> i32 {
             return n as i32
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let n = 123
             return f(n) // n is inferred as u64
         }
@@ -4270,7 +4273,7 @@ fn bidirectional_type_inference() -> anyhow::Result<()> {
 #[test]
 fn add_assign() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut n: i32 = 10
             n += 20
             return n
@@ -4284,7 +4287,7 @@ fn add_assign() -> anyhow::Result<()> {
 #[test]
 fn sub_assign() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut n: i32 = 100
             n -= 45
             return n
@@ -4298,7 +4301,7 @@ fn sub_assign() -> anyhow::Result<()> {
 #[test]
 fn mul_assign() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut n: i32 = 29
             n *= 3
             return n
@@ -4312,7 +4315,7 @@ fn mul_assign() -> anyhow::Result<()> {
 #[test]
 fn div_assign() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut n: i32 = 116
             n /= 4
             return n
@@ -4326,7 +4329,7 @@ fn div_assign() -> anyhow::Result<()> {
 #[test]
 fn rem_assign() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut n: i32 = 117
             n %= 4
             return n
@@ -4340,7 +4343,7 @@ fn rem_assign() -> anyhow::Result<()> {
 #[test]
 fn closure_without_params_captures_values() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let a = 48
             let b = 10
 
@@ -4357,7 +4360,7 @@ fn closure_without_params_captures_values() -> anyhow::Result<()> {
 #[test]
 fn closure_with_param_and_captured_copy() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut base = 50
             let add = |n| base + n
             base = 0
@@ -4373,7 +4376,7 @@ fn closure_with_param_and_captured_copy() -> anyhow::Result<()> {
 #[test]
 fn closure_with_multiple_params() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let add = |a, b| a + b
             return add(48, 10)
         }
@@ -4389,7 +4392,7 @@ fn closure_with_captured_udt() -> anyhow::Result<()> {
             n: i32,
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut a = A { n: 48 }
             let f = |b| a.n + b
             a.n = 10
@@ -4408,12 +4411,12 @@ fn closure_with_captured_udt_method() -> anyhow::Result<()> {
         }
 
         impl A {
-            fn add(self, b: i32): i32 {
+            fun add(self, b: i32) -> i32 {
                 return self.n + b
             }
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let a = A { n: 123 }
             let f = |b| a.add(b)
             return f(10)
@@ -4426,7 +4429,7 @@ fn closure_with_captured_udt_method() -> anyhow::Result<()> {
 #[test]
 fn closure_with_block_body() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let a = 48
             let b = 10
             let add = || {
@@ -4442,7 +4445,7 @@ fn closure_with_block_body() -> anyhow::Result<()> {
 #[test]
 fn closure_with_explicit_return_value() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let add = |a, b| {
                 return a + b
             }
@@ -4456,12 +4459,12 @@ fn closure_with_explicit_return_value() -> anyhow::Result<()> {
 #[test]
 fn unit_closure_with_empty_return() -> anyhow::Result<()> {
     let program = r#"
-        fn call(f: fn()): i32 {
+        fun call(f: fun()) -> i32 {
             f()
             return 58
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             return call(|| {
                 return
             })
@@ -4474,11 +4477,11 @@ fn unit_closure_with_empty_return() -> anyhow::Result<()> {
 #[test]
 fn closure_type_as_function_param() -> anyhow::Result<()> {
     let program = r#"
-        fn apply(f: fn(i32) -> i32, x: i32): i32 {
+        fun apply(f: fun(i32) -> i32, x: i32) -> i32 {
             return f(x)
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             return apply(|n| n + 10, 48)
         }
     "#;
@@ -4490,8 +4493,8 @@ fn closure_type_as_function_param() -> anyhow::Result<()> {
 #[test]
 fn closure_type_as_variable() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
-            let f: fn(i32) -> i32 = |x| x + 1
+        fun main() -> i32 {
+            let f: fun(i32) -> i32 = |x| x + 1
             return f(57)
         }
     "#;
@@ -4503,11 +4506,11 @@ fn closure_type_as_variable() -> anyhow::Result<()> {
 #[test]
 fn closure_type_as_function_return_type() -> anyhow::Result<()> {
     let program = r#"
-        fn f(): fn(i32) -> i32 {
+        fun f() -> fun(i32) -> i32 {
             return |x| x + 1
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let g = f()
             return g(48)
         }
@@ -4519,11 +4522,11 @@ fn closure_type_as_function_return_type() -> anyhow::Result<()> {
 #[test]
 fn closure_type_with_generic_param() -> anyhow::Result<()> {
     let program = r#"
-        fn apply<T>(f: fn(T) -> T, x: T): T {
+        fun apply<T>(f: fun(T) -> T, x: T) -> T {
             return f(x)
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             return apply<i32>(|n| n + 10, 48)
         }
     "#;
@@ -4534,7 +4537,7 @@ fn closure_type_with_generic_param() -> anyhow::Result<()> {
 #[test]
 fn closure_immediate_call() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             return (|n| n + 1)(10)
         }
     "#;
@@ -4545,7 +4548,7 @@ fn closure_immediate_call() -> anyhow::Result<()> {
 #[test]
 fn closure_immediate_call_with_multiple_params() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             return (|x, y| x + y)(15, 25)
         }
     "#;
@@ -4556,7 +4559,7 @@ fn closure_immediate_call_with_multiple_params() -> anyhow::Result<()> {
 #[test]
 fn closure_immediate_call_nested() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             return (|x| (|y| x + y)(20))(30)
         }
     "#;
@@ -4567,11 +4570,11 @@ fn closure_immediate_call_nested() -> anyhow::Result<()> {
 #[test]
 fn closure_as_return_value_immediate_call() -> anyhow::Result<()> {
     let program = r#"
-        fn f(): fn(i32) -> i32 {
+        fun f() -> fun(i32) -> i32 {
             return |x| x + 1
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             return f()(20)
         }
     "#;
@@ -4582,11 +4585,11 @@ fn closure_as_return_value_immediate_call() -> anyhow::Result<()> {
 #[test]
 fn function_value_assigned_and_called() -> anyhow::Result<()> {
     let program = r#"
-        fn add(x: i32, y: i32): i32 {
+        fun add(x: i32, y: i32) -> i32 {
             return x + y
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let f = add
             return f(2, 3)
         }
@@ -4598,15 +4601,15 @@ fn function_value_assigned_and_called() -> anyhow::Result<()> {
 #[test]
 fn function_value_passed_as_argument() -> anyhow::Result<()> {
     let program = r#"
-        fn apply(f: fn(i32, i32) -> i32, x: i32, y: i32): i32 {
+        fun apply(f: fun(i32, i32) -> i32, x: i32, y: i32) -> i32 {
             return f(x, y)
         }
 
-        fn mul(x: i32, y: i32): i32 {
+        fun mul(x: i32, y: i32) -> i32 {
             return x * y
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             return apply(mul, 6, 7)
         }
     "#;
@@ -4617,16 +4620,16 @@ fn function_value_passed_as_argument() -> anyhow::Result<()> {
 #[test]
 fn function_and_closure_share_fn_type() -> anyhow::Result<()> {
     let program = r#"
-        fn apply_twice(f: fn(i32) -> i32, x: i32): i32 {
+        fun apply_twice(f: fun(i32) -> i32, x: i32) -> i32 {
             return f(f(x))
         }
 
-        fn inc(n: i32): i32 {
+        fun inc(n: i32) -> i32 {
             return n + 1
         }
 
-        fn main(): i32 {
-            let closure: fn(i32) -> i32 = |n| n + 2
+        fun main() -> i32 {
+            let closure: fun(i32) -> i32 = |n| n + 2
             return apply_twice(inc, 10) + apply_twice(closure, 0)
         }
     "#;
@@ -4644,14 +4647,14 @@ fn spawn_mutex_waitgroup() -> anyhow::Result<()> {
         use std.sync.WaitGroup
         use std.collections.Vector
 
-        fn worker(id: i32, lock: mut Mutex, wg: mut WaitGroup, xs: mut Vector<i32>) {
+        fun worker(id: i32, lock: mut Mutex, wg: mut WaitGroup, xs: mut Vector<i32>) {
             lock.lock()
             xs.push(id)
             lock.unlock()
             wg.done()
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut lock = Mutex::new()
             let mut wg = WaitGroup::new()
             let mut xs = Vector<i32>::new()
@@ -4687,22 +4690,22 @@ fn spawn_preserves_queued_gc_managed_args_during_collection() -> anyhow::Result<
         use std.collections.Vector
         use std.string.String
 
-        extern "C" fn GC_gcollect()
+        extern "C" fun GC_gcollect()
 
-        fn blocker(gate: mut Mutex, wg: mut WaitGroup) {
+        fun blocker(gate: mut Mutex, wg: mut WaitGroup) {
             gate.lock()
             gate.unlock()
             wg.done()
         }
 
-        fn consumer(msg: String, lock: mut Mutex, out: mut Vector<String>, wg: mut WaitGroup) {
+        fun consumer(msg: String, lock: mut Mutex, out: mut Vector<String>, wg: mut WaitGroup) {
             lock.lock()
             out.push(msg)
             lock.unlock()
             wg.done()
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut gate = Mutex::new()
             let mut lock = Mutex::new()
             let mut out = Vector<String>::new()
@@ -4761,7 +4764,7 @@ fn spawn_preserves_queued_gc_managed_args_during_collection() -> anyhow::Result<
 #[test]
 fn panic_basic() -> anyhow::Result<()> {
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             panic("Something went wrong")
             return 0
         }
@@ -4777,7 +4780,7 @@ fn panic_basic() -> anyhow::Result<()> {
 fn panic_never_type_in_if() -> anyhow::Result<()> {
     // Test that panic returns Never type and works in if expressions
     let program = r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let x = if false {
                 panic("unreachable")
             } else {
@@ -4800,7 +4803,7 @@ fn panic_never_type_in_match() -> anyhow::Result<()> {
             Err,
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let r = TestResult::Ok(58)
             let x = match r {
                 TestResult::Ok(v) => v,

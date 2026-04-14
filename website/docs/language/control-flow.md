@@ -80,7 +80,7 @@ while i < pending.len() {
 Functions use explicit `return` in the current codebase:
 
 ```rust
-fn foo(): i32 {
+fun foo() -> i32 {
     return 123
 }
 ```
@@ -91,7 +91,7 @@ Functions returning `Result<T, E>` can use postfix `?` for early returns:
 import std.result
 use std.result.Result
 
-fn read_value(): Result<i32, str> {
+fun read_value() -> Result<i32, str> {
     value := parse()?
     return Result::Ok(value)
 }

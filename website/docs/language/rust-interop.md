@@ -15,7 +15,7 @@ Kaede imports Rust code with `import rust::<crate>`:
 ```rust
 import rust::rust_interop
 
-fn main(): i32 {
+fun main() -> i32 {
     rust::rust_interop::greetings()
     return rust::rust_interop::add(10, 20)
 }
@@ -48,7 +48,7 @@ Generated `src/main.kd`:
 ```rust
 import rust::myproject
 
-fn main(): i32 {
+fun main() -> i32 {
     return rust::myproject::add(10, 20)
 }
 ```

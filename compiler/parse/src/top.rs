@@ -20,6 +20,15 @@ use crate::{
 
 impl Parser {
     pub fn module_item(&mut self) -> ParseResult<ModuleItem> {
+        if self.check(&TokenKind::OldPub) || self.check(&TokenKind::OldFn) {
+            return Err(ParseError::ExpectedError {
+                expected: "new syntax keyword".to_string(),
+                but: self.first().kind.to_string(),
+                span: self.first().span,
+            }
+            .into());
+        }
+
         if self.is_top_level_decl_start() {
             return Ok(ModuleItem::Decl(self.top_level()?));
         }
@@ -30,7 +39,7 @@ impl Parser {
     }
 
     pub fn top_level(&mut self) -> ParseResult<TopLevel> {
-        let vis = self.consume_b(&TokenKind::Pub).into();
+        let vis = self.consume_b(&TokenKind::Export).into();
 
         let token = self.first();
 
@@ -40,7 +49,7 @@ impl Parser {
                 (kind.span, TopLevelKind::Import(kind))
             }
 
-            TokenKind::Fn => {
+            TokenKind::Fun => {
                 let kind = self.func(vis)?;
                 (kind.span, TopLevelKind::Fn(kind))
             }
@@ -96,14 +105,14 @@ impl Parser {
             None => return false,
         };
 
-        if matches!(token, TokenKind::Pub) {
+        if matches!(token, TokenKind::Export) {
             return true;
         }
 
         matches!(
             token,
             TokenKind::Import
-                | TokenKind::Fn
+                | TokenKind::Fun
                 | TokenKind::Struct
                 | TokenKind::Impl
                 | TokenKind::Enum
@@ -335,7 +344,7 @@ impl Parser {
     }
 
     fn fn_decl(&mut self, vis: Visibility) -> ParseResult<FnDecl> {
-        let start = self.consume(&TokenKind::Fn)?.start;
+        let start = self.consume(&TokenKind::Fun)?.start;
 
         let name = self.ident()?;
 
@@ -377,8 +386,10 @@ impl Parser {
             params
         };
 
-        let (return_ty, finish) = if let Ok(span) = self.consume(&TokenKind::Colon) {
-            (Rc::new(self.ty()?), span.finish)
+        let (return_ty, finish) = if self.consume_b(&TokenKind::Arrow) {
+            let ret_ty = Rc::new(self.ty()?);
+            let finish = ret_ty.span.finish;
+            (ret_ty, finish)
         } else {
             let unit_span = self.new_span(params.span.finish, params.span.finish);
             (Rc::new(Ty::new_unit(unit_span)), params.span.finish)

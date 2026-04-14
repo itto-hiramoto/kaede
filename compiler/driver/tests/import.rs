@@ -73,16 +73,16 @@ fn import_functions() -> anyhow::Result<()> {
     let tempdir = assert_fs::TempDir::new()?;
 
     let module1 = tempdir.child("m1.kd");
-    module1.write_str("pub fn f(): i32 { return 48 }")?;
+    module1.write_str("export fun f() -> i32 { return 48 }")?;
 
     let module2 = tempdir.child("m2.kd");
-    module2.write_str("pub fn f(): i32 { return 10 }")?;
+    module2.write_str("export fun f() -> i32 { return 10 }")?;
 
     let main = tempdir.child("main.kd");
     main.write_str(
         r#"import m1
         import m2
-        fn main(): i32 {
+        fun main() -> i32 {
             return m1.f() + m2.f()
         }"#,
     )?;
@@ -97,7 +97,7 @@ fn import_i32_methods() -> anyhow::Result<()> {
     let module = tempdir.child("m.kd");
     module.write_str(
         r#"impl i32 {
-            pub fn add(self, other: i32): i32 {
+            export fun add(self, other: i32) -> i32 {
                 return self + other
             }
         }"#,
@@ -106,7 +106,7 @@ fn import_i32_methods() -> anyhow::Result<()> {
     let main = tempdir.child("main.kd");
     main.write_str(
         r#"import m
-        fn main(): i32 {
+        fun main() -> i32 {
             return 48.add(10)
         }"#,
     )?;
@@ -120,12 +120,12 @@ fn import_i32_method_returning_imported_struct() -> anyhow::Result<()> {
 
     let module = tempdir.child("m.kd");
     module.write_str(
-        r#"pub struct Wrap {
+        r#"export struct Wrap {
             value: i32,
         }
 
         impl i32 {
-            pub fn to_wrap(self): Wrap {
+            export fun to_wrap(self) -> Wrap {
                 return Wrap { value: self }
             }
         }"#,
@@ -134,7 +134,7 @@ fn import_i32_method_returning_imported_struct() -> anyhow::Result<()> {
     let main = tempdir.child("main.kd");
     main.write_str(
         r#"import m
-        fn main(): i32 {
+        fun main() -> i32 {
             let w = 58.to_wrap()
             return w.value
         }"#,
@@ -149,15 +149,15 @@ fn import_struct_methods() -> anyhow::Result<()> {
 
     let module1 = tempdir.child("m1.kd");
     module1.write_str(
-        r#"pub struct Apple {
+        r#"export struct Apple {
             size: i32,
         }
         impl Apple {
-            pub fn new(size: i32): Apple {
+            export fun new(size: i32) -> Apple {
                 return Apple { size: size }
             }
 
-            pub fn is_orange(self): bool {
+            export fun is_orange(self) -> bool {
                 return false
             }
         }"#,
@@ -165,11 +165,11 @@ fn import_struct_methods() -> anyhow::Result<()> {
 
     let module2 = tempdir.child("m2.kd");
     module2.write_str(
-        r#"pub struct Ichigo {
+        r#"export struct Ichigo {
             size: i32,
         }
         impl Ichigo {
-            pub fn get_size(self): i32 {
+            export fun get_size(self) -> i32 {
                 return self.size
             }
         }
@@ -180,7 +180,7 @@ fn import_struct_methods() -> anyhow::Result<()> {
     main.write_str(
         r#"import m1
         import m2
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = m1.Apple::new(48);
             let ichigo = m2.Ichigo { size: 10 }
             if !apple.is_orange() {
@@ -199,15 +199,15 @@ fn import_struct_methods_with_arg_of_self_type() -> anyhow::Result<()> {
 
     let module = tempdir.child("m.kd");
     module.write_str(
-        r#"pub struct Apple {
+        r#"export struct Apple {
             size: i32,
         }
         impl Apple {
-            pub fn new(size: i32): Apple {
+            export fun new(size: i32) -> Apple {
                 return Apple { size: size }
             }
 
-            pub fn equals(self, other: Apple): bool {
+            export fun equals(self, other: Apple) -> bool {
                 return self.size == other.size
             }
         }"#,
@@ -216,7 +216,7 @@ fn import_struct_methods_with_arg_of_self_type() -> anyhow::Result<()> {
     let main = tempdir.child("main.kd");
     main.write_str(
         r#"import m
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = m.Apple::new(48);
             let ichigo = m.Apple::new(10);
             if !apple.equals(ichigo) {
@@ -235,7 +235,7 @@ fn import_struct_methods_with_name_conflict() -> anyhow::Result<()> {
 
     let module = tempdir.child("m1.kd");
     module.write_str(
-        r#"pub struct Apple {
+        r#"export struct Apple {
             size: i32,
         }"#,
     )?;
@@ -246,7 +246,7 @@ fn import_struct_methods_with_name_conflict() -> anyhow::Result<()> {
         struct Apple {
             size: i32,
         }
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple1 = m1.Apple { size: 48 };
             let apple2 = Apple { size: 10 }
             return apple1.size + apple2.size
@@ -262,7 +262,7 @@ fn imported_typed_member() -> anyhow::Result<()> {
 
     let module = tempdir.child("m.kd");
     module.write_str(
-        r#"pub struct Apple {
+        r#"export struct Apple {
             size: i32,
         }"#,
     )?;
@@ -273,7 +273,7 @@ fn imported_typed_member() -> anyhow::Result<()> {
         struct Fruit {
             apple: m.Apple,
         }
-        fn main(): i32 {
+        fun main() -> i32 {
             let fruit = Fruit { apple: m.Apple { size: 58 } }
             return fruit.apple.size
         }"#,
@@ -288,7 +288,7 @@ fn import_enum() -> anyhow::Result<()> {
 
     let module = tempdir.child("m.kd");
     module.write_str(
-        r#"pub enum Fruit {
+        r#"export enum Fruit {
             Apple(i32),
             Orange,
         }"#,
@@ -297,7 +297,7 @@ fn import_enum() -> anyhow::Result<()> {
     let main = tempdir.child("main.kd");
     main.write_str(
         r#"import m
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = m.Fruit::Apple(58);
 
             match apple {
@@ -320,15 +320,15 @@ fn import_enum_methods() -> anyhow::Result<()> {
 
     let module = tempdir.child("m.kd");
     module.write_str(
-        r#"pub enum Fruit {
+        r#"export enum Fruit {
             Apple(i32),
             Orange,
         }
         impl Fruit {
-            pub fn new(s: i32): mut Fruit {
+            export fun new(s: i32) -> mut Fruit {
                 return Fruit::Apple(s)
             }
-            pub fn get(self): i32 {
+            export fun get(self) -> i32 {
                 return match self {
                     Fruit::Apple(s) => s,
                     Fruit::Orange => 123
@@ -340,7 +340,7 @@ fn import_enum_methods() -> anyhow::Result<()> {
     let main = tempdir.child("main.kd");
     main.write_str(
         r#"import m
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = m.Fruit::new(58)
             return apple.get()
         }"#,
@@ -355,11 +355,11 @@ fn import_complex_enum() -> anyhow::Result<()> {
 
     let module = tempdir.child("m.kd");
     module.write_str(
-        r#"pub struct Apple {
+        r#"export struct Apple {
             size: i32,
         }
 
-        pub enum Fruit {
+        export enum Fruit {
             Apple(Apple),
             Ichigo(i32),
         }"#,
@@ -368,7 +368,7 @@ fn import_complex_enum() -> anyhow::Result<()> {
     let main = tempdir.child("main.kd");
     main.write_str(
         r#"import m
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = m.Fruit::Apple(m.Apple { size: 48 });
             let ichigo = m.Fruit::Ichigo(10);
 
@@ -397,11 +397,11 @@ fn enum_with_imported_struct() -> anyhow::Result<()> {
 
     let module = tempdir.child("m.kd");
     module.write_str(
-        r#"pub struct Apple {
+        r#"export struct Apple {
             size: i32,
         }
         impl Apple {
-            pub fn get_size(self): i32 {
+            export fun get_size(self) -> i32 {
                 return self.size
             }
         }"#,
@@ -415,7 +415,7 @@ fn enum_with_imported_struct() -> anyhow::Result<()> {
             Ichigo(i32),
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = Fruit::Apple(m.Apple { size: 48 });
             let ichigo = Fruit::Ichigo(10);
 
@@ -444,17 +444,17 @@ fn import_enum_and_call_variant_method() -> anyhow::Result<()> {
 
     let module = tempdir.child("m.kd");
     module.write_str(
-        r#"pub struct Apple {
+        r#"export struct Apple {
             size: i32,
         }
 
         impl Apple {
-            pub fn get_size(self): i32 {
+            export fun get_size(self) -> i32 {
                 return self.size
             }
         }
 
-        pub enum Fruit {
+        export enum Fruit {
             Apple(Apple),
             Ichigo(i32),
         }"#,
@@ -463,7 +463,7 @@ fn import_enum_and_call_variant_method() -> anyhow::Result<()> {
     let main = tempdir.child("main.kd");
     main.write_str(
         r#"import m
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = m.Fruit::Apple(m.Apple { size: 58 });
 
             match apple {
@@ -486,11 +486,11 @@ fn nested_import() -> anyhow::Result<()> {
 
     let m1 = tempdir.child("m1.kd");
     m1.write_str(
-        r#"pub struct Apple {
+        r#"export struct Apple {
             size: i32,
         }
 
-        pub enum Fruit {
+        export enum Fruit {
             Apple(Apple),
             Ichigo(i32),
         }"#,
@@ -499,17 +499,17 @@ fn nested_import() -> anyhow::Result<()> {
     let m2 = tempdir.child("m2.kd");
     m2.write_str(
         r#"import m1
-        pub fn get_value(fruit: m1.Fruit): i32 {
+        export fun get_value(fruit: m1.Fruit) -> i32 {
             return match fruit {
                 m1.Fruit::Apple(a) => a.size,
                 m1.Fruit::Ichigo(n) => n,
             }
         }
-        pub fn f(): i32 {
+        export fun f() -> i32 {
             let fruit = m1.Fruit::Apple(m1.Apple { size: 48 });
             return get_value(fruit)
         }
-        pub fn g(): i32 {
+        export fun g() -> i32 {
             let fruit = m1.Fruit::Ichigo(10);
             return get_value(fruit)
         }"#,
@@ -518,7 +518,7 @@ fn nested_import() -> anyhow::Result<()> {
     let main = tempdir.child("main.kd");
     main.write_str(
         r#"import m2
-        fn main(): i32 {
+        fun main() -> i32 {
             return m2.f() + m2.g()
         }"#,
     )?;
@@ -533,29 +533,29 @@ fn import_generic_struct_methods() -> anyhow::Result<()> {
     let module = tempdir.child("m.kd");
     module
         .write_str(
-            r#"pub struct Apple<T> {
+            r#"export struct Apple<T> {
             height: T,
             width: T,
         }
 
         impl<T> Apple<T> {
-            pub fn new(height: T, width: T): mut Apple<T> {
+            export fun new(height: T, width: T) -> mut Apple<T> {
                 return Apple<T> { height: height, width: width }
             }
 
-            pub fn set_height(mut self, height: T) {
+            export fun set_height(mut self, height: T) {
                 self.height = height
             }
 
-            pub fn set_width(mut self, width: T) {
+            export fun set_width(mut self, width: T) {
                 self.width = width
             }
 
-            pub fn get_height(self): i32 {
+            export fun get_height(self) -> i32 {
                 return self.height
             }
 
-            pub fn get_width(self): i32 {
+            export fun get_width(self) -> i32 {
                 return self.width
             }
         }"#,
@@ -565,7 +565,7 @@ fn import_generic_struct_methods() -> anyhow::Result<()> {
     let main = tempdir.child("main.kd");
     main.write_str(
         r#"import m
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut apple = m.Apple<i32>::new(123, 456)
             apple.set_height(48)
             apple.set_width(10)
@@ -584,17 +584,17 @@ fn import_generic_enum_methods_with_arg_of_self_type() -> anyhow::Result<()> {
     let module = tempdir.child("m.kd");
     module
         .write_str(
-            r#"pub enum Apple<T> {
+            r#"export enum Apple<T> {
             Ringo(i32),
             Budo,
         }
 
         impl<T> Apple<T> {
-            pub fn new_ringo(size: T): mut Apple<T> {
+            export fun new_ringo(size: T) -> mut Apple<T> {
                 return Apple<T>::Ringo(size)
             }
 
-            pub fn add(self, other: Apple<T>): T {
+            export fun add(self, other: Apple<T>) -> T {
                 let self_size = match self {
                     Apple::Ringo(s) => s,
                     Apple::Budo => 123,
@@ -612,7 +612,7 @@ fn import_generic_enum_methods_with_arg_of_self_type() -> anyhow::Result<()> {
     let main = tempdir.child("main.kd");
     main.write_str(
         r#"import m
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = m.Apple<i32>::new_ringo(48)
             return apple.add(m.Apple<i32>::new_ringo(10))
         }"#,
@@ -629,21 +629,21 @@ fn import_generic_methods_with_arg_of_self_type() -> anyhow::Result<()> {
     let module = tempdir.child("m.kd");
     module
         .write_str(
-            r#"pub struct Apple<T> {
+            r#"export struct Apple<T> {
             height: T,
             width: T,
         }
 
         impl<T> Apple<T> {
-            pub fn new(height: T, width: T): mut Apple<T> {
+            export fun new(height: T, width: T) -> mut Apple<T> {
                 return Apple<T> { height: height, width: width }
             }
 
-            pub fn get(self): T {
+            export fun get(self) -> T {
                 return self.height + self.width
             }
 
-            pub fn equals(self, other: Apple<T>): bool {
+            export fun equals(self, other: Apple<T>) -> bool {
                 return self.height == other.height && self.width == other.width
             }
         }"#,
@@ -653,7 +653,7 @@ fn import_generic_methods_with_arg_of_self_type() -> anyhow::Result<()> {
     let main = tempdir.child("main.kd");
     main.write_str(
         r#"import m
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = m.Apple<i32>::new(48, 10)
             if apple.equals(m.Apple<i32>::new(48, 10)) {
                 return apple.get()
@@ -672,11 +672,11 @@ fn import_function_with_arg_of_external_struct() -> anyhow::Result<()> {
 
     let module1 = tempdir.child("m1.kd");
     module1.write_str(
-        r#"pub struct Apple {
+        r#"export struct Apple {
             size: i32,
         }
 
-        pub fn get_size(apple: Apple): i32 {
+        export fun get_size(apple: Apple) -> i32 {
             return apple.size
         }"#,
     )?;
@@ -684,7 +684,7 @@ fn import_function_with_arg_of_external_struct() -> anyhow::Result<()> {
     let module2 = tempdir.child("m2.kd");
     module2.write_str(
         r#"import m1
-        fn main(): i32 {
+        fun main() -> i32 {
             return m1.get_size(m1.Apple { size: 58 })
         }"#,
     )?;
@@ -698,12 +698,12 @@ fn import_function_with_arg_of_external_enum() -> anyhow::Result<()> {
 
     let module1 = tempdir.child("m1.kd");
     module1.write_str(
-        r#"pub enum Apple {
+        r#"export enum Apple {
             Ringo(i32),
             Budo,
         }
 
-        pub fn get_size(apple: Apple): i32 {
+        export fun get_size(apple: Apple) -> i32 {
             return match apple {
                 Apple::Ringo(s) => s,
                 Apple::Budo => 123,
@@ -714,7 +714,7 @@ fn import_function_with_arg_of_external_enum() -> anyhow::Result<()> {
     let module2 = tempdir.child("m2.kd");
     module2.write_str(
         r#"import m1
-        fn main(): i32 {
+        fun main() -> i32 {
             return m1.get_size(m1.Apple::Ringo(58))
         }"#,
     )?;
@@ -728,30 +728,30 @@ fn use_declaration() -> anyhow::Result<()> {
 
     let module1 = tempdir.child("m1.kd");
     module1.write_str(
-        r#"pub fn get_58(): i32 {
+        r#"export fun get_58() -> i32 {
             return 58
         }
 
-        pub struct Apple {
+        export struct Apple {
             size: i32,
         }
 
         impl Apple {
-            pub fn new(size: i32): Apple {
+            export fun new(size: i32) -> Apple {
                 return Apple { size: size }
             }
 
-            pub fn get_size(self): i32 {
+            export fun get_size(self) -> i32 {
                 return self.size
             }
         }
 
-        pub enum Fruit {
+        export enum Fruit {
             Ringo(Apple)
         }
 
         impl Fruit {
-            pub fn get_size(self): i32 {
+            export fun get_size(self) -> i32 {
                 return match self {
                     Fruit::Ringo(a) => a.get_size()
                 }
@@ -765,7 +765,7 @@ fn use_declaration() -> anyhow::Result<()> {
         use m1.Apple
         use m1.get_58
         use m1.Fruit
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = Apple::new(58)
             let fruit = Fruit::Ringo(apple)
             let size = fruit.get_size()
@@ -785,16 +785,16 @@ fn use_declaration_with_generic_struct() -> anyhow::Result<()> {
 
     let module1 = tempdir.child("m1.kd");
     module1.write_str(
-        r#"pub struct Apple<T> {
+        r#"export struct Apple<T> {
             size: T,
         }
 
         impl<T> Apple<T> {
-            pub fn new(size: T): Apple<T> {
+            export fun new(size: T) -> Apple<T> {
                 return Apple<T> { size: size }
             }
 
-            pub fn get_size(self): T {
+            export fun get_size(self) -> T {
                 return self.size
             }
         }"#,
@@ -804,7 +804,7 @@ fn use_declaration_with_generic_struct() -> anyhow::Result<()> {
     module2.write_str(
         r#"import m1
         use m1.Apple
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = Apple<i32>::new(58)
             return apple.get_size()
         }"#,
@@ -819,17 +819,17 @@ fn use_declaration_with_generic_enum() -> anyhow::Result<()> {
 
     let module1 = tempdir.child("m1.kd");
     module1.write_str(
-        r#"pub enum Apple<T> {
+        r#"export enum Apple<T> {
             Ringo(T),
             Budo,
         }
 
         impl<T> Apple<T> {
-            pub fn new_ringo(size: T): Apple<T> {
+            export fun new_ringo(size: T) -> Apple<T> {
                 return Apple<T>::Ringo(size)
             }
 
-            pub fn get_size(self): T {
+            export fun get_size(self) -> T {
                 return match self {
                     Apple::Ringo(s) => s,
                     Apple::Budo => 123,
@@ -842,7 +842,7 @@ fn use_declaration_with_generic_enum() -> anyhow::Result<()> {
     module2.write_str(
         r#"import m1
         use m1.Apple
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = Apple<i32>::new_ringo(58)
             return apple.get_size()
         }"#,
@@ -857,16 +857,16 @@ fn import_module_in_directory() -> anyhow::Result<()> {
 
     let module1 = tempdir.child("dir/m1.kd");
     module1.write_str(
-        "pub struct Apple { size: i32 }
-        pub enum Fruit { Ringo(Apple), Ichigo(i32) }
-        pub fn get_58(): i32 { return 58 }",
+        "export struct Apple { size: i32 }
+        export enum Fruit { Ringo(Apple), Ichigo(i32) }
+        export fun get_58() -> i32 { return 58 }",
     )?;
 
     let module2 = tempdir.child("m2.kd");
     module2.write_str(
         r#"import dir.m1
         use dir.m1.Fruit
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = Fruit::Ringo(dir.m1.Apple { size: 58 });
             let n = match apple {
                 Fruit::Ringo(a) => a.size,
@@ -888,7 +888,7 @@ fn import_hierarchical_module() -> anyhow::Result<()> {
 
     let module1 = tempdir.child("dir/dir2/m1.kd");
     module1.write_str(
-        "pub struct Apple {
+        "export struct Apple {
             size: i32,
         }",
     )?;
@@ -896,21 +896,21 @@ fn import_hierarchical_module() -> anyhow::Result<()> {
     let module2 = tempdir.child("dir/dir2/m2.kd");
     module2.write_str(
         "import m1
-        pub enum Fruit { Ringo(m1.Apple), Ichigo(i32) }
-        pub fn get_48(): i32 { return 48 }
-        pub fn get_10(): i32 { return 10 }",
+        export enum Fruit { Ringo(m1.Apple), Ichigo(i32) }
+        export fun get_48() -> i32 { return 48 }
+        export fun get_10() -> i32 { return 10 }",
     )?;
 
     let module3 = tempdir.child("dir/dir2/m3.kd");
     module3.write_str(
         "import m2
-        pub fn get_58(): i32 { return m2.get_48() + m2.get_10() }",
+        export fun get_58() -> i32 { return m2.get_48() + m2.get_10() }",
     )?;
 
     let module4 = tempdir.child("dir/m.kd");
     module4.write_str(
         r#"import dir2.m3
-        pub fn f(): i32 {
+        export fun f() -> i32 {
             return dir2.m3.get_58()
         }"#,
     )?;
@@ -922,7 +922,7 @@ fn import_hierarchical_module() -> anyhow::Result<()> {
         import dir.dir2.m3
         import dir.m
         use dir.dir2.m2.Fruit
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = Fruit::Ringo(dir.dir2.m1.Apple { size: 58 });
             let n = match apple {
                 Fruit::Ringo(a) => a.size,
@@ -955,15 +955,15 @@ fn import_same_name_module_with_same_name_struct() -> anyhow::Result<()> {
     let module1 = tempdir.child("dir/m.kd");
     module1
         .write_str(
-            r#"pub struct Apple {
+            r#"export struct Apple {
             size: i32,
         }
 
         impl Apple {
-            pub fn new_ringo(size: i32): Apple {
+            export fun new_ringo(size: i32) -> Apple {
                 return Apple { size: 58 }
             }
-            pub fn get_size(self): i32 {
+            export fun get_size(self) -> i32 {
                 return self.size
             }
         }"#,
@@ -980,12 +980,12 @@ fn import_same_name_module_with_same_name_struct() -> anyhow::Result<()> {
         }
 
         impl Apple {
-            fn get(self): i32 {
+            fun get(self) -> i32 {
                 return self.width + self.height
             }
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = dir.m.Apple::new_ringo(58)
             let apple2 = Apple { width: 48, height: 10 }
 
@@ -1007,16 +1007,16 @@ fn import_generic_struct_from_module_in_directory() -> anyhow::Result<()> {
     let module1 = tempdir.child("dir/m.kd");
     module1
         .write_str(
-            r#"pub struct Apple<T> {
+            r#"export struct Apple<T> {
             size: T,
         }
 
         impl<T> Apple<T> {
-            pub fn new(size: T): Apple<T> {
+            export fun new(size: T) -> Apple<T> {
                 return Apple<T> { size: size }
             }
 
-            pub fn get_size(self): T {
+            export fun get_size(self) -> T {
                 return self.size
             }
         }"#,
@@ -1027,7 +1027,7 @@ fn import_generic_struct_from_module_in_directory() -> anyhow::Result<()> {
     module2
         .write_str(
             r#"import dir.m
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = dir.m.Apple<i32>::new(58)
             return apple.get_size()
         }"#,
@@ -1049,12 +1049,12 @@ fn import_function_with_non_public_generic_struct() -> anyhow::Result<()> {
         }
 
         impl<T> Apple<T> {
-            fn new(size: T): Apple {
+            fun new(size: T) -> Apple {
                 return Apple { size: size }
             }
         }
 
-        pub fn get_58(): i32 {
+        export fun get_58() -> i32 {
             return 58
         }"#,
         )
@@ -1064,7 +1064,7 @@ fn import_function_with_non_public_generic_struct() -> anyhow::Result<()> {
     module2
         .write_str(
             r#"import m1
-        fn main(): i32 {
+        fun main() -> i32 {
             return m1.get_58()
         }"#,
         )
@@ -1080,12 +1080,12 @@ fn import_generic_struct_and_impl_with_use_declaration() -> anyhow::Result<()> {
     let module1 = tempdir.child("dir/m.kd");
     module1
         .write_str(
-            r#"pub enum Apple<T> {
+            r#"export enum Apple<T> {
                 Ringo(T),
                 Mango,
             }
             impl<T> Apple<T> {
-                pub fn get_size(self): T {
+                export fun get_size(self) -> T {
                     return match self {
                         Apple::Ringo(s) => s,
                         Apple::Mango => 123,
@@ -1101,17 +1101,17 @@ fn import_generic_struct_and_impl_with_use_declaration() -> anyhow::Result<()> {
             r#"import dir.m
             use dir.m.Apple
 
-            pub struct Test<T> {
+            export struct Test<T> {
                 age: Apple<T>,
             }
 
             impl<T> Test<T> {
-                pub fn new(): Test<T> {
+                export fun new() -> Test<T> {
                     let apple = Apple<T>::Ringo(58)
                     return Test<T> { age: apple }
                 }
 
-                pub fn get_age(self): Apple<T> {
+                export fun get_age(self) -> Apple<T> {
                     return self.age
                 }
             }"#,
@@ -1122,7 +1122,7 @@ fn import_generic_struct_and_impl_with_use_declaration() -> anyhow::Result<()> {
     module3
         .write_str(
             r#"import m2
-            fn main(): i32 {
+            fun main() -> i32 {
                 let test = m2.Test<i32>::new()
                 let age = test.get_age()
                 return age.get_size()
@@ -1144,12 +1144,12 @@ fn import_function_returning_external_struct_with_methods() -> anyhow::Result<()
     // m2.kd - defines a public struct with methods
     let m2 = tempdir.child("m2.kd");
     m2.write_str(
-        r#"pub struct Person {
+        r#"export struct Person {
             age: i32
         }
 
         impl Person {
-            pub fn get_age(self): i32 {
+            export fun get_age(self) -> i32 {
                 return self.age
             }
         }"#,
@@ -1161,7 +1161,7 @@ fn import_function_returning_external_struct_with_methods() -> anyhow::Result<()
         r#"import m2
         use m2.Person
 
-        pub fn create_person(): Person {
+        export fun create_person() -> Person {
             return Person { age: 58 }
         }"#,
     )?;
@@ -1171,7 +1171,7 @@ fn import_function_returning_external_struct_with_methods() -> anyhow::Result<()
     test_m.write_str(
         r#"import m1
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let p = m1.create_person()
             return p.get_age()
         }"#,
@@ -1187,13 +1187,13 @@ fn import_generic_symbol_multiply_defined_linkonce_odr() -> anyhow::Result<()> {
     // m2.kd - defines a generic enum with implementation
     let m2 = tempdir.child("m2.kd");
     m2.write_str(
-        r#"pub enum Person<T> {
+        r#"export enum Person<T> {
             Bob(T),
             Alice,
         }
 
         impl<T> Person<T> {
-            pub fn get_age(self): T {
+            export fun get_age(self) -> T {
                 return match self {
                     Person::Bob(n) => n,
                     Person::Alice => 3,
@@ -1208,7 +1208,7 @@ fn import_generic_symbol_multiply_defined_linkonce_odr() -> anyhow::Result<()> {
         r#"import m2
         use m2.Person
 
-        pub fn create_person(): Person<i32> {
+        export fun create_person() -> Person<i32> {
             return Person<i32>::Bob(58)
         }"#,
     )?;
@@ -1218,7 +1218,7 @@ fn import_generic_symbol_multiply_defined_linkonce_odr() -> anyhow::Result<()> {
     test_m.write_str(
         r#"import m1
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let p = m1.create_person()
             return p.get_age()
         }"#,
@@ -1232,12 +1232,12 @@ fn import_extern_c() -> anyhow::Result<()> {
     let tempdir = assert_fs::TempDir::new()?;
 
     let extern_c = tempdir.child("extern_c.kd");
-    extern_c.write_str(r#"pub extern "C" fn printf(format: *u8, ...): i32"#)?;
+    extern_c.write_str(r#"export extern "C" fun printf(format: *u8, ...) -> i32"#)?;
 
     let module = tempdir.child("m.kd");
     module.write_str(
         r#"import extern_c
-        fn main(): i32 {
+        fun main() -> i32 {
             return extern_c.printf("Hello, world!\n".as_ptr())
         }"#,
     )?;
@@ -1251,21 +1251,21 @@ fn import_and_use_with_wildcard() -> anyhow::Result<()> {
 
     let module = tempdir.child("m.kd");
     module.write_str(
-        r#"pub struct Apple {
+        r#"export struct Apple {
             size: i32,
         }
 
         impl Apple {
-            pub fn get_size(self): i32 {
+            export fun get_size(self) -> i32 {
                 return self.size
             }
         }
 
-        pub fn f(): Apple {
+        export fun f() -> Apple {
             return Apple { size: 10 }
         }
 
-        pub fn g(a: Apple): i32 {
+        export fun g(a: Apple) -> i32 {
             return a.get_size()
         }"#,
     )?;
@@ -1274,7 +1274,7 @@ fn import_and_use_with_wildcard() -> anyhow::Result<()> {
     main.write_str(
         r#"import m
         use m.*
-        fn main(): i32 {
+        fun main() -> i32 {
             let apple = Apple { size: 20 }
             return f().get_size() + g(apple)
         }"#,
@@ -1289,7 +1289,7 @@ fn call_imported_function_with_local_variable() -> anyhow::Result<()> {
 
     let module = tempdir.child("m.kd");
     module.write_str(
-        r#"pub fn f(n: i32): i32 {
+        r#"export fun f(n: i32) -> i32 {
             return n
         }"#,
     )?;
@@ -1297,7 +1297,7 @@ fn call_imported_function_with_local_variable() -> anyhow::Result<()> {
     let main = tempdir.child("test.kd");
     main.write_str(
         r#"import m
-        fn main(): i32 {
+        fun main() -> i32 {
             let n = 10
             return m.f(n)
         }"#,
@@ -1330,7 +1330,7 @@ pub fn touch() {}"#,
     main.write_str(
         r#"import rust::primitive_probe
 
-        fn main(): i32 {
+        fun main() -> i32 {
             rust::primitive_probe::touch()
 
             if rust::primitive_probe::add_i8(20 as i8, 22 as i8) != (42 as i8) {
@@ -1383,7 +1383,7 @@ fn import_rust_function_with_str_param() -> anyhow::Result<()> {
     main.write_str(
         r#"import rust::str_probe
 
-        fn main(): i32 {
+        fun main() -> i32 {
             return rust::str_probe::strlen("hello")
         }"#,
     )?;
@@ -1406,7 +1406,7 @@ fn import_rust_function_with_multiple_str_params() -> anyhow::Result<()> {
     main.write_str(
         r#"import rust::multi_str_probe
 
-        fn main(): i32 {
+        fun main() -> i32 {
             return rust::multi_str_probe::total_len("kae", "de")
         }"#,
     )?;
@@ -1429,7 +1429,7 @@ fn import_rust_function_with_str_and_primitives() -> anyhow::Result<()> {
     main.write_str(
         r#"import rust::mixed_str_probe
 
-        fn main(): i32 {
+        fun main() -> i32 {
             if rust::mixed_str_probe::starts_with_len("kaede", 5) {
                 return 58
             }
@@ -1458,7 +1458,7 @@ pub fn unicode() -> String { "あ".to_string() }"#,
     main.write_str(
         r#"import rust::string_probe
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let greet = rust::string_probe::greet()
             if greet.len() != 5 {
                 return 1
@@ -1506,7 +1506,7 @@ pub fn bounce(ch: char) -> char { if ch == 'あ' { 'い' } else { ch } }"#,
     main.write_str(
         r#"import rust::string_char_probe
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let owned = String::from("あい")
             if rust::string_char_probe::count_chars(owned) != 2 {
                 return 1
@@ -1548,7 +1548,7 @@ pub fn ng_ptr(v: *const i8) -> *const i8 { v }"#,
     main.write_str(
         r#"import rust::skip_probe
 
-        fn main(): i32 {
+        fun main() -> i32 {
             return rust::skip_probe::ok_i64(53 as i64) as i32 + rust::skip_probe::strlen("kaede")
         }"#,
     )?;
@@ -1578,7 +1578,7 @@ pub fn normalize(s: &mut str) -> i32 { s.len() as i32 }"#,
     main.write_str(
         r#"import rust::mut_str_probe
 
-        fn main(): i32 {
+        fun main() -> i32 {
             return rust::mut_str_probe::ok("kaede")
         }"#,
     )?;

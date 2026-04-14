@@ -11,7 +11,7 @@ Kaede supports generic functions, structs, enums, and `impl` blocks.
 Type parameters are written in angle brackets:
 
 ```rust
-fn identity<T>(value: T): T {
+fun identity<T>(value: T) -> T {
     return value
 }
 
@@ -25,7 +25,7 @@ struct Box<T> {
 Generic functions can declare one or more type parameters:
 
 ```rust
-fn first<T, U>(a: T, b: U): T {
+fun first<T, U>(a: T, b: U) -> T {
     return a
 }
 ```
@@ -93,11 +93,11 @@ struct Box<T> {
 }
 
 impl<T> Box<T> {
-    fn new(value: T): Box<T> {
+    fun new(value: T) -> Box<T> {
         return Box<T> { value: value }
     }
 
-    fn get(self): T {
+    fun get(self) -> T {
         return self.value
     }
 }
@@ -117,7 +117,7 @@ Kaede can infer generic type arguments in several common cases.
 Function calls:
 
 ```rust
-fn identity<T>(value: T): T {
+fun identity<T>(value: T) -> T {
     return value
 }
 

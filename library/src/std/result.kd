@@ -1,31 +1,31 @@
-pub enum Result<T, E> {
+export enum Result<T, E> {
     Ok(T),
     Err(E),
 }
 
 impl<T, E> Result<T, E> {
-    pub fn is_ok(self): bool {
+    export fun is_ok(self) -> bool {
         return match self {
             Result::Ok(_) => true,
             Result::Err(_) => false,
         }
     }
 
-    pub fn is_err(self): bool {
+    export fun is_err(self) -> bool {
         return match self {
             Result::Ok(_) => false,
             Result::Err(_) => true,
         }
     }
 
-    pub fn unwrap(self): T {
+    export fun unwrap(self) -> T {
         return match self {
             Result::Ok(value) => value,
             Result::Err(_) => panic("called `Result::unwrap()` on an `Err` value"),
         }
     }
 
-    pub fn unwrap_err(self): E {
+    export fun unwrap_err(self) -> E {
         return match self {
             Result::Ok(_) => panic("called `Result::unwrap_err()` on an `Ok` value"),
             Result::Err(err) => err,

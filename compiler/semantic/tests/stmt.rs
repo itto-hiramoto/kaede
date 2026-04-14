@@ -7,7 +7,7 @@ use crate::common::semantic_analyze_expect_error;
 #[test]
 fn simple_let() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f() {
+        "fun f() {
             let x = 1
         }
     ",
@@ -18,7 +18,7 @@ fn simple_let() -> anyhow::Result<()> {
 #[test]
 fn let_with_mutability() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f() {
+        "fun f() {
             let mut x = 1
         }
     ",
@@ -29,7 +29,7 @@ fn let_with_mutability() -> anyhow::Result<()> {
 #[test]
 fn let_with_ty() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f() {
+        "fun f() {
             let x: i32 = 1
         }
     ",
@@ -40,7 +40,7 @@ fn let_with_ty() -> anyhow::Result<()> {
 #[test]
 fn let_mismatched_types() -> anyhow::Result<()> {
     semantic_analyze_expect_error(
-        r#"fn f() {
+        r#"fun f() {
             let x: i32 = "hello, world"
         }
     "#,
@@ -51,7 +51,7 @@ fn let_mismatched_types() -> anyhow::Result<()> {
 #[test]
 fn let_and_access() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn f(): i32 {
+        "fun f() -> i32 {
             let x = 57
             return x + 1
         }

@@ -86,7 +86,7 @@ fn main_generic_callee_name(ir: &CompileUnit) -> kaede_ir::qualified_symbol::Qua
 
 #[test]
 fn empty_function() -> anyhow::Result<()> {
-    semantic_analyze("fn foo() {}")?;
+    semantic_analyze("fun foo() {}")?;
     Ok(())
 }
 
@@ -104,7 +104,7 @@ fn empty_enum() -> anyhow::Result<()> {
 
 #[test]
 fn function_with_return() -> anyhow::Result<()> {
-    semantic_analyze("fn foo(): i32 { return 1 }")?;
+    semantic_analyze("fun foo() -> i32 { return 1 }")?;
     Ok(())
 }
 
@@ -122,45 +122,45 @@ fn simple_enum() -> anyhow::Result<()> {
 
 #[test]
 fn function_with_params() -> anyhow::Result<()> {
-    semantic_analyze("fn foo(a: i32, b: i32): i32 { return a + b }")?;
+    semantic_analyze("fun foo(a: i32, b: i32) -> i32 { return a + b }")?;
     Ok(())
 }
 
 #[test]
 fn function_with_generic_params() -> anyhow::Result<()> {
     semantic_analyze(
-        "fn foo<T, U>(a: T, b: U): T {
+        "fun foo<T, U>(a: T, b: U) -> T {
         return a + b
     }
-    fn f() {
+    fun f() {
         foo<i32, i32>(1, 2)
     }",
     )?;
 
     semantic_analyze_expect_error(
-        "fn foo<T>(a: T, b: U): T {
+        "fun foo<T>(a: T, b: U) -> T {
         return a + b
     }
-    fn f() {
+    fun f() {
         foo<i32>(1, 2)
     }",
     )?;
 
     semantic_analyze_expect_error(
-        "fn foo<T, U>(a: T, b: U): T {
+        "fun foo<T, U>(a: T, b: U) -> T {
         return a + b
     }
-    fn f() {
+    fun f() {
         foo<123>(1, 2)
     }",
     )?;
 
     // Generic function arguments should be inferred from call arguments.
     semantic_analyze(
-        "fn foo<T, U>(a: T, b: U): T {
+        "fun foo<T, U>(a: T, b: U) -> T {
         return a + b
     }
-    fn f(): i32 {
+    fun f() -> i32 {
         return foo(1, 2)
     }",
     )?;
@@ -172,28 +172,28 @@ fn function_with_generic_params() -> anyhow::Result<()> {
 fn generic_type() -> anyhow::Result<()> {
     semantic_analyze(
         "struct Foo<T> { a: T }
-        fn f() {
+        fun f() {
             let x = Foo<i32> { a: 1 }
         }
     ",
     )?;
     semantic_analyze(
         "enum Foo<T> { A, B(T) }
-        fn f() {
+        fun f() {
             let x = Foo<i32>::B(1)
         }
     ",
     )?;
     semantic_analyze(
-        "fn foo<T>(a: T): T { return a }
-        fn f() {
+        "fun foo<T>(a: T) -> T { return a }
+        fun f() {
             foo<i32>(1)
         }
     ",
     )?;
     semantic_analyze(
-        "fn foo<T>(a: T): T { return a }
-        fn f() {
+        "fun foo<T>(a: T) -> T { return a }
+        fun f() {
             foo<i32>(1)
         }
     ",
@@ -206,11 +206,11 @@ fn impl_for_generic_type() -> anyhow::Result<()> {
     semantic_analyze(
         "struct Foo<T> { a: T }
         impl<T> Foo<T> {
-            fn f(self): T {
+            fun f(self) -> T {
                 return self.a
             }
         }
-        fn f() {
+        fun f() {
             let foo = Foo<i32> { a: 1 }
             let x = foo.f()
         }
@@ -224,11 +224,11 @@ fn impl_() -> anyhow::Result<()> {
     semantic_analyze(
         "struct Foo { a: i32 }
         impl Foo {
-            fn f(self): i32 {
+            fun f(self) -> i32 {
                 return self.a
             }
         }
-        fn f() {
+        fun f() {
             let foo = Foo { a: 1 }
             let x = foo.f()
         }
@@ -242,14 +242,14 @@ fn impl_with_static_method() -> anyhow::Result<()> {
     semantic_analyze(
         "struct Foo { a: i32 }
         impl Foo {
-            fn new(n: i32): Foo {
+            fun new(n: i32) -> Foo {
                 return Foo { a: n }
             }
-            fn get_a(self): i32 {
+            fun get_a(self) -> i32 {
                 return self.a
             }
         }
-        fn f(): i32 {
+        fun f() -> i32 {
             let foo = Foo::new(1)
             return foo.get_a()
         }
@@ -263,14 +263,14 @@ fn impl_with_static_method_for_generic_type() -> anyhow::Result<()> {
     semantic_analyze(
         "struct Foo<T> { a: T }
         impl<T> Foo<T> {
-            fn new(n: T): Foo<T> {
+            fun new(n: T) -> Foo<T> {
                 return Foo<T> { a: n }
             }
-            fn get_a(self): T {
+            fun get_a(self) -> T {
                 return self.a
             }
         }
-        fn f(): i32 {
+        fun f() -> i32 {
             let foo = Foo<i32>::new(1)
             return foo.get_a()
         }
@@ -282,8 +282,8 @@ fn impl_with_static_method_for_generic_type() -> anyhow::Result<()> {
 #[test]
 fn extern_() -> anyhow::Result<()> {
     semantic_analyze(
-        r#"extern "C" fn foo(): i32
-        fn f() {
+        r#"extern "C" fun foo() -> i32
+        fun f() {
             foo()
         }
     "#,
@@ -296,7 +296,7 @@ fn type_alias() -> anyhow::Result<()> {
     // Type alias resolved and used in function signature
     semantic_analyze(
         "type MyInt = i32
-        fn foo(x: MyInt): i32 {
+        fun foo(x: MyInt) -> i32 {
             return x
         }",
     )?;
@@ -306,8 +306,8 @@ fn type_alias() -> anyhow::Result<()> {
 #[test]
 fn type_alias_pub() -> anyhow::Result<()> {
     semantic_analyze(
-        "pub type MyInt = i32
-        fn foo(x: MyInt): i32 {
+        "export type MyInt = i32
+        fun foo(x: MyInt) -> i32 {
             return x
         }",
     )?;
@@ -318,11 +318,11 @@ fn type_alias_pub() -> anyhow::Result<()> {
 fn generated_generic_function_has_concrete_types_after_inference() -> anyhow::Result<()> {
     let ir = semantic_analyze(
         r#"
-        fn __test_id<T>(x: T): T {
+        fun __test_id<T>(x: T) -> T {
             return x
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let n: i32 = __test_id(1)
             return 58
         }
@@ -364,12 +364,12 @@ fn generated_generic_impl_method_has_concrete_types_after_inference() -> anyhow:
         }
 
         impl<T> __TestBox<T> {
-            fn __test_get(self): T {
+            fun __test_get(self) -> T {
                 return self.value
             }
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let b = __TestBox<i32> { value: 58 }
             return b.__test_get()
         }
@@ -417,7 +417,7 @@ fn generated_generic_impl_method_has_concrete_types_after_inference() -> anyhow:
 fn static_method_on_generic_type_allows_omitted_type_args() -> anyhow::Result<()> {
     semantic_analyze(
         r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut v = Vector::new()
             v.push(58)
             return match v.at(0) {
@@ -435,7 +435,7 @@ fn static_method_on_generic_type_allows_omitted_type_args() -> anyhow::Result<()
 fn option_some_allows_omitted_type_args() -> anyhow::Result<()> {
     semantic_analyze(
         r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let opt = Option::Some(58)
             return match opt {
                 Option::Some(n) => n,
@@ -456,7 +456,7 @@ fn vector_new_infers_struct_type_from_push() -> anyhow::Result<()> {
             x: i32,
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let mut v = Vector::new()
             v.push(S { x: 123 })
             return 0
@@ -475,7 +475,7 @@ fn option_some_struct_payload_without_explicit_args() -> anyhow::Result<()> {
             n: i32,
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let opt = Option::Some(S { n: 58 })
             return match opt {
                 Option::Some(v) => v.n,
@@ -492,7 +492,7 @@ fn option_some_struct_payload_without_explicit_args() -> anyhow::Result<()> {
 fn option_none_allows_omitted_type_args_when_expected_type_is_known() -> anyhow::Result<()> {
     semantic_analyze(
         r#"
-        fn wrap(flag: bool): Option<i32> {
+        fun wrap(flag: bool) -> Option<i32> {
             if flag {
                 return Option::Some(58)
             }
@@ -500,7 +500,7 @@ fn option_none_allows_omitted_type_args_when_expected_type_is_known() -> anyhow:
             return Option::None
         }
 
-        fn main(): i32 {
+        fun main() -> i32 {
             let opt: Option<i32> = Option::None
             return match wrap(false) {
                 Option::Some(n) => n,
@@ -520,7 +520,7 @@ fn option_none_allows_omitted_type_args_when_expected_type_is_known() -> anyhow:
 fn option_none_without_context_still_requires_type_args() -> anyhow::Result<()> {
     let err = semantic_analyze_expect_error(
         r#"
-        fn main(): i32 {
+        fun main() -> i32 {
             let opt = Option::None
             return 0
         }
@@ -537,7 +537,7 @@ fn type_alias_struct() -> anyhow::Result<()> {
     semantic_analyze(
         "struct S { x: i32 }
          type AliasS = S
-         fn foo(): S {
+         fun foo() -> S {
             return AliasS { x: 1 }
          }",
     )?;
@@ -574,7 +574,7 @@ fn top_level_statements_conflict_with_explicit_main() -> anyhow::Result<()> {
     let err = semantic_analyze_expect_error(
         r#"
         let x = 1
-        fn main(): i32 { return x }
+        fun main() -> i32 { return x }
         "#,
     )?;
 
@@ -596,7 +596,7 @@ fn top_level_statements_are_rejected_in_non_entry_units() -> anyhow::Result<()> 
 
 #[test]
 fn main_is_rejected_in_non_entry_units() -> anyhow::Result<()> {
-    let err = semantic_analyze_non_entry_expect_error("fn main(): i32 { return 0 }")?;
+    let err = semantic_analyze_non_entry_expect_error("fun main() -> i32 { return 0 }")?;
 
     assert!(err.to_string().contains("`main` is only allowed"));
 
@@ -608,7 +608,7 @@ fn top_level_functions_do_not_capture_script_locals() -> anyhow::Result<()> {
     let err = semantic_analyze_expect_error(
         r#"
         let x = 1
-        fn helper(): i32 { return x }
+        fun helper() -> i32 { return x }
         return helper()
         "#,
     )?;
@@ -620,6 +620,6 @@ fn top_level_functions_do_not_capture_script_locals() -> anyhow::Result<()> {
 
 #[test]
 fn plain_functions_are_allowed_in_non_entry_units() -> anyhow::Result<()> {
-    semantic_analyze_as_non_entry("fn helper(): i32 { return 0 }")?;
+    semantic_analyze_as_non_entry("fun helper() -> i32 { return 0 }")?;
     Ok(())
 }

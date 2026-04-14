@@ -1,4 +1,4 @@
-pub enum Token {
+export enum Token {
     Num(i32),
     Add,
     Sub,
@@ -9,7 +9,7 @@ pub enum Token {
 }
 
 impl Token {
-    pub fn eq(self, other: Token): bool {
+    export fun eq(self, other: Token) -> bool {
         return match self {
             Token::Add => match other {
                 Token::Add => true,
@@ -49,14 +49,14 @@ impl Token {
     }
 }
 
-pub struct Tokenizer {}
+export struct Tokenizer {}
 
 impl Tokenizer {
-    pub fn new(): Tokenizer {
+    export fun new() -> Tokenizer {
         return Tokenizer {}
     }
 
-    fn string_to_int(s: String): i32 {
+    fun string_to_int(s: String) -> i32 {
         mut i := 0
         mut n := 0
 
@@ -74,7 +74,7 @@ impl Tokenizer {
         return n
     }
 
-    pub fn tokenize(self, program: String): Option<Vector<Token>> {
+    export fun tokenize(self, program: String) -> Option<Vector<Token>> {
         mut tokens := Vector<Token>::new()
 
         mut i := 0

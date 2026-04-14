@@ -1,6 +1,6 @@
 import rust::rust_interop
 
-fn main(): i32 {
+fun main() -> i32 {
     rust::rust_interop::greetings()
     return rust::rust_interop::add(10, 20)
 }
