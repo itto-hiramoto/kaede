@@ -2,9 +2,9 @@ use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::{
     top::{
-        Enum, EnumVariant, Extern, Fn, FnDecl, GenericParams, Impl, Import, ImportKind, Param,
-        Params, Path, PathSegment, Struct, StructField, TopLevel, TopLevelKind, TypeAlias, Use,
-        VariadicKind, Visibility,
+        Enum, EnumVariant, Extern, Fn, FnDecl, GenericParam, GenericParams, Impl, Import,
+        ImportKind, Interface, InterfaceMethod, Param, Params, Path, PathSegment, Struct,
+        StructField, TopLevel, TopLevelKind, TypeAlias, Use, VariadicKind, Visibility,
     },
     ModuleItem,
 };
@@ -84,6 +84,11 @@ impl Parser {
                 (kind.span, TopLevelKind::TypeAlias(kind))
             }
 
+            TokenKind::Interface => {
+                let kind = self.interface(vis)?;
+                (kind.span, TopLevelKind::Interface(kind))
+            }
+
             _ => {
                 return Err(ParseError::ExpectedError {
                     expected: "top-level declaration".to_string(),
@@ -119,6 +124,7 @@ impl Parser {
                 | TokenKind::Extern
                 | TokenKind::Use
                 | TokenKind::Type
+                | TokenKind::Interface
         )
     }
 
@@ -157,10 +163,16 @@ impl Parser {
 
         let start = self.consume(&TokenKind::Lt)?.start;
 
-        let mut names = Vec::new();
+        let mut params = Vec::new();
 
         loop {
-            names.push(self.ident()?);
+            let name = self.ident()?;
+            let bound = if self.consume_b(&TokenKind::Colon) {
+                Some(self.ident()?)
+            } else {
+                None
+            };
+            params.push(GenericParam { name, bound });
 
             if !self.consume_b(&TokenKind::Comma) {
                 break;
@@ -169,7 +181,7 @@ impl Parser {
 
         Ok(if let Ok(span) = self.consume(&TokenKind::Gt) {
             Some(GenericParams {
-                names,
+                params,
                 span: self.new_span(start, span.finish),
             })
         } else {
@@ -190,7 +202,7 @@ impl Parser {
 
         if let Some(params) = &generic_params {
             self.generic_param_names_stack
-                .push(params.names.iter().map(|i| i.symbol()).collect());
+                .push(params.params.iter().map(|p| p.name.symbol()).collect());
         }
 
         let ty = self.ty()?;
@@ -357,7 +369,7 @@ impl Parser {
         // Push generic param names to determine if types is generic types.
         if let Some(params) = &generic_params {
             self.generic_param_names_stack
-                .push(params.names.iter().map(|i| i.symbol()).collect());
+                .push(params.params.iter().map(|p| p.name.symbol()).collect());
         }
 
         let params_start = self.consume(&TokenKind::OpenParen)?.start;
@@ -503,7 +515,7 @@ impl Parser {
         // Push generic param names to determine if types is generic types.
         if let Some(params) = &generic_params {
             self.generic_param_names_stack
-                .push(params.names.iter().map(|i| i.symbol()).collect());
+                .push(params.params.iter().map(|p| p.name.symbol()).collect());
         }
 
         self.consume(&TokenKind::OpenBrace)?;
@@ -579,7 +591,7 @@ impl Parser {
         // Push generic param names to determine if types is generic types.
         if let Some(params) = &generic_params {
             self.generic_param_names_stack
-                .push(params.names.iter().map(|i| i.symbol()).collect());
+                .push(params.params.iter().map(|p| p.name.symbol()).collect());
         }
 
         self.consume(&TokenKind::OpenBrace)?;
@@ -637,5 +649,91 @@ impl Parser {
         }
 
         Ok(fields)
+    }
+
+    fn interface(&mut self, vis: Visibility) -> ParseResult<Interface> {
+        let start = self.consume(&TokenKind::Interface).unwrap().start;
+
+        let name = self.ident()?;
+
+        self.consume(&TokenKind::OpenBrace)?;
+
+        let mut methods = Vec::new();
+
+        loop {
+            if self.check(&TokenKind::CloseBrace) {
+                break;
+            }
+
+            methods.push(self.interface_method()?);
+
+            if !self.check(&TokenKind::CloseBrace) {
+                self.consume_semi()?;
+            }
+        }
+
+        let finish = self.consume(&TokenKind::CloseBrace)?.finish;
+
+        Ok(Interface {
+            vis,
+            name,
+            methods,
+            span: self.new_span(start, finish),
+        })
+    }
+
+    fn interface_method(&mut self) -> ParseResult<InterfaceMethod> {
+        let start = self.consume(&TokenKind::Fun)?.start;
+
+        let name = self.ident()?;
+
+        let params_start = self.consume(&TokenKind::OpenParen)?.start;
+
+        let mutability = self.consume_b(&TokenKind::Mut).into();
+        let has_self = self.consume_b(&TokenKind::Self_);
+        if !has_self && mutability == Mutability::Mut {
+            return Err(ParseError::ExpectedError {
+                expected: "'self'".to_string(),
+                but: self.first().kind.to_string(),
+                span: self.first().span,
+            }
+            .into());
+        }
+
+        let first_param = if has_self {
+            let _ = self.consume(&TokenKind::Comma);
+            None
+        } else if self.check(&TokenKind::CloseParen) {
+            None
+        } else {
+            let param = self.fn_param()?;
+            let _ = self.consume(&TokenKind::Comma);
+            Some(param)
+        };
+
+        let params = {
+            let mut params = self.fn_params(params_start)?;
+            if let Some(first_param) = first_param {
+                params.v.push_front(first_param);
+            }
+            params
+        };
+
+        let (return_ty, finish) = if self.consume_b(&TokenKind::Arrow) {
+            let ret_ty = Rc::new(self.ty()?);
+            let finish = ret_ty.span.finish;
+            (ret_ty, finish)
+        } else {
+            let unit_span = self.new_span(params.span.finish, params.span.finish);
+            (Rc::new(Ty::new_unit(unit_span)), params.span.finish)
+        };
+
+        Ok(InterfaceMethod {
+            name,
+            self_: if has_self { Some(mutability) } else { None },
+            params,
+            return_ty,
+            span: self.new_span(start, finish),
+        })
     }
 }

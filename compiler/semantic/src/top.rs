@@ -40,6 +40,8 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<TopLevelAnalysisResult> {
         use ast::top::TopLevelKind;
 
+        check_no_generic_bounds(&top_level.kind)?;
+
         match top_level.kind {
             TopLevelKind::Fn(node) => self.analyze_fn(node),
             TopLevelKind::Struct(node) => self.analyze_struct(node),
@@ -49,6 +51,9 @@ impl SemanticAnalyzer {
             TopLevelKind::Import(node) => self.analyze_import(node),
             TopLevelKind::Use(node) => self.analyze_use(node),
             TopLevelKind::TypeAlias(node) => self.analyze_type_alias(node),
+            TopLevelKind::Interface(node) => {
+                Err(SemanticError::InterfaceNotYetSupported { span: node.span }.into())
+            }
         }
     }
 
@@ -916,4 +921,28 @@ impl SemanticAnalyzer {
 
         Ok(TopLevelAnalysisResult::Imported(vec![]))
     }
+}
+
+fn check_no_generic_bounds(kind: &ast::top::TopLevelKind) -> anyhow::Result<()> {
+    use ast::top::TopLevelKind;
+
+    let generic_params = match kind {
+        TopLevelKind::Fn(node) => node.decl.generic_params.as_ref(),
+        TopLevelKind::Struct(node) => node.generic_params.as_ref(),
+        TopLevelKind::Enum(node) => node.generic_params.as_ref(),
+        TopLevelKind::Impl(node) => node.generic_params.as_ref(),
+        TopLevelKind::Extern(node) => node.fn_decl.generic_params.as_ref(),
+        TopLevelKind::Import(_)
+        | TopLevelKind::Use(_)
+        | TopLevelKind::TypeAlias(_)
+        | TopLevelKind::Interface(_) => None,
+    };
+
+    if let Some(params) = generic_params {
+        if params.params.iter().any(|p| p.bound.is_some()) {
+            return Err(SemanticError::GenericBoundNotYetSupported { span: params.span }.into());
+        }
+    }
+
+    Ok(())
 }

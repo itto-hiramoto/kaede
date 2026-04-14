@@ -56,9 +56,30 @@ impl From<bool> for Visibility {
 }
 
 #[derive(Debug, Clone)]
+pub struct GenericParam {
+    pub name: Ident,
+    /// Optional interface bound (e.g. `T: Reader`).
+    pub bound: Option<Ident>,
+}
+
+#[derive(Debug, Clone)]
 pub struct GenericParams {
-    pub names: Vec<Ident>,
+    pub params: Vec<GenericParam>,
     pub span: Span,
+}
+
+impl GenericParams {
+    pub fn len(&self) -> usize {
+        self.params.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.params.is_empty()
+    }
+
+    pub fn names(&self) -> impl Iterator<Item = Ident> + '_ {
+        self.params.iter().map(|p| p.name)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -178,6 +199,23 @@ pub struct Use {
 }
 
 #[derive(Debug, Clone)]
+pub struct InterfaceMethod {
+    pub name: Ident,
+    pub self_: Option<Mutability>,
+    pub params: Params,
+    pub return_ty: Rc<Ty>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct Interface {
+    pub vis: Visibility,
+    pub name: Ident,
+    pub methods: Vec<InterfaceMethod>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub struct TypeAlias {
     pub vis: Visibility,
     pub name: Ident,
@@ -201,4 +239,5 @@ pub enum TopLevelKind {
     Extern(Extern),
     Use(Use),
     TypeAlias(TypeAlias),
+    Interface(Interface),
 }

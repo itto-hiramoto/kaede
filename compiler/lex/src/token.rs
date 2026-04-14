@@ -126,6 +126,8 @@ pub enum TokenKind {
     While,
     /// "struct"
     Struct,
+    /// "interface"
+    Interface,
     /// "import"
     Import,
     /// "export"
@@ -233,6 +235,7 @@ impl std::fmt::Display for TokenKind {
                 Break => "'break'",
                 While => "'while'",
                 Struct => "'struct'",
+                Interface => "'interface'",
                 Import => "'import'",
                 Export => "'export'",
                 OldPub => "'pub'",

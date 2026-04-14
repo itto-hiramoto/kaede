@@ -126,9 +126,9 @@ impl SemanticAnalyzer {
         args: &[Rc<ir_type::Ty>],
         span: Span,
     ) -> anyhow::Result<()> {
-        if params.names.len() != args.len() {
+        if params.len() != args.len() {
             return Err(SemanticError::GenericArgumentLengthMismatch {
-                expected: params.names.len(),
+                expected: params.len(),
                 actual: args.len(),
                 span,
             }
@@ -364,9 +364,9 @@ impl SemanticAnalyzer {
                     let generic_params = impl_info.impl_.generic_params.as_ref().unwrap().clone();
 
                     // Check if the length of the generic arguments is the same as the number of generic parameters
-                    if generic_params.names.len() != generic_args.len() {
+                    if generic_params.len() != generic_args.len() {
                         return Err(SemanticError::GenericArgumentLengthMismatch {
-                            expected: generic_params.names.len(),
+                            expected: generic_params.len(),
                             actual: generic_args.len(),
                             span: generic_params.span,
                         }

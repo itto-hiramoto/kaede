@@ -226,4 +226,10 @@ pub enum SemanticError {
 
     #[error("{}:{}:{} `?` can only be used in functions returning `Result<T, E>`, got `{}`", span.file, span.start.line, span.start.column, actual)]
     TryOutsideResultFunction { actual: String, span: Span },
+
+    #[error("{}:{}:{} `interface` is not yet supported by the compiler", span.file, span.start.line, span.start.column)]
+    InterfaceNotYetSupported { span: Span },
+
+    #[error("{}:{}:{} generic bounds are not yet supported by the compiler", span.file, span.start.line, span.start.column)]
+    GenericBoundNotYetSupported { span: Span },
 }
