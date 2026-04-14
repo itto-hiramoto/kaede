@@ -623,3 +623,33 @@ fn plain_functions_are_allowed_in_non_entry_units() -> anyhow::Result<()> {
     semantic_analyze_as_non_entry("fun helper() -> i32 { return 0 }")?;
     Ok(())
 }
+
+#[test]
+fn interface_declarations_are_accepted() -> anyhow::Result<()> {
+    let unit = semantic_analyze_as_non_entry(
+        "\
+interface Reader {
+    fun read(mut self, buf: i32) -> i32
+    fun peek(self) -> i32
+}
+",
+    )?;
+
+    let interfaces: Vec<_> = unit
+        .top_levels
+        .iter()
+        .filter_map(|tl| match tl {
+            TopLevel::Interface(iface) => Some(iface),
+            _ => None,
+        })
+        .collect();
+
+    assert_eq!(interfaces.len(), 1);
+    let iface = interfaces[0];
+    assert_eq!(iface.name.symbol(), Symbol::from("Reader".to_string()));
+    assert_eq!(iface.methods.len(), 2);
+    assert_eq!(iface.methods[0].name, Symbol::from("read".to_string()));
+    assert_eq!(iface.methods[1].name, Symbol::from("peek".to_string()));
+
+    Ok(())
+}

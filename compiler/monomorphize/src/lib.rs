@@ -255,7 +255,7 @@ impl Monomorphizer {
                     }
                 }
             }
-            TopLevel::Struct(_) | TopLevel::Enum(_) => {}
+            TopLevel::Struct(_) | TopLevel::Enum(_) | TopLevel::Interface(_) => {}
         }
         Ok(())
     }

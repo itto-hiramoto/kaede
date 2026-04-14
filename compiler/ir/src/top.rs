@@ -7,7 +7,7 @@ use crate::{
     expr,
     qualified_symbol::QualifiedSymbol,
     stmt::Block,
-    ty::{GenericInstanceInfo, Ty},
+    ty::{GenericInstanceInfo, Mutability, Ty},
 };
 
 #[derive(Debug, Clone)]
@@ -91,10 +91,25 @@ pub struct Impl {
     pub methods: Vec<Rc<Fn>>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InterfaceMethod {
+    pub name: Symbol,
+    pub self_: Option<Mutability>,
+    pub params: Vec<Param>,
+    pub return_ty: Rc<Ty>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Interface {
+    pub name: QualifiedSymbol,
+    pub methods: Vec<InterfaceMethod>,
+}
+
 #[derive(Debug, Clone)]
 pub enum TopLevel {
     Fn(Rc<Fn>),
     Struct(Rc<Struct>),
     Enum(Rc<Enum>),
     Impl(Rc<Impl>),
+    Interface(Rc<Interface>),
 }

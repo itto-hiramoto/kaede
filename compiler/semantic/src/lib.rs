@@ -195,6 +195,7 @@ impl SemanticAnalyzer {
                 ast::top::TopLevelKind::Struct(_)
                     | ast::top::TopLevelKind::Enum(_)
                     | ast::top::TopLevelKind::TypeAlias(_)
+                    | ast::top::TopLevelKind::Interface(_)
             )
         });
 
@@ -744,6 +745,7 @@ impl SemanticAnalyzer {
                         }
                     }
                 }
+                ir::top::TopLevel::Interface(_) => {}
             }
         }
     }
@@ -1261,7 +1263,9 @@ impl SemanticAnalyzer {
                         }
                     }
                 }
-                ir::top::TopLevel::Struct(_) | ir::top::TopLevel::Enum(_) => {}
+                ir::top::TopLevel::Struct(_)
+                | ir::top::TopLevel::Enum(_)
+                | ir::top::TopLevel::Interface(_) => {}
             }
 
             self.generated_generics[i] = top_level;

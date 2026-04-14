@@ -28,6 +28,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             TopLevel::Struct(node) => self.build_struct(&node),
 
             TopLevel::Enum(node) => self.build_enum(&node),
+
+            TopLevel::Interface(_) => {}
         };
         Ok(())
     }
