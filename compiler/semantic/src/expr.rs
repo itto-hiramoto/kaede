@@ -2348,10 +2348,18 @@ impl SemanticAnalyzer {
     }
 
     fn analyze_return(&mut self, node: &ast::expr::Return) -> anyhow::Result<ir::expr::Expr> {
+        let expected_return_ty = self
+            .context
+            .get_current_function()
+            .map(|fn_decl| fn_decl.return_ty.clone());
+
         let expr = node
             .val
             .as_ref()
-            .map(|val| self.analyze_expr(val))
+            .map(|val| match &expected_return_ty {
+                Some(expected) => self.analyze_expr_with_expected_type(val, expected.clone()),
+                None => self.analyze_expr(val),
+            })
             .transpose()?
             .map(Box::new);
 
@@ -2568,15 +2576,86 @@ impl SemanticAnalyzer {
     /// Analyze an expression with an optional expected type (e.g. from a function parameter).
     /// When the expression is a closure and the expected type is a closure type with matching
     /// param count, closure params are bound to the expected param types before analyzing the body.
+    /// If the expected type is an interface and the analyzed value has a conforming concrete type,
+    /// an `InterfaceBox` coercion is inserted.
     pub(super) fn analyze_expr_with_expected_type(
         &mut self,
         expr: &ast::expr::Expr,
         expected_ty: Rc<ir_type::Ty>,
     ) -> anyhow::Result<ir::expr::Expr> {
-        if let ast::expr::ExprKind::Closure(node) = &expr.kind {
-            return self.analyze_closure(node, Some(expected_ty));
+        let analyzed = if let ast::expr::ExprKind::Closure(node) = &expr.kind {
+            self.analyze_closure(node, Some(expected_ty.clone()))?
+        } else {
+            self.analyze_expr(expr)?
+        };
+        self.coerce_to_expected_type(analyzed, &expected_ty)
+    }
+
+    /// Wrap `value` in an `InterfaceBox` if `expected_ty` is an interface and `value`'s type is a
+    /// concrete implementor. Returns `value` unchanged when no coercion is needed. Returns an
+    /// error if the expected type is an interface but the method set does not conform.
+    pub(crate) fn coerce_to_expected_type(
+        &self,
+        value: ir::expr::Expr,
+        expected_ty: &Rc<ir_type::Ty>,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        // UDTs (structs / interfaces) are wrapped in an IR-level `Reference` node, so peel one
+        // layer here before inspecting the payload.
+        let expected_base = match expected_ty.kind.as_ref() {
+            ir_type::TyKind::Reference(rty) => rty.refee_ty.clone(),
+            _ => expected_ty.clone(),
+        };
+        let ir_type::TyKind::UserDefined(expected_udt) = expected_base.kind.as_ref() else {
+            return Ok(value);
+        };
+        let ir_type::UserDefinedTypeKind::Interface(interface) = &expected_udt.kind else {
+            return Ok(value);
+        };
+
+        let value_base = match value.ty.kind.as_ref() {
+            ir_type::TyKind::Reference(rty) => rty.refee_ty.clone(),
+            _ => value.ty.clone(),
+        };
+
+        // If the value is already the same interface type, no coercion is needed.
+        if let ir_type::TyKind::UserDefined(value_udt) = value_base.kind.as_ref() {
+            if value_udt.is_interface()
+                && value_udt.qualified_symbol() == expected_udt.qualified_symbol()
+            {
+                return Ok(value);
+            }
         }
-        self.analyze_expr(expr)
+
+        // Unresolved type variables cannot be checked here; type inference will handle them later.
+        if matches!(value_base.kind.as_ref(), ir_type::TyKind::Var(_)) {
+            return Ok(value);
+        }
+
+        let methods = self
+            .resolve_interface_impl_methods(&value.ty, interface)
+            .map_err(|method_name| SemanticError::InterfaceNotImplemented {
+                actual: value.ty.kind.to_string(),
+                interface: interface.name.symbol(),
+                method_name,
+                span: value.span,
+            })?;
+
+        let itable = Rc::new(ir::expr::ITable {
+            interface: interface.clone(),
+            concrete_ty: value.ty.clone(),
+            methods,
+        });
+        let span = value.span;
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::InterfaceBox(ir::expr::InterfaceBox {
+                value: Box::new(value),
+                interface: interface.clone(),
+                itable,
+                span,
+            }),
+            ty: expected_ty.clone(),
+            span,
+        })
     }
 
     fn analyze_closure(

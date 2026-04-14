@@ -796,6 +796,141 @@ fun helper() {
     Ok(())
 }
 
+fn find_interface_box_in_expr(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::InterfaceBox(_) => true,
+        ExprKind::Return(ret) => ret.as_deref().is_some_and(find_interface_box_in_expr),
+        ExprKind::Block(block) => find_interface_box_in_block(block),
+        ExprKind::FnCall(call) => call.args.0.iter().any(find_interface_box_in_expr),
+        _ => false,
+    }
+}
+
+fn find_interface_box_in_block(block: &kaede_ir::stmt::Block) -> bool {
+    for stmt in &block.body {
+        match stmt {
+            Stmt::Expr(expr) => {
+                if find_interface_box_in_expr(expr) {
+                    return true;
+                }
+            }
+            Stmt::Let(let_stmt) => {
+                if let_stmt
+                    .init
+                    .as_ref()
+                    .is_some_and(find_interface_box_in_expr)
+                {
+                    return true;
+                }
+            }
+            Stmt::Assign(assign) => {
+                if find_interface_box_in_expr(&assign.value) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    block
+        .last_expr
+        .as_deref()
+        .is_some_and(find_interface_box_in_expr)
+}
+
+fn function_body<'a>(
+    unit: &'a kaede_ir::CompileUnit,
+    name: &str,
+) -> Option<&'a kaede_ir::stmt::Block> {
+    unit.top_levels.iter().find_map(|tl| match tl {
+        TopLevel::Fn(fn_) if fn_.decl.name.symbol() == Symbol::from(name.to_string()) => {
+            fn_.body.as_ref()
+        }
+        _ => None,
+    })
+}
+
+#[test]
+fn coerces_concrete_to_interface_in_let_call_return() -> anyhow::Result<()> {
+    let source = "\
+interface Reader {
+    fun read(self) -> i32
+}
+
+struct File {
+    handle: i32,
+}
+
+impl File {
+    fun read(self) -> i32 {
+        return self.handle
+    }
+}
+
+fun take(r: Reader) -> i32 {
+    return 0
+}
+
+fun make() -> Reader {
+    let f = File { handle: 1 }
+    return f
+}
+
+fun use_it() {
+    let f = File { handle: 1 }
+    take(f)
+    let r: Reader = f
+}
+";
+
+    let unit = semantic_analyze_as_non_entry(source)?;
+
+    let make_body = function_body(&unit, "make").expect("`make` should be present");
+    assert!(
+        find_interface_box_in_block(make_body),
+        "return site should insert an InterfaceBox"
+    );
+
+    let use_it_body = function_body(&unit, "use_it").expect("`use_it` should be present");
+    assert!(
+        find_interface_box_in_block(use_it_body),
+        "call argument or let with annotation should insert an InterfaceBox"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn interface_coercion_rejects_missing_method() {
+    let err = semantic_analyze_non_entry_expect_error(
+        "\
+interface Reader {
+    fun read(self) -> i32
+}
+
+struct File {
+    handle: i32,
+}
+
+fun take(r: Reader) -> i32 {
+    return 0
+}
+
+fun use_it() {
+    let f = File { handle: 1 }
+    take(f)
+}
+",
+    )
+    .unwrap();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("does not satisfy")
+            || msg.contains("cannot convert")
+            || msg.contains("interface"),
+        "unexpected error: {msg}"
+    );
+}
+
 #[test]
 fn interface_usable_as_parameter_and_field_type() -> anyhow::Result<()> {
     let unit = semantic_analyze_as_non_entry(

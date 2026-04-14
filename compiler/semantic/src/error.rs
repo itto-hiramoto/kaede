@@ -237,4 +237,12 @@ pub enum SemanticError {
         method_name: Symbol,
         span: Span,
     },
+
+    #[error("{}:{}:{} cannot convert `{}` to interface `{}`: missing or incompatible method `{}`", span.file, span.start.line, span.start.column, actual, interface, method_name)]
+    InterfaceNotImplemented {
+        actual: String,
+        interface: Symbol,
+        method_name: Symbol,
+        span: Span,
+    },
 }
