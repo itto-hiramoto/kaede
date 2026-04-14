@@ -653,3 +653,145 @@ interface Reader {
 
     Ok(())
 }
+
+#[test]
+fn generic_bounds_accept_interfaces() -> anyhow::Result<()> {
+    semantic_analyze_as_non_entry(
+        "\
+interface Reader {
+    fun read(self) -> i32
+}
+
+struct Box<T: Reader> {}
+
+fun drain<T: Reader>(x: T) -> i32 {
+    return 0
+}
+",
+    )?;
+
+    Ok(())
+}
+
+#[test]
+fn generic_bounds_reject_non_interfaces() -> anyhow::Result<()> {
+    let err = semantic_analyze_non_entry_expect_error(
+        "\
+struct Reader {}
+
+fun drain<T: Reader>(x: T) -> i32 {
+    return 0
+}
+",
+    )?;
+
+    assert!(err
+        .to_string()
+        .contains("generic bound `Reader` must reference an interface"));
+
+    Ok(())
+}
+
+#[test]
+fn generic_function_call_checks_bound_conformance() -> anyhow::Result<()> {
+    semantic_analyze(
+        "\
+interface Reader {
+    fun read(self) -> i32
+}
+
+struct File {}
+
+impl File {
+    fun read(self) -> i32 {
+        return 1
+    }
+}
+
+fun drain<T: Reader>(x: T) -> i32 {
+    return 0
+}
+
+fun main() -> i32 {
+    let file = File {}
+    return drain(file)
+}
+",
+    )?;
+
+    let err = semantic_analyze_expect_error(
+        "\
+interface Reader {
+    fun read(self) -> i32
+}
+
+struct NoRead {}
+
+fun drain<T: Reader>(x: T) -> i32 {
+    return 0
+}
+
+fun main() -> i32 {
+    let value = NoRead {}
+    return drain(value)
+}
+",
+    )?;
+
+    assert!(err
+        .to_string()
+        .contains("does not satisfy interface `Reader`"));
+
+    Ok(())
+}
+
+#[test]
+fn generic_type_instantiation_checks_bound_conformance() -> anyhow::Result<()> {
+    semantic_analyze_as_non_entry(
+        "\
+interface Reader {
+    fun read(self) -> i32
+}
+
+struct File {}
+
+impl File {
+    fun read(self) -> i32 {
+        return 1
+    }
+}
+
+struct Box<T: Reader> {
+    value: T,
+}
+
+fun helper() {
+    let _ok = Box<File> { value: File {} }
+}
+",
+    )?;
+
+    let err = semantic_analyze_non_entry_expect_error(
+        "\
+interface Reader {
+    fun read(self) -> i32
+}
+
+struct NoRead {}
+
+struct Box<T: Reader> {
+    value: T,
+}
+
+fun helper() {
+    let _bad = Box<NoRead> { value: NoRead {} }
+}
+",
+    )?;
+
+    assert!(err
+        .to_string()
+        .contains("does not satisfy interface `Reader`"));
+
+    Ok(())
+}

@@ -9,7 +9,7 @@ use kaede_symbol::{Ident, Symbol};
 
 use crate::context::AnalyzeCommand;
 use crate::{error::SemanticError, SemanticAnalyzer, TopLevelAnalysisResult};
-use kaede_symbol_table::{GenericKind, SymbolTableValueKind};
+use kaede_symbol_table::{GenericKind, ResolvedGenericParams, SymbolTableValueKind};
 
 struct GenericTypeOps<T> {
     get_generic_params: fn(&T) -> &ast::top::GenericParams,
@@ -20,6 +20,154 @@ struct GenericTypeOps<T> {
 }
 
 impl SemanticAnalyzer {
+    pub(crate) fn verify_resolved_generic_bounds(
+        &self,
+        resolved_params: Option<&ResolvedGenericParams>,
+        generic_args: &[Rc<ir_type::Ty>],
+        span: Span,
+    ) -> anyhow::Result<()> {
+        let Some(resolved_params) = resolved_params else {
+            return Ok(());
+        };
+
+        if resolved_params.len() != generic_args.len() {
+            return Err(SemanticError::GenericArgumentLengthMismatch {
+                expected: resolved_params.len(),
+                actual: generic_args.len(),
+                span,
+            }
+            .into());
+        }
+
+        for (param, arg) in resolved_params.params.iter().zip(generic_args.iter()) {
+            let Some(interface) = &param.bound else {
+                continue;
+            };
+
+            if matches!(arg.kind.as_ref(), ir_type::TyKind::Var(_)) {
+                continue;
+            }
+
+            self.verify_type_satisfies_interface(arg, interface, span)?;
+        }
+
+        Ok(())
+    }
+
+    fn verify_type_satisfies_interface(
+        &self,
+        actual_ty: &Rc<ir_type::Ty>,
+        interface_name: &QualifiedSymbol,
+        span: Span,
+    ) -> anyhow::Result<()> {
+        let interface_symbol = self.lookup_qualified_symbol(interface_name.clone()).ok_or(
+            SemanticError::Undeclared {
+                name: interface_name.symbol(),
+                span,
+            },
+        )?;
+
+        let interface = {
+            let borrowed = interface_symbol.borrow();
+            match &borrowed.kind {
+                SymbolTableValueKind::Interface(interface) => interface.clone(),
+                _ => unreachable!(),
+            }
+        };
+
+        for method in &interface.methods {
+            let Some(actual_method) = self.lookup_method_for_interface(actual_ty, method) else {
+                return Err(SemanticError::GenericBoundNotSatisfied {
+                    actual: actual_ty.kind.to_string(),
+                    interface: interface.name.symbol(),
+                    method_name: method.name,
+                    span,
+                }
+                .into());
+            };
+
+            if !self.interface_method_matches_decl(method, &actual_method) {
+                return Err(SemanticError::GenericBoundNotSatisfied {
+                    actual: actual_ty.kind.to_string(),
+                    interface: interface.name.symbol(),
+                    method_name: method.name,
+                    span,
+                }
+                .into());
+            }
+        }
+
+        Ok(())
+    }
+
+    fn lookup_method_for_interface(
+        &self,
+        actual_ty: &Rc<ir_type::Ty>,
+        method: &ir::top::InterfaceMethod,
+    ) -> Option<Rc<ir::top::FnDecl>> {
+        let (module_path, parent_name) = self.method_lookup_target(actual_ty)?;
+        let method_key = self.create_method_key(parent_name, method.name, method.self_.is_none());
+        let symbol = self.lookup_qualified_symbol(QualifiedSymbol::new(module_path, method_key))?;
+        let borrowed = symbol.borrow();
+
+        match &borrowed.kind {
+            SymbolTableValueKind::Function(fn_decl) => Some(fn_decl.clone()),
+            _ => None,
+        }
+    }
+
+    fn method_lookup_target(
+        &self,
+        ty: &Rc<ir_type::Ty>,
+    ) -> Option<(kaede_ir::module_path::ModulePath, Symbol)> {
+        match ty.kind.as_ref() {
+            ir_type::TyKind::Reference(rty) => self.method_lookup_target(&rty.get_base_type()),
+            ir_type::TyKind::UserDefined(udt) => Some((udt.module_path(), udt.name())),
+            ir_type::TyKind::Fundamental(fty) => Some((
+                kaede_ir::module_path::ModulePath::new(vec![]),
+                fty.kind.to_string().into(),
+            )),
+            ir_type::TyKind::Slice(elem_ty) => Some((
+                self.module_path().clone(),
+                self.slice_method_parent_name(elem_ty),
+            )),
+            _ => None,
+        }
+    }
+
+    fn interface_method_matches_decl(
+        &self,
+        interface_method: &ir::top::InterfaceMethod,
+        actual_method: &Rc<ir::top::FnDecl>,
+    ) -> bool {
+        let actual_params = &actual_method.params;
+        let expected_is_instance = interface_method.self_.is_some();
+        let actual_is_instance = actual_params
+            .first()
+            .is_some_and(|param| param.name.as_str() == "self");
+
+        if expected_is_instance != actual_is_instance {
+            return false;
+        }
+
+        let actual_params_without_self = if actual_is_instance {
+            let self_param = &actual_params[0];
+            if self_param.ty.mutability != interface_method.self_.unwrap() {
+                return false;
+            }
+            &actual_params[1..]
+        } else {
+            &actual_params[..]
+        };
+
+        actual_params_without_self.len() == interface_method.params.len()
+            && actual_params_without_self
+                .iter()
+                .zip(interface_method.params.iter())
+                .all(|(actual, expected)| ir_type::is_same_type(&actual.ty, &expected.ty))
+            && ir_type::is_same_type(&actual_method.return_ty, &interface_method.return_ty)
+    }
+
     pub fn analyze_type(&mut self, ty: &ast_type::Ty) -> anyhow::Result<Rc<ir_type::Ty>> {
         match ty.kind.as_ref() {
             ast_type::TyKind::Fundamental(fty) => Ok(self
@@ -306,6 +454,12 @@ impl SemanticAnalyzer {
             _ => unreachable!(),
         };
 
+        self.verify_resolved_generic_bounds(
+            generic_info.resolved_generic_params(),
+            &generic_args,
+            name.span(),
+        )?;
+
         let module_path = generic_info.module_path.clone();
 
         self.with_module(module_path.clone(), |analyzer| {
@@ -362,6 +516,7 @@ impl SemanticAnalyzer {
                     impl_info.generateds.push(generic_args.clone());
 
                     let generic_params = impl_info.impl_.generic_params.as_ref().unwrap().clone();
+                    let resolved_generic_params = impl_info.resolved_generic_params.clone();
 
                     // Check if the length of the generic arguments is the same as the number of generic parameters
                     if generic_params.len() != generic_args.len() {
@@ -372,6 +527,12 @@ impl SemanticAnalyzer {
                         }
                         .into());
                     }
+
+                    analyzer.verify_resolved_generic_bounds(
+                        resolved_generic_params.as_ref(),
+                        &generic_args,
+                        generic_params.span,
+                    )?;
 
                     let mut impl_ = impl_info.impl_.clone();
                     impl_.generic_params = None;
@@ -709,8 +870,14 @@ impl SemanticAnalyzer {
         }
 
         let generic_params = impl_info.impl_.generic_params.as_ref().unwrap().clone();
+        let resolved_generic_params = impl_info.resolved_generic_params.clone();
 
         self.verify_generic_argument_length(&generic_params, &generic_args, generic_params.span)?;
+        self.verify_resolved_generic_bounds(
+            resolved_generic_params.as_ref(),
+            &generic_args,
+            generic_params.span,
+        )?;
 
         impl_info.generateds.push(generic_args.clone());
 

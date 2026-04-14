@@ -227,6 +227,14 @@ pub enum SemanticError {
     #[error("{}:{}:{} `?` can only be used in functions returning `Result<T, E>`, got `{}`", span.file, span.start.line, span.start.column, actual)]
     TryOutsideResultFunction { actual: String, span: Span },
 
-    #[error("{}:{}:{} generic bounds are not yet supported by the compiler", span.file, span.start.line, span.start.column)]
-    GenericBoundNotYetSupported { span: Span },
+    #[error("{}:{}:{} generic bound `{}` must reference an interface", span.file, span.start.line, span.start.column, name)]
+    GenericBoundMustBeInterface { name: Symbol, span: Span },
+
+    #[error("{}:{}:{} type `{}` does not satisfy interface `{}`: missing or incompatible method `{}`", span.file, span.start.line, span.start.column, actual, interface, method_name)]
+    GenericBoundNotSatisfied {
+        actual: String,
+        interface: Symbol,
+        method_name: Symbol,
+        span: Span,
+    },
 }
