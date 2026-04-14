@@ -673,6 +673,9 @@ impl SemanticAnalyzer {
 
             SymbolTableValueKind::Struct(st) => ir_type::UserDefinedTypeKind::Struct(st.clone()),
             SymbolTableValueKind::Enum(en) => ir_type::UserDefinedTypeKind::Enum(en.clone()),
+            SymbolTableValueKind::Interface(iface) => {
+                ir_type::UserDefinedTypeKind::Interface(iface.clone())
+            }
             SymbolTableValueKind::Placeholder(placeholder) => {
                 ir_type::UserDefinedTypeKind::Placeholder(placeholder.clone())
             }

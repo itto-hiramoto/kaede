@@ -795,3 +795,30 @@ fun helper() {
 
     Ok(())
 }
+
+#[test]
+fn interface_usable_as_parameter_and_field_type() -> anyhow::Result<()> {
+    let unit = semantic_analyze_as_non_entry(
+        "\
+interface Reader {
+    fun read(self) -> i32
+}
+
+struct Pipeline {
+    source: Reader,
+}
+
+fun take(r: Reader) -> i32 {
+    return 0
+}
+",
+    )?;
+
+    let has_fn = unit.top_levels.iter().any(|tl| match tl {
+        TopLevel::Fn(fn_) => fn_.decl.name.symbol() == Symbol::from("take".to_string()),
+        _ => false,
+    });
+    assert!(has_fn, "`take` function should be present in IR");
+
+    Ok(())
+}
