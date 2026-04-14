@@ -51,9 +51,7 @@ impl SemanticAnalyzer {
             TopLevelKind::Import(node) => self.analyze_import(node),
             TopLevelKind::Use(node) => self.analyze_use(node),
             TopLevelKind::TypeAlias(node) => self.analyze_type_alias(node),
-            TopLevelKind::Interface(node) => {
-                Err(SemanticError::InterfaceNotYetSupported { span: node.span }.into())
-            }
+            TopLevelKind::Interface(node) => self.analyze_interface(node),
         }
     }
 
@@ -267,6 +265,7 @@ impl SemanticAnalyzer {
                     ast::top::TopLevelKind::Struct(_)
                         | ast::top::TopLevelKind::Enum(_)
                         | ast::top::TopLevelKind::TypeAlias(_)
+                        | ast::top::TopLevelKind::Interface(_)
                 )
             });
 
@@ -901,6 +900,56 @@ impl SemanticAnalyzer {
         Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Enum(
             ir,
         )))
+    }
+
+    pub fn analyze_interface(
+        &mut self,
+        node: ast::top::Interface,
+    ) -> anyhow::Result<TopLevelAnalysisResult> {
+        let vis = node.vis;
+        let name = node.name.symbol();
+        let span = node.span;
+
+        let qualified_name = QualifiedSymbol::new(self.current_module_path().clone(), name);
+
+        let mut methods = Vec::with_capacity(node.methods.len());
+        for method in node.methods {
+            let params = method
+                .params
+                .v
+                .into_iter()
+                .map(|p| -> anyhow::Result<ir::top::Param> {
+                    Ok(ir::top::Param {
+                        name: p.name.symbol(),
+                        ty: self.analyze_type(&p.ty)?,
+                        default: None,
+                    })
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+
+            methods.push(ir::top::InterfaceMethod {
+                name: method.name.symbol(),
+                self_: method.self_.map(ir::ty::Mutability::from),
+                params,
+                return_ty: self.analyze_type(&method.return_ty)?,
+            });
+        }
+
+        let ir = Rc::new(ir::top::Interface {
+            name: qualified_name,
+            methods,
+        });
+
+        let symbol_table_value = SymbolTableValue::new(
+            SymbolTableValueKind::Interface(ir.clone()),
+            self.current_module_path().clone(),
+        );
+
+        self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)?;
+
+        Ok(TopLevelAnalysisResult::TopLevel(
+            ir::top::TopLevel::Interface(ir),
+        ))
     }
 
     pub fn analyze_type_alias(
