@@ -1372,7 +1372,7 @@ impl SemanticAnalyzer {
                 .decl
                 .generic_params
                 .as_ref()
-                .map_or(0, |params| params.names.len());
+                .map_or(0, |params| params.len());
             if inferred_args.len() < param_len {
                 inferred_args.extend(
                     (0..(param_len - inferred_args.len())).map(|_| self.infer_context.fresh()),

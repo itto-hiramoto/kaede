@@ -104,8 +104,8 @@ impl GenericInfo {
 
     pub fn get_generic_argument_length(&self) -> usize {
         match &self.kind {
-            GenericKind::Struct(info) => info.ast.generic_params.as_ref().unwrap().names.len(),
-            GenericKind::Enum(info) => info.ast.generic_params.as_ref().unwrap().names.len(),
+            GenericKind::Struct(info) => info.ast.generic_params.as_ref().unwrap().len(),
+            GenericKind::Enum(info) => info.ast.generic_params.as_ref().unwrap().len(),
             GenericKind::Slice(_) => 1,
             _ => unreachable!(),
         }

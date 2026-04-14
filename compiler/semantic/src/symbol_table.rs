@@ -14,9 +14,9 @@ impl SemanticAnalyzer {
         f: impl FnOnce(&mut Self) -> anyhow::Result<T>,
     ) -> anyhow::Result<T> {
         // Check the length of the generic arguments
-        if generic_params.names.len() != generic_args.len() {
+        if generic_params.len() != generic_args.len() {
             return Err(SemanticError::GenericArgumentLengthMismatch {
-                expected: generic_params.names.len(),
+                expected: generic_params.len(),
                 actual: generic_args.len(),
                 span: generic_params.span,
             }
@@ -27,8 +27,7 @@ impl SemanticAnalyzer {
 
         generic_argument_table.map.extend(
             generic_params
-                .names
-                .iter()
+                .names()
                 .zip(generic_args.iter())
                 .map(|(ident, ty)| (ident.symbol(), ty.clone())),
         );
