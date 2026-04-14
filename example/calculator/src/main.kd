@@ -6,7 +6,7 @@ use tokenize.Tokenizer
 use parse.Parser
 use eval.Evaluator
 
-fn main(args: Vector<str>): i32 {
+fun main(args: Vector<str>) -> i32 {
     expr := String::from(match args.at(1) {
         Option::Some(expr) => expr,
 

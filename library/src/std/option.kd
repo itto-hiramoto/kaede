@@ -1,24 +1,24 @@
-pub enum Option<T> {
+export enum Option<T> {
     Some(T),
     None,
 }
 
 impl<T> Option<T> {
-    pub fn is_some(self): bool {
+    export fun is_some(self) -> bool {
         return match self {
             Option::Some(_) => true,
             Option::None => false,
         }
     }
 
-    pub fn is_none(self): bool {
+    export fun is_none(self) -> bool {
         return match self {
             Option::Some(_) => false,
             Option::None => true,
         }
     }
 
-    pub fn unwrap(self): T {
+    export fun unwrap(self) -> T {
         return match self {
             Option::Some(value) => value,
             Option::None => panic("called `Option::unwrap()` on a `None` value"),

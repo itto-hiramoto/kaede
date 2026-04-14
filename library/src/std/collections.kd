@@ -5,34 +5,34 @@ use std.option.Option
 use std.ffi.mem.__mem_alloc
 use std.ffi.mem.__mem_realloc
 
-pub struct Vector<T> {
+export struct Vector<T> {
     ptr: *T,
     len: u64,
     capacity: u64,
 }
 
 impl<T> Vector<T> {
-    pub fn new(): mut Vector<T> {
+    export fun new() -> mut Vector<T> {
         return Vector<T> { ptr: __mem_alloc(0) as *T, len: 0, capacity: 0 }
     }
 
-    pub fn as_ptr(self): *T {
+    export fun as_ptr(self) -> *T {
         return self.ptr
     }
 
-    pub fn as_slice(self): [T] {
+    export fun as_slice(self) -> [T] {
         return __slice_from_raw_parts(self.ptr, self.len)
     }
 
-    pub fn len(self): u64 {
+    export fun len(self) -> u64 {
         return self.len
     }
 
-    pub fn capacity(self): u64 {
+    export fun capacity(self) -> u64 {
         return self.capacity
     }
 
-    pub fn push(mut self, elem: T) {
+    export fun push(mut self, elem: T) {
         let elem_size = __sizeof(elem)
 
         self.ensure_capacity(elem_size)
@@ -41,7 +41,7 @@ impl<T> Vector<T> {
         self.len += 1
     }
 
-    pub fn pop(mut self): Option<T> {
+    export fun pop(mut self) -> Option<T> {
         if self.len == 0 {
             return Option::None
         }
@@ -50,7 +50,7 @@ impl<T> Vector<T> {
         return Option::Some(self.ptr[self.len])
     }
 
-    pub fn at(self, idx: u64): Option<T> {
+    export fun at(self, idx: u64) -> Option<T> {
         if idx >= self.len {
             return Option::None
         }
@@ -58,7 +58,7 @@ impl<T> Vector<T> {
         return Option::Some(self.ptr[idx])
     }
 
-    pub fn set(mut self, idx: u64, value: T): bool {
+    export fun set(mut self, idx: u64, value: T) -> bool {
         if idx >= self.len {
             return false
         }
@@ -67,7 +67,7 @@ impl<T> Vector<T> {
         return true
     }
 
-    pub fn replace(mut self, idx: u64, value: T): Option<T> {
+    export fun replace(mut self, idx: u64, value: T) -> Option<T> {
         if idx >= self.len {
             return Option::None
         }
@@ -77,7 +77,7 @@ impl<T> Vector<T> {
         return Option::Some(old)
     }
 
-    pub fn remove(mut self, idx: u64): Option<T> {
+    export fun remove(mut self, idx: u64) -> Option<T> {
         if idx >= self.len {
             return Option::None
         }
@@ -96,7 +96,7 @@ impl<T> Vector<T> {
 
     // Removes an element in O(1) by replacing it with the last element.
     // This does not preserve order.
-    pub fn swap_remove(mut self, idx: u64): Option<T> {
+    export fun swap_remove(mut self, idx: u64) -> Option<T> {
         if idx >= self.len {
             return Option::None
         }
@@ -111,7 +111,7 @@ impl<T> Vector<T> {
         return Option::Some(removed)
     }
 
-    pub fn retain(mut self, pred: fn(T) -> bool) {
+    export fun retain(mut self, pred: fun(T) -> bool) {
         let mut write = 0
         let mut read = 0
 
@@ -129,7 +129,7 @@ impl<T> Vector<T> {
         self.len = write
     }
 
-    pub fn filter(self, pred: fn(T) -> bool): mut Vector<T> {
+    export fun filter(self, pred: fun(T) -> bool) -> mut Vector<T> {
         let mut out = Vector<T>::new()
         let mut i = 0
 
@@ -144,7 +144,7 @@ impl<T> Vector<T> {
         return out
     }
 
-    pub fn from_slice(s: [T]): mut Vector<T> {
+    export fun from_slice(s: [T]) -> mut Vector<T> {
         let mut v = Vector<T>::new()
         let mut i = 0
         while i < s.len() {
@@ -154,7 +154,7 @@ impl<T> Vector<T> {
         return v
     }
 
-    fn ensure_capacity(mut self, elem_size: u64) {
+    fun ensure_capacity(mut self, elem_size: u64) {
         if self.capacity == 0 {
             self.capacity = 4
             let new_size = elem_size * self.capacity
@@ -173,29 +173,29 @@ impl<T> Vector<T> {
     }
 }
 
-pub enum HashSlotState {
+export enum HashSlotState {
     Empty,
     Filled,
     Deleted,
 }
 
-pub struct HashMap<K, V> {
+export struct HashMap<K, V> {
     keys: Vector<Option<K>>,
     values: Vector<Option<V>>,
     states: Vector<HashSlotState>,
     len: u64,
     used: u64,
     capacity: u64,
-    hash: fn(K) -> u64,
-    equals: fn(K, K) -> bool,
+    hash: fun(K) -> u64,
+    equals: fun(K, K) -> bool,
 }
 
 impl<K, V> HashMap<K, V> {
-    pub fn new(hash: fn(K) -> u64, equals: fn(K, K) -> bool): mut HashMap<K, V> {
+    export fun new(hash: fun(K) -> u64, equals: fun(K, K) -> bool) -> mut HashMap<K, V> {
         return HashMap<K, V>::with_capacity(8, hash, equals)
     }
 
-    pub fn with_capacity(capacity: u64, hash: fn(K) -> u64, equals: fn(K, K) -> bool): mut HashMap<K, V> {
+    export fun with_capacity(capacity: u64, hash: fun(K) -> u64, equals: fun(K, K) -> bool) -> mut HashMap<K, V> {
         let normalized_capacity = HashMap<K, V>::normalize_capacity(capacity)
 
         let mut map = HashMap<K, V> {
@@ -213,15 +213,15 @@ impl<K, V> HashMap<K, V> {
         return map
     }
 
-    pub fn len(self): u64 {
+    export fun len(self) -> u64 {
         return self.len
     }
 
-    pub fn is_empty(self): bool {
+    export fun is_empty(self) -> bool {
         return self.len == 0
     }
 
-    pub fn insert(mut self, key: K, value: V): Option<V> {
+    export fun insert(mut self, key: K, value: V) -> Option<V> {
         if self.should_grow() {
             self.rehash(self.capacity * 2)
         }
@@ -229,7 +229,7 @@ impl<K, V> HashMap<K, V> {
         return self.insert_without_grow(key, value)
     }
 
-    pub fn get(self, key: K): Option<V> {
+    export fun get(self, key: K) -> Option<V> {
         if self.capacity == 0 {
             return Option::None
         }
@@ -242,14 +242,14 @@ impl<K, V> HashMap<K, V> {
         return self.values.at(idx).unwrap()
     }
 
-    pub fn contains(self, key: K): bool {
+    export fun contains(self, key: K) -> bool {
         return match self.get(key) {
             Option::Some(_) => true,
             Option::None => false,
         }
     }
 
-    pub fn remove(mut self, key: K): Option<V> {
+    export fun remove(mut self, key: K) -> Option<V> {
         if self.capacity == 0 {
             return Option::None
         }
@@ -267,7 +267,7 @@ impl<K, V> HashMap<K, V> {
         return old_value
     }
 
-    fn normalize_capacity(capacity: u64): u64 {
+    fun normalize_capacity(capacity: u64) -> u64 {
         let want = if capacity < 8 { 8 } else { capacity }
 
         let mut n = 8
@@ -278,7 +278,7 @@ impl<K, V> HashMap<K, V> {
         return n
     }
 
-    fn init_storage(mut self, capacity: u64) {
+    fun init_storage(mut self, capacity: u64) {
         self.capacity = capacity
         self.len = 0
         self.used = 0
@@ -292,11 +292,11 @@ impl<K, V> HashMap<K, V> {
         }
     }
 
-    fn should_grow(self): bool {
+    fun should_grow(self) -> bool {
         return (self.used * 100) >= (self.capacity * 70)
     }
 
-    fn find_slot(self, key: K): (bool, u64) {
+    fun find_slot(self, key: K) -> (bool, u64) {
         let h = self.hash
         let equals = self.equals
 
@@ -340,7 +340,7 @@ impl<K, V> HashMap<K, V> {
         panic("HashMap is full")
     }
 
-    fn insert_without_grow(mut self, key: K, value: V): Option<V> {
+    fun insert_without_grow(mut self, key: K, value: V) -> Option<V> {
         let (found, idx) = self.find_slot(key)
         let state = self.states.at(idx).unwrap()
 
@@ -366,7 +366,7 @@ impl<K, V> HashMap<K, V> {
         return Option::None
     }
 
-    fn rehash(mut self, new_capacity: u64) {
+    fun rehash(mut self, new_capacity: u64) {
         let capacity = HashMap<K, V>::normalize_capacity(new_capacity)
 
         let old_keys = self.keys
@@ -400,7 +400,7 @@ impl<K, V> HashMap<K, V> {
     }
 }
 
-pub fn hash_str(s: str): u64 {
+export fun hash_str(s: str) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325 // FNV-1a 64-bit offset basis
     let prime: u64 = 0x100000001b3 // FNV-1a 64-bit prime
 

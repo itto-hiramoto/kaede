@@ -8,13 +8,13 @@ const TEST_PROGRAM: &str = r"struct Num {
     n: i32,
 }
 
-fn f(): ([i32; 3], (i32, i32, Num)) {
+fun f() -> ([i32; 3], (i32, i32, Num)) {
     let a = [1, 2, 3]
     let t = (48, 10, Num { n: 58 })
     return (a, t)
 }
 
-fn main(): i32 {
+fun main() -> i32 {
     let mut c = 0
 
     loop {

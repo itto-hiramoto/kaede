@@ -41,7 +41,7 @@ fn run_executes_build_main_and_propagates_exit_code() -> anyhow::Result<()> {
 
     create_project(
         &temp_dir,
-        r#"fn main(): i32 {
+        r#"fun main() -> i32 {
     return 42
 }"#,
     )?;
@@ -82,7 +82,7 @@ fn run_uses_unique_entry_candidate_even_if_not_main_kd() -> anyhow::Result<()> {
     create_project_files(
         &temp_dir,
         &[
-            ("main.kd", "fn helper(): i32 { return 0 }"),
+            ("main.kd", "fun helper() -> i32 { return 0 }"),
             (
                 "app.kd",
                 r#"let mut n = 40
@@ -108,7 +108,7 @@ fn run_fails_when_entry_candidate_is_ambiguous() -> anyhow::Result<()> {
     create_project_files(
         &temp_dir,
         &[
-            ("main.kd", "fn main(): i32 { return 0 }"),
+            ("main.kd", "fun main() -> i32 { return 0 }"),
             ("app.kd", "return 42"),
         ],
     )?;
@@ -129,9 +129,9 @@ fn run_forwards_args_after_double_dash() -> anyhow::Result<()> {
 
     create_project(
         &temp_dir,
-        r#"extern "C" fn strcmp(s1: *u8, s2: *u8): i32
+        r#"extern "C" fun strcmp(s1: *u8, s2: *u8) -> i32
 
-fn main(args: Vector<str>): i32 {
+fun main(args: Vector<str>) -> i32 {
     if args.len() < 2 {
         return 125
     }
@@ -176,16 +176,16 @@ fn run_executes_result_try_program() -> anyhow::Result<()> {
         r#"import std.result
 use std.result.Result
 
-fn inner(): Result<i32, str> {
+fun inner() -> Result<i32, str> {
     return Result::Ok(42)
 }
 
-fn outer(): Result<i32, str> {
+fun outer() -> Result<i32, str> {
     value := inner()?;
     return Result::Ok(value)
 }
 
-fn main(): i32 {
+fun main() -> i32 {
     return match outer() {
         Result::Ok(value) => value,
         Result::Err(_) => 1,

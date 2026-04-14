@@ -31,9 +31,9 @@ use predicates::prelude::*;
 use std::process::Command;
 
 /// Test program that checks command line arguments with safe validation
-const TEST_PROGRAM: &str = r#"extern "C" fn strcmp(s1: *u8, s2: *u8): i32
+const TEST_PROGRAM: &str = r#"extern "C" fun strcmp(s1: *u8, s2: *u8) -> i32
 
-fn main(args: Vector<str>): i32 {
+fun main(args: Vector<str>) -> i32 {
     let mut i = 0
 
     // Check if we have enough arguments (program name + at least 1 argument)

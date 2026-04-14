@@ -160,7 +160,7 @@ pub(crate) fn select_entry_unit(unit_infos: &mut [CompileUnitInfo]) -> anyhow::R
                 .collect::<Vec<_>>()
                 .join(", ");
             anyhow::bail!(
-                "Entry unit is ambiguous. Exactly one compile unit may contain top-level statements or `fn main`: {}",
+                "Entry unit is ambiguous. Exactly one compile unit may contain top-level statements or `fun main`: {}",
                 candidates
             )
         }

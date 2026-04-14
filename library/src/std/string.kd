@@ -4,40 +4,40 @@ import std.option
 use std.collections.Vector
 use std.option.Option
 
-extern "C" fn kaede_utf8_char_at(s: *u8, len: u64, index: u64): char
-extern "C" fn kaede_utf8_char_count(s: *u8, len: u64): u64
-extern "C" fn kaede_utf8_byte_index_of_char(s: *u8, len: u64, index: u64): u64
+extern "C" fun kaede_utf8_char_at(s: *u8, len: u64, index: u64) -> char
+extern "C" fun kaede_utf8_char_count(s: *u8, len: u64) -> u64
+extern "C" fun kaede_utf8_byte_index_of_char(s: *u8, len: u64, index: u64) -> u64
 
-pub struct String {
+export struct String {
     bytes: Vector<u8>,
 }
 
 impl String {
-    pub fn new(): mut String {
+    export fun new() -> mut String {
         return String { bytes: Vector<u8>::new() }
     }
 
-    pub fn from(s: str): mut String {
+    export fun from(s: str) -> mut String {
         return String { bytes: s.to_bytes() }
     }
 
-    pub fn from_bytes(bytes: [u8]): String {
+    export fun from_bytes(bytes: [u8]) -> String {
         return String { bytes: Vector<u8>::from_slice(bytes) }
     }
 
-    pub fn as_ptr(self): *u8 {
+    export fun as_ptr(self) -> *u8 {
         return self.bytes.as_ptr()
     }
 
-    pub fn len(self): u64 {
+    export fun len(self) -> u64 {
         return kaede_utf8_char_count(self.as_ptr(), self.bytes.len())
     }
 
-    pub fn as_str(self): str {
+    export fun as_str(self) -> str {
         return __str(self.as_ptr(), self.bytes.len())
     }
 
-    pub fn at(self, idx: u64): Option<char> {
+    export fun at(self, idx: u64) -> Option<char> {
         if idx >= self.len() {
             return Option::None
         }
@@ -45,7 +45,7 @@ impl String {
         return Option::Some(kaede_utf8_char_at(self.as_ptr(), self.bytes.len(), idx))
     }
 
-    pub fn push(mut self, ch: char) {
+    export fun push(mut self, ch: char) {
         let code = ch as u32
 
         if code > 0x10FFFF || (code >= 0xD800 && code <= 0xDFFF) {
@@ -76,11 +76,11 @@ impl String {
         self.bytes.push((0x80 + (code & 0x3F)) as u8)
     }
 
-    pub fn clone(self): String {
+    export fun clone(self) -> String {
         return String { bytes: Vector<u8>::from_slice(self.bytes.as_slice()) }
     }
 
-    pub fn push_str(mut self, s: str) {
+    export fun push_str(mut self, s: str) {
         let bytes = s.to_bytes()
         let slice = bytes.as_slice()
         let mut i = 0
@@ -90,14 +90,14 @@ impl String {
         }
     }
 
-    pub fn push_line(mut self, s: str) {
+    export fun push_line(mut self, s: str) {
         self.push_str(s)
         self.push('\n')
     }
 
     // Returns substring from start (inclusive) to end (exclusive). Like [start:end] slice syntax.
     // Returns empty string if start >= end or start >= len.
-    pub fn slice(self, start: u64, end: u64): String {
+    export fun slice(self, start: u64, end: u64) -> String {
         let len = self.len()
         let safe_start = if start > len { len } else { start }
         let safe_end = if end > len { len } else { end }
@@ -111,7 +111,7 @@ impl String {
     }
 }
 
-fn parse_u64_from_str(s: str): Option<u64> {
+fun parse_u64_from_str(s: str) -> Option<u64> {
     let chars_len = kaede_utf8_char_count(s.as_ptr(), s.len())
     if chars_len == 0 {
         return Option::None
@@ -141,7 +141,7 @@ fn parse_u64_from_str(s: str): Option<u64> {
     return Option::Some(val)
 }
 
-fn parse_i64_from_str(s: str): Option<i64> {
+fun parse_i64_from_str(s: str) -> Option<i64> {
     let chars_len = kaede_utf8_char_count(s.as_ptr(), s.len())
     if chars_len == 0 {
         return Option::None
@@ -190,7 +190,7 @@ fn parse_i64_from_str(s: str): Option<i64> {
     return Option::Some(val as i64)
 }
 
-fn u64_to_string(n: u64): String {
+fun u64_to_string(n: u64) -> String {
     let mut x = n
     if x == 0 {
         let mut out = String::new()
@@ -217,7 +217,7 @@ fn u64_to_string(n: u64): String {
     return out
 }
 
-fn i64_to_string(n: i64): String {
+fun i64_to_string(n: i64) -> String {
     if n < 0 {
         let mut out = String::new()
         out.push('-')
@@ -237,16 +237,16 @@ fn i64_to_string(n: i64): String {
 
 impl str {
     // Converts a string slice to a byte vector.
-    pub fn to_bytes(self): Vector<u8> {
+    export fun to_bytes(self) -> Vector<u8> {
         return Vector<u8>::from_slice(__slice_from_raw_parts(self.as_ptr(), self.len()))
     }
 
-    pub fn chars_len(self): u64 {
+    export fun chars_len(self) -> u64 {
         return kaede_utf8_char_count(self.as_ptr(), self.len())
     }
 
     // Returns true when `self` begins with `prefix`.
-    pub fn starts_with(self, prefix: str): bool {
+    export fun starts_with(self, prefix: str) -> bool {
         let bytes = self.to_bytes()
         let prefix_bytes = prefix.to_bytes()
         if prefix_bytes.len() > bytes.len() {
@@ -267,7 +267,7 @@ impl str {
     }
 
     // Returns true when `self` ends with `suffix`.
-    pub fn ends_with(self, suffix: str): bool {
+    export fun ends_with(self, suffix: str) -> bool {
         let bytes = self.to_bytes()
         let suffix_bytes = suffix.to_bytes()
         if suffix_bytes.len() > bytes.len() {
@@ -288,23 +288,23 @@ impl str {
         return true
     }
 
-    pub fn parse_u64(self): std.option.Option<u64> {
+    export fun parse_u64(self) -> std.option.Option<u64> {
         return parse_u64_from_str(self)
     }
 
-    pub fn parse_i64(self): std.option.Option<i64> {
+    export fun parse_i64(self) -> std.option.Option<i64> {
         return parse_i64_from_str(self)
     }
 }
 
 impl u64 {
-    pub fn to_string(self): String {
+    export fun to_string(self) -> String {
         return u64_to_string(self)
     }
 }
 
 impl i64 {
-    pub fn to_string(self): String {
+    export fun to_string(self) -> String {
         return i64_to_string(self)
     }
 }

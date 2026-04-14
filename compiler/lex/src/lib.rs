@@ -158,7 +158,8 @@ impl Cursor<'_> {
 
                 match ident.as_str() {
                     // Reserved words
-                    "fn" => self.create_token(TokenKind::Fn),
+                    "fun" => self.create_token(TokenKind::Fun),
+                    "fn" => self.create_token(TokenKind::OldFn),
                     "return" => self.create_token(TokenKind::Return),
                     "let" => self.create_token(TokenKind::Let),
                     "if" => self.create_token(TokenKind::If),
@@ -171,7 +172,8 @@ impl Cursor<'_> {
                     "true" => self.create_token(TokenKind::True),
                     "false" => self.create_token(TokenKind::False),
                     "import" => self.create_token(TokenKind::Import),
-                    "pub" => self.create_token(TokenKind::Pub),
+                    "export" => self.create_token(TokenKind::Export),
+                    "pub" => self.create_token(TokenKind::OldPub),
                     "impl" => self.create_token(TokenKind::Impl),
                     "enum" => self.create_token(TokenKind::Enum),
                     "match" => self.create_token(TokenKind::Match),

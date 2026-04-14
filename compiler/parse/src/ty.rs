@@ -130,10 +130,10 @@ impl Parser {
             return self.tuple_ty();
         }
 
-        if self.check(&TokenKind::Fn) {
+        if self.check(&TokenKind::Fun) {
             // Closure type
             self.checkpoint();
-            self.consume_b(&TokenKind::Fn);
+            self.consume_b(&TokenKind::Fun);
             let is_closure_ty = self.check(&TokenKind::OpenParen);
             self.backtrack();
 
@@ -307,15 +307,15 @@ impl Parser {
     }
 
     fn closure_ty(&mut self) -> ParseResult<Ty> {
-        // fn(i32) -> i32
+        // fun(i32) -> i32
         // ^
-        let start = self.consume(&TokenKind::Fn)?.start;
+        let start = self.consume(&TokenKind::Fun)?.start;
 
-        // fn(i32) -> i32
+        // fun(i32) -> i32
         //   ^
         self.consume(&TokenKind::OpenParen)?;
 
-        // fn(i32) -> i32
+        // fun(i32) -> i32
         //   ^~~
         let mut param_tys = Vec::new();
 
@@ -333,17 +333,17 @@ impl Parser {
             self.consume(&TokenKind::CloseParen)?.finish
         };
 
-        // fn(i32) -> i32
+        // fun(i32) -> i32
         //         ^^
         // Optional: return type can be omitted (defaults to unit type)
         let (ret_ty, finish) = if self.consume_b(&TokenKind::Arrow) {
-            // fn(i32) -> i32
+            // fun(i32) -> i32
             //            ^~~
             let ret_ty = self.ty()?;
             let finish = ret_ty.span.finish;
             (ret_ty.into(), finish)
         } else {
-            // fn(i32)
+            // fun(i32)
             // No return type specified, use unit type
             let unit_span = self.new_span(close_paren_finish, close_paren_finish);
             (Ty::new_unit(unit_span).into(), close_paren_finish)

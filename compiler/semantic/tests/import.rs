@@ -101,10 +101,10 @@ impl ImportTestCase {
 fn import_basic_function() -> anyhow::Result<()> {
     ImportTestCase {
         name: "basic_function",
-        modules: HashMap::from([("utils", "pub fn helper(): i32 { return 42 }")]),
+        modules: HashMap::from([("utils", "export fun helper() -> i32 { return 42 }")]),
         main_content: r#"
             import utils
-            fn main(): i32 {
+            fun main() -> i32 {
                 return utils.helper()
             }
         "#,
@@ -121,25 +121,25 @@ fn import_struct_and_impl() -> anyhow::Result<()> {
         modules: HashMap::from([(
             "math",
             r#"
-                pub struct Point {
+                export struct Point {
                     x: i32,
                     y: i32
                 }
 
                 impl Point {
-                    pub fn new(x: i32, y: i32): Point {
+                    export fun new(x: i32, y: i32) -> Point {
                         return Point { x: x, y: y }
                     }
 
-                    pub fn add(self, other: Point): Point {
+                    export fun add(self, other: Point) -> Point {
                         return Point { x: self.x + other.x, y: self.y + other.y }
                     }
 
-                    pub fn get_x(self): i32 {
+                    export fun get_x(self) -> i32 {
                         return self.x
                     }
 
-                    pub fn get_y(self): i32 {
+                    export fun get_y(self) -> i32 {
                         return self.y
                     }
                 }
@@ -147,7 +147,7 @@ fn import_struct_and_impl() -> anyhow::Result<()> {
         )]),
         main_content: r#"
             import math
-            fn main(): i32 {
+            fun main() -> i32 {
                 let p1 = math.Point::new(1, 2)
                 let p2 = math.Point::new(3, 4)
                 let p3 = p1.add(p2)
@@ -167,12 +167,12 @@ fn import_builtin_method_returning_imported_struct() -> anyhow::Result<()> {
         modules: HashMap::from([(
             "m",
             r#"
-                pub struct Wrap {
+                export struct Wrap {
                     value: i32
                 }
 
                 impl i32 {
-                    pub fn to_wrap(self): Wrap {
+                    export fun to_wrap(self) -> Wrap {
                         return Wrap { value: self }
                     }
                 }
@@ -180,7 +180,7 @@ fn import_builtin_method_returning_imported_struct() -> anyhow::Result<()> {
         )]),
         main_content: r#"
             import m
-            fn main(): i32 {
+            fun main() -> i32 {
                 let w = 58.to_wrap()
                 return w.value
             }
@@ -197,11 +197,11 @@ fn import_nested_module() -> anyhow::Result<()> {
         name: "nested_module",
         modules: HashMap::from([(
             "nested/deep/module",
-            "pub fn deep_function(): i32 { return 999 }",
+            "export fun deep_function() -> i32 { return 999 }",
         )]),
         main_content: r#"
             import nested.deep.module
-            fn main(): i32 {
+            fun main() -> i32 {
                 return nested.deep.module.deep_function()
             }
         "#,
@@ -216,13 +216,13 @@ fn import_multiple_modules() -> anyhow::Result<()> {
     ImportTestCase {
         name: "multiple_modules",
         modules: HashMap::from([
-            ("utils", "pub fn util_func(): i32 { return 1 }"),
-            ("math", "pub fn math_func(): i32 { return 2 }"),
+            ("utils", "export fun util_func() -> i32 { return 1 }"),
+            ("math", "export fun math_func() -> i32 { return 2 }"),
         ]),
         main_content: r#"
             import utils
             import math
-            fn main(): i32 {
+            fun main() -> i32 {
                 return utils.util_func() + math.math_func()
             }
         "#,
@@ -236,11 +236,11 @@ fn import_multiple_modules() -> anyhow::Result<()> {
 fn import_duplicate_modules() -> anyhow::Result<()> {
     ImportTestCase {
         name: "duplicate_modules",
-        modules: HashMap::from([("utils", "pub fn helper(): i32 { return 42 }")]),
+        modules: HashMap::from([("utils", "export fun helper() -> i32 { return 42 }")]),
         main_content: r#"
             import utils
             import utils  // Duplicate import should be handled gracefully
-            fn main(): i32 {
+            fun main() -> i32 {
                 return utils.helper()
             }
         "#,
@@ -255,12 +255,15 @@ fn import_chained_modules() -> anyhow::Result<()> {
     ImportTestCase {
         name: "chained_modules",
         modules: HashMap::from([
-            ("math", "pub fn add(a: i32, b: i32): i32 { return a + b }"),
+            (
+                "math",
+                "export fun add(a: i32, b: i32) -> i32 { return a + b }",
+            ),
             (
                 "utils",
                 r#"
                 import math
-                pub fn double_add(a: i32, b: i32): i32 {
+                export fun double_add(a: i32, b: i32) -> i32 {
                     return math.add(a, b) * 2
                 }
             "#,
@@ -268,7 +271,7 @@ fn import_chained_modules() -> anyhow::Result<()> {
         ]),
         main_content: r#"
             import utils
-            fn main(): i32 {
+            fun main() -> i32 {
                 return utils.double_add(5, 3)
             }
         "#,
@@ -285,16 +288,16 @@ fn import_generic_types() -> anyhow::Result<()> {
         modules: HashMap::from([(
             "container",
             r#"
-                pub struct Container<T> {
+                export struct Container<T> {
                     value: T
                 }
 
                 impl<T> Container<T> {
-                    pub fn new(value: T): Container<T> {
+                    export fun new(value: T) -> Container<T> {
                         return Container<T> { value: value }
                     }
 
-                    pub fn get(self): T {
+                    export fun get(self) -> T {
                         return self.value
                     }
                 }
@@ -302,7 +305,7 @@ fn import_generic_types() -> anyhow::Result<()> {
         )]),
         main_content: r#"
             import container
-            fn main(): i32 {
+            fun main() -> i32 {
                 let c = container.Container<i32>::new(42)
                 return c.get()
             }
@@ -320,25 +323,25 @@ fn import_enums() -> anyhow::Result<()> {
         modules: HashMap::from([(
             "types",
             r#"
-                pub enum Color {
+                export enum Color {
                     Red,
                     Green,
                     Blue
                 }
 
-                pub enum Opt<T> {
+                export enum Opt<T> {
                     Some(T),
                     None
                 }
 
-                pub fn get_red(): Color {
+                export fun get_red() -> Color {
                     return Color::Red
                 }
             "#,
         )]),
         main_content: r#"
             import types
-            fn main(): i32 {
+            fun main() -> i32 {
                 let c = types.Color::Red
                 match c {
                     types.Color::Red => return 0,
@@ -360,11 +363,11 @@ fn import_with_use_statement() -> anyhow::Result<()> {
         modules: HashMap::from([(
             "graphics/shapes",
             r#"
-                pub struct Circle {
+                export struct Circle {
                     radius: i32
                 }
 
-                pub fn get_radius(c: Circle): i32 {
+                export fun get_radius(c: Circle) -> i32 {
                     return c.radius
                 }
             "#,
@@ -374,7 +377,7 @@ fn import_with_use_statement() -> anyhow::Result<()> {
             use graphics.shapes.Circle
             use graphics.shapes.get_radius
 
-            fn main(): i32 {
+            fun main() -> i32 {
                 let c = Circle { radius: 5 }
                 return get_radius(c)
             }
@@ -392,7 +395,7 @@ fn import_nonexistent_file() -> anyhow::Result<()> {
         modules: HashMap::new(),
         main_content: r#"
             import nonexistent
-            fn main(): i32 {
+            fun main() -> i32 {
                 return 0
             }
         "#,
@@ -407,7 +410,7 @@ fn import_empty_module() -> anyhow::Result<()> {
     ImportTestCase {
         name: "empty_module",
         modules: HashMap::from([("empty", "")]),
-        main_content: "import empty\nfn main(): i32 { return 0 }",
+        main_content: "import empty\nfun main() -> i32 { return 0 }",
         expected_min_top_levels: 1,
         should_fail: false,
     }
@@ -418,8 +421,8 @@ fn import_empty_module() -> anyhow::Result<()> {
 fn import_module_with_only_private_items() -> anyhow::Result<()> {
     ImportTestCase {
         name: "module_with_only_private_items",
-        modules: HashMap::from([("private", "fn private_func(): i32 { return 42 }")]),
-        main_content: "import private\nfn main(): i32 { return 0 }",
+        modules: HashMap::from([("private", "fun private_func() -> i32 { return 42 }")]),
+        main_content: "import private\nfun main() -> i32 { return 0 }",
         expected_min_top_levels: 1,
         should_fail: false,
     }
@@ -430,8 +433,8 @@ fn import_module_with_only_private_items() -> anyhow::Result<()> {
 fn import_private_items() -> anyhow::Result<()> {
     ImportTestCase {
         name: "import_private_items",
-        modules: HashMap::from([("private", "fn private_func(): i32 { return 42 }")]),
-        main_content: "import private\nfn main(): i32 { return private.private_func() }",
+        modules: HashMap::from([("private", "fun private_func() -> i32 { return 42 }")]),
+        main_content: "import private\nfun main() -> i32 { return private.private_func() }",
         expected_min_top_levels: 1,
         should_fail: true,
     }
@@ -443,7 +446,7 @@ fn import_module_with_top_level_statements_fails() -> anyhow::Result<()> {
     ImportTestCase {
         name: "module_with_top_level_statements",
         modules: HashMap::from([("side_effect", "let x = 1")]),
-        main_content: "import side_effect\nfn main(): i32 { return 0 }",
+        main_content: "import side_effect\nfun main() -> i32 { return 0 }",
         expected_min_top_levels: 0,
         should_fail: true,
     }
@@ -454,8 +457,8 @@ fn import_module_with_top_level_statements_fails() -> anyhow::Result<()> {
 fn import_module_with_main_fails() -> anyhow::Result<()> {
     ImportTestCase {
         name: "module_with_main",
-        modules: HashMap::from([("nested", "fn main(): i32 { return 0 }")]),
-        main_content: "import nested\nfn main(): i32 { return 0 }",
+        modules: HashMap::from([("nested", "fun main() -> i32 { return 0 }")]),
+        main_content: "import nested\nfun main() -> i32 { return 0 }",
         expected_min_top_levels: 0,
         should_fail: true,
     }
@@ -469,16 +472,16 @@ fn import_mutual_recursive_functions() -> anyhow::Result<()> {
         modules: HashMap::from([(
             "a",
             r#"
-            pub fn a(i: i32): i32 {
+            export fun a(i: i32) -> i32 {
                 if i == 0 {
                     return 0
                 }
                 return b(i - 1)
             }
-            fn b(i: i32): i32 { return a(i - 1) }
+            fun b(i: i32) -> i32 { return a(i - 1) }
         "#,
         )]),
-        main_content: "import a\nfn main(): i32 { return a.a(10) }",
+        main_content: "import a\nfun main() -> i32 { return a.a(10) }",
         expected_min_top_levels: 1,
         should_fail: false,
     }

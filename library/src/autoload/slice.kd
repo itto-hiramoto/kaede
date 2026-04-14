@@ -1,9 +1,9 @@
 impl<T> [T] {
-    pub fn as_ptr(self): *T {
+    export fun as_ptr(self) -> *T {
         return self.0
     }
 
-    pub fn len(self): u64 {
+    export fun len(self) -> u64 {
         return self.1
     }
 }

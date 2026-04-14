@@ -16,7 +16,7 @@ fn create_kaede_only_project(project_dir: &Path, project_name: &str) -> anyhow::
     fs::create_dir_all(&src_dir)?;
     fs::write(
         src_dir.join("main.kd"),
-        r#"fn main() {
+        r#"fun main() {
     println("hello, world!")
 }"#,
     )?;
@@ -68,7 +68,7 @@ fn create_rust_bridge_project(project_dir: &Path, project_name: &str) -> anyhow:
     fs::write(
         src_dir.join("main.kd"),
         format!(
-            "import rust::{project_name}\n\nfn main(): i32 {{\n    return rust::{project_name}::add(10, 20)\n}}"
+            "import rust::{project_name}\n\nfun main() -> i32 {{\n    return rust::{project_name}::add(10, 20)\n}}"
         ),
     )?;
 

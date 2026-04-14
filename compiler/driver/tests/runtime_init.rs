@@ -10,7 +10,7 @@ fn compiled_binary_initializes_runtime_before_running_main() -> anyhow::Result<(
     let exe = temp_dir.child("a.out");
 
     main.write_str(
-        r#"fn main(): i32 {
+        r#"fun main() -> i32 {
     return 0
 }"#,
     )?;

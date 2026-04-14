@@ -1,4 +1,4 @@
-pub enum NodeKind {
+export enum NodeKind {
     Add,
     Sub,
     Mul,
@@ -6,7 +6,7 @@ pub enum NodeKind {
     Num(i32),
 }
 
-pub struct Node {
+export struct Node {
     kind: NodeKind,
     left: Option<Node>,
     right: Option<Node>,
