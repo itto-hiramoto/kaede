@@ -5,7 +5,7 @@ use kaede_symbol::Symbol;
 
 use crate::{
     stmt::Block,
-    top::{Enum, FnDecl, Struct},
+    top::{Enum, FnDecl, Interface, InterfaceMethod, Struct},
     ty::{Ty, UserDefinedType},
 };
 
@@ -314,6 +314,37 @@ pub struct FnPointer {
     pub span: Span,
 }
 
+/// Per `(concrete_ty, interface)` pair: the concrete `FnDecl` that fills each
+/// interface method slot. `methods` is aligned with `interface.methods`.
+#[derive(Debug, Clone)]
+pub struct ITable {
+    pub interface: Rc<Interface>,
+    pub concrete_ty: Rc<Ty>,
+    pub methods: Vec<Rc<FnDecl>>,
+}
+
+/// Wrap a concrete value into a fat-pointer interface value
+/// (`{ data: *T, itable: *ITable }`).
+#[derive(Debug, Clone)]
+pub struct InterfaceBox {
+    pub value: Box<Expr>,
+    pub interface: Rc<Interface>,
+    pub itable: Rc<ITable>,
+    pub span: Span,
+}
+
+/// Dynamic dispatch through an interface fat pointer's itable.
+/// `method_index` indexes into `interface.methods`.
+#[derive(Debug, Clone)]
+pub struct InterfaceMethodCall {
+    pub receiver: Box<Expr>,
+    pub interface: Rc<Interface>,
+    pub method_index: usize,
+    pub method: InterfaceMethod,
+    pub args: Args,
+    pub span: Span,
+}
+
 #[derive(Debug, Clone)]
 pub enum ExprKind {
     Int(Int),
@@ -348,6 +379,8 @@ pub enum ExprKind {
     Break,
     Block(Block),
     BuiltinFnCall(BuiltinFnCall),
+    InterfaceBox(InterfaceBox),
+    InterfaceMethodCall(InterfaceMethodCall),
 }
 
 #[derive(Debug, Clone)]

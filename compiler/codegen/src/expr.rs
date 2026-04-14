@@ -188,6 +188,13 @@ impl<'ctx> CodeGenerator<'ctx> {
             ExprKind::Closure(closure) => self.build_closure(closure, &node.ty)?,
 
             ExprKind::Spawn(spawn) => self.build_spawn(spawn)?,
+
+            ExprKind::InterfaceBox(_) => {
+                anyhow::bail!("internal error: interface boxing codegen not yet implemented")
+            }
+            ExprKind::InterfaceMethodCall(_) => {
+                anyhow::bail!("internal error: interface method call codegen not yet implemented")
+            }
         })
     }
 

@@ -23,11 +23,11 @@ mod tests {
 
     use kaede_common::LangLinkage;
     use kaede_ir::{
-        expr::{Args, Expr, ExprKind, GenericFnCall},
+        expr::{Args, Expr, ExprKind, GenericFnCall, ITable, InterfaceBox, InterfaceMethodCall},
         module_path::ModulePath,
         qualified_symbol::QualifiedSymbol,
         stmt::{Block, Stmt},
-        top::{Fn, FnDecl, Impl, TopLevel},
+        top::{Fn, FnDecl, Impl, Interface, InterfaceMethod, TopLevel},
         ty::Ty,
         CompileUnit,
     };
@@ -152,6 +152,11 @@ mod tests {
             ExprKind::StructLiteral(lit) => {
                 lit.values.iter().any(|(_, v)| contains_generic_call(v))
             }
+            ExprKind::InterfaceBox(boxed) => contains_generic_call(&boxed.value),
+            ExprKind::InterfaceMethodCall(call) => {
+                contains_generic_call(&call.receiver)
+                    || call.args.0.iter().any(contains_generic_call)
+            }
             ExprKind::Int(_)
             | ExprKind::StringLiteral(_)
             | ExprKind::ByteStringLiteral(_)
@@ -188,6 +193,108 @@ mod tests {
         let body = main_fn.body.as_ref().expect("expected body");
         let expr = body.last_expr.as_ref().expect("expected last expr");
         assert!(matches!(expr.kind, ExprKind::FnCall(_)));
+        assert!(!contains_generic_call(expr));
+    }
+
+    fn dummy_interface(name: &str) -> Rc<Interface> {
+        Rc::new(Interface {
+            name: QualifiedSymbol::new(ModulePath::new(vec![]), Symbol::from(name.to_owned())),
+            methods: vec![InterfaceMethod {
+                name: Symbol::from("m".to_owned()),
+                self_: None,
+                params: vec![],
+                return_ty: unit_ty(),
+            }],
+        })
+    }
+
+    #[test]
+    fn rewrites_generic_call_inside_interface_box() {
+        let iface = dummy_interface("Iface");
+        let itable = Rc::new(ITable {
+            interface: iface.clone(),
+            concrete_ty: unit_ty(),
+            methods: vec![fn_decl("Impl::m")],
+        });
+        let boxed = Expr {
+            kind: ExprKind::InterfaceBox(InterfaceBox {
+                value: Box::new(generic_call_expr("inner_i32")),
+                interface: iface,
+                itable,
+                span: Span::dummy(),
+            }),
+            ty: unit_ty(),
+            span: Span::dummy(),
+        };
+
+        let main_fn = Rc::new(Fn {
+            decl: (*fn_decl("main")).clone(),
+            body: Some(Block {
+                body: vec![],
+                last_expr: Some(Box::new(boxed)),
+                span: Span::dummy(),
+            }),
+        });
+
+        let mut unit = CompileUnit {
+            top_levels: vec![TopLevel::Fn(main_fn)],
+        };
+
+        Monomorphizer::new().run(&mut unit).unwrap();
+
+        let TopLevel::Fn(main_fn) = &unit.top_levels[0] else {
+            panic!("expected top-level fn");
+        };
+        let body = main_fn.body.as_ref().expect("expected body");
+        let expr = body.last_expr.as_ref().expect("expected last expr");
+        assert!(!contains_generic_call(expr));
+    }
+
+    #[test]
+    fn rewrites_generic_call_inside_interface_method_call() {
+        let iface = dummy_interface("Iface");
+        let receiver = Expr {
+            kind: ExprKind::Variable(kaede_ir::expr::Variable {
+                name: Symbol::from("r".to_owned()),
+                ty: unit_ty(),
+                span: Span::dummy(),
+            }),
+            ty: unit_ty(),
+            span: Span::dummy(),
+        };
+        let call = Expr {
+            kind: ExprKind::InterfaceMethodCall(InterfaceMethodCall {
+                receiver: Box::new(receiver),
+                interface: iface.clone(),
+                method_index: 0,
+                method: iface.methods[0].clone(),
+                args: Args(vec![generic_call_expr("arg_i32")], Span::dummy()),
+                span: Span::dummy(),
+            }),
+            ty: unit_ty(),
+            span: Span::dummy(),
+        };
+
+        let main_fn = Rc::new(Fn {
+            decl: (*fn_decl("main")).clone(),
+            body: Some(Block {
+                body: vec![],
+                last_expr: Some(Box::new(call)),
+                span: Span::dummy(),
+            }),
+        });
+
+        let mut unit = CompileUnit {
+            top_levels: vec![TopLevel::Fn(main_fn)],
+        };
+
+        Monomorphizer::new().run(&mut unit).unwrap();
+
+        let TopLevel::Fn(main_fn) = &unit.top_levels[0] else {
+            panic!("expected top-level fn");
+        };
+        let body = main_fn.body.as_ref().expect("expected body");
+        let expr = body.last_expr.as_ref().expect("expected last expr");
         assert!(!contains_generic_call(expr));
     }
 
@@ -409,6 +516,15 @@ impl Monomorphizer {
             ExprKind::StructLiteral(lit) => {
                 for (_, value) in &mut lit.values {
                     self.rewrite_expr(value)?;
+                }
+            }
+            ExprKind::InterfaceBox(boxed) => {
+                self.rewrite_expr(&mut boxed.value)?;
+            }
+            ExprKind::InterfaceMethodCall(call) => {
+                self.rewrite_expr(&mut call.receiver)?;
+                for arg in &mut call.args.0 {
+                    self.rewrite_expr(arg)?;
                 }
             }
             ExprKind::Int(_)
