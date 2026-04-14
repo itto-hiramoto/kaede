@@ -10,7 +10,8 @@ use crate::{
 };
 use kaede_symbol_table::{
     GenericEnumInfo, GenericFuncInfo, GenericImplInfo, GenericInfo, GenericKind, GenericStructInfo,
-    SymbolTable, SymbolTableValue, SymbolTableValueKind, VariableInfo,
+    ResolvedGenericParam, ResolvedGenericParams, SymbolTable, SymbolTableValue,
+    SymbolTableValueKind, VariableInfo,
 };
 
 use kaede_ast::{self as ast};
@@ -39,8 +40,6 @@ impl SemanticAnalyzer {
         top_level: ast::top::TopLevel,
     ) -> anyhow::Result<TopLevelAnalysisResult> {
         use ast::top::TopLevelKind;
-
-        check_no_generic_bounds(&top_level.kind)?;
 
         match top_level.kind {
             TopLevelKind::Fn(node) => self.analyze_fn(node),
@@ -455,6 +454,8 @@ impl SemanticAnalyzer {
         let span = node.span;
 
         if let Some(_generic_params) = node.generic_params.as_ref() {
+            let resolved_generic_params =
+                self.resolve_generic_params(node.generic_params.as_ref())?;
             let base_ty = if let ast_type::TyKind::Reference(rty) = node.ty.kind.as_ref() {
                 rty.get_base_type()
             } else {
@@ -474,10 +475,18 @@ impl SemanticAnalyzer {
                         SymbolTableValueKind::Generic(ref mut generic_info) => {
                             match &mut generic_info.kind {
                                 GenericKind::Struct(info) => {
-                                    info.impl_info = Some(GenericImplInfo::new(node, span));
+                                    info.impl_info = Some(GenericImplInfo::new(
+                                        node,
+                                        resolved_generic_params,
+                                        span,
+                                    ));
                                 }
                                 GenericKind::Enum(info) => {
-                                    info.impl_info = Some(GenericImplInfo::new(node, span));
+                                    info.impl_info = Some(GenericImplInfo::new(
+                                        node,
+                                        resolved_generic_params,
+                                        span,
+                                    ));
                                 }
                                 _ => todo!("Error"),
                             }
@@ -503,7 +512,11 @@ impl SemanticAnalyzer {
                         SymbolTableValueKind::Generic(ref mut generic_info) => {
                             match &mut generic_info.kind {
                                 GenericKind::Slice(info) => {
-                                    info.impl_info = Some(GenericImplInfo::new(node, span));
+                                    info.impl_info = Some(GenericImplInfo::new(
+                                        node,
+                                        resolved_generic_params,
+                                        span,
+                                    ));
                                 }
                                 _ => todo!("Error"),
                             }
@@ -612,11 +625,16 @@ impl SemanticAnalyzer {
             }
 
             let span = node.span;
+            let resolved_generic_params =
+                self.resolve_generic_params(node.decl.generic_params.as_ref())?;
 
             let symbol_table_value = SymbolTableValue::new(
                 SymbolTableValueKind::Generic(
                     GenericInfo::new(
-                        GenericKind::Func(GenericFuncInfo { ast: node }),
+                        GenericKind::Func(GenericFuncInfo {
+                            ast: node,
+                            resolved_generic_params,
+                        }),
                         self.current_module_path().clone(),
                     )
                     .into(),
@@ -780,10 +798,12 @@ impl SemanticAnalyzer {
 
         // For generic
         if node.generic_params.is_some() {
+            let resolved_generic_params =
+                self.resolve_generic_params(node.generic_params.as_ref())?;
             let symbol_table_value = SymbolTableValue::new(
                 SymbolTableValueKind::Generic(
                     GenericInfo::new(
-                        GenericKind::Struct(GenericStructInfo::new(node)),
+                        GenericKind::Struct(GenericStructInfo::new(node, resolved_generic_params)),
                         self.current_module_path().clone(),
                     )
                     .into(),
@@ -843,10 +863,12 @@ impl SemanticAnalyzer {
 
         // For generic
         if node.generic_params.is_some() {
+            let resolved_generic_params =
+                self.resolve_generic_params(node.generic_params.as_ref())?;
             let symbol_table_value = SymbolTableValue::new(
                 SymbolTableValueKind::Generic(
                     GenericInfo::new(
-                        GenericKind::Enum(GenericEnumInfo::new(node)),
+                        GenericKind::Enum(GenericEnumInfo::new(node, resolved_generic_params)),
                         self.current_module_path().clone(),
                     )
                     .into(),
@@ -970,28 +992,53 @@ impl SemanticAnalyzer {
 
         Ok(TopLevelAnalysisResult::Imported(vec![]))
     }
-}
+    fn resolve_generic_params(
+        &self,
+        params: Option<&ast::top::GenericParams>,
+    ) -> anyhow::Result<Option<ResolvedGenericParams>> {
+        let Some(params) = params else {
+            return Ok(None);
+        };
 
-fn check_no_generic_bounds(kind: &ast::top::TopLevelKind) -> anyhow::Result<()> {
-    use ast::top::TopLevelKind;
+        let resolved_params = params
+            .params
+            .iter()
+            .map(|param| -> anyhow::Result<ResolvedGenericParam> {
+                let bound = match param.bound {
+                    Some(bound) => Some(self.resolve_generic_bound(bound)?),
+                    None => None,
+                };
 
-    let generic_params = match kind {
-        TopLevelKind::Fn(node) => node.decl.generic_params.as_ref(),
-        TopLevelKind::Struct(node) => node.generic_params.as_ref(),
-        TopLevelKind::Enum(node) => node.generic_params.as_ref(),
-        TopLevelKind::Impl(node) => node.generic_params.as_ref(),
-        TopLevelKind::Extern(node) => node.fn_decl.generic_params.as_ref(),
-        TopLevelKind::Import(_)
-        | TopLevelKind::Use(_)
-        | TopLevelKind::TypeAlias(_)
-        | TopLevelKind::Interface(_) => None,
-    };
+                Ok(ResolvedGenericParam {
+                    name: param.name.symbol(),
+                    bound,
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
-    if let Some(params) = generic_params {
-        if params.params.iter().any(|p| p.bound.is_some()) {
-            return Err(SemanticError::GenericBoundNotYetSupported { span: params.span }.into());
-        }
+        Ok(Some(ResolvedGenericParams {
+            params: resolved_params,
+            span: params.span,
+        }))
     }
 
-    Ok(())
+    fn resolve_generic_bound(&self, bound: Ident) -> anyhow::Result<QualifiedSymbol> {
+        let symbol = self
+            .lookup_symbol(bound.symbol())
+            .ok_or(SemanticError::Undeclared {
+                name: bound.symbol(),
+                span: bound.span(),
+            })?;
+
+        let borrowed = symbol.borrow();
+
+        match &borrowed.kind {
+            SymbolTableValueKind::Interface(interface) => Ok(interface.name.clone()),
+            _ => Err(SemanticError::GenericBoundMustBeInterface {
+                name: bound.symbol(),
+                span: bound.span(),
+            }
+            .into()),
+        }
+    }
 }

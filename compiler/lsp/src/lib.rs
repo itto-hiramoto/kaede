@@ -304,7 +304,7 @@ fn semantic_error_span(err: &SemanticError) -> Option<Span> {
         | SemanticError::FormatPlaceholderCountMismatch { span, .. }
         | SemanticError::TryRequiresResult { span, .. }
         | SemanticError::TryOutsideResultFunction { span, .. }
-        | SemanticError::GenericBoundNotYetSupported { span } => Some(*span),
+        | SemanticError::GenericBoundMustBeInterface { span, .. } => Some(*span),
         SemanticError::MainNotFound
         | SemanticError::LLVMError { .. }
         | SemanticError::FailedToLookupTarget { .. }

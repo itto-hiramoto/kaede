@@ -653,3 +653,41 @@ interface Reader {
 
     Ok(())
 }
+
+#[test]
+fn generic_bounds_accept_interfaces() -> anyhow::Result<()> {
+    semantic_analyze_as_non_entry(
+        "\
+interface Reader {
+    fun read(self) -> i32
+}
+
+struct Box<T: Reader> {}
+
+fun drain<T: Reader>(x: T) -> i32 {
+    return 0
+}
+",
+    )?;
+
+    Ok(())
+}
+
+#[test]
+fn generic_bounds_reject_non_interfaces() -> anyhow::Result<()> {
+    let err = semantic_analyze_non_entry_expect_error(
+        "\
+struct Reader {}
+
+fun drain<T: Reader>(x: T) -> i32 {
+    return 0
+}
+",
+    )?;
+
+    assert!(err
+        .to_string()
+        .contains("generic bound `Reader` must reference an interface"));
+
+    Ok(())
+}

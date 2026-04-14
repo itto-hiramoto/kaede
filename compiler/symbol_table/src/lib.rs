@@ -16,31 +16,64 @@ use kaede_ir as ir;
 #[derive(Debug)]
 pub struct GenericImplInfo {
     pub impl_: ast::top::Impl,
+    pub resolved_generic_params: Option<ResolvedGenericParams>,
     pub span: Span,
     // Contains already generated generic arguments
     pub generateds: Vec<Vec<Rc<ir_type::Ty>>>,
 }
 
 impl GenericImplInfo {
-    pub fn new(impl_: ast::top::Impl, span: Span) -> Self {
+    pub fn new(
+        impl_: ast::top::Impl,
+        resolved_generic_params: Option<ResolvedGenericParams>,
+        span: Span,
+    ) -> Self {
         Self {
             impl_,
+            resolved_generic_params,
             span,
             generateds: Vec::new(),
         }
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ResolvedGenericParam {
+    pub name: Symbol,
+    pub bound: Option<QualifiedSymbol>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedGenericParams {
+    pub params: Vec<ResolvedGenericParam>,
+    pub span: Span,
+}
+
+impl ResolvedGenericParams {
+    pub fn len(&self) -> usize {
+        self.params.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.params.is_empty()
+    }
+}
+
 #[derive(Debug)]
 pub struct GenericStructInfo {
     pub ast: ast::top::Struct,
+    pub resolved_generic_params: Option<ResolvedGenericParams>,
     pub impl_info: Option<GenericImplInfo>,
 }
 
 impl GenericStructInfo {
-    pub fn new(ast: ast::top::Struct) -> Self {
+    pub fn new(
+        ast: ast::top::Struct,
+        resolved_generic_params: Option<ResolvedGenericParams>,
+    ) -> Self {
         Self {
             ast,
+            resolved_generic_params,
             impl_info: None,
         }
     }
@@ -49,13 +82,18 @@ impl GenericStructInfo {
 #[derive(Debug)]
 pub struct GenericEnumInfo {
     pub ast: ast::top::Enum,
+    pub resolved_generic_params: Option<ResolvedGenericParams>,
     pub impl_info: Option<GenericImplInfo>,
 }
 
 impl GenericEnumInfo {
-    pub fn new(ast: ast::top::Enum) -> Self {
+    pub fn new(
+        ast: ast::top::Enum,
+        resolved_generic_params: Option<ResolvedGenericParams>,
+    ) -> Self {
         Self {
             ast,
+            resolved_generic_params,
             impl_info: None,
         }
     }
@@ -64,6 +102,7 @@ impl GenericEnumInfo {
 #[derive(Debug)]
 pub struct GenericFuncInfo {
     pub ast: ast::top::Fn,
+    pub resolved_generic_params: Option<ResolvedGenericParams>,
 }
 
 #[derive(Debug)]
@@ -100,6 +139,15 @@ pub struct GenericInfo {
 impl GenericInfo {
     pub fn new(kind: GenericKind, module_path: ModulePath) -> Self {
         Self { kind, module_path }
+    }
+
+    pub fn resolved_generic_params(&self) -> Option<&ResolvedGenericParams> {
+        match &self.kind {
+            GenericKind::Struct(info) => info.resolved_generic_params.as_ref(),
+            GenericKind::Enum(info) => info.resolved_generic_params.as_ref(),
+            GenericKind::Func(info) => info.resolved_generic_params.as_ref(),
+            GenericKind::Slice(_) => None,
+        }
     }
 
     pub fn get_generic_argument_length(&self) -> usize {
