@@ -1249,6 +1249,12 @@ impl SemanticAnalyzer {
             }
         }
 
+        self.verify_resolved_generic_bounds(
+            info.resolved_generic_params.as_ref(),
+            generic_args,
+            generic_params.span,
+        )?;
+
         // Generic functions must always be generated regardless of the analyze command, so it is overwritten
         let fn_ = self.with_analyze_command(AnalyzeCommand::NoCommand, |analyzer| {
             // Generate the generic function

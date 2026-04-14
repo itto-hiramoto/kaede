@@ -229,4 +229,12 @@ pub enum SemanticError {
 
     #[error("{}:{}:{} generic bound `{}` must reference an interface", span.file, span.start.line, span.start.column, name)]
     GenericBoundMustBeInterface { name: Symbol, span: Span },
+
+    #[error("{}:{}:{} type `{}` does not satisfy interface `{}`: missing or incompatible method `{}`", span.file, span.start.line, span.start.column, actual, interface, method_name)]
+    GenericBoundNotSatisfied {
+        actual: String,
+        interface: Symbol,
+        method_name: Symbol,
+        span: Span,
+    },
 }
