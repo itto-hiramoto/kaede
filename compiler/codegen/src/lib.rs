@@ -378,6 +378,15 @@ impl<'ctx> CodeGenerator<'ctx> {
                     UserDefinedTypeKind::Struct(sty) => sty.name.clone(),
                     UserDefinedTypeKind::Enum(ety) => ety.name.clone(),
                     UserDefinedTypeKind::Placeholder(qsym) => qsym.clone(),
+                    UserDefinedTypeKind::Interface(_) => {
+                        // Fat-pointer layout: { data: *i8, itable: *i8 }.
+                        // Method dispatch through the itable is wired up in a later step.
+                        let ptr_ty = self.context().ptr_type(AddressSpace::default());
+                        return self
+                            .context()
+                            .struct_type(&[ptr_ty.into(), ptr_ty.into()], false)
+                            .into();
+                    }
                 };
 
                 match self

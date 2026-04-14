@@ -14,7 +14,7 @@ use kaede_symbol::Symbol;
 use crate::{
     module_path::ModulePath,
     qualified_symbol::QualifiedSymbol,
-    top::{Enum, Struct},
+    top::{Enum, Interface, Struct},
 };
 
 /// Duplicate the type, change the mutability, and return the duplicated type
@@ -712,6 +712,7 @@ impl Eq for PointerType {}
 pub enum UserDefinedTypeKind {
     Struct(Rc<Struct>),
     Enum(Rc<Enum>),
+    Interface(Rc<Interface>),
     // For circular dependency
     Placeholder(QualifiedSymbol),
 }
@@ -744,6 +745,7 @@ impl UserDefinedType {
         match &self.kind {
             UserDefinedTypeKind::Struct(s) => s.name.module_path().clone(),
             UserDefinedTypeKind::Enum(e) => e.name.module_path().clone(),
+            UserDefinedTypeKind::Interface(i) => i.name.module_path().clone(),
             UserDefinedTypeKind::Placeholder(qsym) => qsym.module_path().clone(),
         }
     }
@@ -752,6 +754,7 @@ impl UserDefinedType {
         match &self.kind {
             UserDefinedTypeKind::Struct(s) => s.name.symbol(),
             UserDefinedTypeKind::Enum(e) => e.name.symbol(),
+            UserDefinedTypeKind::Interface(i) => i.name.symbol(),
             UserDefinedTypeKind::Placeholder(qsym) => qsym.symbol(),
         }
     }
@@ -760,8 +763,13 @@ impl UserDefinedType {
         match &self.kind {
             UserDefinedTypeKind::Struct(s) => s.name.clone(),
             UserDefinedTypeKind::Enum(e) => e.name.clone(),
+            UserDefinedTypeKind::Interface(i) => i.name.clone(),
             UserDefinedTypeKind::Placeholder(qsym) => qsym.clone(),
         }
+    }
+
+    pub fn is_interface(&self) -> bool {
+        matches!(self.kind, UserDefinedTypeKind::Interface(_))
     }
 }
 
