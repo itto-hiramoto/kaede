@@ -931,6 +931,103 @@ fun use_it() {
     );
 }
 
+fn find_interface_method_call_in_expr(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::InterfaceMethodCall(_) => true,
+        ExprKind::Return(ret) => ret
+            .as_deref()
+            .is_some_and(find_interface_method_call_in_expr),
+        ExprKind::Block(block) => find_interface_method_call_in_block(block),
+        ExprKind::FnCall(call) => call.args.0.iter().any(find_interface_method_call_in_expr),
+        ExprKind::InterfaceBox(b) => find_interface_method_call_in_expr(&b.value),
+        _ => false,
+    }
+}
+
+fn find_interface_method_call_in_block(block: &kaede_ir::stmt::Block) -> bool {
+    for stmt in &block.body {
+        match stmt {
+            Stmt::Expr(expr) => {
+                if find_interface_method_call_in_expr(expr) {
+                    return true;
+                }
+            }
+            Stmt::Let(let_stmt) => {
+                if let_stmt
+                    .init
+                    .as_ref()
+                    .is_some_and(find_interface_method_call_in_expr)
+                {
+                    return true;
+                }
+            }
+            Stmt::Assign(assign) => {
+                if find_interface_method_call_in_expr(&assign.value) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    block
+        .last_expr
+        .as_deref()
+        .is_some_and(find_interface_method_call_in_expr)
+}
+
+#[test]
+fn dispatches_method_call_on_interface_value() -> anyhow::Result<()> {
+    let source = "\
+interface Reader {
+    fun read(self) -> i32
+}
+
+struct File {
+    handle: i32,
+}
+
+impl File {
+    fun read(self) -> i32 {
+        return self.handle
+    }
+}
+
+fun run(r: Reader) -> i32 {
+    return r.read()
+}
+";
+
+    let unit = semantic_analyze_as_non_entry(source)?;
+    let run_body = function_body(&unit, "run").expect("`run` should be present");
+    assert!(
+        find_interface_method_call_in_block(run_body),
+        "method call on interface value should produce InterfaceMethodCall"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn interface_method_call_rejects_unknown_method() {
+    let err = semantic_analyze_non_entry_expect_error(
+        "\
+interface Reader {
+    fun read(self) -> i32
+}
+
+fun run(r: Reader) -> i32 {
+    return r.write()
+}
+",
+    )
+    .unwrap();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("no method") || msg.contains("write"),
+        "unexpected error: {msg}"
+    );
+}
+
 #[test]
 fn interface_usable_as_parameter_and_field_type() -> anyhow::Result<()> {
     let unit = semantic_analyze_as_non_entry(

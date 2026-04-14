@@ -3595,6 +3595,9 @@ impl SemanticAnalyzer {
         call_node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
         let span = Span::new(lhs.span.start, call_node.span.finish, lhs.span.file);
+        if let ir_type::UserDefinedTypeKind::Interface(interface) = &udt.kind {
+            return self.analyze_interface_method_call(lhs, interface.clone(), call_node, span);
+        }
         let callee_symbol = self.callee_symbol(call_node)?;
         self.create_method_call_ir(
             callee_symbol,
@@ -3604,6 +3607,81 @@ impl SemanticAnalyzer {
             lhs,
             span,
         )
+    }
+
+    /// Resolve a method call against an interface value to an `InterfaceMethodCall` (dynamic
+    /// dispatch through the interface's itable).
+    fn analyze_interface_method_call(
+        &mut self,
+        receiver: ir::expr::Expr,
+        interface: Rc<ir::top::Interface>,
+        call_node: &ast::expr::FnCall,
+        span: Span,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let method_name = self.callee_symbol(call_node)?;
+
+        let (method_index, method) = interface
+            .methods
+            .iter()
+            .enumerate()
+            .find(|(_, m)| m.name == method_name)
+            .map(|(i, m)| (i, m.clone()))
+            .ok_or_else(|| SemanticError::NoMethod {
+                method_name,
+                parent_name: interface.name.symbol(),
+                span: call_node.span,
+            })?;
+
+        if method.self_.is_none() {
+            return Err(SemanticError::NoMethod {
+                method_name,
+                parent_name: interface.name.symbol(),
+                span: call_node.span,
+            }
+            .into());
+        }
+        if method.self_ == Some(ir_type::Mutability::Mut) && receiver.ty.mutability.is_not() {
+            return Err(SemanticError::CannotCallMutableMethodOnImmutableValue { span }.into());
+        }
+
+        let (ordered_args, variadic_args) = self.resolve_call_arguments(
+            &method
+                .params
+                .iter()
+                .map(|param| (param.name, param.default.is_some()))
+                .collect::<Vec<_>>(),
+            &call_node.args,
+            method.name,
+            call_node.span,
+            false,
+        )?;
+
+        debug_assert!(variadic_args.is_empty());
+
+        let mut args = Vec::with_capacity(method.params.len());
+        for (arg, param) in ordered_args.into_iter().zip(method.params.iter()) {
+            if let Some(arg) = arg {
+                args.push(self.analyze_expr_with_expected_type(&arg.value, param.ty.clone())?);
+            } else if let Some(default) = &param.default {
+                args.push((**default).clone());
+            } else {
+                unreachable!();
+            }
+        }
+
+        let return_ty = method.return_ty.clone();
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::InterfaceMethodCall(ir::expr::InterfaceMethodCall {
+                receiver: Box::new(receiver),
+                interface,
+                method_index,
+                method,
+                args: ir::expr::Args(args, span),
+                span,
+            }),
+            ty: return_ty,
+            span,
+        })
     }
 
     fn analyze_struct_field_access(
