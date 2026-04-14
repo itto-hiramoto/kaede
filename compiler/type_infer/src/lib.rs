@@ -484,6 +484,17 @@ impl TypeInferrer {
             Block(block) => self.infer_block(block),
             Return(ret) => self.infer_return(ret, expr.span),
             Break => Ok(Rc::new(Ty::new_never())),
+            InterfaceBox(boxed) => {
+                self.infer_expr(&boxed.value)?;
+                Ok(expr_ty.clone())
+            }
+            InterfaceMethodCall(call) => {
+                self.infer_expr(&call.receiver)?;
+                for arg in &call.args.0 {
+                    self.infer_expr(arg)?;
+                }
+                Ok(expr_ty.clone())
+            }
             Closure(closure) => {
                 for cap in &closure.captures {
                     self.infer_expr(cap)?;
@@ -1967,6 +1978,15 @@ impl TypeInferrer {
             Return(ret) => {
                 if let Some(expr) = ret {
                     self.apply_expr(expr)?;
+                }
+            }
+            InterfaceBox(boxed) => {
+                self.apply_expr(&mut boxed.value)?;
+            }
+            InterfaceMethodCall(call) => {
+                self.apply_expr(&mut call.receiver)?;
+                for arg in &mut call.args.0 {
+                    self.apply_expr(arg)?;
                 }
             }
         }

@@ -243,6 +243,27 @@ impl<'a> GenericSubstituter<'a> {
                     self.apply_expr(arg);
                 }
             }
+            ir::expr::ExprKind::InterfaceBox(boxed) => {
+                self.apply_expr(&mut boxed.value);
+                let mut itable = (*boxed.itable).clone();
+                itable.concrete_ty = self.apply_ty(&itable.concrete_ty);
+                for method in &mut itable.methods {
+                    let mut decl = (**method).clone();
+                    self.apply_fn_decl(&mut decl);
+                    *method = Rc::new(decl);
+                }
+                boxed.itable = Rc::new(itable);
+            }
+            ir::expr::ExprKind::InterfaceMethodCall(call) => {
+                self.apply_expr(&mut call.receiver);
+                for arg in &mut call.args.0 {
+                    self.apply_expr(arg);
+                }
+                for param in &mut call.method.params {
+                    param.ty = self.apply_ty(&param.ty);
+                }
+                call.method.return_ty = self.apply_ty(&call.method.return_ty);
+            }
             ir::expr::ExprKind::Int(_)
             | ir::expr::ExprKind::StringLiteral(_)
             | ir::expr::ExprKind::ByteStringLiteral(_)
