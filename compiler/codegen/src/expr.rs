@@ -1551,6 +1551,12 @@ impl<'ctx> CodeGenerator<'ctx> {
             })
     }
 
+    /// Candidate names to look up a callee in the symbol table, in priority order.
+    ///
+    /// The symbol table's key is not uniform across linkages: Default-linkage functions
+    /// are registered under their mangled (module-qualified) name, C-linkage functions
+    /// under the bare name. Callers don't always know which one was used, so we return
+    /// both and let the caller try them in turn.
     fn callee_symbols(&self, callee: &kaede_ir::top::FnDecl) -> Vec<Symbol> {
         use kaede_common::LangLinkage;
 
