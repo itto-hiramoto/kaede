@@ -308,6 +308,13 @@ impl SemanticAnalyzer {
             .unwrap();
     }
 
+    fn create_module_context(file_path: FilePath, module_path: ModulePath) -> ModuleContext {
+        let mut module_context = ModuleContext::new(file_path);
+        module_context.push_scope(SymbolTable::new());
+        Self::insert_builtin_slice_symbol(&mut module_context, module_path);
+        module_context
+    }
+
     pub fn new(file_path: FilePath, root_dir: PathBuf) -> Self {
         if !root_dir.is_dir() {
             panic!("Root directory is not a directory");
@@ -345,9 +352,10 @@ impl SemanticAnalyzer {
         let mut context = AnalysisContext::new(module_path.clone());
         context.set_current_module_path(module_path.clone());
 
-        let mut module_context = ModuleContext::new(FilePath::from(PathBuf::from("test.kd")));
-        Self::insert_builtin_slice_symbol(&mut module_context, module_path.clone());
-        module_context.push_scope(SymbolTable::new());
+        let module_context = Self::create_module_context(
+            FilePath::from(PathBuf::from("test.kd")),
+            module_path.clone(),
+        );
 
         Self {
             modules: HashMap::from([(module_path, module_context)]),
@@ -1282,9 +1290,7 @@ impl SemanticAnalyzer {
         let mut top_level_irs = vec![];
 
         // Create root module
-        let mut root_module = ModuleContext::new(FilePath::dummy());
-        root_module.push_scope(SymbolTable::new());
-        Self::insert_builtin_slice_symbol(&mut root_module, ModulePath::new(vec![]));
+        let root_module = Self::create_module_context(FilePath::dummy(), ModulePath::new(vec![]));
         self.modules.insert(ModulePath::new(vec![]), root_module);
 
         self.context.set_no_prelude(options.no_prelude);

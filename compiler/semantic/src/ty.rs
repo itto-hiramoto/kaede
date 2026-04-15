@@ -116,12 +116,11 @@ impl SemanticAnalyzer {
         let (module_path, parent_name) = self.method_lookup_target(actual_ty)?;
         let method_key = self.create_method_key(parent_name, method.name, method.self_.is_none());
 
+        // Slice methods are generated on demand at the caller; fall back to any
+        // module that has the key if the defining one doesn't.
         let symbol = self
             .lookup_qualified_symbol(QualifiedSymbol::new(module_path, method_key))
             .or_else(|| {
-                // Slice methods may live in a different module than the slice's
-                // "defining" one (they are generated on demand at the caller's site).
-                // Fall back to any module that has registered this exact method key.
                 self.modules
                     .values()
                     .find_map(|module| module.lookup_symbol(&method_key))
@@ -836,22 +835,23 @@ impl SemanticAnalyzer {
         };
 
         if needs_fallback_lookup {
-            // The __builtin_slice with impl_info is registered in the autoload module
-            // (where `impl<T>[T] { ... }` actually lives). Search all modules to find it.
+            // The impl_info-bearing __builtin_slice lives in the autoload module (where
+            // `impl<T>[T] { ... }` is declared); find it regardless of which module we're in.
             for module in self.modules.values() {
-                if let Some(symbol) = module.lookup_symbol(&slice_symbol_name) {
-                    let has_impl_info = matches!(
-                        &symbol.borrow().kind,
-                        SymbolTableValueKind::Generic(generic_info)
-                            if matches!(
-                                &generic_info.kind,
-                                GenericKind::Slice(info) if info.impl_info.is_some()
-                            )
-                    );
-                    if has_impl_info {
-                        slice_symbol = symbol;
-                        break;
-                    }
+                let Some(symbol) = module.lookup_symbol(&slice_symbol_name) else {
+                    continue;
+                };
+                let has_impl_info = matches!(
+                    &symbol.borrow().kind,
+                    SymbolTableValueKind::Generic(generic_info)
+                        if matches!(
+                            &generic_info.kind,
+                            GenericKind::Slice(info) if info.impl_info.is_some()
+                        )
+                );
+                if has_impl_info {
+                    slice_symbol = symbol;
+                    break;
                 }
             }
         }

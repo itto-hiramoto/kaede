@@ -106,10 +106,9 @@ impl SemanticAnalyzer {
         self.with_context(new_context, f)
     }
 
-    // Temporarily changes both the current and base module path, executes the provided closure.
-    // Used when re-analyzing code originally defined in another module (e.g. monomorphizing a
-    // generic function) so that name-lookup fallbacks target the defining module rather than the
-    // file currently being compiled.
+    // Changes both `current_module_path` and `module_path`, so name-lookup fallbacks
+    // target the defining module rather than the caller (used when monomorphizing a
+    // generic whose body was written against another module's symbols).
     pub fn with_defining_module<F, R>(&mut self, path: ModulePath, f: F) -> R
     where
         F: FnOnce(&mut Self) -> R,
