@@ -1208,11 +1208,10 @@ impl<'ctx> CodeGenerator<'ctx> {
             TyKind::Reference(rty) => &rty.refee_ty,
             _ => ty,
         };
-        let raw = match base.kind.as_ref() {
+        match base.kind.as_ref() {
             TyKind::UserDefined(udt) => udt.qualified_symbol().mangle().to_string(),
-            _ => base.kind.to_string(),
-        };
-        raw.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "_")
+            _ => unreachable!("interface box concrete type must be a user-defined type"),
+        }
     }
 
     fn build_or_get_itable(&mut self, itable: &ITable) -> anyhow::Result<PointerValue<'ctx>> {

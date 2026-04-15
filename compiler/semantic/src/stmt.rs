@@ -78,8 +78,7 @@ impl SemanticAnalyzer {
             let mutability = node.mutability;
             let span = node.span;
 
-            // When a type annotation is present, analyze with that as the expected type so any
-            // concrete-to-interface coercion is inserted on the initializer.
+            // Drive interface coercion from the type annotation when one is present.
             let (init, annotated_ty) = if node.ty.kind.is_inferred() {
                 (self.analyze_expr(init)?, None)
             } else {

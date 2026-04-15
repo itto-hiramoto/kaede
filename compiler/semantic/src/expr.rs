@@ -2617,7 +2617,6 @@ impl SemanticAnalyzer {
             _ => value.ty.clone(),
         };
 
-        // If the value is already the same interface type, no coercion is needed.
         if let ir_type::TyKind::UserDefined(value_udt) = value_base.kind.as_ref() {
             if value_udt.is_interface()
                 && value_udt.qualified_symbol() == expected_udt.qualified_symbol()
@@ -2626,7 +2625,7 @@ impl SemanticAnalyzer {
             }
         }
 
-        // Unresolved type variables cannot be checked here; type inference will handle them later.
+        // Type inference resolves unbound variables later; skip coercion until then.
         if matches!(value_base.kind.as_ref(), ir_type::TyKind::Var(_)) {
             return Ok(value);
         }
@@ -2649,7 +2648,6 @@ impl SemanticAnalyzer {
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::InterfaceBox(ir::expr::InterfaceBox {
                 value: Box::new(value),
-                interface: interface.clone(),
                 itable,
                 span,
             }),
@@ -3673,7 +3671,6 @@ impl SemanticAnalyzer {
         Ok(ir::expr::Expr {
             kind: ir::expr::ExprKind::InterfaceMethodCall(ir::expr::InterfaceMethodCall {
                 receiver: Box::new(receiver),
-                interface,
                 method_index,
                 method,
                 args: ir::expr::Args(args, span),

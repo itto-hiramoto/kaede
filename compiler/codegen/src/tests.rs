@@ -4861,7 +4861,6 @@ fn interface_dispatch_through_vector() -> anyhow::Result<()> {
         }
     "#;
 
-    // Alpha: 40 + 10 = 50, Beta: 4 * 2 = 8, total 58.
     assert_eq!(exec(program)?, 58);
     Ok(())
 }
@@ -4904,7 +4903,6 @@ fn interface_dispatch_selects_concrete_method_per_type() -> anyhow::Result<()> {
         }
     "#;
 
-    // Alpha: 40 + 10 = 50, Beta: 4 * 2 = 8, total 58.
     assert_eq!(exec(program)?, 58);
     Ok(())
 }
