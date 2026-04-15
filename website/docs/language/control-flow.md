@@ -85,7 +85,8 @@ fun foo() -> i32 {
 }
 ```
 
-Functions returning `Result<T, E>` can use postfix `?` for early returns:
+Functions returning `Result<T, E>` or `Option<T>` can use postfix `?` for early returns.
+`Result::Err(e)?` becomes `return Result::Err(e)`, and `Option::None?` becomes `return Option::None`.
 
 ```rust
 import std.result
@@ -94,6 +95,16 @@ use std.result.Result
 fun read_value() -> Result<i32, str> {
     value := parse()?
     return Result::Ok(value)
+}
+```
+
+```rust
+import std.option
+use std.option.Option
+
+fun read_header() -> Option<str> {
+    value := next_header()?
+    return Option::Some(value)
 }
 ```
 
