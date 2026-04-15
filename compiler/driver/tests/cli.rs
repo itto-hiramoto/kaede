@@ -137,3 +137,40 @@ fun main() -> i32 {
 
     Ok(())
 }
+
+#[test]
+fn direct_compile_rejects_try_outside_option_function() -> anyhow::Result<()> {
+    let temp_dir = assert_fs::TempDir::new()?;
+    let app = temp_dir.child("app.kd");
+    let exe = temp_dir.child("a.out");
+
+    app.write_str(
+        r#"import std.option
+use std.option.Option
+
+fun fail() -> i32 {
+    value := Option::Some(1)?;
+    return value
+}
+
+fun main() -> i32 {
+    return fail()
+}"#,
+    )?;
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .args([
+            app.path().to_str().unwrap(),
+            "-o",
+            exe.path().to_str().unwrap(),
+            "--root-dir",
+            temp_dir.path().to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "`?` can only be used in functions returning `Option<T>`",
+        ));
+
+    Ok(())
+}

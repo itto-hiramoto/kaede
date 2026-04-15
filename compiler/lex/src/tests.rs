@@ -101,7 +101,7 @@ fn left_arrow() {
 
 #[test]
 fn question() {
-    lex_test("foo?", vec![Ident("foo".to_string()), Question, Eoi]);
+    lex_test("foo?", vec![Ident("foo".to_string()), Question, Semi, Eoi]);
 }
 
 #[test]
@@ -133,6 +133,24 @@ fn auto_insert_semi() {
     );
 
     lex_test("return", vec![Return, Semi, Eoi]);
+    lex_test(
+        "value := inner()?\nif true {}",
+        vec![
+            Ident("value".to_string()),
+            ColonEq,
+            Ident("inner".to_string()),
+            OpenParen,
+            CloseParen,
+            Question,
+            Semi,
+            If,
+            True,
+            OpenBrace,
+            CloseBrace,
+            Semi,
+            Eoi,
+        ],
+    );
 }
 
 #[test]

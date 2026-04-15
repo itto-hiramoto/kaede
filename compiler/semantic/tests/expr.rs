@@ -147,6 +147,56 @@ fun f() -> i32 {
 }
 
 #[test]
+fn option_try_is_accepted() -> anyhow::Result<()> {
+    semantic_analyze(
+        r#"import std.option
+use std.option.Option
+
+fun inner() -> Option<i32> {
+    return Option::Some(42)
+}
+
+fun outer() -> Option<i32> {
+    value := inner()?;
+    return Option::Some(value)
+}"#,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn option_try_requires_option_operand() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error(
+        r#"import std.option
+use std.option.Option
+
+fun fail() -> Option<i32> {
+    value := 1?;
+    return Option::Some(value)
+}"#,
+    )?;
+    assert!(err.to_string().contains("`?` requires `Option<T>`"));
+    Ok(())
+}
+
+#[test]
+fn option_try_requires_option_function() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error(
+        r#"import std.option
+use std.option.Option
+
+fun fail() -> i32 {
+    value := Option::Some(1)?;
+    return value
+}"#,
+    )?;
+    assert!(err
+        .to_string()
+        .contains("`?` can only be used in functions returning `Option<T>`"));
+    Ok(())
+}
+
+#[test]
 fn channel_recv_requires_channel() -> anyhow::Result<()> {
     let err = semantic_analyze_expect_error("fun f() { <-1 }")?;
     assert!(err.to_string().contains("channel receive requires"));

@@ -227,6 +227,12 @@ pub enum SemanticError {
     #[error("{}:{}:{} `?` can only be used in functions returning `Result<T, E>`, got `{}`", span.file, span.start.line, span.start.column, actual)]
     TryOutsideResultFunction { actual: String, span: Span },
 
+    #[error("{}:{}:{} `?` requires `Option<T>`, got `{}`", span.file, span.start.line, span.start.column, actual)]
+    TryRequiresOption { actual: String, span: Span },
+
+    #[error("{}:{}:{} `?` can only be used in functions returning `Option<T>`, got `{}`", span.file, span.start.line, span.start.column, actual)]
+    TryOutsideOptionFunction { actual: String, span: Span },
+
     #[error("{}:{}:{} generic bound `{}` must reference an interface", span.file, span.start.line, span.start.column, name)]
     GenericBoundMustBeInterface { name: Symbol, span: Span },
 

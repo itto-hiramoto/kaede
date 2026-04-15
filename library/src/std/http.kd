@@ -557,10 +557,7 @@ fun websocket_upgrade_key(method: str, version: str, header: [u8]) -> Option<[u8
         return Option::None
     }
 
-    let upgrade = match header_value(header, b"Upgrade") {
-        Option::Some(value) => value,
-        Option::None => return Option::None,
-    }
+    upgrade := header_value(header, b"Upgrade")?
     if !bytes_eq_ci(upgrade, b"websocket") {
         return Option::None
     }
@@ -569,18 +566,12 @@ fun websocket_upgrade_key(method: str, version: str, header: [u8]) -> Option<[u8
         return Option::None
     }
 
-    let version_header = match header_value(header, b"Sec-WebSocket-Version") {
-        Option::Some(value) => value,
-        Option::None => return Option::None,
-    }
+    version_header := header_value(header, b"Sec-WebSocket-Version")?
     if !bytes_eq(version_header, b"13") {
         return Option::None
     }
 
-    let key = match header_value(header, b"Sec-WebSocket-Key") {
-        Option::Some(value) => value,
-        Option::None => return Option::None,
-    }
+    key := header_value(header, b"Sec-WebSocket-Key")?
     if key.len() == 0 {
         return Option::None
     }

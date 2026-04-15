@@ -201,3 +201,38 @@ fun main() -> i32 {
 
     Ok(())
 }
+
+#[test]
+fn run_executes_option_try_program() -> anyhow::Result<()> {
+    let temp_dir = assert_fs::TempDir::new()?;
+
+    create_project(
+        &temp_dir,
+        r#"import std.option
+use std.option.Option
+
+fun inner() -> Option<i32> {
+    return Option::Some(42)
+}
+
+fun outer() -> Option<i32> {
+    value := inner()?;
+    return Option::Some(value)
+}
+
+fun main() -> i32 {
+    return match outer() {
+        Option::Some(value) => value,
+        Option::None => 1,
+    }
+}"#,
+    )?;
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .current_dir(temp_dir.path())
+        .arg("run")
+        .assert()
+        .code(predicate::eq(42));
+
+    Ok(())
+}

@@ -29,15 +29,21 @@ struct DecomposedEnumVariantPattern<'p> {
     param: Option<&'p ast::expr::Args>,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TryCarrier {
+    Result,
+    Option,
+}
+
 impl SemanticAnalyzer {
-    fn is_std_result_ty(ty: &Rc<ir_type::Ty>) -> bool {
+    fn std_try_carrier(ty: &Rc<ir_type::Ty>) -> Option<TryCarrier> {
         let base_ty = match ty.kind.as_ref() {
             ir_type::TyKind::Reference(rty) => rty.get_base_type(),
             _ => ty.clone(),
         };
 
         let ir_type::TyKind::UserDefined(udt) = base_ty.kind.as_ref() else {
-            return false;
+            return None;
         };
 
         let qualified_symbol = udt
@@ -48,8 +54,50 @@ impl SemanticAnalyzer {
         let module_path = qualified_symbol.module_path().clone();
         let modules = module_path.get_module_names_from_root();
 
-        matches!(modules, [std, result] if std.as_str() == "std" && result.as_str() == "result")
-            && qualified_symbol.symbol().as_str() == "Result"
+        match modules {
+            [std, module] if std.as_str() == "std" && module.as_str() == "result" => {
+                (qualified_symbol.symbol().as_str() == "Result").then_some(TryCarrier::Result)
+            }
+            [std, module] if std.as_str() == "std" && module.as_str() == "option" => {
+                (qualified_symbol.symbol().as_str() == "Option").then_some(TryCarrier::Option)
+            }
+            _ => None,
+        }
+    }
+
+    fn try_carrier_module_and_name(kind: TryCarrier) -> (&'static str, &'static str) {
+        match kind {
+            TryCarrier::Result => ("result", "Result"),
+            TryCarrier::Option => ("option", "Option"),
+        }
+    }
+
+    fn try_success_variant(kind: TryCarrier) -> &'static str {
+        match kind {
+            TryCarrier::Result => "Ok",
+            TryCarrier::Option => "Some",
+        }
+    }
+
+    fn try_failure_variant(kind: TryCarrier) -> &'static str {
+        match kind {
+            TryCarrier::Result => "Err",
+            TryCarrier::Option => "None",
+        }
+    }
+
+    fn try_requires_error(kind: TryCarrier, actual: String, span: Span) -> SemanticError {
+        match kind {
+            TryCarrier::Result => SemanticError::TryRequiresResult { actual, span },
+            TryCarrier::Option => SemanticError::TryRequiresOption { actual, span },
+        }
+    }
+
+    fn try_outside_function_error(kind: TryCarrier, actual: String, span: Span) -> SemanticError {
+        match kind {
+            TryCarrier::Result => SemanticError::TryOutsideResultFunction { actual, span },
+            TryCarrier::Option => SemanticError::TryOutsideOptionFunction { actual, span },
+        }
     }
 
     fn ast_ident_expr(symbol: Symbol, span: Span) -> ast::expr::Expr {
@@ -87,13 +135,15 @@ impl SemanticAnalyzer {
 
     fn ast_variant_expr(
         &self,
+        kind: TryCarrier,
         variant_name: Symbol,
         arg: Option<ast::expr::Expr>,
         span: Span,
     ) -> ast::expr::Expr {
-        let result_path = Self::ast_access_expr(
+        let (module_name, enum_name) = Self::try_carrier_module_and_name(kind);
+        let carrier_path = Self::ast_access_expr(
             Self::ast_ident_expr(Symbol::from("std".to_owned()), span),
-            Self::ast_ident_expr(Symbol::from("result".to_owned()), span),
+            Self::ast_ident_expr(Symbol::from(module_name.to_owned()), span),
             span,
         );
 
@@ -118,9 +168,9 @@ impl SemanticAnalyzer {
         };
 
         Self::ast_access_expr(
-            result_path,
+            carrier_path,
             Self::ast_scope_resolution_expr(
-                Self::ast_ident_expr(Symbol::from("Result".to_owned()), span),
+                Self::ast_ident_expr(Symbol::from(enum_name.to_owned()), span),
                 variant_expr,
                 span,
             ),
@@ -2371,39 +2421,54 @@ impl SemanticAnalyzer {
     }
 
     fn analyze_try(&mut self, node: &ast::expr::Try) -> anyhow::Result<ir::expr::Expr> {
-        let current_fn = self.context.get_current_function().ok_or_else(|| {
-            SemanticError::TryOutsideResultFunction {
-                actual: Rc::new(ir_type::Ty::new_unit()).kind.to_string(),
-                span: node.span,
-            }
-        })?;
-
-        if !Self::is_std_result_ty(&current_fn.return_ty) {
-            return Err(SemanticError::TryOutsideResultFunction {
-                actual: current_fn.return_ty.kind.to_string(),
-                span: node.span,
-            }
-            .into());
-        }
-
         let operand = self.analyze_expr(&node.operand)?;
-        if !Self::is_std_result_ty(&operand.ty) {
-            return Err(SemanticError::TryRequiresResult {
-                actual: operand.ty.kind.to_string(),
-                span: node.span,
+        let operand_carrier = Self::std_try_carrier(&operand.ty);
+        let current_fn = self.context.get_current_function();
+        let current_return_ty = current_fn
+            .as_ref()
+            .map(|fn_| fn_.return_ty.clone())
+            .unwrap_or_else(|| Rc::new(ir_type::Ty::new_unit()));
+        let current_carrier = Self::std_try_carrier(&current_return_ty);
+
+        let try_carrier = match (current_carrier, operand_carrier) {
+            (Some(fn_kind), Some(operand_kind)) if fn_kind == operand_kind => fn_kind,
+            (Some(fn_kind), _) => {
+                return Err(Self::try_requires_error(
+                    fn_kind,
+                    operand.ty.kind.to_string(),
+                    node.span,
+                )
+                .into())
             }
-            .into());
-        }
+            (None, Some(operand_kind)) => {
+                return Err(Self::try_outside_function_error(
+                    operand_kind,
+                    current_return_ty.kind.to_string(),
+                    node.span,
+                )
+                .into())
+            }
+            (None, None) => {
+                return Err(SemanticError::TryOutsideResultFunction {
+                    actual: current_return_ty.kind.to_string(),
+                    span: node.span,
+                }
+                .into())
+            }
+        };
 
         let ok_name = self.fresh_temp_symbol("__try_ok");
         let err_name = self.fresh_temp_symbol("__try_err");
+        let ok_variant = Symbol::from(Self::try_success_variant(try_carrier).to_owned());
+        let err_variant = Symbol::from(Self::try_failure_variant(try_carrier).to_owned());
 
         let synthesized_match = ast::expr::Match {
             value: node.operand.clone(),
             arms: vec![
                 ast::expr::MatchArm {
                     pattern: Box::new(self.ast_variant_expr(
-                        Symbol::from("Ok".to_owned()),
+                        try_carrier,
+                        ok_variant,
                         Some(Self::ast_ident_expr(ok_name, node.span)),
                         node.span,
                     )),
@@ -2411,18 +2476,26 @@ impl SemanticAnalyzer {
                     is_catch_all: false,
                 },
                 ast::expr::MatchArm {
-                    pattern: Box::new(self.ast_variant_expr(
-                        Symbol::from("Err".to_owned()),
-                        Some(Self::ast_ident_expr(err_name, node.span)),
-                        node.span,
-                    )),
+                    pattern: Box::new(
+                        self.ast_variant_expr(
+                            try_carrier,
+                            err_variant,
+                            (try_carrier == TryCarrier::Result)
+                                .then(|| Self::ast_ident_expr(err_name, node.span)),
+                            node.span,
+                        ),
+                    ),
                     code: Rc::new(ast::expr::Expr {
                         kind: ast::expr::ExprKind::Return(ast::expr::Return {
-                            val: Some(Box::new(self.ast_variant_expr(
-                                Symbol::from("Err".to_owned()),
-                                Some(Self::ast_ident_expr(err_name, node.span)),
-                                node.span,
-                            ))),
+                            val: Some(Box::new(
+                                self.ast_variant_expr(
+                                    try_carrier,
+                                    err_variant,
+                                    (try_carrier == TryCarrier::Result)
+                                        .then(|| Self::ast_ident_expr(err_name, node.span)),
+                                    node.span,
+                                ),
+                            )),
                             span: node.span,
                         }),
                         span: node.span,
