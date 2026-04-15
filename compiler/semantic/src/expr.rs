@@ -1400,6 +1400,13 @@ impl SemanticAnalyzer {
         }
         provided_args.extend(analyzed_variadic.iter().cloned());
 
+        let param_len = func_info
+            .ast
+            .decl
+            .generic_params
+            .as_ref()
+            .map_or(0, |params| params.len());
+
         let generic_args = if let Some(generic_args) = node.generic_args.as_ref() {
             generic_args
                 .types
@@ -1409,6 +1416,8 @@ impl SemanticAnalyzer {
         } else {
             let mut inferred_args = provided_args
                 .iter()
+                .skip(if has_this { 1 } else { 0 })
+                .take(param_len)
                 .map(|arg| -> anyhow::Result<Rc<ir_type::Ty>> {
                     Ok(match arg.ty.kind.as_ref() {
                         ir_type::TyKind::Var(_) => match arg.kind {
@@ -1423,12 +1432,6 @@ impl SemanticAnalyzer {
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
 
-            let param_len = func_info
-                .ast
-                .decl
-                .generic_params
-                .as_ref()
-                .map_or(0, |params| params.len());
             if inferred_args.len() < param_len {
                 inferred_args.extend(
                     (0..(param_len - inferred_args.len())).map(|_| self.infer_context.fresh()),

@@ -539,7 +539,9 @@ impl SemanticAnalyzer {
         for item in node.items.iter() {
             match &item.kind {
                 ast::top::TopLevelKind::Fn(fn_) => {
-                    methods.push(self.analyze_method(ast_ty.clone(), fn_.clone())?)
+                    if let Some(method) = self.analyze_method(ast_ty.clone(), fn_.clone())? {
+                        methods.push(method);
+                    }
                 }
                 _ => todo!("Error"),
             }
@@ -554,7 +556,7 @@ impl SemanticAnalyzer {
         &mut self,
         ty: Rc<ast_type::Ty>,
         mut node: ast::top::Fn,
-    ) -> anyhow::Result<Rc<ir::top::Fn>> {
+    ) -> anyhow::Result<Option<Rc<ir::top::Fn>>> {
         // If the method isn't static, insert self to the front of the parameters
         if let Some(mutability) = node.decl.self_ {
             node.decl.params.v.insert(
@@ -599,14 +601,82 @@ impl SemanticAnalyzer {
 
         node.decl.self_ = None;
 
+        if node.decl.generic_params.is_some() {
+            return self.analyze_generic_method(node, is_builtin).map(|()| None);
+        }
+
         if is_builtin {
             let source_module_path = self.current_module_path().clone();
             self.with_lookup_fallback_module(source_module_path, |analyzer| {
                 analyzer.with_root_module(|analyzer| analyzer.analyze_fn_internal(node))
             })
+            .map(Some)
         } else {
-            self.analyze_fn_internal(node)
+            self.analyze_fn_internal(node).map(Some)
         }
+    }
+
+    fn analyze_generic_method(
+        &mut self,
+        node: ast::top::Fn,
+        is_builtin: bool,
+    ) -> anyhow::Result<()> {
+        // Body-analysis pass is a no-op for generic methods; they are
+        // monomorphized on demand at each call site.
+        if matches!(
+            self.context.analyze_command(),
+            AnalyzeCommand::WithoutFnDeclare
+        ) {
+            return Ok(());
+        }
+
+        let span = node.span;
+        let vis = node.decl.vis;
+        let name = node.decl.name.symbol();
+        let resolved_generic_params =
+            self.resolve_generic_params(node.decl.generic_params.as_ref())?;
+
+        if is_builtin {
+            let source_module_path = self.current_module_path().clone();
+            self.with_lookup_fallback_module(source_module_path, |analyzer| {
+                analyzer.with_root_module(|analyzer| {
+                    analyzer.register_generic_method_symbol(
+                        name,
+                        node,
+                        resolved_generic_params,
+                        vis,
+                        span,
+                    )
+                })
+            })
+        } else {
+            self.register_generic_method_symbol(name, node, resolved_generic_params, vis, span)
+        }
+    }
+
+    fn register_generic_method_symbol(
+        &mut self,
+        name: Symbol,
+        node: ast::top::Fn,
+        resolved_generic_params: Option<ResolvedGenericParams>,
+        vis: ast::top::Visibility,
+        span: Span,
+    ) -> anyhow::Result<()> {
+        let module_path = self.current_module_path().clone();
+        let symbol_table_value = SymbolTableValue::new(
+            SymbolTableValueKind::Generic(
+                GenericInfo::new(
+                    GenericKind::Func(GenericFuncInfo {
+                        ast: node,
+                        resolved_generic_params,
+                    }),
+                    module_path.clone(),
+                )
+                .into(),
+            ),
+            module_path,
+        );
+        self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)
     }
 
     pub fn analyze_fn(&mut self, node: ast::top::Fn) -> anyhow::Result<TopLevelAnalysisResult> {
