@@ -1290,8 +1290,16 @@ impl SemanticAnalyzer {
         let generated_generic_key =
             self.create_generated_generic_key(info.ast.decl.name.symbol(), generic_args);
 
-        // If the generic function is already generated, return early
-        if let Some(symbol_value) = self.lookup_symbol(generated_generic_key) {
+        // If the generic function is already generated, return early.
+        // Search the defining module first so cross-module call sites reuse the cached
+        // instantiation (which lives in the defining module, not the caller's module).
+        let cached = self
+            .lookup_qualified_symbol(QualifiedSymbol::new(
+                origin.module_path().clone(),
+                generated_generic_key,
+            ))
+            .or_else(|| self.lookup_symbol(generated_generic_key));
+        if let Some(symbol_value) = cached {
             if let SymbolTableValueKind::Function(fn_) = &symbol_value.borrow().kind {
                 return Ok(fn_.clone());
             } else {
@@ -3055,6 +3063,7 @@ impl SemanticAnalyzer {
             };
 
             if analyzer.modules.contains_key(&module_path) {
+                analyzer.reject_private_cross_module_access(&module_path, &node.rhs)?;
                 let expr = analyzer
                     .with_module(module_path, |analyzer| analyzer.analyze_expr(&node.rhs))?;
                 return Ok(Some(expr));
@@ -3317,6 +3326,7 @@ impl SemanticAnalyzer {
                 node.lhs.span,
             ) {
                 if analyzer.modules.contains_key(&module_path) {
+                    analyzer.reject_private_cross_module_access(&module_path, &node.rhs)?;
                     let expr = analyzer
                         .with_module(module_path, |analyzer| analyzer.analyze_expr(&node.rhs))?;
                     return Ok(Some(expr));
@@ -3566,9 +3576,13 @@ impl SemanticAnalyzer {
                     let span = Span::new(lhs.span.start, call_node.span.finish, lhs.span.file);
                     let callee_symbol = self.callee_symbol(call_node)?;
 
-                    self.create_method_call_ir(
+                    // Ensure slice methods exist for this element type. Substituting a generic
+                    // type parameter may produce a concrete slice type whose methods were never
+                    // registered at the call site.
+                    self.generate_slice_impl(elem_ty.clone())?;
+
+                    self.create_slice_method_call_ir(
                         callee_symbol,
-                        self.module_path().clone(),
                         self.slice_method_parent_name(elem_ty),
                         call_node,
                         lhs,
@@ -3604,9 +3618,8 @@ impl SemanticAnalyzer {
                     self.generate_slice_impl(elem_ty.clone())?;
 
                     // Arrays use slice methods (array is coerced to slice at codegen)
-                    self.create_method_call_ir(
+                    self.create_slice_method_call_ir(
                         callee_symbol,
-                        self.module_path().clone(),
                         self.slice_method_parent_name(elem_ty),
                         call_node,
                         lhs,
@@ -3828,6 +3841,67 @@ impl SemanticAnalyzer {
                 span,
             }),
         })
+    }
+
+    // Privacy check for `module.symbol` / `module::symbol` user-facing accesses. The
+    // immediate symbol on the rhs must be reachable via the target module's *public*
+    // symbol table — private items must not leak across module boundaries.
+    fn reject_private_cross_module_access(
+        &self,
+        module_path: &ModulePath,
+        rhs: &ast::expr::Expr,
+    ) -> anyhow::Result<()> {
+        let (symbol, span) = match &rhs.kind {
+            ast::expr::ExprKind::Ident(ident) => (ident.symbol(), ident.span()),
+            ast::expr::ExprKind::FnCall(call) => match Self::callee_ident(call) {
+                Some(ident) => (ident.symbol(), ident.span()),
+                None => return Ok(()),
+            },
+            _ => return Ok(()),
+        };
+
+        let module = match self.modules.get(module_path) {
+            Some(m) => m,
+            None => return Ok(()),
+        };
+
+        if module.lookup_public_symbol(&symbol).is_some() {
+            return Ok(());
+        }
+
+        if module.lookup_symbol(&symbol).is_some() {
+            return Err(SemanticError::Undeclared { name: symbol, span }.into());
+        }
+
+        Ok(())
+    }
+
+    // Slice/array method dispatch. The impl may have been registered from a different
+    // module than the current one (e.g. autoload's `impl<T>[T]` lives in [autoload, slice],
+    // and during cross-module monomorphization the caller's module differs from where the
+    // impl was generated). Try the current module first, then fall back to any module that
+    // has the key — slice keys are concrete-element-typed and unique per compile unit.
+    fn create_slice_method_call_ir(
+        &mut self,
+        method_name: Symbol,
+        parent_name: Symbol,
+        call_node: &ast::expr::FnCall,
+        this: ir::expr::Expr,
+        span: Span,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let method_key = self.create_method_key(parent_name, method_name, false);
+
+        let module_path = self
+            .lookup_qualified_symbol(QualifiedSymbol::new(self.module_path().clone(), method_key))
+            .map(|_| self.module_path().clone())
+            .or_else(|| {
+                self.modules
+                    .iter()
+                    .find_map(|(mp, module)| module.lookup_symbol(&method_key).map(|_| mp.clone()))
+            })
+            .unwrap_or_else(|| self.module_path().clone());
+
+        self.create_method_call_ir(method_name, module_path, parent_name, call_node, this, span)
     }
 
     fn create_method_call_ir(

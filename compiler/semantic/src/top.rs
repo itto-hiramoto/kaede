@@ -212,6 +212,7 @@ impl SemanticAnalyzer {
         // Add the module to the module table
         let mut module_context = ModuleContext::new(path);
         module_context.push_scope(SymbolTable::new());
+        Self::insert_builtin_slice_symbol(&mut module_context, module_path.clone());
         self.modules.insert(module_path.clone(), module_context);
 
         let mut parsed_module = Parser::new(&fs::read_to_string(path.path()).unwrap(), path)
@@ -373,6 +374,7 @@ impl SemanticAnalyzer {
         if !self.modules.contains_key(&module_path) {
             let mut module_context = ModuleContext::new(FilePath::dummy());
             module_context.push_scope(SymbolTable::new());
+            Self::insert_builtin_slice_symbol(&mut module_context, module_path.clone());
             self.modules.insert(module_path.clone(), module_context);
         }
 

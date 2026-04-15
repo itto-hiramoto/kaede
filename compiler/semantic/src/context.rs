@@ -286,6 +286,17 @@ impl ModuleContext {
         None
     }
 
+    // Public-only variant used when another module performs a qualified lookup into
+    // this one: private items must not be reachable across module boundaries.
+    pub fn lookup_public_symbol(&self, symbol: &Symbol) -> Option<Rc<RefCell<SymbolTableValue>>> {
+        for table in self.symbol_table_stack.iter().rev() {
+            if let Some(value) = table.lookup(symbol) {
+                return Some(value);
+            }
+        }
+        None
+    }
+
     pub fn lookup_generic_argument(&self, symbol: Symbol) -> Option<Rc<Ty>> {
         // Search from the top of the stack
         for table in self.generic_argument_table.iter().rev() {

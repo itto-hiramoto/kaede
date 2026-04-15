@@ -115,7 +115,17 @@ impl SemanticAnalyzer {
     ) -> Option<Rc<ir::top::FnDecl>> {
         let (module_path, parent_name) = self.method_lookup_target(actual_ty)?;
         let method_key = self.create_method_key(parent_name, method.name, method.self_.is_none());
-        let symbol = self.lookup_qualified_symbol(QualifiedSymbol::new(module_path, method_key))?;
+
+        let symbol = self
+            .lookup_qualified_symbol(QualifiedSymbol::new(module_path, method_key))
+            .or_else(|| {
+                // Slice methods may live in a different module than the slice's
+                // "defining" one (they are generated on demand at the caller's site).
+                // Fall back to any module that has registered this exact method key.
+                self.modules
+                    .values()
+                    .find_map(|module| module.lookup_symbol(&method_key))
+            })?;
         let borrowed = symbol.borrow();
 
         match &borrowed.kind {
@@ -822,16 +832,27 @@ impl SemanticAnalyzer {
                         &generic_info.kind,
                         GenericKind::Slice(info) if info.impl_info.is_none()
                     )
-            ) && self.current_module_path() != self.module_path()
+            )
         };
 
         if needs_fallback_lookup {
-            if let Some(symbol) = self
-                .modules
-                .get(self.module_path())
-                .and_then(|module| module.lookup_symbol(&slice_symbol_name))
-            {
-                slice_symbol = symbol;
+            // The __builtin_slice with impl_info is registered in the autoload module
+            // (where `impl<T>[T] { ... }` actually lives). Search all modules to find it.
+            for module in self.modules.values() {
+                if let Some(symbol) = module.lookup_symbol(&slice_symbol_name) {
+                    let has_impl_info = matches!(
+                        &symbol.borrow().kind,
+                        SymbolTableValueKind::Generic(generic_info)
+                            if matches!(
+                                &generic_info.kind,
+                                GenericKind::Slice(info) if info.impl_info.is_some()
+                            )
+                    );
+                    if has_impl_info {
+                        slice_symbol = symbol;
+                        break;
+                    }
+                }
             }
         }
 
