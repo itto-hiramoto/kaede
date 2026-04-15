@@ -635,18 +635,19 @@ interface Reader {
 ",
     )?;
 
-    let interfaces: Vec<_> = unit
+    let iface = unit
         .top_levels
         .iter()
-        .filter_map(|tl| match tl {
-            TopLevel::Interface(iface) => Some(iface),
+        .find_map(|tl| match tl {
+            TopLevel::Interface(iface)
+                if iface.name.symbol() == Symbol::from("Reader".to_string()) =>
+            {
+                Some(iface)
+            }
             _ => None,
         })
-        .collect();
+        .expect("Reader interface must be emitted");
 
-    assert_eq!(interfaces.len(), 1);
-    let iface = interfaces[0];
-    assert_eq!(iface.name.symbol(), Symbol::from("Reader".to_string()));
     assert_eq!(iface.methods.len(), 2);
     assert_eq!(iface.methods[0].name, Symbol::from("read".to_string()));
     assert_eq!(iface.methods[1].name, Symbol::from("peek".to_string()));

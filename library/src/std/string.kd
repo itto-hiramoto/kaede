@@ -297,6 +297,10 @@ impl str {
     }
 }
 
+export interface Stringer {
+    fun to_string(self) -> String
+}
+
 impl u64 {
     export fun to_string(self) -> String {
         return u64_to_string(self)
@@ -306,5 +310,58 @@ impl u64 {
 impl i64 {
     export fun to_string(self) -> String {
         return i64_to_string(self)
+    }
+}
+
+impl u8 {
+    export fun to_string(self) -> String {
+        return u64_to_string(self as u64)
+    }
+}
+
+impl u16 {
+    export fun to_string(self) -> String {
+        return u64_to_string(self as u64)
+    }
+}
+
+impl u32 {
+    export fun to_string(self) -> String {
+        return u64_to_string(self as u64)
+    }
+}
+
+impl i8 {
+    export fun to_string(self) -> String {
+        return i64_to_string(self as i64)
+    }
+}
+
+impl i16 {
+    export fun to_string(self) -> String {
+        return i64_to_string(self as i64)
+    }
+}
+
+impl i32 {
+    export fun to_string(self) -> String {
+        return i64_to_string(self as i64)
+    }
+}
+
+impl bool {
+    export fun to_string(self) -> String {
+        if self {
+            return String::from("true")
+        }
+        return String::from("false")
+    }
+}
+
+impl char {
+    export fun to_string(self) -> String {
+        let mut s = String::new()
+        s.push(self)
+        return s
     }
 }
