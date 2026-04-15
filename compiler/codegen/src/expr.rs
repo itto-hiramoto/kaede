@@ -1197,12 +1197,6 @@ impl<'ctx> CodeGenerator<'ctx> {
         Ok(Some(value.into()))
     }
 
-    pub(crate) fn interface_fat_pointer_type(&self) -> StructType<'ctx> {
-        let ptr_ty = self.context().ptr_type(AddressSpace::default());
-        self.context()
-            .struct_type(&[ptr_ty.into(), ptr_ty.into()], false)
-    }
-
     fn itable_type_key(ty: &Rc<Ty>) -> String {
         let base = match ty.kind.as_ref() {
             TyKind::Reference(rty) => &rty.refee_ty,
