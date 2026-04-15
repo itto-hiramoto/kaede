@@ -75,29 +75,37 @@ impl SemanticAnalyzer {
             }
         };
 
-        for method in &interface.methods {
-            let Some(actual_method) = self.lookup_method_for_interface(actual_ty, method) else {
-                return Err(SemanticError::GenericBoundNotSatisfied {
-                    actual: actual_ty.kind.to_string(),
-                    interface: interface.name.symbol(),
-                    method_name: method.name,
-                    span,
-                }
-                .into());
-            };
-
-            if !self.interface_method_matches_decl(method, &actual_method) {
-                return Err(SemanticError::GenericBoundNotSatisfied {
-                    actual: actual_ty.kind.to_string(),
-                    interface: interface.name.symbol(),
-                    method_name: method.name,
-                    span,
-                }
-                .into());
-            }
-        }
+        self.resolve_interface_impl_methods(actual_ty, &interface)
+            .map_err(|method_name| SemanticError::GenericBoundNotSatisfied {
+                actual: actual_ty.kind.to_string(),
+                interface: interface.name.symbol(),
+                method_name,
+                span,
+            })?;
 
         Ok(())
+    }
+
+    /// Resolve the concrete `FnDecl`s implementing each method of `interface` for `actual_ty`.
+    ///
+    /// Returns the ordered list aligned with `interface.methods`, or the name of the
+    /// first method that is missing or has an incompatible signature.
+    pub(crate) fn resolve_interface_impl_methods(
+        &self,
+        actual_ty: &Rc<ir_type::Ty>,
+        interface: &ir::top::Interface,
+    ) -> Result<Vec<Rc<ir::top::FnDecl>>, Symbol> {
+        let mut impls = Vec::with_capacity(interface.methods.len());
+        for method in &interface.methods {
+            let Some(actual_method) = self.lookup_method_for_interface(actual_ty, method) else {
+                return Err(method.name);
+            };
+            if !self.interface_method_matches_decl(method, &actual_method) {
+                return Err(method.name);
+            }
+            impls.push(actual_method);
+        }
+        Ok(impls)
     }
 
     fn lookup_method_for_interface(

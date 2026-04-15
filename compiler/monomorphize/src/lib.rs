@@ -219,7 +219,6 @@ mod tests {
         let boxed = Expr {
             kind: ExprKind::InterfaceBox(InterfaceBox {
                 value: Box::new(generic_call_expr("inner_i32")),
-                interface: iface,
                 itable,
                 span: Span::dummy(),
             }),
@@ -265,7 +264,6 @@ mod tests {
         let call = Expr {
             kind: ExprKind::InterfaceMethodCall(InterfaceMethodCall {
                 receiver: Box::new(receiver),
-                interface: iface.clone(),
                 method_index: 0,
                 method: iface.methods[0].clone(),
                 args: Args(vec![generic_call_expr("arg_i32")], Span::dummy()),

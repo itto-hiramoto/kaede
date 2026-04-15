@@ -35,6 +35,7 @@ impl SemanticAnalyzer {
         }
 
         let right = self.analyze_expr(&node.rhs)?;
+        let right = self.coerce_to_expected_type(right, &left.ty)?;
 
         if !ir::ty::is_same_type(&left.ty, &right.ty) {
             return Err(SemanticError::MismatchedTypes {
@@ -74,9 +75,17 @@ impl SemanticAnalyzer {
 
     fn analyze_normal_let(&mut self, node: &ast::stmt::NormalLet) -> anyhow::Result<ir::stmt::Let> {
         if let Some(init) = &node.init {
-            let init = self.analyze_expr(init)?;
             let mutability = node.mutability;
             let span = node.span;
+
+            // Drive interface coercion from the type annotation when one is present.
+            let (init, annotated_ty) = if node.ty.kind.is_inferred() {
+                (self.analyze_expr(init)?, None)
+            } else {
+                let annotated = self.analyze_type(&node.ty)?;
+                let init = self.analyze_expr_with_expected_type(init, annotated.clone())?;
+                (init, Some(annotated))
+            };
 
             if matches!(init.ty.kind.as_ref(), ir::ty::TyKind::Reference(_))
                 && mutability.is_mut()
@@ -86,18 +95,13 @@ impl SemanticAnalyzer {
             }
 
             // Determine the variable type
-            let var_ty = if node.ty.kind.is_inferred() {
-                // No type annotation
-                // If init expression has a concrete type (not a type variable), use it
-                // Otherwise, create fresh type variable for type inference pass to resolve
-                if matches!(init.ty.kind.as_ref(), ir::ty::TyKind::Var(_)) {
-                    ir::ty::change_mutability_dup(self.infer_context.fresh(), mutability.into())
-                } else {
-                    ir::ty::change_mutability_dup(init.ty.clone(), mutability.into())
-                }
+            let var_ty = if let Some(annotated) = annotated_ty {
+                ir::ty::change_mutability_dup(annotated, mutability.into())
+            } else if matches!(init.ty.kind.as_ref(), ir::ty::TyKind::Var(_)) {
+                // No type annotation and init is a type variable: defer to type inference.
+                ir::ty::change_mutability_dup(self.infer_context.fresh(), mutability.into())
             } else {
-                // Type annotation present - use the annotated type
-                ir::ty::change_mutability_dup(self.analyze_type(&node.ty)?, mutability.into())
+                ir::ty::change_mutability_dup(init.ty.clone(), mutability.into())
             };
 
             // Insert the variable into the symbol table

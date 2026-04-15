@@ -328,17 +328,15 @@ pub struct ITable {
 #[derive(Debug, Clone)]
 pub struct InterfaceBox {
     pub value: Box<Expr>,
-    pub interface: Rc<Interface>,
     pub itable: Rc<ITable>,
     pub span: Span,
 }
 
 /// Dynamic dispatch through an interface fat pointer's itable.
-/// `method_index` indexes into `interface.methods`.
+/// `method_index` indexes into the interface's methods.
 #[derive(Debug, Clone)]
 pub struct InterfaceMethodCall {
     pub receiver: Box<Expr>,
-    pub interface: Rc<Interface>,
     pub method_index: usize,
     pub method: InterfaceMethod,
     pub args: Args,

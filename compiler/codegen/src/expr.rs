@@ -17,8 +17,9 @@ use kaede_ir::{
     expr::{
         ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BitNot, BuiltinFnCall, BuiltinFnCallKind,
         ByteLiteral, ByteStringLiteral, Cast, CharLiteral, Closure, Else, EnumUnpack, EnumVariant,
-        Expr, ExprKind, FieldAccess, FnCall, FnPointer, FormatPart, If, Indexing, Int, LogicalNot,
-        Loop, Slicing, Spawn, StringLiteral, StructLiteral, TupleIndexing, TupleLiteral, Variable,
+        Expr, ExprKind, FieldAccess, FnCall, FnPointer, FormatPart, ITable, If, Indexing, Int,
+        InterfaceBox, InterfaceMethodCall, LogicalNot, Loop, Slicing, Spawn, StringLiteral,
+        StructLiteral, TupleIndexing, TupleLiteral, Variable,
     },
     stmt::Block,
     ty::{
@@ -189,12 +190,8 @@ impl<'ctx> CodeGenerator<'ctx> {
 
             ExprKind::Spawn(spawn) => self.build_spawn(spawn)?,
 
-            ExprKind::InterfaceBox(_) => {
-                anyhow::bail!("internal error: interface boxing codegen not yet implemented")
-            }
-            ExprKind::InterfaceMethodCall(_) => {
-                anyhow::bail!("internal error: interface method call codegen not yet implemented")
-            }
+            ExprKind::InterfaceBox(node) => self.build_interface_box(node)?,
+            ExprKind::InterfaceMethodCall(node) => self.build_interface_method_call(node)?,
         })
     }
 
@@ -1145,19 +1142,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             _ => return Err(CodegenError::ExpectedClosureType.into()),
         };
 
-        let fn_value = self
-            .callee_symbols(&node.decl)
-            .iter()
-            .find_map(|name| match self.tcx.lookup_symbol(*name) {
-                Some(value) => match &*value.borrow() {
-                    SymbolTableValue::Function(fn_value) => Some(*fn_value),
-                    _ => None,
-                },
-                None => None,
-            })
-            .ok_or(CodegenError::UnknownCallee {
-                name: node.decl.name.symbol(),
-            })?;
+        let fn_value = self.resolve_fn_value(&node.decl)?;
 
         assert!(closure_ty.captures.is_empty());
         let (closure_struct_ty, closure_fn_ty, _) = self.closure_llvm_types(closure_ty);
@@ -1210,6 +1195,140 @@ impl<'ctx> CodeGenerator<'ctx> {
         )?;
 
         Ok(Some(value.into()))
+    }
+
+    fn itable_type_key(ty: &Rc<Ty>) -> String {
+        let base = match ty.kind.as_ref() {
+            TyKind::Reference(rty) => &rty.refee_ty,
+            _ => ty,
+        };
+        match base.kind.as_ref() {
+            TyKind::UserDefined(udt) => udt.qualified_symbol().mangle().to_string(),
+            _ => unreachable!("interface box concrete type must be a user-defined type"),
+        }
+    }
+
+    fn build_or_get_itable(&mut self, itable: &ITable) -> anyhow::Result<PointerValue<'ctx>> {
+        let global_name = format!(
+            "__kd_itable.{}.{}",
+            itable.interface.name.mangle(),
+            Self::itable_type_key(&itable.concrete_ty),
+        );
+
+        if let Some(global) = self.module.get_global(&global_name) {
+            return Ok(global.as_pointer_value());
+        }
+
+        let ptr_ty = self.context().ptr_type(AddressSpace::default());
+        let array_ty = ptr_ty.array_type(itable.methods.len() as u32);
+
+        let mut fn_ptrs = Vec::with_capacity(itable.methods.len());
+        for method_decl in &itable.methods {
+            let fn_value = self.resolve_fn_value(method_decl)?;
+            fn_ptrs.push(fn_value.as_global_value().as_pointer_value());
+        }
+
+        let array_val = ptr_ty.const_array(&fn_ptrs);
+        let global = self.module.add_global(array_ty, None, global_name.as_str());
+        global.set_initializer(&array_val);
+        global.set_linkage(Linkage::Internal);
+        global.set_constant(true);
+
+        Ok(global.as_pointer_value())
+    }
+
+    fn build_interface_box(&mut self, node: &InterfaceBox) -> anyhow::Result<Value<'ctx>> {
+        let data_ptr = self
+            .build_expr(&node.value)?
+            .ok_or_else(|| CodegenError::LLVMError {
+                what: "interface box inner value produced no value".to_string(),
+            })?;
+        let itable_ptr = self.build_or_get_itable(&node.itable)?;
+
+        let fat_ty = self.interface_fat_pointer_type();
+        let value = self.create_gc_struct(
+            fat_ty.as_basic_type_enum(),
+            &[data_ptr, itable_ptr.as_basic_value_enum()],
+        )?;
+
+        Ok(Some(value.into()))
+    }
+
+    fn build_interface_method_call(
+        &mut self,
+        node: &InterfaceMethodCall,
+    ) -> anyhow::Result<Value<'ctx>> {
+        let receiver_fat = self
+            .build_expr(&node.receiver)?
+            .ok_or_else(|| CodegenError::LLVMError {
+                what: "interface method call receiver produced no value".to_string(),
+            })?
+            .into_pointer_value();
+
+        let fat_ty = self.interface_fat_pointer_type();
+        let ptr_ty = self.context().ptr_type(AddressSpace::default());
+
+        let data_gep = self
+            .builder
+            .build_struct_gep(fat_ty, receiver_fat, 0, "iface.data.gep")?;
+        let data_ptr = self
+            .builder
+            .build_load(ptr_ty, data_gep, "iface.data")?
+            .into_pointer_value();
+
+        let itable_gep =
+            self.builder
+                .build_struct_gep(fat_ty, receiver_fat, 1, "iface.itable.gep")?;
+        let itable_ptr = self
+            .builder
+            .build_load(ptr_ty, itable_gep, "iface.itable")?
+            .into_pointer_value();
+
+        let slot_gep = unsafe {
+            self.builder.build_in_bounds_gep(
+                ptr_ty,
+                itable_ptr,
+                &[self
+                    .context()
+                    .i32_type()
+                    .const_int(node.method_index as u64, false)],
+                "iface.method.gep",
+            )?
+        };
+        let method_fn_ptr = self
+            .builder
+            .build_load(ptr_ty, slot_gep, "iface.method")?
+            .into_pointer_value();
+
+        let mut param_llvm_tys = Vec::with_capacity(node.method.params.len() + 1);
+        param_llvm_tys.push(ptr_ty.into());
+        for param in &node.method.params {
+            param_llvm_tys.push(self.conv_to_llvm_type(&param.ty).into());
+        }
+
+        let fn_ty = if matches!(node.method.return_ty.kind.as_ref(), TyKind::Unit) {
+            self.context().void_type().fn_type(&param_llvm_tys, false)
+        } else {
+            self.conv_to_llvm_type(&node.method.return_ty)
+                .fn_type(&param_llvm_tys, false)
+        };
+
+        let mut call_args: Vec<inkwell::values::BasicMetadataValueEnum<'ctx>> =
+            Vec::with_capacity(node.args.0.len() + 1);
+        call_args.push(data_ptr.into());
+        for arg in &node.args.0 {
+            let value = self
+                .build_expr(arg)?
+                .ok_or_else(|| CodegenError::LLVMError {
+                    what: "interface method call argument produced no value".to_string(),
+                })?;
+            call_args.push(value.into());
+        }
+
+        let call =
+            self.builder
+                .build_indirect_call(fn_ty, method_fn_ptr, &call_args, "iface.call")?;
+        Ok(call.try_as_basic_value().left())
     }
 
     fn build_spawn(&mut self, node: &Spawn) -> anyhow::Result<Value<'ctx>> {
@@ -1411,6 +1530,33 @@ impl<'ctx> CodeGenerator<'ctx> {
             .add_function(name, fn_type, Some(Linkage::External))
     }
 
+    fn resolve_fn_value(
+        &self,
+        decl: &kaede_ir::top::FnDecl,
+    ) -> anyhow::Result<FunctionValue<'ctx>> {
+        self.callee_symbols(decl)
+            .iter()
+            .find_map(|name| match self.tcx.lookup_symbol(*name) {
+                Some(value) => match &*value.borrow() {
+                    SymbolTableValue::Function(fv) => Some(*fv),
+                    _ => None,
+                },
+                None => None,
+            })
+            .ok_or_else(|| {
+                CodegenError::UnknownCallee {
+                    name: decl.name.symbol(),
+                }
+                .into()
+            })
+    }
+
+    /// Candidate names to look up a callee in the symbol table, in priority order.
+    ///
+    /// The symbol table's key is not uniform across linkages: Default-linkage functions
+    /// are registered under their mangled (module-qualified) name, C-linkage functions
+    /// under the bare name. Callers don't always know which one was used, so we return
+    /// both and let the caller try them in turn.
     fn callee_symbols(&self, callee: &kaede_ir::top::FnDecl) -> Vec<Symbol> {
         use kaede_common::LangLinkage;
 
