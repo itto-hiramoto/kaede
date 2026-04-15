@@ -693,6 +693,153 @@ fn builtin_format() -> anyhow::Result<()> {
 }
 
 #[test]
+fn fundamental_to_string_for_i32() -> anyhow::Result<()> {
+    let program = r#"fun main() -> i32 {
+        let n: i32 = 123
+        if n.to_string().as_str() == "123" {
+            return 1
+        }
+        return 0
+    }"#;
+
+    assert_eq!(exec(program)?, 1);
+    Ok(())
+}
+
+#[test]
+fn fundamental_to_string_for_i64_baseline() -> anyhow::Result<()> {
+    let program = r#"fun main() -> i32 {
+        let n: i64 = 12345
+        if n.to_string().as_str() == "12345" {
+            return 1
+        }
+        return 0
+    }"#;
+
+    assert_eq!(exec(program)?, 1);
+    Ok(())
+}
+
+#[test]
+fn fundamental_to_string_for_u32() -> anyhow::Result<()> {
+    let program = r#"fun main() -> i32 {
+        let n: u32 = 999
+        if n.to_string().as_str() == "999" {
+            return 1
+        }
+        return 0
+    }"#;
+
+    assert_eq!(exec(program)?, 1);
+    Ok(())
+}
+
+#[test]
+fn fundamental_to_string_for_bool() -> anyhow::Result<()> {
+    let program = r#"fun main() -> i32 {
+        if true.to_string().as_str() == "true" {
+            return 1
+        }
+        return 0
+    }"#;
+
+    assert_eq!(exec(program)?, 1);
+    Ok(())
+}
+
+#[test]
+fn builtin_format_auto_calls_stringer_to_string() -> anyhow::Result<()> {
+    let program = r#"fun main() -> i32 {
+        if __format("{}+{}={}", 2 as i32, 3 as i32, 5 as i32) == "2+3=5" {
+            return 1
+        }
+        return 0
+    }"#;
+
+    assert_eq!(exec(program)?, 1);
+    Ok(())
+}
+
+#[test]
+fn builtin_format_auto_calls_stringer_for_bool_and_char() -> anyhow::Result<()> {
+    let program = r#"fun main() -> i32 {
+        if __format("{} {} {}", true, false, 'k') == "true false k" {
+            return 1
+        }
+        return 0
+    }"#;
+
+    assert_eq!(exec(program)?, 1);
+    Ok(())
+}
+
+#[test]
+fn interpolated_string_auto_calls_to_string() -> anyhow::Result<()> {
+    let program = r#"fun main() -> i32 {
+        let n: i32 = 42
+        let b = true
+        if $"n={n} b={b}" == "n=42 b=true" {
+            return 1
+        }
+        return 0
+    }"#;
+
+    assert_eq!(exec(program)?, 1);
+    Ok(())
+}
+
+#[test]
+fn interpolated_string_calls_user_to_string() -> anyhow::Result<()> {
+    let program = r#"
+    struct Point {
+        x: i32,
+        y: i32,
+    }
+
+    impl Point {
+        fun to_string(self) -> String {
+            let mut out = String::from("(")
+            out.push_str(self.x.to_string().as_str())
+            out.push_str(", ")
+            out.push_str(self.y.to_string().as_str())
+            out.push_str(")")
+            return out
+        }
+    }
+
+    fun main() -> i32 {
+        let p = Point { x: 3, y: 7 }
+        if $"p={p}" == "p=(3, 7)" {
+            return 1
+        }
+        return 0
+    }"#;
+
+    assert_eq!(exec(program)?, 1);
+    Ok(())
+}
+
+#[test]
+fn builtin_format_rejects_type_without_to_string() {
+    let program = r#"
+    struct Pair {
+        a: i32,
+        b: i32,
+    }
+
+    fun main() -> i32 {
+        let p = Pair { a: 1, b: 2 }
+        let _ = __format("{}", p)
+        return 0
+    }"#;
+
+    assert!(matches!(
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::NoMethod { .. }
+    ));
+}
+
+#[test]
 fn builtin_format_requires_literal_template() {
     let program = r#"fun main() -> i32 {
         let t = "{}"

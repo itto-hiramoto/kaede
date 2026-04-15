@@ -204,13 +204,6 @@ pub enum SemanticError {
     #[error("{}:{}:{} `format` template must be a string literal", span.file, span.start.line, span.start.column)]
     FormatTemplateMustBeStringLiteral { span: Span },
 
-    #[error("{}:{}:{} `format` argument #{} must be `str`, got `{}`", span.file, span.start.line, span.start.column, index, ty)]
-    FormatArgumentMustBeStr {
-        index: usize,
-        ty: String,
-        span: Span,
-    },
-
     #[error("{}:{}:{} invalid `format` template: {}", span.file, span.start.line, span.start.column, reason)]
     InvalidFormatTemplate { reason: String, span: Span },
 

@@ -1709,6 +1709,44 @@ impl SemanticAnalyzer {
         Ok(parts)
     }
 
+    /// Convert a non-`str` format argument to `str` by rewriting it to
+    /// `<arg>.to_string().as_str()` at the AST level and re-analyzing.
+    /// A missing `to_string` surfaces as a `NoMethod` error on the concrete type.
+    fn format_arg_via_to_string(
+        &mut self,
+        arg: &ast::expr::Expr,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let span = arg.span;
+        let empty_args = ast::expr::Args {
+            args: std::collections::VecDeque::new(),
+            span,
+        };
+        let make_call = |receiver: ast::expr::Expr, method: &str| ast::expr::Expr {
+            kind: ast::expr::ExprKind::Binary(ast::expr::Binary::new(
+                receiver.into(),
+                ast::expr::BinaryKind::Access,
+                ast::expr::Expr {
+                    kind: ast::expr::ExprKind::FnCall(ast::expr::FnCall {
+                        callee: Box::new(Self::ast_ident_expr(
+                            Symbol::from(method.to_owned()),
+                            span,
+                        )),
+                        generic_args: None,
+                        args: empty_args.clone(),
+                        span,
+                    }),
+                    span,
+                }
+                .into(),
+            )),
+            span,
+        };
+
+        let to_string_call = make_call(arg.clone(), "to_string");
+        let as_str_call = make_call(to_string_call, "as_str");
+        self.analyze_expr(&as_str_call)
+    }
+
     fn analyze_builtin_fn_call(
         &mut self,
         node: &ast::expr::FnCall,
@@ -1800,17 +1838,14 @@ impl SemanticAnalyzer {
                     let mut args = Vec::with_capacity(node.args.args.len());
                     args.push(self.analyze_expr(&first.value)?);
 
-                    for (i, arg) in node.args.args.iter().skip(1).enumerate() {
+                    for arg in node.args.args.iter().skip(1) {
                         let analyzed = self.analyze_expr(&arg.value)?;
-                        if !analyzed.ty.is_str() {
-                            return Err(SemanticError::FormatArgumentMustBeStr {
-                                index: i + 1,
-                                ty: analyzed.ty.kind.to_string(),
-                                span: arg.value.span,
-                            }
-                            .into());
-                        }
-                        args.push(analyzed);
+                        let str_arg = if analyzed.ty.is_str() {
+                            analyzed
+                        } else {
+                            self.format_arg_via_to_string(&arg.value)?
+                        };
+                        args.push(str_arg);
                     }
 
                     let actual = node.args.args.len() - 1;

@@ -299,7 +299,6 @@ fn semantic_error_span(err: &SemanticError) -> Option<Span> {
         | SemanticError::TopLevelStatementsOnlyAllowedInEntryUnit { span }
         | SemanticError::MainOnlyAllowedInEntryUnit { span }
         | SemanticError::FormatTemplateMustBeStringLiteral { span }
-        | SemanticError::FormatArgumentMustBeStr { span, .. }
         | SemanticError::InvalidFormatTemplate { span, .. }
         | SemanticError::FormatPlaceholderCountMismatch { span, .. }
         | SemanticError::TryRequiresResult { span, .. }

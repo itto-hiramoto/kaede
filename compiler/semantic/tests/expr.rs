@@ -58,9 +58,11 @@ fn builtin_format_requires_literal_template() -> anyhow::Result<()> {
 }
 
 #[test]
-fn builtin_format_requires_str_args() -> anyhow::Result<()> {
-    let err = semantic_analyze_expect_error("fun f() { __format(\"n = {}\", 42) }")?;
-    assert!(err.to_string().contains("argument #1 must be `str`"));
+fn builtin_format_rejects_type_without_to_string() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error(
+        "struct P { a: i32 }\nfun f() { let p = P { a: 1 }\n__format(\"{}\", p) }",
+    )?;
+    assert!(err.to_string().contains("no method named `to_string`"));
     Ok(())
 }
 
