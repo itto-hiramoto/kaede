@@ -332,12 +332,9 @@ impl SemanticAnalyzer {
                 }
             }
 
-            // Clear the private symbol table after analyzing the module
-            analyzer
-                .modules
-                .get_mut(&analyzer.current_module_path().clone())
-                .unwrap()
-                .clear_private_symbol_table();
+            // Note: the module's private symbol table is intentionally retained so that
+            // cross-module monomorphization of generic functions/methods can resolve
+            // private helpers referenced from their bodies.
 
             Ok::<(), anyhow::Error>(())
         })?;

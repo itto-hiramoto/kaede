@@ -1305,22 +1305,26 @@ impl SemanticAnalyzer {
             generic_params.span,
         )?;
 
-        // Generic functions must always be generated regardless of the analyze command, so it is overwritten
+        // Generic functions must always be generated regardless of the analyze command, so it is overwritten.
+        // Switch to the defining module so type names in the signature/body resolve against the
+        // module where the generic was declared, not the call site's module.
+        let defining_module = origin.module_path().clone();
         let fn_ = self.with_analyze_command(AnalyzeCommand::NoCommand, |analyzer| {
-            // Generate the generic function
-            analyzer.with_generic_arguments(generic_params, generic_args, |analyzer| {
-                let mut fn_ = info.ast.clone();
-                fn_.decl.name = Ident::new(generated_generic_key, Span::dummy());
-                // Because generic functions maybe generated multiple times (across multiple files),
-                // we need to set link_once to true to avoid errors
-                fn_.decl.link_once = true;
-                analyzer.with_pending_generic_instance(
-                    Some(ir_type::GenericInstanceInfo::new(
-                        origin.clone(),
-                        generic_args.to_vec(),
-                    )),
-                    |analyzer| analyzer.analyze_fn_internal(fn_),
-                )
+            analyzer.with_defining_module(defining_module, |analyzer| {
+                analyzer.with_generic_arguments(generic_params, generic_args, |analyzer| {
+                    let mut fn_ = info.ast.clone();
+                    fn_.decl.name = Ident::new(generated_generic_key, Span::dummy());
+                    // Because generic functions maybe generated multiple times (across multiple files),
+                    // we need to set link_once to true to avoid errors
+                    fn_.decl.link_once = true;
+                    analyzer.with_pending_generic_instance(
+                        Some(ir_type::GenericInstanceInfo::new(
+                            origin.clone(),
+                            generic_args.to_vec(),
+                        )),
+                        |analyzer| analyzer.analyze_fn_internal(fn_),
+                    )
+                })
             })
         })?;
 

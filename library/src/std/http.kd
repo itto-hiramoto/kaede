@@ -29,6 +29,47 @@ export enum WebSocketMessageKind {
     Pong,
 }
 
+// Anything that can be written to an HTTP response body as raw bytes.
+export interface Payload {
+    fun as_bytes(self) -> [u8]
+}
+
+// A value that can be sent as a WebSocket frame.
+// `ws_opcode` returns the WebSocket opcode (1=text, 2=binary, 8=close, 9=ping, 10=pong);
+// `ws_payload` returns the frame payload bytes.
+export interface WebSocketPayload {
+    fun ws_opcode(self) -> u8
+    fun ws_payload(self) -> [u8]
+}
+
+impl str {
+    fun as_bytes(self) -> [u8] {
+        return __slice_from_raw_parts(self.as_ptr(), self.len())
+    }
+
+    fun ws_opcode(self) -> u8 {
+        return 1
+    }
+
+    fun ws_payload(self) -> [u8] {
+        return self.as_bytes()
+    }
+}
+
+impl [u8] {
+    fun as_bytes(self) -> [u8] {
+        return self
+    }
+
+    fun ws_opcode(self) -> u8 {
+        return 2
+    }
+
+    fun ws_payload(self) -> [u8] {
+        return self
+    }
+}
+
 struct PathParam {
     name: String,
     value: String,
@@ -47,6 +88,22 @@ export struct Request {
 export struct WebSocketMessage {
     kind: WebSocketMessageKind,
     payload: Vector<u8>,
+}
+
+impl WebSocketMessage {
+    fun ws_opcode(self) -> u8 {
+        return match self.kind {
+            WebSocketMessageKind::Text => 1,
+            WebSocketMessageKind::Binary => 2,
+            WebSocketMessageKind::Close => 8,
+            WebSocketMessageKind::Ping => 9,
+            WebSocketMessageKind::Pong => 10,
+        }
+    }
+
+    fun ws_payload(self) -> [u8] {
+        return self.payload.as_slice()
+    }
 }
 
 export struct WebSocket {
@@ -105,30 +162,21 @@ impl WebSocket {
         __unreachable()
     }
 
-    // Sends a message using the opcode that matches its kind.
-    // Returns false if the socket is already closed, the payload is invalid
-    // for a control frame, or the frame write fails.
-    export fun send(mut self, msg: WebSocketMessage) -> bool {
-        return match msg.kind {
-            WebSocketMessageKind::Text => self.send_frame(1, msg.payload.as_slice()),
-            WebSocketMessageKind::Binary => self.send_frame(2, msg.payload.as_slice()),
-            WebSocketMessageKind::Close => self.close_with_body(msg.payload.as_slice()),
-            WebSocketMessageKind::Ping => self.send_control_frame(9, msg.payload.as_slice()),
-            WebSocketMessageKind::Pong => self.send_pong(msg.payload.as_slice()),
+    // Sends a WebSocket frame. Accepts any value implementing `WebSocketPayload`
+    // (e.g. `str`, `[u8]`, `WebSocketMessage`); the opcode is derived from the
+    // value. Close frames are routed to `close_with_body`; ping/pong to the
+    // control-frame path. Returns false if the socket is already closed, the
+    // payload is invalid for a control frame, or the frame write fails.
+    export fun send<T: WebSocketPayload>(mut self, msg: T) -> bool {
+        let opcode = msg.ws_opcode()
+        let payload = msg.ws_payload()
+        if opcode == 8 {
+            return self.close_with_body(payload)
         }
-    }
-
-    // Sends a text frame.
-    // Returns false if the socket is already closed or the frame write fails.
-    export fun send_text(mut self, text: str) -> bool {
-        let bytes = text.to_bytes()
-        return self.send_frame(1, bytes.as_slice())
-    }
-
-    // Sends a binary frame.
-    // Returns false if the socket is already closed or the frame write fails.
-    export fun send_bytes(mut self, body: [u8]) -> bool {
-        return self.send_frame(2, body)
+        if opcode == 9 || opcode == 10 {
+            return self.send_control_frame(opcode, payload)
+        }
+        return self.send_frame(opcode, payload)
     }
 
     // Sends a ping control frame.
@@ -248,7 +296,10 @@ impl Response {
         self.write_failed = true
     }
 
-    export fun send_bytes(mut self, body: [u8]) {
+    // Writes the response body. Accepts any value implementing `Payload`
+    // (e.g. `str`, `[u8]`).
+    export fun send<T: Payload>(mut self, body: T) {
+        let bytes = body.as_bytes()
         if !write_status_line(self.conn, self.status) {
             self.mark_write_failed()
             return
@@ -261,7 +312,7 @@ impl Response {
             self.mark_write_failed()
             return
         }
-        if !write_content_length(self.conn, body.len()) {
+        if !write_content_length(self.conn, bytes.len()) {
             self.mark_write_failed()
             return
         }
@@ -269,21 +320,13 @@ impl Response {
             self.mark_write_failed()
             return
         }
-        if std.sys.write(self.conn, body).is_none() {
+        if std.sys.write(self.conn, bytes).is_none() {
             self.mark_write_failed()
         }
     }
 
-    export fun send_text(mut self, text: str) {
-        self.send_bytes(text.to_bytes().as_slice())
-    }
-
-    export fun send_string(mut self, text: str) {
-        self.send_text(text)
-    }
-
     export fun send_file(mut self, body: [u8], content_type: str) {
-        self.content_type(content_type).send_bytes(body)
+        self.content_type(content_type).send(body)
     }
 }
 
@@ -764,10 +807,6 @@ export fun write_text_response(conn: Fd, close_conn: bool, status: Status, body:
         return false
     }
     return std.sys.write(conn, body).is_some()
-}
-
-export fun write_bytes_response(conn: Fd, close_conn: bool, status: Status, body: [u8]) -> bool {
-    return write_text_response(conn, close_conn, status, body)
 }
 
 fun write_websocket_upgrade_response(conn: Fd, accept_value: [u8]) -> bool {
@@ -1438,21 +1477,21 @@ fun join_static_fs_path(dir: String, relative: String) -> String {
 // Opens a static file, validates it, reads it, and sends it with basic response headers.
 fun serve_static_path(res: mut Response, fs_path: String) {
     if fs_path.len() == 0 {
-        res.status(Status::NotFound).send_bytes(b"")
+        res.status(Status::NotFound).send(b"")
         return
     }
 
     let file = match std.sys.open_read(fs_path.as_str()) {
         Option::Some(fd) => fd,
         Option::None => {
-            res.status(Status::NotFound).send_bytes(b"")
+            res.status(Status::NotFound).send(b"")
             return
         }
     }
 
     if !std.sys.is_regular_file(file) {
         std.sys.close_quiet(file)
-        res.status(Status::NotFound).send_bytes(b"")
+        res.status(Status::NotFound).send(b"")
         return
     }
 
@@ -1460,7 +1499,7 @@ fun serve_static_path(res: mut Response, fs_path: String) {
         Option::Some(value) => value,
         Option::None => {
             std.sys.close_quiet(file)
-            res.status(Status::InternalServerError).send_bytes(b"")
+            res.status(Status::InternalServerError).send(b"")
             return
         }
     }
@@ -1468,7 +1507,7 @@ fun serve_static_path(res: mut Response, fs_path: String) {
     std.sys.close_quiet(file)
     let mut response = res.content_type(guess_content_type(fs_path.as_str()))
     response = response.header("Cache-Control", "no-store")
-    response.send_bytes(bytes.as_slice())
+    response.send(bytes.as_slice())
 }
 
 // Guesses a content type from the file extension for common static assets.
@@ -1612,7 +1651,7 @@ fun handle_conn(conn: Fd, app: App) {
 
         let handled = app.dispatch(req, res)
         if !handled {
-            res.status(Status::NotFound).send_bytes(b"")
+            res.status(Status::NotFound).send(b"")
         }
 
         if res.has_write_failed() || want_close {

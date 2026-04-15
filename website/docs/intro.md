@@ -34,7 +34,7 @@ import std.http
 mut app := std.http.App::new()
 
 app.get("/", |req, res| {
-    res.send_text("hello, world!")
+    res.send("hello, world!")
 })
 
 app.listen(port=8080)

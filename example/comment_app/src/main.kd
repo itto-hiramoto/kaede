@@ -50,7 +50,7 @@ app.get("/comments", |req, res| {
     since := match parse_since(req) {
         Option::Some(value) => value,
         Option::None => {
-            res.status(Status::BadRequest).send_text("since must be u64")
+            res.status(Status::BadRequest).send("since must be u64")
             return
         }
     }
@@ -67,7 +67,7 @@ app.get("/comments", |req, res| {
         i += 1
     }
 
-    res.send_text(out.as_str())
+    res.send(out.as_str())
 })
 
 app.post("/comments", |req, res| {
@@ -82,18 +82,18 @@ app.post("/comments", |req, res| {
         normalized_author.clone()
     }
     if author.len() > 32 {
-        res.status(Status::BadRequest).send_text("author too long")
+        res.status(Status::BadRequest).send("author too long")
         return
     }
 
     body_text := String::from_bytes(req.body)
     message := rust::comment_app::normalize_message(body_text.as_str())
     if message.len() == 0 {
-        res.status(Status::BadRequest).send_text("message must not be empty")
+        res.status(Status::BadRequest).send("message must not be empty")
         return
     }
     if message.len() > 280 {
-        res.status(Status::BadRequest).send_text("message too long")
+        res.status(Status::BadRequest).send("message too long")
         return
     }
 
@@ -119,7 +119,7 @@ app.post("/comments", |req, res| {
     })
     lock.unlock()
 
-    res.send_text(id.to_string().as_str())
+    res.send(id.to_string().as_str())
 })
 
 app.ws("/ws/comments", |req, ws| {
@@ -143,7 +143,7 @@ app.ws("/ws/comments", |req, ws| {
     mut i := 0
     while i < pending.len() {
         comment := pending.at(i).unwrap()
-        if !ws.send_text(comment.json.as_str()) {
+        if !ws.send(comment.json.as_str()) {
             events.close()
             lock.lock()
             subscribers.retain(|subscriber| subscriber.id != subscriber_id)
@@ -165,7 +165,7 @@ app.ws("/ws/comments", |req, ws| {
             }
         }
 
-        if !ws.send_text(json.as_str()) {
+        if !ws.send(json.as_str()) {
             events.close()
             lock.lock()
             subscribers.retain(|subscriber| subscriber.id != subscriber_id)

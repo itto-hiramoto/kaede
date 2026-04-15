@@ -106,6 +106,20 @@ impl SemanticAnalyzer {
         self.with_context(new_context, f)
     }
 
+    // Temporarily changes both the current and base module path, executes the provided closure.
+    // Used when re-analyzing code originally defined in another module (e.g. monomorphizing a
+    // generic function) so that name-lookup fallbacks target the defining module rather than the
+    // file currently being compiled.
+    pub fn with_defining_module<F, R>(&mut self, path: ModulePath, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        let mut new_context = self.context.clone();
+        new_context.current_module_path = path.clone();
+        new_context.module_path = path;
+        self.with_context(new_context, f)
+    }
+
     pub fn with_root_module<F, R>(&mut self, f: F) -> R
     where
         F: FnOnce(&mut Self) -> R,
@@ -325,9 +339,5 @@ impl ModuleContext {
                 .unwrap()
                 .bind(symbol, value)
         }
-    }
-
-    pub fn clear_private_symbol_table(&mut self) {
-        self.private_symbol_table.clear();
     }
 }

@@ -64,7 +64,7 @@ Closures are commonly used in HTTP handlers and collection helpers.
 
 ```rust
 app.get("/", |req, res| {
-    res.send_text("Kaede!")
+    res.send("Kaede!")
 })
 
 subscribers.retain(|subscriber| {

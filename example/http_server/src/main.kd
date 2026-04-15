@@ -33,20 +33,20 @@ app.ws("/ws/echo", |req, ws| {
 })
 
 app.get("/", |req, res| {
-    res.send_text("Kaede!")
+    res.send("Kaede!")
 })
 
 app.post("/echo", |req, res| {
-    res.send_bytes(req.body)
+    res.send(req.body)
 })
 
 app.get("/status/notfound", |req, res| {
-    res.status(std.http.Status::NotFound).send_text("Not Found")
+    res.status(std.http.Status::NotFound).send("Not Found")
 })
 
 app.get("/query", |req, res| {
     name := req.query("name")
-    res.send_text(match name {
+    res.send(match name {
         Option::Some(name) => name.as_str(),
         Option::None => "No name provided"
     })
@@ -54,7 +54,7 @@ app.get("/query", |req, res| {
 
 app.get("/users/:id", |req, res| {
     id := req.param("id")
-    res.send_text(match id {
+    res.send(match id {
         Option::Some(id) => id.as_str(),
         Option::None => "No id provided"
     })
