@@ -101,7 +101,7 @@ fn left_arrow() {
 
 #[test]
 fn question() {
-    lex_test("foo?", vec![Ident("foo".to_string()), Question, Eoi]);
+    lex_test("foo?", vec![Ident("foo".to_string()), Question, Semi, Eoi]);
 }
 
 #[test]
