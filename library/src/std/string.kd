@@ -295,6 +295,10 @@ impl str {
     export fun parse_i64(self) -> std.option.Option<i64> {
         return parse_i64_from_str(self)
     }
+
+    export fun to_string(self) -> String {
+        return String::from(self)
+    }
 }
 
 export interface Stringer {
