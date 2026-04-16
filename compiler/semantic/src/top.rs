@@ -523,6 +523,9 @@ impl SemanticAnalyzer {
         )))
     }
 
+    // Returns `None` for generic methods: their IR is materialized lazily at each
+    // monomorphization call site, so there's nothing to add to the enclosing `impl` now.
+    // Non-generic methods return `Some(Fn)`.
     fn analyze_method(
         &mut self,
         ty: Rc<ast_type::Ty>,
