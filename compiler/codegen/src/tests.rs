@@ -734,6 +734,20 @@ fn fundamental_to_string_for_bool() -> anyhow::Result<()> {
 }
 
 #[test]
+fn fundamental_to_string_for_str() -> anyhow::Result<()> {
+    let program = r#"fun main() -> i32 {
+        let s: str = "hello"
+        if s.to_string().as_str() == "hello" {
+            return 1
+        }
+        return 0
+    }"#;
+
+    assert_eq!(exec(program)?, 1);
+    Ok(())
+}
+
+#[test]
 fn builtin_format_auto_calls_stringer_to_string() -> anyhow::Result<()> {
     let program = r#"fun main() -> i32 {
         if __format("{}+{}={}", 2 as i32, 3 as i32, 5 as i32) == "2+3=5" {
