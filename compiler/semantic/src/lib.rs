@@ -949,7 +949,7 @@ impl SemanticAnalyzer {
         let main_fn_decl = ir::top::FnDecl {
             lang_linkage: kaede_common::LangLinkage::Default,
             link_once: false,
-            name: QualifiedSymbol::new(ModulePath::new(vec![]), "main".to_owned().into()),
+            name: QualifiedSymbol::new(ModulePath::root(), "main".to_owned().into()),
             params,
             is_c_variadic: false,
             return_ty: Rc::new(ir::ty::make_fundamental_type(
@@ -962,10 +962,7 @@ impl SemanticAnalyzer {
         let runtime_init_decl = ir::top::FnDecl {
             lang_linkage: kaede_common::LangLinkage::C,
             link_once: false,
-            name: QualifiedSymbol::new(
-                ModulePath::new(vec![]),
-                "kaede_runtime_init".to_owned().into(),
-            ),
+            name: QualifiedSymbol::new(ModulePath::root(), "kaede_runtime_init".to_owned().into()),
             params: vec![],
             is_c_variadic: false,
             return_ty: Rc::new(ir::ty::Ty::new_unit()),
@@ -975,10 +972,7 @@ impl SemanticAnalyzer {
         let runtime_run_decl = ir::top::FnDecl {
             lang_linkage: kaede_common::LangLinkage::C,
             link_once: false,
-            name: QualifiedSymbol::new(
-                ModulePath::new(vec![]),
-                "kaede_runtime_run".to_owned().into(),
-            ),
+            name: QualifiedSymbol::new(ModulePath::root(), "kaede_runtime_run".to_owned().into()),
             params: vec![],
             is_c_variadic: false,
             return_ty: Rc::new(ir::ty::make_fundamental_type(
@@ -992,7 +986,7 @@ impl SemanticAnalyzer {
             lang_linkage: kaede_common::LangLinkage::C,
             link_once: false,
             name: QualifiedSymbol::new(
-                ModulePath::new(vec![]),
+                ModulePath::root(),
                 "kaede_runtime_shutdown".to_owned().into(),
             ),
             params: vec![],
@@ -1277,7 +1271,7 @@ impl SemanticAnalyzer {
 
         // Create root module
         let root_module = Self::create_module_context(FilePath::dummy());
-        self.modules.insert(ModulePath::new(vec![]), root_module);
+        self.modules.insert(ModulePath::root(), root_module);
 
         self.context.set_no_prelude(options.no_prelude);
 

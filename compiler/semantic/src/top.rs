@@ -774,7 +774,7 @@ impl SemanticAnalyzer {
         let name = node.name.symbol();
 
         let qualified_name = if name.as_str() == "main" {
-            QualifiedSymbol::new(ModulePath::new(vec![]), "kdmain".to_owned().into())
+            QualifiedSymbol::new(ModulePath::root(), "kdmain".to_owned().into())
         } else {
             QualifiedSymbol::new(self.current_module_path().clone(), name)
         };

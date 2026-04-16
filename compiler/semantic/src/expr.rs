@@ -3429,7 +3429,7 @@ impl SemanticAnalyzer {
 
             self.create_method_call_ir(
                 callee_symbol,
-                ModulePath::new(vec![]),
+                ModulePath::root(),
                 "str".to_owned().into(),
                 call_node,
                 left,
@@ -4003,7 +4003,7 @@ impl SemanticAnalyzer {
 
         self.create_method_call_ir(
             callee_symbol,
-            ModulePath::new(vec![]),
+            ModulePath::root(),
             fty.kind.to_string().into(),
             call_node,
             left,

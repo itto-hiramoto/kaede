@@ -218,7 +218,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             &FnDecl {
                 lang_linkage: LangLinkage::Default,
                 link_once: false,
-                name: QualifiedSymbol::new(ModulePath::new(vec![]), self.cgcx.malloc_symbol),
+                name: QualifiedSymbol::new(ModulePath::root(), self.cgcx.malloc_symbol),
                 is_c_variadic: false,
                 return_ty,
                 params,

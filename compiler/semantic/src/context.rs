@@ -33,7 +33,7 @@ pub struct AnalysisContext {
 impl AnalysisContext {
     pub fn new(module_path: ModulePath) -> Self {
         Self {
-            current_module_path: ModulePath::new(vec![]),
+            current_module_path: ModulePath::root(),
             module_path,
             fallback_lookup_module_path: None,
             is_inside_loop: false,
