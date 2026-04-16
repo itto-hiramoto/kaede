@@ -3850,7 +3850,17 @@ impl SemanticAnalyzer {
                 if module.lookup_public_symbol(&symbol).is_none()
                     && module.lookup_symbol(&symbol).is_some()
                 {
-                    return Err(SemanticError::Undeclared { name: symbol, span }.into());
+                    return Err(SemanticError::PrivateItemAccess {
+                        name: symbol,
+                        module: module_path
+                            .get_module_names_from_root()
+                            .iter()
+                            .map(|s| s.as_str().to_string())
+                            .collect::<Vec<_>>()
+                            .join("."),
+                        span,
+                    }
+                    .into());
                 }
             }
         }
