@@ -542,10 +542,11 @@ impl SemanticAnalyzer {
 
         let parent_ty = self.analyze_type(&ty)?;
 
-        // `route_to_root_module` is true for built-in language types (fundamental scalars
-        // and slices): they have no defining module, so their methods live in the anonymous
-        // root module where every caller can find them with a direct qualified lookup.
-        let (parent_name, route_to_root_module) = match parent_ty.kind.as_ref() {
+        // `should_route_to_root_module` is true for built-in language types (fundamental
+        // scalars and slices): they have no defining module, so their methods live in the
+        // anonymous root module where every caller can find them with a direct qualified
+        // lookup.
+        let (parent_name, should_route_to_root_module) = match parent_ty.kind.as_ref() {
             ir::ty::TyKind::Reference(ty) => {
                 let base_ty = ty.get_base_type();
                 match base_ty.kind.as_ref() {
@@ -576,11 +577,11 @@ impl SemanticAnalyzer {
 
         if node.decl.generic_params.is_some() {
             return self
-                .analyze_generic_method(node, route_to_root_module)
+                .analyze_generic_method(node, should_route_to_root_module)
                 .map(|()| None);
         }
 
-        if route_to_root_module {
+        if should_route_to_root_module {
             let source_module_path = self.current_module_path().clone();
             self.with_lookup_fallback_module(source_module_path, |analyzer| {
                 analyzer.with_root_module(|analyzer| analyzer.analyze_fn_internal(node))
@@ -594,7 +595,7 @@ impl SemanticAnalyzer {
     fn analyze_generic_method(
         &mut self,
         node: ast::top::Fn,
-        route_to_root_module: bool,
+        should_route_to_root_module: bool,
     ) -> anyhow::Result<()> {
         // Body-analysis pass is a no-op for generic methods; they are
         // monomorphized on demand at each call site.
@@ -611,7 +612,7 @@ impl SemanticAnalyzer {
         let resolved_generic_params =
             self.resolve_generic_params(node.decl.generic_params.as_ref())?;
 
-        if route_to_root_module {
+        if should_route_to_root_module {
             let source_module_path = self.current_module_path().clone();
             self.with_lookup_fallback_module(source_module_path, |analyzer| {
                 analyzer.with_root_module(|analyzer| {
