@@ -1,6 +1,20 @@
 import std.ffi.io
+import std.option
 
 use std.ffi.io.write
+use std.option.Option
+
+// A source of bytes. Implementors populate `buf` and return how many bytes were
+// read, or `None` on failure. A return of `Some(0)` signals end-of-stream.
+export interface Reader {
+    fun read(self, buf: mut [u8]) -> Option<u64>
+}
+
+// A sink of bytes. Implementors consume `buf` and return how many bytes were
+// written, or `None` on failure.
+export interface Writer {
+    fun write(self, buf: [u8]) -> Option<u64>
+}
 
 export fun print(msg: str) -> i32 {
     return write(1, msg)

@@ -626,9 +626,11 @@ fn plain_functions_are_allowed_in_non_entry_units() -> anyhow::Result<()> {
 
 #[test]
 fn interface_declarations_are_accepted() -> anyhow::Result<()> {
+    // Name the interface something the prelude does not export, so the
+    // `find_map` below is guaranteed to match this source file's declaration.
     let unit = semantic_analyze_as_non_entry(
         "\
-interface Reader {
+interface TestReader {
     fun read(mut self, buf: i32) -> i32
     fun peek(self) -> i32
 }
@@ -640,13 +642,13 @@ interface Reader {
         .iter()
         .find_map(|tl| match tl {
             TopLevel::Interface(iface)
-                if iface.name.symbol() == Symbol::from("Reader".to_string()) =>
+                if iface.name.symbol() == Symbol::from("TestReader".to_string()) =>
             {
                 Some(iface)
             }
             _ => None,
         })
-        .expect("Reader interface must be emitted");
+        .expect("TestReader interface must be emitted");
 
     assert_eq!(iface.methods.len(), 2);
     assert_eq!(iface.methods[0].name, Symbol::from("read".to_string()));

@@ -5071,6 +5071,41 @@ fn generic_method_with_interface_bound() -> anyhow::Result<()> {
 }
 
 #[test]
+fn fd_satisfies_io_reader_and_writer() -> anyhow::Result<()> {
+    // Verifies that std.sys.Fd conforms to the cross-module interfaces
+    // std.io.Reader and std.io.Writer declared in a different stdlib module.
+    // The generic functions coerce Fd into the interface at the call site but
+    // never invoke the methods, so we do not need a real file descriptor.
+    let program = r#"
+        import std.io
+        import std.sys
+
+        use std.io.Reader
+        use std.io.Writer
+        use std.sys.Fd
+
+        fun is_reader<R: Reader>(r: R) -> bool {
+            return true
+        }
+
+        fun is_writer<W: Writer>(w: W) -> bool {
+            return true
+        }
+
+        fun main() -> i32 {
+            let fd = Fd::new(-1)
+            if is_reader(fd) && is_writer(fd) {
+                return 1
+            }
+            return 0
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 1);
+    Ok(())
+}
+
+#[test]
 fn generic_method_dispatches_on_str_and_slice() -> anyhow::Result<()> {
     let program = r#"
         interface Payload {

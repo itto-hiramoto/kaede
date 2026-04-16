@@ -21,6 +21,14 @@ impl Fd {
     export fun raw(self) -> i32 {
         return self.raw
     }
+
+    export fun read(self, buf: mut [u8]) -> Option<u64> {
+        return std.sys.read(self, buf)
+    }
+
+    export fun write(self, buf: [u8]) -> Option<u64> {
+        return std.sys.write(self, buf)
+    }
 }
 
 export fun socket_tcp4() -> Fd {
