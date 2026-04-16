@@ -542,7 +542,7 @@ impl SemanticAnalyzer {
 
         let parent_ty = self.analyze_type(&ty)?;
 
-        let (parent_name, is_builtin) = match parent_ty.kind.as_ref() {
+        let (parent_name, is_fundamental_type) = match parent_ty.kind.as_ref() {
             ir::ty::TyKind::Reference(ty) => {
                 let base_ty = ty.get_base_type();
                 match base_ty.kind.as_ref() {
@@ -554,7 +554,6 @@ impl SemanticAnalyzer {
                 }
             }
 
-            // Built-in types
             ir::ty::TyKind::Fundamental(fty) => (Symbol::from(fty.kind.to_string()), true),
             ir::ty::TyKind::Slice(elem_ty) => (self.slice_method_parent_name(elem_ty), false),
 
@@ -573,10 +572,12 @@ impl SemanticAnalyzer {
         node.decl.self_ = None;
 
         if node.decl.generic_params.is_some() {
-            return self.analyze_generic_method(node, is_builtin).map(|()| None);
+            return self
+                .analyze_generic_method(node, is_fundamental_type)
+                .map(|()| None);
         }
 
-        if is_builtin {
+        if is_fundamental_type {
             let source_module_path = self.current_module_path().clone();
             self.with_lookup_fallback_module(source_module_path, |analyzer| {
                 analyzer.with_root_module(|analyzer| analyzer.analyze_fn_internal(node))
@@ -590,7 +591,7 @@ impl SemanticAnalyzer {
     fn analyze_generic_method(
         &mut self,
         node: ast::top::Fn,
-        is_builtin: bool,
+        is_fundamental_type: bool,
     ) -> anyhow::Result<()> {
         // Body-analysis pass is a no-op for generic methods; they are
         // monomorphized on demand at each call site.
@@ -607,7 +608,7 @@ impl SemanticAnalyzer {
         let resolved_generic_params =
             self.resolve_generic_params(node.decl.generic_params.as_ref())?;
 
-        if is_builtin {
+        if is_fundamental_type {
             let source_module_path = self.current_module_path().clone();
             self.with_lookup_fallback_module(source_module_path, |analyzer| {
                 analyzer.with_root_module(|analyzer| {
