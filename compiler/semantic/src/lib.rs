@@ -54,12 +54,14 @@ pub struct AnalyzeOptions {
     pub is_entry_unit: bool,
 }
 
-// The `impl<T>[T] { ... }` block lives in a single autoload module but applies to every
-// slice type anywhere in the compile unit. Storing it here — rather than as a per-module
-// symbol — gives every lookup a direct, canonical handle.
+// `impl<T>[T] { ... }` is declared once (autoload) but applies to every slice type in the
+// compile unit, so it's stored here as an analyzer-level intrinsic instead of a module
+// symbol. `defining_module` is the module that wrote the block; it's used as a lookup
+// fallback during monomorphization so helpers referenced in the body (e.g.
+// `__slice_from_raw_parts`) resolve. Generated methods themselves live in the root module.
 pub struct SliceIntrinsic {
     pub impl_info: GenericImplInfo,
-    pub module_path: ModulePath,
+    pub defining_module: ModulePath,
 }
 
 pub struct SemanticAnalyzer {
@@ -567,16 +569,6 @@ impl SemanticAnalyzer {
 
     pub fn slice_method_parent_name(&self, elem_ty: &Rc<ir_type::Ty>) -> Symbol {
         format!("slice<{}>", elem_ty.kind).into()
-    }
-
-    // Module that owns the concrete slice methods (`slice<T>.len`, …). They are generated
-    // under the module that declared `impl<T>[T]`, so callers in other modules need this
-    // path to build a qualified lookup.
-    pub fn slice_impl_module_path(&self) -> ModulePath {
-        self.slice_intrinsic
-            .as_ref()
-            .map(|s| s.module_path.clone())
-            .unwrap_or_else(|| self.module_path().clone())
     }
 
     pub fn create_method_key(

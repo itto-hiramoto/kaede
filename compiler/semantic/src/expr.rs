@@ -3575,8 +3575,9 @@ impl SemanticAnalyzer {
                     // registered at the call site; ensure they exist before dispatching.
                     self.generate_slice_impl(elem_ty.clone())?;
 
-                    self.create_slice_method_call_ir(
+                    self.create_method_call_ir(
                         callee_symbol,
+                        ModulePath::new(vec![]),
                         self.slice_method_parent_name(elem_ty),
                         call_node,
                         lhs,
@@ -3612,8 +3613,9 @@ impl SemanticAnalyzer {
                     self.generate_slice_impl(elem_ty.clone())?;
 
                     // Arrays use slice methods (array is coerced to slice at codegen)
-                    self.create_slice_method_call_ir(
+                    self.create_method_call_ir(
                         callee_symbol,
+                        ModulePath::new(vec![]),
                         self.slice_method_parent_name(elem_ty),
                         call_node,
                         lhs,
@@ -3876,32 +3878,6 @@ impl SemanticAnalyzer {
             }
             _ => None,
         }
-    }
-
-    // Slice/array method dispatch. The impl may live in a different module than the
-    // current one: autoload's monomorphized `impl<T>[T]` registers under the intrinsic
-    // module, while user-defined `impl [T] { ... }` registers under the caller's module.
-    fn create_slice_method_call_ir(
-        &mut self,
-        method_name: Symbol,
-        parent_name: Symbol,
-        call_node: &ast::expr::FnCall,
-        this: ir::expr::Expr,
-        span: Span,
-    ) -> anyhow::Result<ir::expr::Expr> {
-        let method_key = self.create_method_key(parent_name, method_name, false);
-
-        let module_path = self
-            .lookup_qualified_symbol(QualifiedSymbol::new(self.module_path().clone(), method_key))
-            .map(|_| self.module_path().clone())
-            .or_else(|| {
-                self.modules
-                    .iter()
-                    .find_map(|(mp, module)| module.lookup_symbol(&method_key).map(|_| mp.clone()))
-            })
-            .unwrap_or_else(|| self.module_path().clone());
-
-        self.create_method_call_ir(method_name, module_path, parent_name, call_node, this, span)
     }
 
     fn create_method_call_ir(
