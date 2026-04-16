@@ -874,9 +874,10 @@ impl SemanticAnalyzer {
             .collect();
         impl_ast.items = Rc::new(methods);
 
-        // Slice methods live in the root module (so every call site can find them with a
-        // direct lookup), but symbol references inside the body resolve from the module
-        // that declared `impl<T>[T]` — e.g. helpers like `__slice_from_raw_parts`.
+        // Monomorphized slice methods are registered in the root module so every call site
+        // finds them with a direct qualified lookup. The defining module (where `impl<T>[T]`
+        // is written) is set as a lookup fallback so method bodies can still reference
+        // symbols declared alongside the impl block — which the root module has no view of.
         let impl_ir = self.with_lookup_fallback_module(defining_module, |analyzer| {
             analyzer.with_root_module(|analyzer| {
                 analyzer.with_generic_arguments(&generic_params, &generic_args, |analyzer| {

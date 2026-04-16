@@ -56,9 +56,9 @@ pub struct AnalyzeOptions {
 
 // `impl<T>[T] { ... }` is declared once (autoload) but applies to every slice type in the
 // compile unit, so it's stored here as an analyzer-level intrinsic instead of a module
-// symbol. `defining_module` is the module that wrote the block; it's used as a lookup
-// fallback during monomorphization so helpers referenced in the body (e.g.
-// `__slice_from_raw_parts`) resolve. Generated methods themselves live in the root module.
+// symbol. Generated methods are registered in the root module; `defining_module` records
+// where the block was written and serves as a lookup fallback during monomorphization so
+// method bodies can reach symbols declared alongside the impl block.
 pub struct SliceIntrinsic {
     pub impl_info: GenericImplInfo,
     pub defining_module: ModulePath,
