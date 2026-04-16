@@ -17,8 +17,8 @@ use kaede_parse::Parser;
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::{Ident, Symbol};
 use kaede_symbol_table::{
-    GenericInfo, GenericKind, GenericSliceInfo, QualifiedSymbolTable, SymbolResolver, SymbolTable,
-    SymbolTableValue, SymbolTableValueKind,
+    GenericImplInfo, QualifiedSymbolTable, SymbolResolver, SymbolTable, SymbolTableValue,
+    SymbolTableValueKind,
 };
 
 mod context;
@@ -54,6 +54,14 @@ pub struct AnalyzeOptions {
     pub is_entry_unit: bool,
 }
 
+// The `impl<T>[T] { ... }` block lives in a single autoload module but applies to every
+// slice type anywhere in the compile unit. Storing it here — rather than as a per-module
+// symbol — gives every lookup a direct, canonical handle.
+pub struct SliceIntrinsic {
+    pub impl_info: GenericImplInfo,
+    pub module_path: ModulePath,
+}
+
 pub struct SemanticAnalyzer {
     modules: HashMap<ModulePath, ModuleContext>,
     context: AnalysisContext,
@@ -69,6 +77,7 @@ pub struct SemanticAnalyzer {
     temp_symbol_counter: usize,
     generic_fn_substitutions: HashMap<QualifiedSymbol, HashMap<ir_type::VarId, Rc<ir_type::Ty>>>,
     pending_generic_instance: Option<ir_type::GenericInstanceInfo>,
+    slice_intrinsic: Option<SliceIntrinsic>,
 }
 
 impl SemanticAnalyzer {
@@ -286,32 +295,9 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
-    fn insert_builtin_slice_symbol(module_context: &mut ModuleContext, module_path: ModulePath) {
-        let symbol_table_value = SymbolTableValue::new(
-            SymbolTableValueKind::Generic(
-                GenericInfo::new(
-                    GenericKind::Slice(GenericSliceInfo::new()),
-                    module_path.clone(),
-                )
-                .into(),
-            ),
-            module_path,
-        );
-
-        module_context
-            .insert_symbol_to_root_scope(
-                Symbol::from("__builtin_slice".to_owned()),
-                symbol_table_value,
-                Visibility::Public,
-                Span::dummy(),
-            )
-            .unwrap();
-    }
-
-    fn create_module_context(file_path: FilePath, module_path: ModulePath) -> ModuleContext {
+    fn create_module_context(file_path: FilePath) -> ModuleContext {
         let mut module_context = ModuleContext::new(file_path);
         module_context.push_scope(SymbolTable::new());
-        Self::insert_builtin_slice_symbol(&mut module_context, module_path);
         module_context
     }
 
@@ -326,8 +312,7 @@ impl SemanticAnalyzer {
         let mut context = AnalysisContext::new(module_path.clone());
         context.set_current_module_path(module_path.clone());
 
-        let mut module_context = ModuleContext::new(file_path);
-        Self::insert_builtin_slice_symbol(&mut module_context, module_path.clone());
+        let module_context = ModuleContext::new(file_path);
 
         Self {
             modules: HashMap::from([(module_path, module_context)]),
@@ -344,6 +329,7 @@ impl SemanticAnalyzer {
             temp_symbol_counter: 0,
             generic_fn_substitutions: HashMap::new(),
             pending_generic_instance: None,
+            slice_intrinsic: None,
         }
     }
 
@@ -352,10 +338,7 @@ impl SemanticAnalyzer {
         let mut context = AnalysisContext::new(module_path.clone());
         context.set_current_module_path(module_path.clone());
 
-        let module_context = Self::create_module_context(
-            FilePath::from(PathBuf::from("test.kd")),
-            module_path.clone(),
-        );
+        let module_context = Self::create_module_context(FilePath::from(PathBuf::from("test.kd")));
 
         Self {
             modules: HashMap::from([(module_path, module_context)]),
@@ -371,6 +354,7 @@ impl SemanticAnalyzer {
             closure_capture_stack: Vec::new(),
             temp_symbol_counter: 0,
             generic_fn_substitutions: HashMap::new(),
+            slice_intrinsic: None,
             pending_generic_instance: None,
         }
     }
@@ -583,6 +567,16 @@ impl SemanticAnalyzer {
 
     pub fn slice_method_parent_name(&self, elem_ty: &Rc<ir_type::Ty>) -> Symbol {
         format!("slice<{}>", elem_ty.kind).into()
+    }
+
+    // Module that owns the concrete slice methods (`slice<T>.len`, …). They are generated
+    // under the module that declared `impl<T>[T]`, so callers in other modules need this
+    // path to build a qualified lookup.
+    pub fn slice_impl_module_path(&self) -> ModulePath {
+        self.slice_intrinsic
+            .as_ref()
+            .map(|s| s.module_path.clone())
+            .unwrap_or_else(|| self.module_path().clone())
     }
 
     pub fn create_method_key(
@@ -1290,7 +1284,7 @@ impl SemanticAnalyzer {
         let mut top_level_irs = vec![];
 
         // Create root module
-        let root_module = Self::create_module_context(FilePath::dummy(), ModulePath::new(vec![]));
+        let root_module = Self::create_module_context(FilePath::dummy());
         self.modules.insert(ModulePath::new(vec![]), root_module);
 
         self.context.set_no_prelude(options.no_prelude);

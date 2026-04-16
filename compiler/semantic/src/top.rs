@@ -207,7 +207,7 @@ impl SemanticAnalyzer {
         }
 
         // Add the module to the module table
-        let module_context = Self::create_module_context(path, module_path.clone());
+        let module_context = Self::create_module_context(path);
         self.modules.insert(module_path.clone(), module_context);
 
         let mut parsed_module = Parser::new(&fs::read_to_string(path.path()).unwrap(), path)
@@ -367,8 +367,7 @@ impl SemanticAnalyzer {
 
         let module_path = resolved.module_path.clone();
         if !self.modules.contains_key(&module_path) {
-            let module_context =
-                Self::create_module_context(FilePath::dummy(), module_path.clone());
+            let module_context = Self::create_module_context(FilePath::dummy());
             self.modules.insert(module_path.clone(), module_context);
         }
 
@@ -493,31 +492,10 @@ impl SemanticAnalyzer {
                 }
 
                 ast_type::TyKind::Slice(_) => {
-                    let slice_symbol: Symbol = "__builtin_slice".to_owned().into();
-                    let symbol_kind =
-                        self.lookup_symbol(slice_symbol)
-                            .ok_or(SemanticError::Undeclared {
-                                name: slice_symbol,
-                                span: node.span,
-                            })?;
-
-                    match &mut symbol_kind.borrow_mut().kind {
-                        SymbolTableValueKind::Generic(ref mut generic_info) => {
-                            match &mut generic_info.kind {
-                                GenericKind::Slice(info) => {
-                                    info.impl_info = Some(GenericImplInfo::new(
-                                        node,
-                                        resolved_generic_params,
-                                        span,
-                                    ));
-                                }
-                                _ => todo!("Error"),
-                            }
-                        }
-
-                        _ => todo!("Error"),
-                    }
-
+                    self.slice_intrinsic = Some(crate::SliceIntrinsic {
+                        impl_info: GenericImplInfo::new(node, resolved_generic_params, span),
+                        module_path: self.current_module_path().clone(),
+                    });
                     return Ok(TopLevelAnalysisResult::GenericTopLevel);
                 }
 
