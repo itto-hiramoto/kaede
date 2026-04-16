@@ -116,27 +116,7 @@ impl SemanticAnalyzer {
         let (module_path, parent_name) = self.method_lookup_target(actual_ty)?;
         let method_key = self.create_method_key(parent_name, method.name, method.self_.is_none());
 
-        // Slice methods may be registered in the caller's module (user-defined
-        // `impl [T] { ... }`) or in whatever module generated the monomorphized
-        // `impl<T>[T]`. Fall back to scanning all modules for slice-typed receivers.
-        let is_slice_receiver = {
-            let base_ty = match actual_ty.kind.as_ref() {
-                ir_type::TyKind::Reference(rty) => rty.get_base_type(),
-                _ => actual_ty.clone(),
-            };
-            matches!(base_ty.kind.as_ref(), ir_type::TyKind::Slice(_))
-        };
-        let symbol = self
-            .lookup_qualified_symbol(QualifiedSymbol::new(module_path, method_key))
-            .or_else(|| {
-                is_slice_receiver
-                    .then(|| {
-                        self.modules
-                            .values()
-                            .find_map(|module| module.lookup_symbol(&method_key))
-                    })
-                    .flatten()
-            })?;
+        let symbol = self.lookup_qualified_symbol(QualifiedSymbol::new(module_path, method_key))?;
         let borrowed = symbol.borrow();
 
         match &borrowed.kind {
@@ -153,11 +133,11 @@ impl SemanticAnalyzer {
             ir_type::TyKind::Reference(rty) => self.method_lookup_target(&rty.get_base_type()),
             ir_type::TyKind::UserDefined(udt) => Some((udt.module_path(), udt.name())),
             ir_type::TyKind::Fundamental(fty) => Some((
-                kaede_ir::module_path::ModulePath::new(vec![]),
+                kaede_ir::module_path::ModulePath::root(),
                 fty.kind.to_string().into(),
             )),
             ir_type::TyKind::Slice(elem_ty) => Some((
-                self.module_path().clone(),
+                kaede_ir::module_path::ModulePath::root(),
                 self.slice_method_parent_name(elem_ty),
             )),
             _ => None,
@@ -846,7 +826,7 @@ impl SemanticAnalyzer {
             return Ok(());
         }
 
-        let module_path = slice.module_path.clone();
+        let defining_module = slice.defining_module.clone();
         let generic_params = slice
             .impl_info
             .impl_
@@ -894,7 +874,10 @@ impl SemanticAnalyzer {
             .collect();
         impl_ast.items = Rc::new(methods);
 
-        let impl_ir = self.with_module(module_path, |analyzer| {
+        // Fallback to the module that declared `impl<T>[T]` so method bodies can still
+        // reference symbols declared alongside the impl block — which the root module
+        // has no view of.
+        let impl_ir = self.with_root_module_and_fallback(defining_module, |analyzer| {
             analyzer.with_generic_arguments(&generic_params, &generic_args, |analyzer| {
                 analyzer.with_analyze_command(AnalyzeCommand::NoCommand, |analyzer| {
                     analyzer.analyze_impl(impl_ast.clone())

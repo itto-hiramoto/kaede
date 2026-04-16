@@ -10,6 +10,13 @@ impl ModulePath {
         Self { modules_from_root }
     }
 
+    // The anonymous module at the top of the module tree — used for symbols that have no
+    // natural defining module (fundamental types, slice intrinsic methods, the main
+    // entry point).
+    pub fn root() -> Self {
+        Self::new(vec![])
+    }
+
     pub fn get_module_names_from_root(&self) -> &[Symbol] {
         &self.modules_from_root
     }

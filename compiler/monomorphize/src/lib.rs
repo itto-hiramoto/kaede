@@ -44,7 +44,7 @@ mod tests {
         Rc::new(FnDecl {
             lang_linkage: LangLinkage::Default,
             link_once: false,
-            name: QualifiedSymbol::new(ModulePath::new(vec![]), Symbol::from(name.to_owned())),
+            name: QualifiedSymbol::new(ModulePath::root(), Symbol::from(name.to_owned())),
             params: vec![],
             is_c_variadic: false,
             return_ty: unit_ty(),
@@ -198,7 +198,7 @@ mod tests {
 
     fn dummy_interface(name: &str) -> Rc<Interface> {
         Rc::new(Interface {
-            name: QualifiedSymbol::new(ModulePath::new(vec![]), Symbol::from(name.to_owned())),
+            name: QualifiedSymbol::new(ModulePath::root(), Symbol::from(name.to_owned())),
             methods: vec![InterfaceMethod {
                 name: Symbol::from("m".to_owned()),
                 self_: None,

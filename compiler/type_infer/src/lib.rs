@@ -2123,7 +2123,7 @@ mod tests {
 
     fn generic_instance(args: Vec<Rc<Ty>>) -> GenericInstanceInfo {
         GenericInstanceInfo::new(
-            QualifiedSymbol::new(ModulePath::new(vec![]), Symbol::from("id".to_owned())),
+            QualifiedSymbol::new(ModulePath::root(), Symbol::from("id".to_owned())),
             args,
         )
     }
@@ -2132,7 +2132,7 @@ mod tests {
         let callee = Rc::new(FnDecl {
             lang_linkage: LangLinkage::Default,
             link_once: true,
-            name: QualifiedSymbol::new(ModulePath::new(vec![]), Symbol::from("id".to_owned())),
+            name: QualifiedSymbol::new(ModulePath::root(), Symbol::from("id".to_owned())),
             params: vec![],
             is_c_variadic: false,
             return_ty: return_ty.clone(),
@@ -2201,14 +2201,11 @@ mod tests {
             Rc::new(Ty {
                 kind: TyKind::UserDefined(UserDefinedType::with_generic_instance(
                     UserDefinedTypeKind::Placeholder(QualifiedSymbol::new(
-                        ModulePath::new(vec![]),
+                        ModulePath::root(),
                         Symbol::from("Option".to_owned()),
                     )),
                     GenericInstanceInfo::new(
-                        QualifiedSymbol::new(
-                            ModulePath::new(vec![]),
-                            Symbol::from("Option".to_owned()),
-                        ),
+                        QualifiedSymbol::new(ModulePath::root(), Symbol::from("Option".to_owned())),
                         vec![var_ty(1), var_ty(2)],
                     ),
                 ))
@@ -2252,7 +2249,7 @@ mod tests {
         let substitutions = inferrer.into_generic_fn_substitutions();
         let bindings = substitutions
             .get(&QualifiedSymbol::new(
-                ModulePath::new(vec![]),
+                ModulePath::root(),
                 Symbol::from("id".to_owned()),
             ))
             .unwrap();
@@ -2267,7 +2264,7 @@ mod tests {
         let mut inferrer = make_inferrer();
         let field_ty = i32_ty();
         let struct_info = Rc::new(Struct {
-            name: QualifiedSymbol::new(ModulePath::new(vec![]), Symbol::from("S".to_owned())),
+            name: QualifiedSymbol::new(ModulePath::root(), Symbol::from("S".to_owned())),
             fields: vec![StructField {
                 name: Symbol::from("n".to_owned()),
                 ty: field_ty.clone(),

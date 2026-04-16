@@ -494,7 +494,7 @@ impl SemanticAnalyzer {
                 ast_type::TyKind::Slice(_) => {
                     self.slice_intrinsic = Some(crate::SliceIntrinsic {
                         impl_info: GenericImplInfo::new(node, resolved_generic_params, span),
-                        module_path: self.current_module_path().clone(),
+                        defining_module: self.current_module_path().clone(),
                     });
                     return Ok(TopLevelAnalysisResult::GenericTopLevel);
                 }
@@ -542,20 +542,22 @@ impl SemanticAnalyzer {
 
         let parent_ty = self.analyze_type(&ty)?;
 
-        let (parent_name, is_fundamental_type) = match parent_ty.kind.as_ref() {
+        // Built-in types (fundamentals, slices) have no defining module, so their methods
+        // live in the root module, reachable from anywhere by direct qualified lookup.
+        let (parent_name, should_route_to_root_module) = match parent_ty.kind.as_ref() {
             ir::ty::TyKind::Reference(ty) => {
                 let base_ty = ty.get_base_type();
                 match base_ty.kind.as_ref() {
                     ir::ty::TyKind::UserDefined(udt) => (udt.name(), false),
                     ir::ty::TyKind::Slice(elem_ty) => {
-                        (self.slice_method_parent_name(elem_ty), false)
+                        (self.slice_method_parent_name(elem_ty), true)
                     }
                     _ => (Symbol::from(base_ty.kind.to_string()), true),
                 }
             }
 
             ir::ty::TyKind::Fundamental(fty) => (Symbol::from(fty.kind.to_string()), true),
-            ir::ty::TyKind::Slice(elem_ty) => (self.slice_method_parent_name(elem_ty), false),
+            ir::ty::TyKind::Slice(elem_ty) => (self.slice_method_parent_name(elem_ty), true),
 
             _ => unreachable!(),
         };
@@ -573,14 +575,14 @@ impl SemanticAnalyzer {
 
         if node.decl.generic_params.is_some() {
             return self
-                .analyze_generic_method(node, is_fundamental_type)
+                .analyze_generic_method(node, should_route_to_root_module)
                 .map(|()| None);
         }
 
-        if is_fundamental_type {
+        if should_route_to_root_module {
             let source_module_path = self.current_module_path().clone();
-            self.with_lookup_fallback_module(source_module_path, |analyzer| {
-                analyzer.with_root_module(|analyzer| analyzer.analyze_fn_internal(node))
+            self.with_root_module_and_fallback(source_module_path, |analyzer| {
+                analyzer.analyze_fn_internal(node)
             })
             .map(Some)
         } else {
@@ -591,7 +593,7 @@ impl SemanticAnalyzer {
     fn analyze_generic_method(
         &mut self,
         node: ast::top::Fn,
-        is_fundamental_type: bool,
+        should_route_to_root_module: bool,
     ) -> anyhow::Result<()> {
         // Body-analysis pass is a no-op for generic methods; they are
         // monomorphized on demand at each call site.
@@ -608,18 +610,16 @@ impl SemanticAnalyzer {
         let resolved_generic_params =
             self.resolve_generic_params(node.decl.generic_params.as_ref())?;
 
-        if is_fundamental_type {
+        if should_route_to_root_module {
             let source_module_path = self.current_module_path().clone();
-            self.with_lookup_fallback_module(source_module_path, |analyzer| {
-                analyzer.with_root_module(|analyzer| {
-                    analyzer.register_generic_method_symbol(
-                        name,
-                        node,
-                        resolved_generic_params,
-                        vis,
-                        span,
-                    )
-                })
+            self.with_root_module_and_fallback(source_module_path, |analyzer| {
+                analyzer.register_generic_method_symbol(
+                    name,
+                    node,
+                    resolved_generic_params,
+                    vis,
+                    span,
+                )
             })
         } else {
             self.register_generic_method_symbol(name, node, resolved_generic_params, vis, span)
@@ -774,7 +774,7 @@ impl SemanticAnalyzer {
         let name = node.name.symbol();
 
         let qualified_name = if name.as_str() == "main" {
-            QualifiedSymbol::new(ModulePath::new(vec![]), "kdmain".to_owned().into())
+            QualifiedSymbol::new(ModulePath::root(), "kdmain".to_owned().into())
         } else {
             QualifiedSymbol::new(self.current_module_path().clone(), name)
         };
