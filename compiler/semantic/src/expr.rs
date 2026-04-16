@@ -1290,8 +1290,15 @@ impl SemanticAnalyzer {
         let generated_generic_key =
             self.create_generated_generic_key(info.ast.decl.name.symbol(), generic_args);
 
-        // If the generic function is already generated, return early
-        if let Some(symbol_value) = self.lookup_symbol(generated_generic_key) {
+        // Search the defining module first so cross-module call sites reuse the cached
+        // instantiation, which lives in the defining module rather than the caller's.
+        let cached = self
+            .lookup_qualified_symbol(QualifiedSymbol::new(
+                origin.module_path().clone(),
+                generated_generic_key,
+            ))
+            .or_else(|| self.lookup_symbol(generated_generic_key));
+        if let Some(symbol_value) = cached {
             if let SymbolTableValueKind::Function(fn_) = &symbol_value.borrow().kind {
                 return Ok(fn_.clone());
             } else {
@@ -1305,22 +1312,26 @@ impl SemanticAnalyzer {
             generic_params.span,
         )?;
 
-        // Generic functions must always be generated regardless of the analyze command, so it is overwritten
+        // Generic functions must always be generated regardless of the analyze command, so it is overwritten.
+        // Switch to the defining module so names in the signature/body resolve against
+        // the module where the generic was declared, not the call site's.
+        let defining_module = origin.module_path().clone();
         let fn_ = self.with_analyze_command(AnalyzeCommand::NoCommand, |analyzer| {
-            // Generate the generic function
-            analyzer.with_generic_arguments(generic_params, generic_args, |analyzer| {
-                let mut fn_ = info.ast.clone();
-                fn_.decl.name = Ident::new(generated_generic_key, Span::dummy());
-                // Because generic functions maybe generated multiple times (across multiple files),
-                // we need to set link_once to true to avoid errors
-                fn_.decl.link_once = true;
-                analyzer.with_pending_generic_instance(
-                    Some(ir_type::GenericInstanceInfo::new(
-                        origin.clone(),
-                        generic_args.to_vec(),
-                    )),
-                    |analyzer| analyzer.analyze_fn_internal(fn_),
-                )
+            analyzer.with_defining_module(defining_module, |analyzer| {
+                analyzer.with_generic_arguments(generic_params, generic_args, |analyzer| {
+                    let mut fn_ = info.ast.clone();
+                    fn_.decl.name = Ident::new(generated_generic_key, Span::dummy());
+                    // Because generic functions maybe generated multiple times (across multiple files),
+                    // we need to set link_once to true to avoid errors
+                    fn_.decl.link_once = true;
+                    analyzer.with_pending_generic_instance(
+                        Some(ir_type::GenericInstanceInfo::new(
+                            origin.clone(),
+                            generic_args.to_vec(),
+                        )),
+                        |analyzer| analyzer.analyze_fn_internal(fn_),
+                    )
+                })
             })
         })?;
 
@@ -1407,8 +1418,17 @@ impl SemanticAnalyzer {
                 .map(|arg| self.analyze_type(arg))
                 .collect::<anyhow::Result<Vec<_>>>()?
         } else {
+            let param_len = func_info
+                .ast
+                .decl
+                .generic_params
+                .as_ref()
+                .map_or(0, |params| params.len());
+
             let mut inferred_args = provided_args
                 .iter()
+                .skip(if has_this { 1 } else { 0 })
+                .take(param_len)
                 .map(|arg| -> anyhow::Result<Rc<ir_type::Ty>> {
                     Ok(match arg.ty.kind.as_ref() {
                         ir_type::TyKind::Var(_) => match arg.kind {
@@ -1423,12 +1443,6 @@ impl SemanticAnalyzer {
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
 
-            let param_len = func_info
-                .ast
-                .decl
-                .generic_params
-                .as_ref()
-                .map_or(0, |params| params.len());
             if inferred_args.len() < param_len {
                 inferred_args.extend(
                     (0..(param_len - inferred_args.len())).map(|_| self.infer_context.fresh()),
@@ -3048,8 +3062,7 @@ impl SemanticAnalyzer {
             };
 
             if analyzer.modules.contains_key(&module_path) {
-                let expr = analyzer
-                    .with_module(module_path, |analyzer| analyzer.analyze_expr(&node.rhs))?;
+                let expr = analyzer.analyze_cross_module_rhs(module_path, &node.rhs)?;
                 return Ok(Some(expr));
             }
 
@@ -3310,8 +3323,7 @@ impl SemanticAnalyzer {
                 node.lhs.span,
             ) {
                 if analyzer.modules.contains_key(&module_path) {
-                    let expr = analyzer
-                        .with_module(module_path, |analyzer| analyzer.analyze_expr(&node.rhs))?;
+                    let expr = analyzer.analyze_cross_module_rhs(module_path, &node.rhs)?;
                     return Ok(Some(expr));
                 }
             }
@@ -3417,7 +3429,7 @@ impl SemanticAnalyzer {
 
             self.create_method_call_ir(
                 callee_symbol,
-                ModulePath::new(vec![]),
+                ModulePath::root(),
                 "str".to_owned().into(),
                 call_node,
                 left,
@@ -3559,9 +3571,13 @@ impl SemanticAnalyzer {
                     let span = Span::new(lhs.span.start, call_node.span.finish, lhs.span.file);
                     let callee_symbol = self.callee_symbol(call_node)?;
 
+                    // Monomorphization may produce a slice type whose methods were never
+                    // registered at the call site; ensure they exist before dispatching.
+                    self.generate_slice_impl(elem_ty.clone())?;
+
                     self.create_method_call_ir(
                         callee_symbol,
-                        self.module_path().clone(),
+                        ModulePath::root(),
                         self.slice_method_parent_name(elem_ty),
                         call_node,
                         lhs,
@@ -3599,7 +3615,7 @@ impl SemanticAnalyzer {
                     // Arrays use slice methods (array is coerced to slice at codegen)
                     self.create_method_call_ir(
                         callee_symbol,
-                        self.module_path().clone(),
+                        ModulePath::root(),
                         self.slice_method_parent_name(elem_ty),
                         call_node,
                         lhs,
@@ -3823,6 +3839,47 @@ impl SemanticAnalyzer {
         })
     }
 
+    // Enter a foreign module to analyze the rhs of a `module.symbol` / `module::symbol`
+    // access, rejecting the access if the target symbol exists only in the module's
+    // private table — private items must not leak across module boundaries.
+    fn analyze_cross_module_rhs(
+        &mut self,
+        module_path: ModulePath,
+        rhs: &ast::expr::Expr,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        if let Some((symbol, span)) = Self::rhs_symbol(rhs) {
+            if let Some(module) = self.modules.get(&module_path) {
+                if module.lookup_public_symbol(&symbol).is_none()
+                    && module.lookup_symbol(&symbol).is_some()
+                {
+                    return Err(SemanticError::PrivateItemAccess {
+                        name: symbol,
+                        module: module_path
+                            .get_module_names_from_root()
+                            .iter()
+                            .map(|s| s.as_str().to_string())
+                            .collect::<Vec<_>>()
+                            .join("."),
+                        span,
+                    }
+                    .into());
+                }
+            }
+        }
+
+        self.with_module(module_path, |analyzer| analyzer.analyze_expr(rhs))
+    }
+
+    fn rhs_symbol(rhs: &ast::expr::Expr) -> Option<(Symbol, Span)> {
+        match &rhs.kind {
+            ast::expr::ExprKind::Ident(ident) => Some((ident.symbol(), ident.span())),
+            ast::expr::ExprKind::FnCall(call) => {
+                Self::callee_ident(call).map(|ident| (ident.symbol(), ident.span()))
+            }
+            _ => None,
+        }
+    }
+
     fn create_method_call_ir(
         &mut self,
         method_name: Symbol,
@@ -3946,7 +4003,7 @@ impl SemanticAnalyzer {
 
         self.create_method_call_ir(
             callee_symbol,
-            ModulePath::new(vec![]),
+            ModulePath::root(),
             fty.kind.to_string().into(),
             call_node,
             left,

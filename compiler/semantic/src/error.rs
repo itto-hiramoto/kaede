@@ -7,6 +7,13 @@ pub enum SemanticError {
     #[error("{}:{}:{} `{}` was not declared in this scope", span.file, span.start.line, span.start.column, .name)]
     Undeclared { name: Symbol, span: Span },
 
+    #[error("{}:{}:{} `{}` is private to module `{}`", span.file, span.start.line, span.start.column, .name, .module)]
+    PrivateItemAccess {
+        name: Symbol,
+        module: String,
+        span: Span,
+    },
+
     #[error("{}:{}:{} value of type `{}` is not callable", span.file, span.start.line, span.start.column, .ty)]
     NotCallable { ty: String, span: Span },
 

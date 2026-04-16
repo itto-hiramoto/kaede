@@ -115,6 +115,7 @@ impl SemanticAnalyzer {
     ) -> Option<Rc<ir::top::FnDecl>> {
         let (module_path, parent_name) = self.method_lookup_target(actual_ty)?;
         let method_key = self.create_method_key(parent_name, method.name, method.self_.is_none());
+
         let symbol = self.lookup_qualified_symbol(QualifiedSymbol::new(module_path, method_key))?;
         let borrowed = symbol.borrow();
 
@@ -132,11 +133,11 @@ impl SemanticAnalyzer {
             ir_type::TyKind::Reference(rty) => self.method_lookup_target(&rty.get_base_type()),
             ir_type::TyKind::UserDefined(udt) => Some((udt.module_path(), udt.name())),
             ir_type::TyKind::Fundamental(fty) => Some((
-                kaede_ir::module_path::ModulePath::new(vec![]),
+                kaede_ir::module_path::ModulePath::root(),
                 fty.kind.to_string().into(),
             )),
             ir_type::TyKind::Slice(elem_ty) => Some((
-                self.module_path().clone(),
+                kaede_ir::module_path::ModulePath::root(),
                 self.slice_method_parent_name(elem_ty),
             )),
             _ => None,
@@ -480,7 +481,6 @@ impl SemanticAnalyzer {
             let impl_info = match &generic_info.kind {
                 GenericKind::Struct(info) => info.impl_info.as_ref(),
                 GenericKind::Enum(info) => info.impl_info.as_ref(),
-                GenericKind::Slice(info) => info.impl_info.as_ref(),
                 _ => unreachable!(),
             };
 
@@ -499,7 +499,6 @@ impl SemanticAnalyzer {
                 let impl_info = match &mut generic_info.kind {
                     GenericKind::Struct(info) => info.impl_info.as_mut().unwrap(),
                     GenericKind::Enum(info) => info.impl_info.as_mut().unwrap(),
-                    GenericKind::Slice(info) => info.impl_info.as_mut().unwrap(),
                     _ => unreachable!(),
                 };
 
@@ -806,66 +805,14 @@ impl SemanticAnalyzer {
     }
 
     pub(crate) fn generate_slice_impl(&mut self, elem_ty: Rc<ir_type::Ty>) -> anyhow::Result<()> {
-        let slice_symbol_name = Symbol::from("__builtin_slice".to_owned());
-
-        let mut slice_symbol = match self.lookup_symbol(slice_symbol_name) {
-            Some(symbol) => symbol,
-            None => return Ok(()),
-        };
-
-        let needs_fallback_lookup = {
-            let borrowed = slice_symbol.borrow();
-            matches!(
-                &borrowed.kind,
-                SymbolTableValueKind::Generic(generic_info)
-                    if matches!(
-                        &generic_info.kind,
-                        GenericKind::Slice(info) if info.impl_info.is_none()
-                    )
-            ) && self.current_module_path() != self.module_path()
-        };
-
-        if needs_fallback_lookup {
-            if let Some(symbol) = self
-                .modules
-                .get(self.module_path())
-                .and_then(|module| module.lookup_symbol(&slice_symbol_name))
-            {
-                slice_symbol = symbol;
-            }
-        }
-
-        let module_path = {
-            let borrowed = slice_symbol.borrow();
-            match &borrowed.kind {
-                SymbolTableValueKind::Generic(generic_info) => match &generic_info.kind {
-                    GenericKind::Slice(_) => generic_info.module_path.clone(),
-                    _ => return Ok(()),
-                },
-
-                _ => return Ok(()),
-            }
-        };
-
-        let mut borrowed_mut = slice_symbol.borrow_mut();
-        let generic_info = match &mut borrowed_mut.kind {
-            SymbolTableValueKind::Generic(generic_info) => generic_info,
-            _ => return Ok(()),
-        };
-
-        let slice_info = match &mut generic_info.kind {
-            GenericKind::Slice(info) => info,
-            _ => return Ok(()),
-        };
-
-        let impl_info = match &mut slice_info.impl_info {
-            Some(info) => info,
-            None => return Ok(()),
+        // Autoload hasn't been processed yet; nothing to generate.
+        let Some(slice) = self.slice_intrinsic.as_ref() else {
+            return Ok(());
         };
 
         let generic_args = vec![elem_ty.clone()];
 
-        let already_generated = impl_info.generateds.iter().any(|args| {
+        let already_generated = slice.impl_info.generateds.iter().any(|args| {
             args.len() == generic_args.len()
                 && args.iter().zip(&generic_args).all(|(a, b)| {
                     match (a.kind.as_ref(), b.kind.as_ref()) {
@@ -875,13 +822,20 @@ impl SemanticAnalyzer {
                     }
                 })
         });
-
         if already_generated {
             return Ok(());
         }
 
-        let generic_params = impl_info.impl_.generic_params.as_ref().unwrap().clone();
-        let resolved_generic_params = impl_info.resolved_generic_params.clone();
+        let defining_module = slice.defining_module.clone();
+        let generic_params = slice
+            .impl_info
+            .impl_
+            .generic_params
+            .as_ref()
+            .unwrap()
+            .clone();
+        let resolved_generic_params = slice.impl_info.resolved_generic_params.clone();
+        let mut impl_ast = slice.impl_info.impl_.clone();
 
         self.verify_generic_argument_length(&generic_params, &generic_args, generic_params.span)?;
         self.verify_resolved_generic_bounds(
@@ -890,34 +844,40 @@ impl SemanticAnalyzer {
             generic_params.span,
         )?;
 
-        impl_info.generateds.push(generic_args.clone());
+        self.slice_intrinsic
+            .as_mut()
+            .unwrap()
+            .impl_info
+            .generateds
+            .push(generic_args.clone());
 
-        let mut impl_ast = impl_info.impl_.clone();
         impl_ast.generic_params = None;
 
-        let mut methods = vec![];
-
-        for method in impl_ast.items.iter() {
-            if let ast::top::TopLevelKind::Fn(fn_) = &method.kind {
-                let mut fn_decl = fn_.decl.clone();
-                fn_decl.link_once = true;
-
-                methods.push(ast::top::TopLevel {
-                    kind: ast::top::TopLevelKind::Fn(ast::top::Fn {
-                        decl: fn_decl,
-                        body: fn_.body.clone(),
+        let methods = impl_ast
+            .items
+            .iter()
+            .filter_map(|method| match &method.kind {
+                ast::top::TopLevelKind::Fn(fn_) => {
+                    let mut fn_decl = fn_.decl.clone();
+                    fn_decl.link_once = true;
+                    Some(ast::top::TopLevel {
+                        kind: ast::top::TopLevelKind::Fn(ast::top::Fn {
+                            decl: fn_decl,
+                            body: fn_.body.clone(),
+                            span: fn_.span,
+                        }),
                         span: fn_.span,
-                    }),
-                    span: fn_.span,
-                });
-            }
-        }
-
+                    })
+                }
+                _ => None,
+            })
+            .collect();
         impl_ast.items = Rc::new(methods);
 
-        drop(borrowed_mut);
-
-        let impl_ir = self.with_module(module_path, |analyzer| {
+        // Fallback to the module that declared `impl<T>[T]` so method bodies can still
+        // reference symbols declared alongside the impl block — which the root module
+        // has no view of.
+        let impl_ir = self.with_root_module_and_fallback(defining_module, |analyzer| {
             analyzer.with_generic_arguments(&generic_params, &generic_args, |analyzer| {
                 analyzer.with_analyze_command(AnalyzeCommand::NoCommand, |analyzer| {
                     analyzer.analyze_impl(impl_ast.clone())

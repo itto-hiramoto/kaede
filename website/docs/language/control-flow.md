@@ -12,7 +12,7 @@ Kaede code in this repository uses familiar control-flow building blocks: `if`, 
 
 ```rust
 if author.len() > 32 {
-    res.status(Status::BadRequest).send_text("author too long")
+    res.status(Status::BadRequest).send("author too long")
     return
 }
 ```

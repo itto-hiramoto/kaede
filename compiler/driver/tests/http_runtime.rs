@@ -24,7 +24,7 @@ fn spawn_http_server() -> anyhow::Result<(assert_fs::TempDir, TestServer, u16, s
 let mut app = std.http.App::new()
 
 app.get("/hello", |req, res| {{
-    res.send_text("hello")
+    res.send("hello")
 }})
 
 app.get("/query", |req, res| {{
@@ -32,11 +32,11 @@ app.get("/query", |req, res| {{
         std.option.Option::Some(value) => value,
         std.option.Option::None => std.string.String::from("missing"),
     }}
-    res.send_text(author.as_str())
+    res.send(author.as_str())
 }})
 
 app.post("/echo", |req, res| {{
-    res.send_bytes(req.body)
+    res.send(req.body)
 }})
 
 app.listen(ip="127.0.0.1", port={port})

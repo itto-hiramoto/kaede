@@ -4,10 +4,7 @@ use std::{
     rc::Rc,
 };
 
-use crate::{
-    context::{AnalyzeCommand, ModuleContext},
-    rust_import, SemanticAnalyzer, SemanticError,
-};
+use crate::{context::AnalyzeCommand, rust_import, SemanticAnalyzer, SemanticError};
 use kaede_symbol_table::{
     GenericEnumInfo, GenericFuncInfo, GenericImplInfo, GenericInfo, GenericKind, GenericStructInfo,
     ResolvedGenericParam, ResolvedGenericParams, SymbolTable, SymbolTableValue,
@@ -210,8 +207,7 @@ impl SemanticAnalyzer {
         }
 
         // Add the module to the module table
-        let mut module_context = ModuleContext::new(path);
-        module_context.push_scope(SymbolTable::new());
+        let module_context = Self::create_module_context(path);
         self.modules.insert(module_path.clone(), module_context);
 
         let mut parsed_module = Parser::new(&fs::read_to_string(path.path()).unwrap(), path)
@@ -332,12 +328,9 @@ impl SemanticAnalyzer {
                 }
             }
 
-            // Clear the private symbol table after analyzing the module
-            analyzer
-                .modules
-                .get_mut(&analyzer.current_module_path().clone())
-                .unwrap()
-                .clear_private_symbol_table();
+            // Note: the module's private symbol table is intentionally retained so that
+            // cross-module monomorphization of generic functions/methods can resolve
+            // private helpers referenced from their bodies.
 
             Ok::<(), anyhow::Error>(())
         })?;
@@ -374,8 +367,7 @@ impl SemanticAnalyzer {
 
         let module_path = resolved.module_path.clone();
         if !self.modules.contains_key(&module_path) {
-            let mut module_context = ModuleContext::new(FilePath::dummy());
-            module_context.push_scope(SymbolTable::new());
+            let module_context = Self::create_module_context(FilePath::dummy());
             self.modules.insert(module_path.clone(), module_context);
         }
 
@@ -500,31 +492,10 @@ impl SemanticAnalyzer {
                 }
 
                 ast_type::TyKind::Slice(_) => {
-                    let slice_symbol: Symbol = "__builtin_slice".to_owned().into();
-                    let symbol_kind =
-                        self.lookup_symbol(slice_symbol)
-                            .ok_or(SemanticError::Undeclared {
-                                name: slice_symbol,
-                                span: node.span,
-                            })?;
-
-                    match &mut symbol_kind.borrow_mut().kind {
-                        SymbolTableValueKind::Generic(ref mut generic_info) => {
-                            match &mut generic_info.kind {
-                                GenericKind::Slice(info) => {
-                                    info.impl_info = Some(GenericImplInfo::new(
-                                        node,
-                                        resolved_generic_params,
-                                        span,
-                                    ));
-                                }
-                                _ => todo!("Error"),
-                            }
-                        }
-
-                        _ => todo!("Error"),
-                    }
-
+                    self.slice_intrinsic = Some(crate::SliceIntrinsic {
+                        impl_info: GenericImplInfo::new(node, resolved_generic_params, span),
+                        defining_module: self.current_module_path().clone(),
+                    });
                     return Ok(TopLevelAnalysisResult::GenericTopLevel);
                 }
 
@@ -539,7 +510,9 @@ impl SemanticAnalyzer {
         for item in node.items.iter() {
             match &item.kind {
                 ast::top::TopLevelKind::Fn(fn_) => {
-                    methods.push(self.analyze_method(ast_ty.clone(), fn_.clone())?)
+                    if let Some(method) = self.analyze_method(ast_ty.clone(), fn_.clone())? {
+                        methods.push(method);
+                    }
                 }
                 _ => todo!("Error"),
             }
@@ -550,11 +523,14 @@ impl SemanticAnalyzer {
         )))
     }
 
+    // Returns `None` for generic methods: their IR is materialized lazily at each
+    // monomorphization call site, so there's nothing to add to the enclosing `impl` now.
+    // Non-generic methods return `Some(Fn)`.
     fn analyze_method(
         &mut self,
         ty: Rc<ast_type::Ty>,
         mut node: ast::top::Fn,
-    ) -> anyhow::Result<Rc<ir::top::Fn>> {
+    ) -> anyhow::Result<Option<Rc<ir::top::Fn>>> {
         // If the method isn't static, insert self to the front of the parameters
         if let Some(mutability) = node.decl.self_ {
             node.decl.params.v.insert(
@@ -569,21 +545,22 @@ impl SemanticAnalyzer {
 
         let parent_ty = self.analyze_type(&ty)?;
 
-        let (parent_name, is_builtin) = match parent_ty.kind.as_ref() {
+        // Built-in types (fundamentals, slices) have no defining module, so their methods
+        // live in the root module, reachable from anywhere by direct qualified lookup.
+        let (parent_name, should_route_to_root_module) = match parent_ty.kind.as_ref() {
             ir::ty::TyKind::Reference(ty) => {
                 let base_ty = ty.get_base_type();
                 match base_ty.kind.as_ref() {
                     ir::ty::TyKind::UserDefined(udt) => (udt.name(), false),
                     ir::ty::TyKind::Slice(elem_ty) => {
-                        (self.slice_method_parent_name(elem_ty), false)
+                        (self.slice_method_parent_name(elem_ty), true)
                     }
                     _ => (Symbol::from(base_ty.kind.to_string()), true),
                 }
             }
 
-            // Built-in types
             ir::ty::TyKind::Fundamental(fty) => (Symbol::from(fty.kind.to_string()), true),
-            ir::ty::TyKind::Slice(elem_ty) => (self.slice_method_parent_name(elem_ty), false),
+            ir::ty::TyKind::Slice(elem_ty) => (self.slice_method_parent_name(elem_ty), true),
 
             _ => unreachable!(),
         };
@@ -599,14 +576,82 @@ impl SemanticAnalyzer {
 
         node.decl.self_ = None;
 
-        if is_builtin {
+        if node.decl.generic_params.is_some() {
+            return self
+                .analyze_generic_method(node, should_route_to_root_module)
+                .map(|()| None);
+        }
+
+        if should_route_to_root_module {
             let source_module_path = self.current_module_path().clone();
-            self.with_lookup_fallback_module(source_module_path, |analyzer| {
-                analyzer.with_root_module(|analyzer| analyzer.analyze_fn_internal(node))
+            self.with_root_module_and_fallback(source_module_path, |analyzer| {
+                analyzer.analyze_fn_internal(node)
+            })
+            .map(Some)
+        } else {
+            self.analyze_fn_internal(node).map(Some)
+        }
+    }
+
+    fn analyze_generic_method(
+        &mut self,
+        node: ast::top::Fn,
+        should_route_to_root_module: bool,
+    ) -> anyhow::Result<()> {
+        // Body-analysis pass is a no-op for generic methods; they are
+        // monomorphized on demand at each call site.
+        if matches!(
+            self.context.analyze_command(),
+            AnalyzeCommand::WithoutFnDeclare
+        ) {
+            return Ok(());
+        }
+
+        let span = node.span;
+        let vis = node.decl.vis;
+        let name = node.decl.name.symbol();
+        let resolved_generic_params =
+            self.resolve_generic_params(node.decl.generic_params.as_ref())?;
+
+        if should_route_to_root_module {
+            let source_module_path = self.current_module_path().clone();
+            self.with_root_module_and_fallback(source_module_path, |analyzer| {
+                analyzer.register_generic_method_symbol(
+                    name,
+                    node,
+                    resolved_generic_params,
+                    vis,
+                    span,
+                )
             })
         } else {
-            self.analyze_fn_internal(node)
+            self.register_generic_method_symbol(name, node, resolved_generic_params, vis, span)
         }
+    }
+
+    fn register_generic_method_symbol(
+        &mut self,
+        name: Symbol,
+        node: ast::top::Fn,
+        resolved_generic_params: Option<ResolvedGenericParams>,
+        vis: ast::top::Visibility,
+        span: Span,
+    ) -> anyhow::Result<()> {
+        let module_path = self.current_module_path().clone();
+        let symbol_table_value = SymbolTableValue::new(
+            SymbolTableValueKind::Generic(
+                GenericInfo::new(
+                    GenericKind::Func(GenericFuncInfo {
+                        ast: node,
+                        resolved_generic_params,
+                    }),
+                    module_path.clone(),
+                )
+                .into(),
+            ),
+            module_path,
+        );
+        self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)
     }
 
     pub fn analyze_fn(&mut self, node: ast::top::Fn) -> anyhow::Result<TopLevelAnalysisResult> {
@@ -732,7 +777,7 @@ impl SemanticAnalyzer {
         let name = node.name.symbol();
 
         let qualified_name = if name.as_str() == "main" {
-            QualifiedSymbol::new(ModulePath::new(vec![]), "kdmain".to_owned().into())
+            QualifiedSymbol::new(ModulePath::root(), "kdmain".to_owned().into())
         } else {
             QualifiedSymbol::new(self.current_module_path().clone(), name)
         };

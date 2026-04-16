@@ -8,7 +8,7 @@ const sampleProgram = `import std.http
 mut app := std.http.App::new()
 
 app.get("/", |req, res| {
-    res.send_text("hello, world!")
+    res.send("hello, world!")
 })
 
 app.ws("/ws/echo", |req, ws| {

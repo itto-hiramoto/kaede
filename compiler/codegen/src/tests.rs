@@ -5019,3 +5019,127 @@ fn interface_dispatch_selects_concrete_method_per_type() -> anyhow::Result<()> {
     assert_eq!(exec(program)?, 58);
     Ok(())
 }
+
+#[test]
+fn generic_method_with_interface_bound() -> anyhow::Result<()> {
+    let program = r#"
+        interface Counter {
+            fun count(self) -> i32
+        }
+
+        struct A { v: i32 }
+        impl A {
+            fun count(self) -> i32 { return self.v }
+        }
+
+        struct B { v: i32 }
+        impl B {
+            fun count(self) -> i32 { return self.v * 10 }
+        }
+
+        struct Sum { total: i32 }
+        impl Sum {
+            fun add<T: Counter>(mut self, x: T) {
+                self.total = self.total + x.count()
+            }
+        }
+
+        fun main() -> i32 {
+            let mut s = Sum { total: 0 }
+            s.add(A { v: 3 })
+            s.add(B { v: 4 })
+            return s.total
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 43);
+    Ok(())
+}
+
+#[test]
+fn generic_method_dispatches_on_str_and_slice() -> anyhow::Result<()> {
+    let program = r#"
+        interface Payload {
+            fun as_bytes(self) -> [u8]
+        }
+
+        impl str {
+            fun as_bytes(self) -> [u8] {
+                return __slice_from_raw_parts(self.as_ptr(), self.len())
+            }
+        }
+
+        impl [u8] {
+            fun as_bytes(self) -> [u8] {
+                return self
+            }
+        }
+
+        struct Sink { total: i32 }
+        impl Sink {
+            fun push<T: Payload>(mut self, body: T) {
+                self.total = self.total + body.as_bytes().len() as i32
+            }
+        }
+
+        fun main() -> i32 {
+            let mut s = Sink { total: 0 }
+            s.push("abc")
+            s.push(b"wxyz")
+            return s.total
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 7);
+    Ok(())
+}
+
+#[test]
+fn generic_method_unbounded_type_param() -> anyhow::Result<()> {
+    let program = r#"
+        struct Holder { v: i32 }
+
+        impl Holder {
+            fun echo<U>(self, other: U) -> U {
+                return other
+            }
+        }
+
+        fun main() -> i32 {
+            let h = Holder { v: 1 }
+            return h.echo(42)
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 42);
+    Ok(())
+}
+
+#[test]
+fn generic_method_rejects_unsatisfied_bound() {
+    let program = r#"
+        interface Counter {
+            fun count(self) -> i32
+        }
+
+        struct A { v: i32 }
+
+        struct Sum { total: i32 }
+        impl Sum {
+            fun add<T: Counter>(mut self, x: T) {
+                self.total = self.total + x.count()
+            }
+        }
+
+        fun main() -> i32 {
+            let mut s = Sum { total: 0 }
+            s.add(A { v: 3 })
+            return s.total
+        }
+    "#;
+
+    assert!(matches!(
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::GenericBoundNotSatisfied { .. }
+    ));
+}

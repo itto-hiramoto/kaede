@@ -248,6 +248,7 @@ fn parse_error_span(err: &ParseError) -> Option<Span> {
 fn semantic_error_span(err: &SemanticError) -> Option<Span> {
     match err {
         SemanticError::Undeclared { span, .. }
+        | SemanticError::PrivateItemAccess { span, .. }
         | SemanticError::NotCallable { span, .. }
         | SemanticError::InvalidTypeForArithmeticOperation { span, .. }
         | SemanticError::GenericArgumentLengthMismatch { span, .. }

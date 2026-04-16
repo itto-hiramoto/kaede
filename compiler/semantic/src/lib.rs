@@ -17,8 +17,8 @@ use kaede_parse::Parser;
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::{Ident, Symbol};
 use kaede_symbol_table::{
-    GenericInfo, GenericKind, GenericSliceInfo, QualifiedSymbolTable, SymbolResolver, SymbolTable,
-    SymbolTableValue, SymbolTableValueKind,
+    GenericImplInfo, QualifiedSymbolTable, SymbolResolver, SymbolTable, SymbolTableValue,
+    SymbolTableValueKind,
 };
 
 mod context;
@@ -54,6 +54,16 @@ pub struct AnalyzeOptions {
     pub is_entry_unit: bool,
 }
 
+// `impl<T>[T] { ... }` is declared once (autoload) but applies to every slice type in the
+// compile unit, so it's stored here as an analyzer-level intrinsic instead of a module
+// symbol. Generated methods are registered in the root module; `defining_module` records
+// where the block was written and serves as a lookup fallback during monomorphization so
+// method bodies can reach symbols declared alongside the impl block.
+pub struct SliceIntrinsic {
+    pub impl_info: GenericImplInfo,
+    pub defining_module: ModulePath,
+}
+
 pub struct SemanticAnalyzer {
     modules: HashMap<ModulePath, ModuleContext>,
     context: AnalysisContext,
@@ -69,6 +79,7 @@ pub struct SemanticAnalyzer {
     temp_symbol_counter: usize,
     generic_fn_substitutions: HashMap<QualifiedSymbol, HashMap<ir_type::VarId, Rc<ir_type::Ty>>>,
     pending_generic_instance: Option<ir_type::GenericInstanceInfo>,
+    slice_intrinsic: Option<SliceIntrinsic>,
 }
 
 impl SemanticAnalyzer {
@@ -286,26 +297,10 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
-    fn insert_builtin_slice_symbol(module_context: &mut ModuleContext, module_path: ModulePath) {
-        let symbol_table_value = SymbolTableValue::new(
-            SymbolTableValueKind::Generic(
-                GenericInfo::new(
-                    GenericKind::Slice(GenericSliceInfo::new()),
-                    module_path.clone(),
-                )
-                .into(),
-            ),
-            module_path,
-        );
-
+    fn create_module_context(file_path: FilePath) -> ModuleContext {
+        let mut module_context = ModuleContext::new(file_path);
+        module_context.push_scope(SymbolTable::new());
         module_context
-            .insert_symbol_to_root_scope(
-                Symbol::from("__builtin_slice".to_owned()),
-                symbol_table_value,
-                Visibility::Public,
-                Span::dummy(),
-            )
-            .unwrap();
     }
 
     pub fn new(file_path: FilePath, root_dir: PathBuf) -> Self {
@@ -319,8 +314,7 @@ impl SemanticAnalyzer {
         let mut context = AnalysisContext::new(module_path.clone());
         context.set_current_module_path(module_path.clone());
 
-        let mut module_context = ModuleContext::new(file_path);
-        Self::insert_builtin_slice_symbol(&mut module_context, module_path.clone());
+        let module_context = ModuleContext::new(file_path);
 
         Self {
             modules: HashMap::from([(module_path, module_context)]),
@@ -337,6 +331,7 @@ impl SemanticAnalyzer {
             temp_symbol_counter: 0,
             generic_fn_substitutions: HashMap::new(),
             pending_generic_instance: None,
+            slice_intrinsic: None,
         }
     }
 
@@ -345,9 +340,7 @@ impl SemanticAnalyzer {
         let mut context = AnalysisContext::new(module_path.clone());
         context.set_current_module_path(module_path.clone());
 
-        let mut module_context = ModuleContext::new(FilePath::from(PathBuf::from("test.kd")));
-        Self::insert_builtin_slice_symbol(&mut module_context, module_path.clone());
-        module_context.push_scope(SymbolTable::new());
+        let module_context = Self::create_module_context(FilePath::from(PathBuf::from("test.kd")));
 
         Self {
             modules: HashMap::from([(module_path, module_context)]),
@@ -363,6 +356,7 @@ impl SemanticAnalyzer {
             closure_capture_stack: Vec::new(),
             temp_symbol_counter: 0,
             generic_fn_substitutions: HashMap::new(),
+            slice_intrinsic: None,
             pending_generic_instance: None,
         }
     }
@@ -955,7 +949,7 @@ impl SemanticAnalyzer {
         let main_fn_decl = ir::top::FnDecl {
             lang_linkage: kaede_common::LangLinkage::Default,
             link_once: false,
-            name: QualifiedSymbol::new(ModulePath::new(vec![]), "main".to_owned().into()),
+            name: QualifiedSymbol::new(ModulePath::root(), "main".to_owned().into()),
             params,
             is_c_variadic: false,
             return_ty: Rc::new(ir::ty::make_fundamental_type(
@@ -968,10 +962,7 @@ impl SemanticAnalyzer {
         let runtime_init_decl = ir::top::FnDecl {
             lang_linkage: kaede_common::LangLinkage::C,
             link_once: false,
-            name: QualifiedSymbol::new(
-                ModulePath::new(vec![]),
-                "kaede_runtime_init".to_owned().into(),
-            ),
+            name: QualifiedSymbol::new(ModulePath::root(), "kaede_runtime_init".to_owned().into()),
             params: vec![],
             is_c_variadic: false,
             return_ty: Rc::new(ir::ty::Ty::new_unit()),
@@ -981,10 +972,7 @@ impl SemanticAnalyzer {
         let runtime_run_decl = ir::top::FnDecl {
             lang_linkage: kaede_common::LangLinkage::C,
             link_once: false,
-            name: QualifiedSymbol::new(
-                ModulePath::new(vec![]),
-                "kaede_runtime_run".to_owned().into(),
-            ),
+            name: QualifiedSymbol::new(ModulePath::root(), "kaede_runtime_run".to_owned().into()),
             params: vec![],
             is_c_variadic: false,
             return_ty: Rc::new(ir::ty::make_fundamental_type(
@@ -998,7 +986,7 @@ impl SemanticAnalyzer {
             lang_linkage: kaede_common::LangLinkage::C,
             link_once: false,
             name: QualifiedSymbol::new(
-                ModulePath::new(vec![]),
+                ModulePath::root(),
                 "kaede_runtime_shutdown".to_owned().into(),
             ),
             params: vec![],
@@ -1282,10 +1270,8 @@ impl SemanticAnalyzer {
         let mut top_level_irs = vec![];
 
         // Create root module
-        let mut root_module = ModuleContext::new(FilePath::dummy());
-        root_module.push_scope(SymbolTable::new());
-        Self::insert_builtin_slice_symbol(&mut root_module, ModulePath::new(vec![]));
-        self.modules.insert(ModulePath::new(vec![]), root_module);
+        let root_module = Self::create_module_context(FilePath::dummy());
+        self.modules.insert(ModulePath::root(), root_module);
 
         self.context.set_no_prelude(options.no_prelude);
 

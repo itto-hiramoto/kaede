@@ -33,7 +33,7 @@ pub struct AnalysisContext {
 impl AnalysisContext {
     pub fn new(module_path: ModulePath) -> Self {
         Self {
-            current_module_path: ModulePath::new(vec![]),
+            current_module_path: ModulePath::root(),
             module_path,
             fallback_lookup_module_path: None,
             is_inside_loop: false,
@@ -106,11 +106,35 @@ impl SemanticAnalyzer {
         self.with_context(new_context, f)
     }
 
+    // Changes both `current_module_path` and `module_path`, so name-lookup fallbacks
+    // target the defining module rather than the caller (used when monomorphizing a
+    // generic whose body was written against another module's symbols).
+    pub fn with_defining_module<F, R>(&mut self, path: ModulePath, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        let mut new_context = self.context.clone();
+        new_context.current_module_path = path.clone();
+        new_context.module_path = path;
+        self.with_context(new_context, f)
+    }
+
     pub fn with_root_module<F, R>(&mut self, f: F) -> R
     where
         F: FnOnce(&mut Self) -> R,
     {
-        self.with_module(ModulePath::new(vec![]), f)
+        self.with_module(ModulePath::root(), f)
+    }
+
+    // Register a decl in the root module while keeping `fallback` as a lookup fallback,
+    // so the body can still reach symbols declared alongside it in its original module.
+    // Used for built-in types (fundamentals, slices) whose methods live in the root module
+    // but whose bodies may reference helpers from wherever the `impl` block was written.
+    pub fn with_root_module_and_fallback<F, R>(&mut self, fallback: ModulePath, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        self.with_lookup_fallback_module(fallback, |analyzer| analyzer.with_root_module(f))
     }
 
     // Temporarily changes the fallback module path used for symbol lookup.
@@ -272,6 +296,17 @@ impl ModuleContext {
         None
     }
 
+    // Public-only variant used when another module performs a qualified lookup into
+    // this one: private items must not be reachable across module boundaries.
+    pub fn lookup_public_symbol(&self, symbol: &Symbol) -> Option<Rc<RefCell<SymbolTableValue>>> {
+        for table in self.symbol_table_stack.iter().rev() {
+            if let Some(value) = table.lookup(symbol) {
+                return Some(value);
+            }
+        }
+        None
+    }
+
     pub fn lookup_generic_argument(&self, symbol: Symbol) -> Option<Rc<Ty>> {
         // Search from the top of the stack
         for table in self.generic_argument_table.iter().rev() {
@@ -325,9 +360,5 @@ impl ModuleContext {
                 .unwrap()
                 .bind(symbol, value)
         }
-    }
-
-    pub fn clear_private_symbol_table(&mut self) {
-        self.private_symbol_table.clear();
     }
 }
