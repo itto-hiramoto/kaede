@@ -3879,8 +3879,8 @@ impl SemanticAnalyzer {
     }
 
     // Slice/array method dispatch. The impl may live in a different module than the
-    // current one (autoload's `impl<T>[T]` registers under [autoload, slice], and
-    // monomorphization may produce a slice type whose impl was generated elsewhere).
+    // current one: autoload's monomorphized `impl<T>[T]` registers under the intrinsic
+    // module, while user-defined `impl [T] { ... }` registers under the caller's module.
     fn create_slice_method_call_ir(
         &mut self,
         method_name: Symbol,
