@@ -133,11 +133,11 @@ impl SemanticAnalyzer {
             ir_type::TyKind::Reference(rty) => self.method_lookup_target(&rty.get_base_type()),
             ir_type::TyKind::UserDefined(udt) => Some((udt.module_path(), udt.name())),
             ir_type::TyKind::Fundamental(fty) => Some((
-                kaede_ir::module_path::ModulePath::new(vec![]),
+                kaede_ir::module_path::ModulePath::root(),
                 fty.kind.to_string().into(),
             )),
             ir_type::TyKind::Slice(elem_ty) => Some((
-                kaede_ir::module_path::ModulePath::new(vec![]),
+                kaede_ir::module_path::ModulePath::root(),
                 self.slice_method_parent_name(elem_ty),
             )),
             _ => None,
@@ -874,16 +874,13 @@ impl SemanticAnalyzer {
             .collect();
         impl_ast.items = Rc::new(methods);
 
-        // Monomorphized slice methods are registered in the root module so every call site
-        // finds them with a direct qualified lookup. The defining module (where `impl<T>[T]`
-        // is written) is set as a lookup fallback so method bodies can still reference
-        // symbols declared alongside the impl block — which the root module has no view of.
-        let impl_ir = self.with_lookup_fallback_module(defining_module, |analyzer| {
-            analyzer.with_root_module(|analyzer| {
-                analyzer.with_generic_arguments(&generic_params, &generic_args, |analyzer| {
-                    analyzer.with_analyze_command(AnalyzeCommand::NoCommand, |analyzer| {
-                        analyzer.analyze_impl(impl_ast.clone())
-                    })
+        // Fallback to the module that declared `impl<T>[T]` so method bodies can still
+        // reference symbols declared alongside the impl block — which the root module
+        // has no view of.
+        let impl_ir = self.with_root_module_and_fallback(defining_module, |analyzer| {
+            analyzer.with_generic_arguments(&generic_params, &generic_args, |analyzer| {
+                analyzer.with_analyze_command(AnalyzeCommand::NoCommand, |analyzer| {
+                    analyzer.analyze_impl(impl_ast.clone())
                 })
             })
         })?;

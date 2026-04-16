@@ -542,10 +542,8 @@ impl SemanticAnalyzer {
 
         let parent_ty = self.analyze_type(&ty)?;
 
-        // `should_route_to_root_module` is true for built-in language types (fundamental
-        // scalars and slices): they have no defining module, so their methods live in the
-        // anonymous root module where every caller can find them with a direct qualified
-        // lookup.
+        // Built-in types (fundamentals, slices) have no defining module, so their methods
+        // live in the root module, reachable from anywhere by direct qualified lookup.
         let (parent_name, should_route_to_root_module) = match parent_ty.kind.as_ref() {
             ir::ty::TyKind::Reference(ty) => {
                 let base_ty = ty.get_base_type();
@@ -583,8 +581,8 @@ impl SemanticAnalyzer {
 
         if should_route_to_root_module {
             let source_module_path = self.current_module_path().clone();
-            self.with_lookup_fallback_module(source_module_path, |analyzer| {
-                analyzer.with_root_module(|analyzer| analyzer.analyze_fn_internal(node))
+            self.with_root_module_and_fallback(source_module_path, |analyzer| {
+                analyzer.analyze_fn_internal(node)
             })
             .map(Some)
         } else {
@@ -614,16 +612,14 @@ impl SemanticAnalyzer {
 
         if should_route_to_root_module {
             let source_module_path = self.current_module_path().clone();
-            self.with_lookup_fallback_module(source_module_path, |analyzer| {
-                analyzer.with_root_module(|analyzer| {
-                    analyzer.register_generic_method_symbol(
-                        name,
-                        node,
-                        resolved_generic_params,
-                        vis,
-                        span,
-                    )
-                })
+            self.with_root_module_and_fallback(source_module_path, |analyzer| {
+                analyzer.register_generic_method_symbol(
+                    name,
+                    node,
+                    resolved_generic_params,
+                    vis,
+                    span,
+                )
             })
         } else {
             self.register_generic_method_symbol(name, node, resolved_generic_params, vis, span)

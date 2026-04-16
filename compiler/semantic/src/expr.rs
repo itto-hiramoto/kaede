@@ -3577,7 +3577,7 @@ impl SemanticAnalyzer {
 
                     self.create_method_call_ir(
                         callee_symbol,
-                        ModulePath::new(vec![]),
+                        ModulePath::root(),
                         self.slice_method_parent_name(elem_ty),
                         call_node,
                         lhs,
@@ -3615,7 +3615,7 @@ impl SemanticAnalyzer {
                     // Arrays use slice methods (array is coerced to slice at codegen)
                     self.create_method_call_ir(
                         callee_symbol,
-                        ModulePath::new(vec![]),
+                        ModulePath::root(),
                         self.slice_method_parent_name(elem_ty),
                         call_node,
                         lhs,

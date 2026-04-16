@@ -123,7 +123,18 @@ impl SemanticAnalyzer {
     where
         F: FnOnce(&mut Self) -> R,
     {
-        self.with_module(ModulePath::new(vec![]), f)
+        self.with_module(ModulePath::root(), f)
+    }
+
+    // Register a decl in the root module while keeping `fallback` as a lookup fallback,
+    // so the body can still reach symbols declared alongside it in its original module.
+    // Used for built-in types (fundamentals, slices) whose methods live in the root module
+    // but whose bodies may reference helpers from wherever the `impl` block was written.
+    pub fn with_root_module_and_fallback<F, R>(&mut self, fallback: ModulePath, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        self.with_lookup_fallback_module(fallback, |analyzer| analyzer.with_root_module(f))
     }
 
     // Temporarily changes the fallback module path used for symbol lookup.
