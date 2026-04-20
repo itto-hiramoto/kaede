@@ -1,6 +1,6 @@
 ---
 title: Interfaces
-description: Define behavior contracts and use them as generic bounds in Kaede.
+description: Declare method contracts and use them as interface values or generic bounds in Kaede.
 sidebar_position: 7
 ---
 
@@ -114,7 +114,7 @@ let counter = Counter { value: 0 }
 let label = describe(counter)
 ```
 
-A generic parameter without a bound (`fun identity<T>(value: T) -> T`) accepts any type but cannot call any methods on it.
+A generic parameter without a bound accepts any type, and methods on `T` can still be called — the compiler resolves them against the concrete type at each instantiation. The bound is a constraint, not a capability switch: it rejects callers whose type does not implement the interface, turning what would otherwise be a failure deeper in monomorphization into a clear error at the call site.
 
 ### Dynamic vs. static dispatch
 
