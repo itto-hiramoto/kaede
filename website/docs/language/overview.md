@@ -103,6 +103,7 @@ Continue with:
 
 - [Types](./types.md)
 - [Generics](./generics.md)
+- [Interfaces](./interfaces.md)
 - [Control flow](./control-flow.md)
 - [Concurrency](./concurrency.md)
 - [Rust interop](./rust-interop.md)

@@ -5106,6 +5106,88 @@ fn fd_satisfies_io_reader_and_writer() -> anyhow::Result<()> {
 }
 
 #[test]
+fn user_defined_reader_flows_through_stdlib_read_exact() -> anyhow::Result<()> {
+    // Confirms that a user-defined struct satisfying std.io.Reader is accepted
+    // by the stdlib generic helper std.sys.read_exact end-to-end: the helper
+    // is monomorphized for the user's type, calls its `read` at runtime, and
+    // returns the right byte count and contents.
+    let program = r#"
+        import std.io
+        import std.sys
+
+        use std.io.Reader
+        use std.option.Option
+        use std.sys.read_exact
+
+        struct ByteSource {
+            value: u8,
+        }
+
+        impl ByteSource {
+            fun read(self, buf: mut [u8]) -> Option<u64> {
+                let mut i = 0
+                while i < buf.len() {
+                    buf[i] = self.value
+                    i += 1
+                }
+                return Option::Some(buf.len())
+            }
+        }
+
+        fun main() -> i32 {
+            let src = ByteSource { value: 7 }
+            let mut buf = [0; 4]
+            let n = match read_exact(src, buf, 4) {
+                Option::Some(value) => value,
+                Option::None => return 1,
+            }
+            if n != 4 { return 2 }
+            if buf[0] != 7 { return 3 }
+            if buf[3] != 7 { return 4 }
+            return 0
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 0);
+    Ok(())
+}
+
+#[test]
+fn user_defined_writer_flows_through_stdlib_http_helper() -> anyhow::Result<()> {
+    // Confirms a user-defined Writer routes through std.http.write_status_line
+    // end-to-end: the stdlib helper is monomorphized over the user's type and
+    // dispatches to its `write` at runtime.
+    let program = r#"
+        import std.http
+        import std.io
+
+        use std.http.Status
+        use std.http.write_status_line
+        use std.io.Writer
+        use std.option.Option
+
+        struct AcceptAll {
+            tag: i32,
+        }
+
+        impl AcceptAll {
+            fun write(self, buf: [u8]) -> Option<u64> {
+                return Option::Some(buf.len())
+            }
+        }
+
+        fun main() -> i32 {
+            let sink = AcceptAll { tag: 1 }
+            if !write_status_line(sink, Status::Ok) { return 1 }
+            return 0
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 0);
+    Ok(())
+}
+
+#[test]
 fn generic_param_mutability_does_not_leak_via_substitution() -> anyhow::Result<()> {
     // A generic fn instantiated first via a `mut` field would cache a fn_decl
     // whose param.ty carried `mut`. A later call from an immutable site reused
