@@ -2,8 +2,10 @@ import std.ffi.sys
 import std.string
 import std.collections
 import std.option
+import std.io
 
 use std.collections.Vector
+use std.io.Reader
 use std.option.Option
 use std.string.String
 
@@ -20,6 +22,40 @@ impl Fd {
 
     export fun raw(self) -> i32 {
         return self.raw
+    }
+
+    export fun read(self, buf: mut [u8]) -> Option<u64> {
+        let n = __sys_read(self.raw, buf.as_ptr(), buf.len())
+        if n < 0 {
+            return Option::None
+        }
+        return Option::Some(n as u64)
+    }
+
+    export fun write(self, buf: [u8]) -> Option<u64> {
+        let mut off = 0
+        let total = buf.len()
+
+        while off < total {
+            // Short writes are normal on sockets, so keep advancing until all bytes
+            // are written or the syscall reports failure.
+            let ptr = __ptr_add(buf.as_ptr(), off)
+            let rem = total - off
+
+            let n = __sys_write(self.raw, ptr, rem)
+
+            if n < 0 {
+                return Option::None
+            }
+
+            if n == 0 {
+                return Option::None
+            }
+
+            off += n as u64
+        }
+
+        return Option::Some(total)
     }
 }
 
@@ -101,20 +137,12 @@ export fun is_regular_file(fd: Fd) -> bool {
     return __sys_is_regular_file(fd.raw) == 1
 }
 
-export fun read(fd: Fd, buf: mut [u8]) -> Option<u64> {
-    let n = __sys_read(fd.raw, buf.as_ptr(), buf.len())
-    if n < 0 {
-        return Option::None
-    }
-    return Option::Some(n as u64)
-}
-
 // Read exactly `len` bytes unless EOF is hit; returns bytes read.
-export fun read_exact(fd: Fd, buf: mut [u8], len: u64) -> Option<u64> {
+export fun read_exact<R: Reader>(r: R, buf: mut [u8], len: u64) -> Option<u64> {
     let mut read_total = 0
     while read_total < len {
         let mut slice = buf[read_total:buf.len()]
-        let n = match std.sys.read(fd, slice) {
+        let n = match r.read(slice) {
             Option::Some(value) => value,
             Option::None => return Option::None,
         }
@@ -126,42 +154,12 @@ export fun read_exact(fd: Fd, buf: mut [u8], len: u64) -> Option<u64> {
     return Option::Some(read_total)
 }
 
-export fun write(fd: Fd, buf: [u8]) -> Option<u64> {
-    return write_all(fd, buf)
-}
-
-fun write_all(fd: Fd, buf: [u8]) -> Option<u64> {
-    let mut off = 0
-    let total = buf.len()
-
-    while off < total {
-        // Short writes are normal on sockets, so keep advancing until all bytes
-        // are written or the syscall reports failure.
-        let ptr = __ptr_add(buf.as_ptr(), off)
-        let rem = total - off
-
-        let n = __sys_write(fd.raw, ptr, rem)
-
-        if n < 0 {
-            return Option::None
-        }
-
-        if n == 0 {
-            return Option::None
-        }
-
-        off += n as u64
-    }
-
-    return Option::Some(total)
-}
-
-export fun read_all(fd: Fd, max_bytes: u64) -> Option<Vector<u8>> {
+export fun read_all<R: Reader>(r: R, max_bytes: u64) -> Option<Vector<u8>> {
     let mut out = Vector<u8>::new()
     let mut buf = [0; 4096]
 
     loop {
-        let n = match read(fd, buf) {
+        let n = match r.read(buf) {
             Option::Some(value) => value,
             Option::None => return Option::None,
         }
@@ -184,7 +182,7 @@ export fun read_all(fd: Fd, max_bytes: u64) -> Option<Vector<u8>> {
     return Option::Some(out)
 }
 
-export fun read_until(fd: Fd, buf: mut [u8], delim: [u8]) -> Option<u64> {
+export fun read_until<R: Reader>(r: R, buf: mut [u8], delim: [u8]) -> Option<u64> {
     let mut filled = 0
 
     loop {
@@ -195,7 +193,7 @@ export fun read_until(fd: Fd, buf: mut [u8], delim: [u8]) -> Option<u64> {
         // Read 1 byte at a time so HTTP keep-alive parsing does not consume
         // bytes that belong to the next request on the same connection.
         let mut tail = buf[filled:(filled + 1)]
-        let n = match std.sys.read(fd, tail) {
+        let n = match r.read(tail) {
             Option::Some(value) => value,
             Option::None => return Option::None,
         }

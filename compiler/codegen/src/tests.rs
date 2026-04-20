@@ -5071,6 +5071,86 @@ fn generic_method_with_interface_bound() -> anyhow::Result<()> {
 }
 
 #[test]
+fn fd_satisfies_io_reader_and_writer() -> anyhow::Result<()> {
+    // Verifies that std.sys.Fd conforms to the cross-module interfaces
+    // std.io.Reader and std.io.Writer declared in a different stdlib module.
+    // The generic functions coerce Fd into the interface at the call site but
+    // never invoke the methods, so we do not need a real file descriptor.
+    let program = r#"
+        import std.io
+        import std.sys
+
+        use std.io.Reader
+        use std.io.Writer
+        use std.sys.Fd
+
+        fun is_reader<R: Reader>(r: R) -> bool {
+            return true
+        }
+
+        fun is_writer<W: Writer>(w: W) -> bool {
+            return true
+        }
+
+        fun main() -> i32 {
+            let fd = Fd::new(-1)
+            if is_reader(fd) && is_writer(fd) {
+                return 1
+            }
+            return 0
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 1);
+    Ok(())
+}
+
+#[test]
+fn generic_param_mutability_does_not_leak_via_substitution() -> anyhow::Result<()> {
+    // A generic fn instantiated first via a `mut` field would cache a fn_decl
+    // whose param.ty carried `mut`. A later call from an immutable site reused
+    // the cache and tripped the immutable-to-mutable check. Confirms that a
+    // `T` parameter stays immutable regardless of the substituted type's
+    // mutability.
+    let program = r#"
+        interface Sink {
+            fun put(self, b: u8) -> bool
+        }
+
+        struct Counter { n: i32 }
+        impl Counter {
+            fun put(self, b: u8) -> bool { return true }
+        }
+
+        struct Holder { c: Counter }
+        impl Holder {
+            fun call_mut(mut self) -> bool {
+                return do_put(self.c)
+            }
+        }
+
+        fun do_put<S: Sink>(s: S) -> bool {
+            return s.put(1)
+        }
+
+        fun via_immutable<S: Sink>(s: S) -> bool {
+            return do_put(s)
+        }
+
+        fun main() -> i32 {
+            let mut h = Holder { c: Counter { n: 0 } }
+            h.call_mut()
+            let c = Counter { n: 0 }
+            if via_immutable(c) { return 1 }
+            return 0
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 1);
+    Ok(())
+}
+
+#[test]
 fn generic_method_dispatches_on_str_and_slice() -> anyhow::Result<()> {
     let program = r#"
         interface Payload {

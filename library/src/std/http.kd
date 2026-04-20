@@ -8,6 +8,8 @@ import std.ffi.http
 use std.sys.Fd
 use std.string.String
 use std.collections.Vector
+use std.io.Reader
+use std.io.Writer
 use std.option.Option
 use std.ffi.http.__http_ws_accept
 
@@ -304,7 +306,7 @@ impl Response {
             self.mark_write_failed()
             return
         }
-        if self.close_conn && std.sys.write(self.conn, b"Connection: close\r\n").is_none() {
+        if self.close_conn && self.conn.write(b"Connection: close\r\n").is_none() {
             self.mark_write_failed()
             return
         }
@@ -316,11 +318,11 @@ impl Response {
             self.mark_write_failed()
             return
         }
-        if std.sys.write(self.conn, b"\r\n").is_none() {
+        if self.conn.write(b"\r\n").is_none() {
             self.mark_write_failed()
             return
         }
-        if std.sys.write(self.conn, bytes).is_none() {
+        if self.conn.write(bytes).is_none() {
             self.mark_write_failed()
         }
     }
@@ -722,9 +724,9 @@ export fun parse_content_length(header: [u8]) -> i32 {
     return val
 }
 
-fun write_content_length(conn: Fd, len: u64) -> bool {
+fun write_content_length<W: Writer>(conn: W, len: u64) -> bool {
     let prefix = b"Content-Length: "
-    if std.sys.write(conn, prefix).is_none() {
+    if conn.write(prefix).is_none() {
         return false
     }
 
@@ -751,40 +753,40 @@ fun write_content_length(conn: Fd, len: u64) -> bool {
         j -= 1
         let mut one = [0; 1]
         one[0] = digits[j]
-        if std.sys.write(conn, one).is_none() {
+        if conn.write(one).is_none() {
             return false
         }
     }
 
-    return std.sys.write(conn, b"\r\n").is_some()
+    return conn.write(b"\r\n").is_some()
 }
 
-export fun write_status_line(conn: Fd, status: Status) -> bool {
+export fun write_status_line<W: Writer>(conn: W, status: Status) -> bool {
     match status {
-        Status::Ok => return std.sys.write(conn, b"HTTP/1.1 200 OK\r\n").is_some(),
-        Status::NotFound => return std.sys.write(conn, b"HTTP/1.1 404 Not Found\r\n").is_some(),
-        Status::BadRequest => return std.sys.write(conn, b"HTTP/1.1 400 Bad Request\r\n").is_some(),
-        Status::PayloadTooLarge => return std.sys.write(conn, b"HTTP/1.1 413 Payload Too Large\r\n").is_some(),
-        Status::InternalServerError => return std.sys.write(conn, b"HTTP/1.1 500 Internal Server Error\r\n").is_some(),
+        Status::Ok => return conn.write(b"HTTP/1.1 200 OK\r\n").is_some(),
+        Status::NotFound => return conn.write(b"HTTP/1.1 404 Not Found\r\n").is_some(),
+        Status::BadRequest => return conn.write(b"HTTP/1.1 400 Bad Request\r\n").is_some(),
+        Status::PayloadTooLarge => return conn.write(b"HTTP/1.1 413 Payload Too Large\r\n").is_some(),
+        Status::InternalServerError => return conn.write(b"HTTP/1.1 500 Internal Server Error\r\n").is_some(),
     }
 
     return false
 }
 
-fun write_response_headers(conn: Fd, headers: Vector<ResponseHeader>) -> bool {
+fun write_response_headers<W: Writer>(conn: W, headers: Vector<ResponseHeader>) -> bool {
     let mut i = 0
     while i < headers.len() {
         let header = headers.at(i).unwrap()
-        if std.sys.write(conn, header.name.as_str().to_bytes().as_slice()).is_none() {
+        if conn.write(header.name.as_str().to_bytes().as_slice()).is_none() {
             return false
         }
-        if std.sys.write(conn, b": ").is_none() {
+        if conn.write(b": ").is_none() {
             return false
         }
-        if std.sys.write(conn, header.value.as_str().to_bytes().as_slice()).is_none() {
+        if conn.write(header.value.as_str().to_bytes().as_slice()).is_none() {
             return false
         }
-        if std.sys.write(conn, b"\r\n").is_none() {
+        if conn.write(b"\r\n").is_none() {
             return false
         }
         i += 1
@@ -793,43 +795,43 @@ fun write_response_headers(conn: Fd, headers: Vector<ResponseHeader>) -> bool {
     return true
 }
 
-export fun write_text_response(conn: Fd, close_conn: bool, status: Status, body: [u8]) -> bool {
+export fun write_text_response<W: Writer>(conn: W, close_conn: bool, status: Status, body: [u8]) -> bool {
     if !write_status_line(conn, status) {
         return false
     }
-    if close_conn && std.sys.write(conn, b"Connection: close\r\n").is_none() {
+    if close_conn && conn.write(b"Connection: close\r\n").is_none() {
         return false
     }
     if !write_content_length(conn, body.len()) {
         return false
     }
-    if std.sys.write(conn, b"\r\n").is_none() {
+    if conn.write(b"\r\n").is_none() {
         return false
     }
-    return std.sys.write(conn, body).is_some()
+    return conn.write(body).is_some()
 }
 
-fun write_websocket_upgrade_response(conn: Fd, accept_value: [u8]) -> bool {
-    if std.sys.write(conn, b"HTTP/1.1 101 Switching Protocols\r\n").is_none() {
+fun write_websocket_upgrade_response<W: Writer>(conn: W, accept_value: [u8]) -> bool {
+    if conn.write(b"HTTP/1.1 101 Switching Protocols\r\n").is_none() {
         return false
     }
-    if std.sys.write(conn, b"Upgrade: websocket\r\n").is_none() {
+    if conn.write(b"Upgrade: websocket\r\n").is_none() {
         return false
     }
-    if std.sys.write(conn, b"Connection: Upgrade\r\n").is_none() {
+    if conn.write(b"Connection: Upgrade\r\n").is_none() {
         return false
     }
-    if std.sys.write(conn, b"Sec-WebSocket-Accept: ").is_none() {
+    if conn.write(b"Sec-WebSocket-Accept: ").is_none() {
         return false
     }
-    if std.sys.write(conn, accept_value).is_none() {
+    if conn.write(accept_value).is_none() {
         return false
     }
-    return std.sys.write(conn, b"\r\n\r\n").is_some()
+    return conn.write(b"\r\n\r\n").is_some()
 }
 
 // Writes a WebSocket control frame and enforces its payload size limit.
-fun write_ws_control_frame(conn: Fd, opcode: u8, payload: [u8]) -> bool {
+fun write_ws_control_frame<W: Writer>(conn: W, opcode: u8, payload: [u8]) -> bool {
     if payload.len() > 125 {
         return false
     }
@@ -838,7 +840,7 @@ fun write_ws_control_frame(conn: Fd, opcode: u8, payload: [u8]) -> bool {
 }
 
 // Encodes and writes a single server-side WebSocket frame.
-fun write_ws_frame(conn: Fd, opcode: u8, payload: [u8]) -> bool {
+fun write_ws_frame<W: Writer>(conn: W, opcode: u8, payload: [u8]) -> bool {
     let mut header = [0; 10]
     header[0] = opcode + 128
 
@@ -863,7 +865,7 @@ fun write_ws_frame(conn: Fd, opcode: u8, payload: [u8]) -> bool {
         10
     }
 
-    if std.sys.write(conn, header[0:header_len]).is_none() {
+    if conn.write(header[0:header_len]).is_none() {
         return false
     }
 
@@ -871,19 +873,19 @@ fun write_ws_frame(conn: Fd, opcode: u8, payload: [u8]) -> bool {
         return true
     }
 
-    return std.sys.write(conn, payload).is_some()
+    return conn.write(payload).is_some()
 }
 
 // Reads an exact number of bytes and reports whether it succeeded.
-fun read_exact_bytes(fd: Fd, buf: mut [u8], len: u64) -> bool {
-    return match std.sys.read_exact(fd, buf, len) {
+fun read_exact_bytes<R: Reader>(r: R, buf: mut [u8], len: u64) -> bool {
+    return match std.sys.read_exact(r, buf, len) {
         Option::Some(n) => n == len,
         Option::None => false,
     }
 }
 
 // Reads a 16-bit extended WebSocket payload length.
-fun read_ws_len16(conn: Fd) -> Option<u64> {
+fun read_ws_len16<R: Reader>(conn: R) -> Option<u64> {
     let mut buf = [0; 2]
     if !read_exact_bytes(conn, buf, 2) {
         return Option::None
@@ -893,7 +895,7 @@ fun read_ws_len16(conn: Fd) -> Option<u64> {
 }
 
 // Reads a 64-bit extended WebSocket payload length.
-fun read_ws_len64(conn: Fd) -> Option<u64> {
+fun read_ws_len64<R: Reader>(conn: R) -> Option<u64> {
     let mut buf = [0; 8]
     if !read_exact_bytes(conn, buf, 8) {
         return Option::None
@@ -913,7 +915,7 @@ fun read_ws_len64(conn: Fd) -> Option<u64> {
 }
 
 // Reads and unmasks a WebSocket payload body.
-fun read_ws_payload(conn: Fd, payload_len: u64, mask_key: [u8]) -> Option<Vector<u8>> {
+fun read_ws_payload<R: Reader>(conn: R, payload_len: u64, mask_key: [u8]) -> Option<Vector<u8>> {
     let mut out = Vector<u8>::new()
     let mut chunk = [0; 256]
     let mut remaining = payload_len
@@ -944,7 +946,7 @@ fun read_ws_payload(conn: Fd, payload_len: u64, mask_key: [u8]) -> Option<Vector
 
 // Discards a bounded amount of frame body bytes so the server can send a close
 // frame before tearing the connection down on protocol errors.
-fun discard_ws_frame_body(conn: Fd, len: u64) -> bool {
+fun discard_ws_frame_body<R: Reader>(conn: R, len: u64) -> bool {
     let mut chunk = [0; 256]
     let mut remaining = len
 
@@ -960,7 +962,7 @@ fun discard_ws_frame_body(conn: Fd, len: u64) -> bool {
 }
 
 // Reads one client WebSocket frame and validates the minimal protocol rules.
-fun read_ws_frame(conn: Fd) -> FrameReadResult {
+fun read_ws_frame<R: Reader>(conn: R) -> FrameReadResult {
     let mut first_bytes = [0; 2]
     let n = match std.sys.read_exact(conn, first_bytes, 2) {
         Option::Some(value) => value,
