@@ -35,7 +35,7 @@ impl Counter {
 Any type that satisfies `Stringer` can be dropped straight into a string-interpolation placeholder. Each `{}` calls `to_string` on its argument:
 
 ```rust
-let c = Counter { value: 7 }
+c := Counter { value: 7 }
 println($"counter = {c}")
 ```
 
@@ -75,8 +75,8 @@ fun run(s: Scorer) -> i32 {
 }
 
 fun main() -> i32 {
-    let a = Alpha { n: 40 }
-    let b = Beta { n: 4 }
+    a := Alpha { n: 40 }
+    b := Beta { n: 4 }
     return run(a) + run(b)
 }
 ```
@@ -86,7 +86,7 @@ Both `Alpha` and `Beta` satisfy `Scorer`, and `run` dispatches to the right `sco
 The same works for heterogeneous collections:
 
 ```rust
-let mut items = Vector<Scorer>::new()
+mut items := Vector<Scorer>::new()
 items.push(Alpha { n: 40 })
 items.push(Beta { n: 4 })
 ```
@@ -110,8 +110,8 @@ fun describe<S: Stringer>(value: S) -> String {
 Any type with a matching `to_string` method can be passed in:
 
 ```rust
-let counter = Counter { value: 0 }
-let label = describe(counter)
+counter := Counter { value: 0 }
+label := describe(counter)
 ```
 
 A generic parameter without a bound (`fun identity<T>(value: T) -> T`) accepts any type; the bound is a constraint on what callers may pass.
@@ -153,7 +153,7 @@ fun greet<W: Writer>(out: W) -> bool {
 }
 
 fun main() -> i32 {
-    let stdout = Fd::new(1)
+    stdout := Fd::new(1)
     if greet(stdout) {
         return 0
     }
