@@ -1,7 +1,7 @@
 ---
 title: Concurrency
 description: Typed channels, task spawning, and synchronization patterns used in Kaede.
-sidebar_position: 8
+sidebar_position: 9
 ---
 
 # Concurrency

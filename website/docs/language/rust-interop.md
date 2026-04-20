@@ -1,7 +1,7 @@
 ---
 title: Rust interop
 description: Import Rust crates into Kaede and scaffold a mixed-language project.
-sidebar_position: 9
+sidebar_position: 10
 ---
 
 # Rust interop

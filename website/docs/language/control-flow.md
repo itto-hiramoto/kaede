@@ -1,7 +1,7 @@
 ---
 title: Control flow
 description: Branching and looping patterns currently used throughout Kaede examples and tests.
-sidebar_position: 7
+sidebar_position: 8
 ---
 
 # Control flow
