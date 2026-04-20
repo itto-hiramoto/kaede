@@ -117,7 +117,7 @@ use std.sync.WaitGroup
 
 fun handle(conn: std.sys.Fd, wg: mut WaitGroup) {{
     let mut buf = [0; 1]
-    let n = match std.sys.read(conn, buf) {{
+    let n = match conn.read(buf) {{
         std.option.Option::Some(value) => value,
         std.option.Option::None => {{
             std.sys.close_quiet(conn)
@@ -126,7 +126,7 @@ fun handle(conn: std.sys.Fd, wg: mut WaitGroup) {{
         }}
     }}
 
-    if n > 0 && std.sys.write(conn, b"ok").is_none() {{
+    if n > 0 && conn.write(b"ok").is_none() {{
         std.sys.close_quiet(conn)
         wg.done()
         return
@@ -209,7 +209,7 @@ use std.sync.WaitGroup
 
 fun reader(conn: std.sys.Fd, wg: mut WaitGroup) {{
     let mut buf = [0; 1]
-    let _ = std.sys.read(conn, buf)
+    let _ = conn.read(buf)
     wg.done()
 }}
 
@@ -273,7 +273,7 @@ fn runtime_shutdown_exits_with_background_tasks_still_parked_on_io() -> anyhow::
 
 fun reader(conn: std.sys.Fd) {{
     let mut buf = [0; 1]
-    let _ = std.sys.read(conn, buf)
+    let _ = conn.read(buf)
 }}
 
 fun main() -> i32 {{
