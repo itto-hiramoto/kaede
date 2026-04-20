@@ -30,6 +30,17 @@ impl Counter {
 
 `Counter` now satisfies `Stringer`. Nothing else is required.
 
+### Stringer and `$"..."` interpolation
+
+Any type that satisfies `Stringer` can be dropped straight into a string-interpolation placeholder. Each `{}` calls `to_string` on its argument:
+
+```rust
+let c = Counter { value: 7 }
+println($"counter = {c}")
+```
+
+Giving a type `fun to_string(self) -> String` is all you need to make it printable this way — no registration, no trait derivation.
+
 ## Generic bounds
 
 The most common use is as a bound on a generic type parameter. Inside the function body, only the methods declared on the interface are callable on the bound parameter.
