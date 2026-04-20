@@ -41,9 +41,9 @@ println($"counter = {c}")
 
 Giving a type `fun to_string(self) -> String` is all you need to make it printable this way — no registration, no trait derivation.
 
-## Interface values
+## Dynamic dispatch
 
-An interface can be used directly as a type — as a parameter, return type, local, or element type inside a container like `Vector<I>`. The value carries its concrete type along with it, and each method call looks up the matching implementation at runtime.
+An interface name can be used directly as a type — as a parameter, return type, local, or element type inside a container like `Vector<I>`. A value held through an interface type carries its concrete type along with it, and each method call is resolved at runtime against that concrete type. This is **dynamic dispatch**.
 
 ```rust
 interface Scorer {
@@ -116,14 +116,14 @@ let label = describe(counter)
 
 A generic parameter without a bound (`fun identity<T>(value: T) -> T`) accepts any type but cannot call any methods on it.
 
-### Values vs. bounds
+### Dynamic vs. static dispatch
 
-Both forms share the same conformance rule — the method set must match — but they differ in where dispatch happens:
+Both forms share the same conformance rule — the method set must match — but they differ in how method calls are resolved:
 
-- `fun f(s: Scorer)` (interface value): one function body, dynamic dispatch per method call. Different concrete types can flow through the same variable at runtime.
-- `fun f<S: Scorer>(s: S)` (generic bound): one specialization per concrete `S`, static dispatch. No runtime lookup, but each call site fixes a single concrete type.
+- `fun f(s: Scorer)` — **dynamic dispatch**. One function body, the method is looked up at runtime against the value's concrete type. Different concrete types can flow through the same variable.
+- `fun f<S: Scorer>(s: S)` — **static dispatch**. One specialization per concrete `S`, the call is resolved at compile time. No runtime lookup, but each call site fixes a single concrete type.
 
-Reach for an interface value when the concrete type can vary at runtime (heterogeneous containers, plug-in style APIs). Reach for a generic bound when each caller has a single concrete type and you want the compiler to monomorphize.
+Reach for dynamic dispatch when the concrete type can vary at runtime (heterogeneous containers, plug-in style APIs). Reach for a generic bound when each caller has a single concrete type and you want the compiler to monomorphize.
 
 ## Standard-library interfaces
 
