@@ -41,9 +41,61 @@ println($"counter = {c}")
 
 Giving a type `fun to_string(self) -> String` is all you need to make it printable this way — no registration, no trait derivation.
 
+## Interface values
+
+An interface can be used directly as a type — as a parameter, return type, local, or element type inside a container like `Vector<I>`. The value carries its concrete type along with it, and each method call looks up the matching implementation at runtime.
+
+```rust
+interface Scorer {
+    fun score(self) -> i32
+}
+
+struct Alpha {
+    n: i32,
+}
+
+struct Beta {
+    n: i32,
+}
+
+impl Alpha {
+    fun score(self) -> i32 {
+        return self.n + 10
+    }
+}
+
+impl Beta {
+    fun score(self) -> i32 {
+        return self.n * 2
+    }
+}
+
+fun run(s: Scorer) -> i32 {
+    return s.score()
+}
+
+fun main() -> i32 {
+    let a = Alpha { n: 40 }
+    let b = Beta { n: 4 }
+    return run(a) + run(b)
+}
+```
+
+Both `Alpha` and `Beta` satisfy `Scorer`, and `run` dispatches to the right `score` for each concrete type.
+
+The same works for heterogeneous collections:
+
+```rust
+let mut items = Vector<Scorer>::new()
+items.push(Alpha { n: 40 })
+items.push(Beta { n: 4 })
+```
+
+Each element remembers the concrete type it was built from, and calling `.score()` on an element picks the matching implementation.
+
 ## Generic bounds
 
-The most common use is as a bound on a generic type parameter. Inside the function body, only the methods declared on the interface are callable on the bound parameter.
+An interface can also be used as a bound on a generic type parameter. Inside the function body, only the methods declared on the interface are callable on the bound parameter.
 
 ```rust
 interface Stringer {
@@ -63,6 +115,15 @@ let label = describe(counter)
 ```
 
 A generic parameter without a bound (`fun identity<T>(value: T) -> T`) accepts any type but cannot call any methods on it.
+
+### Values vs. bounds
+
+Both forms share the same conformance rule — the method set must match — but they differ in where dispatch happens:
+
+- `fun f(s: Scorer)` (interface value): one function body, dynamic dispatch per method call. Different concrete types can flow through the same variable at runtime.
+- `fun f<S: Scorer>(s: S)` (generic bound): one specialization per concrete `S`, static dispatch. No runtime lookup, but each call site fixes a single concrete type.
+
+Reach for an interface value when the concrete type can vary at runtime (heterogeneous containers, plug-in style APIs). Reach for a generic bound when each caller has a single concrete type and you want the compiler to monomorphize.
 
 ## Standard-library interfaces
 
