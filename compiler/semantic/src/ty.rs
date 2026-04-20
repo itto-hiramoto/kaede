@@ -210,7 +210,9 @@ impl SemanticAnalyzer {
                 )?
                 .into()),
 
-            ast_type::TyKind::Generic(gty) => self.analyze_generic_type(gty, ty.span),
+            ast_type::TyKind::Generic(gty) => {
+                self.analyze_generic_type(gty, ty.span, ty.mutability.into())
+            }
 
             ast_type::TyKind::External(inner_ty, access_chain) => {
                 let outer_mutability = ty.mutability;
@@ -246,11 +248,16 @@ impl SemanticAnalyzer {
         &self,
         gty: &ast_type::GenericType,
         span: Span,
+        outer_mutability: ir_type::Mutability,
     ) -> anyhow::Result<Rc<ir_type::Ty>> {
         let name = gty.name.symbol();
 
+        // The substituted type's mutability comes from the call site's argument,
+        // but the source position (`T` vs `mut T`) determines the parameter's
+        // mutability. Without this override, a first instantiation with a `mut`
+        // argument would poison the cached fn_decl for later immutable callers.
         match self.lookup_generic_argument(name) {
-            Some(ty) => Ok(ty),
+            Some(ty) => Ok(ir_type::change_mutability_dup(ty, outer_mutability)),
             None => Err(SemanticError::Undeclared { name, span }.into()),
         }
     }
