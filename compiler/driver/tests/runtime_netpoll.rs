@@ -112,6 +112,7 @@ fn std_sys_accept_does_not_starve_runnable_handlers() -> anyhow::Result<()> {
     main.write_str(&format!(
         r#"import std.sys
 import std.sync
+import std.net.tcp
 
 use std.sync.WaitGroup
 
@@ -137,15 +138,15 @@ fun handle(conn: std.sys.Fd, wg: mut WaitGroup) {{
 }}
 
 fun main() -> i32 {{
-    let listener = std.sys.socket_tcp4()
-    std.sys.set_reuseaddr(listener)
-    std.sys.bind_ipv4(listener, "127.0.0.1", {port})
-    std.sys.listen(listener, std.sys.somaxconn())
+    let listener = std.net.tcp.socket_tcp4()
+    std.net.tcp.set_reuseaddr(listener)
+    std.net.tcp.bind_ipv4(listener, "127.0.0.1", {port})
+    std.net.tcp.listen(listener, std.net.tcp.somaxconn())
 
     let mut wg = WaitGroup::new()
     let mut i = 0
     while i < {total_connections} {{
-        let conn = std.sys.accept(listener)
+        let conn = std.net.tcp.accept(listener)
         wg.add(1)
         spawn handle(conn, wg)
         i += 1
@@ -204,6 +205,7 @@ fn std_sys_close_wakes_tasks_parked_on_the_same_fd() -> anyhow::Result<()> {
     main.write_str(&format!(
         r#"import std.sys
 import std.sync
+import std.net.tcp
 
 use std.sync.WaitGroup
 
@@ -220,12 +222,12 @@ fun closer(conn: std.sys.Fd, wg: mut WaitGroup) {{
 }}
 
 fun main() -> i32 {{
-    let listener = std.sys.socket_tcp4()
-    std.sys.set_reuseaddr(listener)
-    std.sys.bind_ipv4(listener, "127.0.0.1", {port})
-    std.sys.listen(listener, std.sys.somaxconn())
+    let listener = std.net.tcp.socket_tcp4()
+    std.net.tcp.set_reuseaddr(listener)
+    std.net.tcp.bind_ipv4(listener, "127.0.0.1", {port})
+    std.net.tcp.listen(listener, std.net.tcp.somaxconn())
 
-    let conn = std.sys.accept(listener)
+    let conn = std.net.tcp.accept(listener)
     std.sys.close(listener)
 
     let mut wg = WaitGroup::new()
@@ -270,6 +272,7 @@ fn runtime_shutdown_exits_with_background_tasks_still_parked_on_io() -> anyhow::
     let main = src_dir.child("main.kd");
     main.write_str(&format!(
         r#"import std.sys
+import std.net.tcp
 
 fun reader(conn: std.sys.Fd) {{
     let mut buf = [0; 1]
@@ -277,12 +280,12 @@ fun reader(conn: std.sys.Fd) {{
 }}
 
 fun main() -> i32 {{
-    let listener = std.sys.socket_tcp4()
-    std.sys.set_reuseaddr(listener)
-    std.sys.bind_ipv4(listener, "127.0.0.1", {port})
-    std.sys.listen(listener, std.sys.somaxconn())
+    let listener = std.net.tcp.socket_tcp4()
+    std.net.tcp.set_reuseaddr(listener)
+    std.net.tcp.bind_ipv4(listener, "127.0.0.1", {port})
+    std.net.tcp.listen(listener, std.net.tcp.somaxconn())
 
-    let conn = std.sys.accept(listener)
+    let conn = std.net.tcp.accept(listener)
     std.sys.close(listener)
     spawn reader(conn)
     std.sys.sleep_ms(100)

@@ -3,14 +3,28 @@ import std.string
 import std.collections
 import std.io
 import std.option
+import std.fs
+import std.net.tcp
 import std.ffi.http
 
 use std.sys.Fd
+use std.sys.close
+use std.sys.close_quiet
 use std.string.String
 use std.collections.Vector
 use std.io.Reader
 use std.io.Writer
+use std.io.read_exact
+use std.io.read_all
+use std.io.read_until
 use std.option.Option
+use std.fs.open_read
+use std.fs.is_regular_file
+use std.net.tcp.accept
+use std.net.tcp.bind_ipv4
+use std.net.tcp.listen
+use std.net.tcp.socket_tcp4
+use std.net.tcp.somaxconn
 use std.ffi.http.__http_ws_accept
 
 // ====== Minimal HTTP request/response types ======
@@ -403,6 +417,74 @@ fun find_byte(buf: [u8], target: u8) -> i32 {
     return -1
 }
 
+// Searches `haystack` for `needle`; returns the starting offset, or -1.
+fun find_subslice(haystack: [u8], needle: [u8]) -> i32 {
+    let hlen = haystack.len()
+    let nlen = needle.len()
+
+    if hlen < nlen {
+        return -1
+    }
+
+    let mut i = 0
+
+    while i <= hlen - nlen {
+        let mut j = 0
+        let mut ok = true
+
+        while j < nlen {
+            if haystack[i + j] != needle[j] {
+                ok = false
+                break
+            }
+            j += 1
+        }
+
+        if ok {
+            return i as i32
+        }
+
+        i += 1
+    }
+
+    return -1
+}
+
+// Parses the HTTP request line from a header buffer into (method, target, version).
+fun parse_request_line(header: [u8]) -> (String, String, String) {
+    let i = find_subslice(header, b"\r\n")
+    if i < 0 {
+        panic("parse_request_line: missing CRLF")
+    }
+
+    let line = header[0:i] // "GET /path HTTP/1.1"
+    return split3_spaces(line)
+}
+
+fun split3_spaces(line: [u8]) -> (String, String, String) {
+    let sp1 = find_byte(line, b' ')
+    if sp1 < 0 {
+        panic("split3_spaces: missing first space")
+    }
+
+    let rest = line[(sp1 + 1):line.len()]
+
+    let sp2 = find_byte(rest, b' ')
+    if sp2 < 0 {
+        panic("split3_spaces: missing second space")
+    }
+
+    let method_bytes = line[0:sp1]
+    let target_bytes = rest[0:sp2]
+    let ver_bytes    = rest[(sp2 + 1):rest.len()]
+
+    let method = String::from_bytes(method_bytes)
+    let target = String::from_bytes(target_bytes)
+    let ver    = String::from_bytes(ver_bytes)
+
+    return (method, target, ver)
+}
+
 // Compares two byte slices for exact equality.
 fun bytes_eq(left: [u8], right: [u8]) -> bool {
     if left.len() != right.len() {
@@ -482,7 +564,7 @@ fun header_value(header: [u8], name: [u8]) -> Option<[u8]> {
             break
         }
 
-        let line_rel_end = std.sys.find_subslice(header[line_start:header.len()], b"\r\n")
+        let line_rel_end = find_subslice(header[line_start:header.len()], b"\r\n")
         if line_rel_end < 0 {
             break
         }
@@ -878,7 +960,7 @@ fun write_ws_frame<W: Writer>(conn: W, opcode: u8, payload: [u8]) -> bool {
 
 // Reads an exact number of bytes and reports whether it succeeded.
 fun read_exact_bytes<R: Reader>(r: R, buf: mut [u8], len: u64) -> bool {
-    return match std.sys.read_exact(r, buf, len) {
+    return match read_exact(r, buf, len) {
         Option::Some(n) => n == len,
         Option::None => false,
     }
@@ -923,7 +1005,7 @@ fun read_ws_payload<R: Reader>(conn: R, payload_len: u64, mask_key: [u8]) -> Opt
 
     while remaining > 0 {
         let want = if remaining > chunk.len() { chunk.len() } else { remaining }
-        let read = match std.sys.read_exact(conn, chunk, want) {
+        let read = match read_exact(conn, chunk, want) {
             Option::Some(value) => value,
             Option::None => return Option::None,
         }
@@ -964,7 +1046,7 @@ fun discard_ws_frame_body<R: Reader>(conn: R, len: u64) -> bool {
 // Reads one client WebSocket frame and validates the minimal protocol rules.
 fun read_ws_frame<R: Reader>(conn: R) -> FrameReadResult {
     let mut first_bytes = [0; 2]
-    let n = match std.sys.read_exact(conn, first_bytes, 2) {
+    let n = match read_exact(conn, first_bytes, 2) {
         Option::Some(value) => value,
         Option::None => return FrameReadResult::Closed,
     }
@@ -1483,7 +1565,7 @@ fun serve_static_path(res: mut Response, fs_path: String) {
         return
     }
 
-    let file = match std.sys.open_read(fs_path.as_str()) {
+    let file = match open_read(fs_path.as_str()) {
         Option::Some(fd) => fd,
         Option::None => {
             res.status(Status::NotFound).send(b"")
@@ -1491,22 +1573,22 @@ fun serve_static_path(res: mut Response, fs_path: String) {
         }
     }
 
-    if !std.sys.is_regular_file(file) {
-        std.sys.close_quiet(file)
+    if !is_regular_file(file) {
+        close_quiet(file)
         res.status(Status::NotFound).send(b"")
         return
     }
 
-    let bytes = match std.sys.read_all(file, 4 * 1024 * 1024) {
+    let bytes = match read_all(file, 4 * 1024 * 1024) {
         Option::Some(value) => value,
         Option::None => {
-            std.sys.close_quiet(file)
+            close_quiet(file)
             res.status(Status::InternalServerError).send(b"")
             return
         }
     }
 
-    std.sys.close_quiet(file)
+    close_quiet(file)
     let mut response = res.content_type(guess_content_type(fs_path.as_str()))
     response = response.header("Cache-Control", "no-store")
     response.send(bytes.as_slice())
@@ -1546,7 +1628,7 @@ fun handle_conn(conn: Fd, app: App) {
     loop {
         let mut buf = [0; 8192]
 
-        let n = match std.sys.read_until(conn, buf, b"\r\n\r\n") {
+        let n = match read_until(conn, buf, b"\r\n\r\n") {
             Option::Some(value) => value,
             Option::None => break,
         }
@@ -1554,7 +1636,7 @@ fun handle_conn(conn: Fd, app: App) {
             break
         }
 
-        let header_end = std.sys.find_subslice(buf[0:n], b"\r\n\r\n")
+        let header_end = find_subslice(buf[0:n], b"\r\n\r\n")
         if header_end < 0 {
             write_text_response(conn, true, Status::BadRequest, b"")
             break
@@ -1563,7 +1645,7 @@ fun handle_conn(conn: Fd, app: App) {
         let header_len = header_end + 4
         let header = buf[0:header_len]
 
-        let (method, target, version) = std.sys.parse_request_line(header)
+        let (method, target, version) = parse_request_line(header)
         let (path, query) = split_path_query(target)
 
         let content_length = parse_content_length(header)
@@ -1629,7 +1711,7 @@ fun handle_conn(conn: Fd, app: App) {
             }
             // Request bodies can arrive across multiple socket reads, so consume
             // exactly Content-Length bytes before dispatching the handler.
-            body_len = match std.sys.read_exact(conn, body, content_length as u64) {
+            body_len = match read_exact(conn, body, content_length as u64) {
                 Option::Some(value) => value,
                 Option::None => break,
             }
@@ -1661,18 +1743,18 @@ fun handle_conn(conn: Fd, app: App) {
         }
     }
 
-    std.sys.close(conn)
+    close(conn)
 }
 
 // Starts the TCP server and dispatches each accepted connection.
 export fun serve_tcp4(app: App, ip: str, port: u16) {
-    let backlog = std.sys.somaxconn()
-    let fd = std.sys.socket_tcp4()
-    std.sys.bind_ipv4(fd, ip, port)
-    std.sys.listen(fd, backlog)
+    let backlog = somaxconn()
+    let fd = socket_tcp4()
+    bind_ipv4(fd, ip, port)
+    listen(fd, backlog)
 
     loop {
-        let conn = std.sys.accept(fd)
+        let conn = accept(fd)
         spawn handle_conn(conn, app)
     }
 }

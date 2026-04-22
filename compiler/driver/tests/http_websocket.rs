@@ -19,12 +19,12 @@ fn spawn_ws_server() -> anyhow::Result<(assert_fs::TempDir, TestServer, u16, std
     let port = free_port()?;
     let main = src_dir.child("main.kd");
     main.write_str(&format!(
-        r#"import std.http
+        r#"import std.net.http
 import std.option
 
 use std.option.Option
 
-let mut app = std.http.App::new()
+let mut app = std.net.http.App::new()
 
 app.ws("/ws/echo", |req, ws| {{
     loop {{
@@ -32,21 +32,21 @@ app.ws("/ws/echo", |req, ws| {{
         match msg {{
             Option::Some(msg) => {{
                 match msg.kind {{
-                    std.http.WebSocketMessageKind::Text => {{
+                    std.net.http.WebSocketMessageKind::Text => {{
                         if !ws.send(msg) {{
                             return
                         }}
                     }}
-                    std.http.WebSocketMessageKind::Binary => {{
+                    std.net.http.WebSocketMessageKind::Binary => {{
                         if !ws.send(msg) {{
                             return
                         }}
                     }}
-                    std.http.WebSocketMessageKind::Close => {{
+                    std.net.http.WebSocketMessageKind::Close => {{
                         return
                     }}
-                    std.http.WebSocketMessageKind::Ping => {{}}
-                    std.http.WebSocketMessageKind::Pong => {{}}
+                    std.net.http.WebSocketMessageKind::Ping => {{}}
+                    std.net.http.WebSocketMessageKind::Pong => {{}}
                 }}
             }}
             Option::None => {{

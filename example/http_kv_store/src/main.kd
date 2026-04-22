@@ -1,10 +1,10 @@
-import std.http
+import std.net.http
 import std.string
 import std.collections
 import std.sync
 import std.option
 
-use std.http.Status
+use std.net.http.Status
 use std.string.String
 use std.collections.Vector
 use std.collections.HashMap
@@ -12,7 +12,7 @@ use std.collections.hash_str
 use std.sync.Mutex
 use std.option.Option
 
-mut app := std.http.App::new()
+mut app := std.net.http.App::new()
 
 mut lock := Mutex::new()
 mut kvs := HashMap<String, String>::new(hash_string, eq_string)

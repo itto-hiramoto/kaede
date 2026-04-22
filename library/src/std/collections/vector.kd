@@ -1,0 +1,174 @@
+import std.option
+import std.ffi.mem
+
+use std.option.Option
+use std.ffi.mem.__mem_alloc
+use std.ffi.mem.__mem_realloc
+
+export struct Vector<T> {
+    ptr: *T,
+    len: u64,
+    capacity: u64,
+}
+
+impl<T> Vector<T> {
+    export fun new() -> mut Vector<T> {
+        return Vector<T> { ptr: __mem_alloc(0) as *T, len: 0, capacity: 0 }
+    }
+
+    export fun as_ptr(self) -> *T {
+        return self.ptr
+    }
+
+    export fun as_slice(self) -> [T] {
+        return __slice_from_raw_parts(self.ptr, self.len)
+    }
+
+    export fun len(self) -> u64 {
+        return self.len
+    }
+
+    export fun capacity(self) -> u64 {
+        return self.capacity
+    }
+
+    export fun push(mut self, elem: T) {
+        let elem_size = __sizeof(elem)
+
+        self.ensure_capacity(elem_size)
+
+        self.ptr[self.len] = elem
+        self.len += 1
+    }
+
+    export fun pop(mut self) -> Option<T> {
+        if self.len == 0 {
+            return Option::None
+        }
+
+        self.len -= 1
+        return Option::Some(self.ptr[self.len])
+    }
+
+    export fun at(self, idx: u64) -> Option<T> {
+        if idx >= self.len {
+            return Option::None
+        }
+
+        return Option::Some(self.ptr[idx])
+    }
+
+    export fun set(mut self, idx: u64, value: T) -> bool {
+        if idx >= self.len {
+            return false
+        }
+
+        self.ptr[idx] = value
+        return true
+    }
+
+    export fun replace(mut self, idx: u64, value: T) -> Option<T> {
+        if idx >= self.len {
+            return Option::None
+        }
+
+        let old = self.ptr[idx]
+        self.ptr[idx] = value
+        return Option::Some(old)
+    }
+
+    export fun remove(mut self, idx: u64) -> Option<T> {
+        if idx >= self.len {
+            return Option::None
+        }
+
+        let removed = self.ptr[idx]
+
+        let mut i = idx
+        while i + 1 < self.len {
+            self.ptr[i] = self.ptr[i + 1]
+            i += 1
+        }
+
+        self.len -= 1
+        return Option::Some(removed)
+    }
+
+    // Removes an element in O(1) by replacing it with the last element.
+    // This does not preserve order.
+    export fun swap_remove(mut self, idx: u64) -> Option<T> {
+        if idx >= self.len {
+            return Option::None
+        }
+
+        let removed = self.ptr[idx]
+        self.len -= 1
+
+        if idx != self.len {
+            self.ptr[idx] = self.ptr[self.len]
+        }
+
+        return Option::Some(removed)
+    }
+
+    export fun retain(mut self, pred: fun(T) -> bool) {
+        let mut write = 0
+        let mut read = 0
+
+        while read < self.len {
+            let elem = self.ptr[read]
+            if pred(elem) {
+                if write != read {
+                    self.ptr[write] = elem
+                }
+                write += 1
+            }
+            read += 1
+        }
+
+        self.len = write
+    }
+
+    export fun filter(self, pred: fun(T) -> bool) -> mut Vector<T> {
+        let mut out = Vector<T>::new()
+        let mut i = 0
+
+        while i < self.len {
+            let elem = self.ptr[i]
+            if pred(elem) {
+                out.push(elem)
+            }
+            i += 1
+        }
+
+        return out
+    }
+
+    export fun from_slice(s: [T]) -> mut Vector<T> {
+        let mut v = Vector<T>::new()
+        let mut i = 0
+        while i < s.len() {
+            v.push(s[i])
+            i += 1
+        }
+        return v
+    }
+
+    fun ensure_capacity(mut self, elem_size: u64) {
+        if self.capacity == 0 {
+            self.capacity = 4
+            let new_size = elem_size * self.capacity
+            self.ptr = __mem_alloc(new_size) as *T
+            return
+        }
+
+        if self.len < self.capacity {
+            return
+        }
+
+        let new_capacity = self.capacity * 2
+        let new_size = elem_size * new_capacity
+        self.ptr = __mem_realloc(self.ptr as *u8, new_size) as *T
+        self.capacity = new_capacity
+    }
+}

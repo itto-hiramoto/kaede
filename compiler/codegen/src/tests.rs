@@ -5108,7 +5108,7 @@ fn fd_satisfies_io_reader_and_writer() -> anyhow::Result<()> {
 #[test]
 fn user_defined_reader_flows_through_stdlib_read_exact() -> anyhow::Result<()> {
     // Confirms that a user-defined struct satisfying std.io.Reader is accepted
-    // by the stdlib generic helper std.sys.read_exact end-to-end: the helper
+    // by the stdlib generic helper std.io.read_exact end-to-end: the helper
     // is monomorphized for the user's type, calls its `read` at runtime, and
     // returns the right byte count and contents.
     let program = r#"
@@ -5117,7 +5117,7 @@ fn user_defined_reader_flows_through_stdlib_read_exact() -> anyhow::Result<()> {
 
         use std.io.Reader
         use std.option.Option
-        use std.sys.read_exact
+        use std.io.read_exact
 
         struct ByteSource {
             value: u8,
@@ -5154,15 +5154,15 @@ fn user_defined_reader_flows_through_stdlib_read_exact() -> anyhow::Result<()> {
 
 #[test]
 fn user_defined_writer_flows_through_stdlib_http_helper() -> anyhow::Result<()> {
-    // Confirms a user-defined Writer routes through std.http.write_status_line
+    // Confirms a user-defined Writer routes through std.net.http.write_status_line
     // end-to-end: the stdlib helper is monomorphized over the user's type and
     // dispatches to its `write` at runtime.
     let program = r#"
-        import std.http
+        import std.net.http
         import std.io
 
-        use std.http.Status
-        use std.http.write_status_line
+        use std.net.http.Status
+        use std.net.http.write_status_line
         use std.io.Writer
         use std.option.Option
 

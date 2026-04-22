@@ -1,0 +1,21 @@
+import std.sys
+import std.ffi.sys
+import std.option
+
+use std.sys.Fd
+use std.option.Option
+use std.ffi.sys.__sys_open_read
+use std.ffi.sys.__sys_is_regular_file
+
+export fun open_read(path: str) -> Option<Fd> {
+    let fd = __sys_open_read(path.as_ptr(), path.len())
+    if fd < 0 {
+        return Option::None
+    }
+
+    return Option::Some(Fd::new(fd))
+}
+
+export fun is_regular_file(fd: Fd) -> bool {
+    return __sys_is_regular_file(fd.raw()) == 1
+}

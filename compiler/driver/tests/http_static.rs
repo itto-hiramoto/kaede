@@ -27,9 +27,9 @@ fn std_http_serves_static_files_with_expected_routing_rules() -> anyhow::Result<
     let port = free_port()?;
     let main = src_dir.child("main.kd");
     main.write_str(&format!(
-        r#"import std.http
+        r#"import std.net.http
 
-let mut app = std.http.App::new()
+let mut app = std.net.http.App::new()
 
 app.get("/hello", |req, res| {{
     res.send("route wins")

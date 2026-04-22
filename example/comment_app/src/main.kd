@@ -1,8 +1,8 @@
-import std.http
+import std.net.http
 import std.sync
 import rust::comment_app
 
-use std.http.Status
+use std.net.http.Status
 use std.sync.Mutex
 
 struct Comment {
@@ -39,7 +39,7 @@ mut next_comment_id := Counter::new(1)
 mut subscribers := Vector<Subscriber>::new()
 mut next_subscriber_id := Counter::new(1)
 
-mut app := std.http.App::new()
+mut app := std.net.http.App::new()
 
 app.static_file("/", "frontend/post.html")
 app.static_file("/screen", "frontend/screen.html")
@@ -177,19 +177,19 @@ app.ws("/ws/comments", |req, ws| {
 
 app.listen(port=8080)
 
-fun parse_since(req: std.http.Request) -> Option<u64> {
+fun parse_since(req: std.net.http.Request) -> Option<u64> {
     return match req.query("since") {
         Option::Some(value) => value.as_str().parse_u64(),
         Option::None => Option::Some(0),
     }
 }
 
-fun ws_reader(ws: mut std.http.WebSocket, events: Channel<String>) {
+fun ws_reader(ws: mut std.net.http.WebSocket, events: Channel<String>) {
     loop {
         match ws.receive() {
             Option::Some(msg) => {
                 match msg.kind {
-                    std.http.WebSocketMessageKind::Close => {
+                    std.net.http.WebSocketMessageKind::Close => {
                         events.close()
                         return
                     }

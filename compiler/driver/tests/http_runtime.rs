@@ -19,9 +19,9 @@ fn spawn_http_server() -> anyhow::Result<(assert_fs::TempDir, TestServer, u16, s
     let port = free_port()?;
     let main = src_dir.child("main.kd");
     main.write_str(&format!(
-        r#"import std.http
+        r#"import std.net.http
 
-let mut app = std.http.App::new()
+let mut app = std.net.http.App::new()
 
 app.get("/hello", |req, res| {{
     res.send("hello")
