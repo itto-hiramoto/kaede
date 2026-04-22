@@ -34,8 +34,12 @@ brew install git llvm@17 cmake python pkg-config openssl@3
 curl https://sh.rustup.rs -sSf | sh -s -- -y
 . "$HOME/.cargo/env"
 
-echo 'export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"' >> ~/.profile
-. ~/.profile
+case "$(basename "$SHELL")" in
+  zsh)  PROFILE=~/.zprofile ;;
+  *)    PROFILE=~/.profile ;;
+esac
+echo 'export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"' >> "$PROFILE"
+. "$PROFILE"
 
 git clone --recursive https://github.com/itto-hiramoto/kaede.git
 cd kaede
