@@ -70,7 +70,7 @@ impl Backend {
                 Err(err) => return diagnostics_from_parse_error(err),
             };
 
-            let mut analyzer = SemanticAnalyzer::new(file, root_dir);
+            let mut analyzer = SemanticAnalyzer::new(file, root_dir, PathBuf::from("rust"));
             let is_entry_unit = ast_has_entry_candidate(&ast);
             match analyzer.analyze(
                 ast,

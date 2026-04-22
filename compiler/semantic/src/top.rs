@@ -358,7 +358,8 @@ impl SemanticAnalyzer {
         }
         self.imported_rust_crates.insert(crate_name);
 
-        let resolved = rust_import::resolve_rust_import(&self.root_dir, crate_name.as_str())?;
+        let resolved =
+            rust_import::resolve_rust_import(&self.root_dir, &self.rust_path, crate_name.as_str())?;
 
         if let Some(lib) = &resolved.dylib_path {
             if !self.additional_native_libs.contains(lib) {

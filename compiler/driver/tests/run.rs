@@ -1,6 +1,7 @@
 use assert_cmd::prelude::*;
 use assert_fs::prelude::*;
 use predicates::prelude::*;
+use std::fs;
 use std::process::Command;
 
 fn create_project(temp_dir: &assert_fs::TempDir, program: &str) -> anyhow::Result<()> {
@@ -257,6 +258,56 @@ fun main() -> i32 {
         Option::None => 1,
     }
 }"#,
+    )?;
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .current_dir(temp_dir.path())
+        .arg("run")
+        .assert()
+        .code(predicate::eq(42));
+
+    Ok(())
+}
+
+#[test]
+fn run_resolves_rust_import_from_configured_rust_path() -> anyhow::Result<()> {
+    let temp_dir = assert_fs::TempDir::new()?;
+
+    // Manifest points `rust.path` at a non-default directory (`vendor`)
+    // to exercise the `rust.path` plumbing end-to-end.
+    temp_dir.child("Kaede.toml").write_str(
+        r#"[package]
+name = "custom_rust_path"
+version = "0.1.0"
+
+[build]
+src = "src"
+out = "build/custom_rust_path"
+
+[rust]
+path = "vendor"
+"#,
+    )?;
+
+    let src_dir = temp_dir.child("src");
+    src_dir.create_dir_all()?;
+    src_dir.child("main.kd").write_str(
+        r#"import rust::custom_rust_path
+
+fun main() -> i32 {
+    return rust::custom_rust_path::answer()
+}"#,
+    )?;
+
+    let vendor = temp_dir.child("vendor");
+    vendor.child("src").create_dir_all()?;
+    fs::write(
+        vendor.child("Cargo.toml").path(),
+        "[package]\nname = \"custom_rust_path\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )?;
+    fs::write(
+        vendor.child("src/lib.rs").path(),
+        "pub fn answer() -> i32 { 42 }\n",
     )?;
 
     Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?

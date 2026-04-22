@@ -73,6 +73,7 @@ pub struct SemanticAnalyzer {
     imported_rust_crates: HashSet<Symbol>,
     additional_native_libs: Vec<PathBuf>,
     root_dir: PathBuf,
+    pub(crate) rust_path: PathBuf,
     autoloads_imported: bool,
     infer_context: InferContext,
     closure_capture_stack: Vec<ClosureCapture>,
@@ -303,7 +304,7 @@ impl SemanticAnalyzer {
         module_context
     }
 
-    pub fn new(file_path: FilePath, root_dir: PathBuf) -> Self {
+    pub fn new(file_path: FilePath, root_dir: PathBuf, rust_path: PathBuf) -> Self {
         if !root_dir.is_dir() {
             panic!("Root directory is not a directory");
         }
@@ -325,6 +326,7 @@ impl SemanticAnalyzer {
             imported_rust_crates: HashSet::new(),
             additional_native_libs: Vec::new(),
             root_dir,
+            rust_path,
             autoloads_imported: false,
             infer_context: InferContext::default(),
             closure_capture_stack: Vec::new(),
@@ -351,6 +353,7 @@ impl SemanticAnalyzer {
             imported_rust_crates: HashSet::new(),
             additional_native_libs: Vec::new(),
             root_dir: PathBuf::from("."),
+            rust_path: PathBuf::from("rust"),
             autoloads_imported: false,
             infer_context: InferContext::default(),
             closure_capture_stack: Vec::new(),

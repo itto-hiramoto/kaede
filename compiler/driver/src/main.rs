@@ -245,6 +245,7 @@ fn compile<'ctx>(
     cgcx: &'ctx CodegenCtx<'_>,
     unit_infos: Vec<CompileUnitInfo>,
     root_dir: &'ctx Path,
+    rust_path: &Path,
     no_autoload: bool,
     no_prelude: bool,
 ) -> anyhow::Result<(Module<'ctx>, Vec<PathBuf>)> {
@@ -261,7 +262,8 @@ fn compile<'ctx>(
 
         let ast = Parser::new(&program, file).run()?;
 
-        let mut analyzer = SemanticAnalyzer::new(file, root_dir.to_path_buf());
+        let mut analyzer =
+            SemanticAnalyzer::new(file, root_dir.to_path_buf(), rust_path.to_path_buf());
         let mut ir = analyzer.analyze(
             ast,
             AnalyzeOptions {
@@ -362,6 +364,7 @@ pub(crate) fn compile_and_output_obj(
         &cgcx,
         unit_infos,
         &root_dir,
+        &option.rust_path,
         option.no_autoload,
         option.no_prelude,
     )?;
@@ -391,6 +394,7 @@ pub(crate) fn compile_and_link(
         &cgcx,
         unit_infos,
         &root_dir,
+        &option.rust_path,
         option.no_autoload,
         option.no_prelude,
     )?;
@@ -422,6 +426,7 @@ pub(crate) struct CompileOption {
     display_llvm_ir: bool,
     output_file_path: PathBuf,
     root_dir: Option<PathBuf>,
+    rust_path: PathBuf,
     no_autoload: bool,
     no_prelude: bool,
     no_gc: bool,
@@ -469,6 +474,7 @@ fn main() -> anyhow::Result<()> {
             "a.out"
         })),
         root_dir: args.root_dir,
+        rust_path: PathBuf::from("rust"),
         no_autoload: args.no_autoload,
         no_prelude: args.no_prelude,
         no_gc: args.no_gc,
