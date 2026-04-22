@@ -4,7 +4,7 @@ version = "0.1.0"
 
 [build]
 src = "src"
-out = "build/main"
+out = "build/comment_app"
 
 [rust]
 path = "rust"

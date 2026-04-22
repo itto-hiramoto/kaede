@@ -53,6 +53,10 @@ fn new_creates_hello_world_main() -> anyhow::Result<()> {
         "manifest should carry the project name: {manifest_contents}"
     );
     assert!(
+        manifest_contents.contains(r#"out = "build/hello_kaede""#),
+        "scaffold should set `build.out` to `build/<package.name>`: {manifest_contents}"
+    );
+    assert!(
         !manifest_contents.contains("[rust]"),
         "plain `kaede new` should not emit a [rust] section: {manifest_contents}"
     );

@@ -14,7 +14,6 @@ pub(crate) const MANIFEST_FILENAME: &str = "Kaede.toml";
 pub(crate) struct KaedeManifest {
     #[allow(dead_code)]
     pub package: PackageSection,
-    #[serde(default)]
     pub build: BuildSection,
     // Presence of `[rust]` enables Rust interop. v1 of the manifest records
     // the section but the compiler still defaults to `rust/` — wiring
@@ -35,39 +34,15 @@ pub(crate) struct PackageSection {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct BuildSection {
-    #[serde(default = "default_src")]
     pub src: PathBuf,
-    #[serde(default = "default_out")]
     pub out: PathBuf,
-}
-
-impl Default for BuildSection {
-    fn default() -> Self {
-        Self {
-            src: default_src(),
-            out: default_out(),
-        }
-    }
 }
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RustSection {
     #[allow(dead_code)]
-    #[serde(default = "default_rust_path")]
     pub path: PathBuf,
-}
-
-fn default_src() -> PathBuf {
-    PathBuf::from("src")
-}
-
-fn default_out() -> PathBuf {
-    PathBuf::from("build/main")
-}
-
-fn default_rust_path() -> PathBuf {
-    PathBuf::from("rust")
 }
 
 pub(crate) fn load_from_cwd() -> anyhow::Result<KaedeManifest> {
@@ -102,7 +77,7 @@ pub(crate) fn render_default(name: &str, with_rust: bool) -> String {
     out.push('\n');
     out.push_str("[build]\n");
     out.push_str("src = \"src\"\n");
-    out.push_str("out = \"build/main\"\n");
+    out.push_str(&format!("out = \"build/{name}\"\n"));
     if with_rust {
         out.push('\n');
         out.push_str("[rust]\n");

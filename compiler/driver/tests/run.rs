@@ -12,13 +12,43 @@ fn create_project_files(
     files: &[(&str, &str)],
 ) -> anyhow::Result<()> {
     temp_dir.child("Kaede.toml").write_str(
-        "[package]\nname = \"test\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"src\"\nout = \"build/main\"\n",
+        "[package]\nname = \"test\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"src\"\nout = \"build/test\"\n",
     )?;
     let src_dir = temp_dir.child("src");
     src_dir.create_dir_all()?;
     for (path, program) in files {
         src_dir.child(path).write_str(program)?;
     }
+    Ok(())
+}
+
+#[test]
+fn build_writes_binary_to_configured_out_path() -> anyhow::Result<()> {
+    let temp_dir = assert_fs::TempDir::new()?;
+    create_project(
+        &temp_dir,
+        r#"fun main() -> i32 {
+    return 0
+}"#,
+    )?;
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .current_dir(temp_dir.path())
+        .arg("build")
+        .assert()
+        .success();
+
+    // Fixture's manifest sets `out = "build/test"`; confirm the binary
+    // lands there and not at the legacy hardcoded `build/main`.
+    temp_dir
+        .child("build")
+        .child("test")
+        .assert(predicate::path::is_file());
+    temp_dir
+        .child("build")
+        .child("main")
+        .assert(predicate::path::missing());
+
     Ok(())
 }
 

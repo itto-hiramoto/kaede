@@ -30,8 +30,10 @@ version = "0.1.0"
 
 [build]
 src = "src"
-out = "build/main"
+out = "build/hello_kaede"
 ```
+
+`kaede new` sets `build.out` to `build/<package.name>` so the produced binary mirrors your package name.
 
 ## Run it
 
@@ -39,7 +41,7 @@ out = "build/main"
 kaede run
 ```
 
-The `run` command builds the project and then runs `build/main`. With the default scaffold, it prints:
+The `run` command builds the project and then runs the output binary (here `build/hello_kaede`). With the default scaffold, it prints:
 
 ```text
 hello, world!
@@ -49,7 +51,7 @@ If you want the steps separately:
 
 ```bash
 kaede build
-./build/main
+./build/hello_kaede
 ```
 
 ## Project layout
