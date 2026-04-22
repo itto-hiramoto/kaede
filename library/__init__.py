@@ -47,29 +47,23 @@ def install_bdwgc(third_party_dir):
     print("Installing garbage collector...")
 
     install_dir = os.path.join(third_party_dir, "bdwgc")
-
     bdwgc_dir = os.path.join(this_dir, "bdwgc")
     bdwgc_build_dir = os.path.join(this_dir, "bdwgc_build")
 
-    def build_bdwgc():
-        subprocess.run(
-            [
-                "cmake",
-                "-DCMAKE_BUILD_TYPE=Release",
-                "-DCMAKE_INSTALL_PREFIX='%s'" % install_dir,
-                "-S",
-                bdwgc_dir,
-                "-B",
-                bdwgc_build_dir,
-            ]
-        ).check_returncode()
-        subprocess.run(["cmake", "--build", bdwgc_build_dir, "-j"]).check_returncode()
-
-    def install_bdwgc():
-        build_bdwgc()
-        subprocess.run(["cmake", "--install", bdwgc_build_dir]).check_returncode()
-
-    install_bdwgc()
+    subprocess.run(
+        [
+            "cmake",
+            "-DCMAKE_BUILD_TYPE=Release",
+            "-DCMAKE_INSTALL_PREFIX='%s'" % install_dir,
+            "-S",
+            bdwgc_dir,
+            "-B",
+            bdwgc_build_dir,
+        ],
+        check=True,
+    )
+    subprocess.run(["cmake", "--build", bdwgc_build_dir, "-j"], check=True)
+    subprocess.run(["cmake", "--install", bdwgc_build_dir], check=True)
 
     print("Done!")
 
@@ -87,6 +81,7 @@ def install_standard_library(
     env = os.environ.copy()
     env["KAEDE_DIR"] = os.path.dirname(kaede_lib_dir)
     openssl_cflags, openssl_libs = resolve_openssl_flags()
+    cc = os.environ.get("CC", "cc")
 
     # Copy standard library source files
     kaede_lib_src_dir = os.path.join(kaede_lib_dir, "src")
@@ -127,7 +122,8 @@ def install_standard_library(
             *autoload_files,
         ],
         env=env,
-    ).check_returncode()
+        check=True,
+    )
     subprocess.run(
         [
             "cargo",
@@ -143,10 +139,11 @@ def install_standard_library(
             *std_lib_files,
         ],
         env=env,
-    ).check_returncode()
+        check=True,
+    )
     subprocess.run(
         [
-            "gcc",
+            cc,
             "-shared",
             "-fPIC",
             "-I",
@@ -162,8 +159,9 @@ def install_standard_library(
             runtime_lib_path,
             bdwgc_lib_path,
             *openssl_libs,
-        ]
-    ).check_returncode()
+        ],
+        check=True,
+    )
 
     print("Done!")
 
@@ -186,9 +184,10 @@ def install_runtime(kaede_lib_dir):
             runtime_src_dir,
             "-B",
             runtime_build_dir,
-        ]
-    ).check_returncode()
-    subprocess.run(["cmake", "--build", runtime_build_dir, "-j"]).check_returncode()
+        ],
+        check=True,
+    )
+    subprocess.run(["cmake", "--build", runtime_build_dir, "-j"], check=True)
 
     shutil.copy(os.path.join(runtime_build_dir, "libkaede_runtime.a"), runtime_lib_path)
 

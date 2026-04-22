@@ -3,7 +3,6 @@
 import os
 import sys
 import library
-import subprocess
 import shutil
 
 
@@ -13,27 +12,21 @@ kaede_dir = os.path.expandvars(unexpanded_kaede_dir)
 kaede_bin_dir = os.path.expandvars(unexpanded_kaede_bin_dir)
 
 
-def shell_initianlize_file():
-    shell = os.environ.get("SHELL")
+def shell_initialize_file():
+    shell_name = os.path.basename(os.environ.get("SHELL", ""))
 
-    if shell == "/bin/bash":
+    if shell_name == "bash":
         profile = "~/.bash_profile"
         login = "~/.bash_login"
-    elif shell == "/bin/zsh":
+    elif shell_name == "zsh":
         profile = "~/.zprofile"
         login = "~/.zlogin"
-    elif shell == "/bin/fish":
-        profile = "~/.config/fish/config.fish"
-        login = None
     else:
-        # Not supported
         return None
 
-    # If shell profile file exists, use it
     if os.path.exists(os.path.expanduser(profile)):
         return profile
 
-    # If shell login file exists, use it
     if os.path.exists(os.path.expanduser(login)):
         return login
 
@@ -43,9 +36,7 @@ def shell_initianlize_file():
 def install_compiler():
     print("Installing compiler...")
 
-    os.environ["KAEDE_DIR"] = kaede_dir
-    subprocess.run(["cargo", "build", "--release"]).check_returncode()
-    # Move builded binary
+    # Binary was already built by `cargo run --release` invocations in library.install.
     shutil.move("target/release/kaede", os.path.join(kaede_dir, "bin"))
 
     print("Done!")
@@ -79,28 +70,30 @@ def create_shell_script_for_setting_env():
     if "--no-setenv" in sys.argv:
         return
 
-    shell_init_file = shell_initianlize_file()
+    shell_init_file = shell_initialize_file()
 
     if shell_init_file is None:
-        print("This script is not compatible with your shell!")
+        shell_name = os.path.basename(os.environ.get("SHELL", "")) or "unknown"
+        print(
+            "Auto-config skipped: shell '%s' is not supported (only bash/zsh)."
+            % shell_name
+        )
         print("Please add the following to your shell init file:")
-        print('. "%s"' % env_script_path)
-    else:
-        shell_init_file_path = os.path.expanduser(shell_init_file)
-        line_to_add = '. "%s"\n' % env_script_path
+        print('  . "%s"' % env_script_path)
+        return
 
-        # Check if the line already exists
-        if os.path.exists(shell_init_file_path):
-            with open(shell_init_file_path, "r") as f:
-                if line_to_add in f.read():
-                    # Line already exists, skip
-                    return
+    shell_init_file_path = os.path.expanduser(shell_init_file)
+    line_to_add = '. "%s"\n' % env_script_path
 
-        # Append the line if it doesn't exist
-        with open(shell_init_file_path, "a+") as f:
-            f.write(line_to_add)
-        print("Please enter the following command:")
-        print("source %s" % shell_init_file)
+    if os.path.exists(shell_init_file_path):
+        with open(shell_init_file_path, "r") as f:
+            if line_to_add in f.read():
+                return
+
+    with open(shell_init_file_path, "a+") as f:
+        f.write(line_to_add)
+    print("Please enter the following command:")
+    print("source %s" % shell_init_file)
 
 
 if __name__ == "__main__":
@@ -111,10 +104,7 @@ if __name__ == "__main__":
         )
         shutil.rmtree(kaede_dir)
 
-    if not os.path.exists(kaede_dir):
-        os.mkdir(kaede_dir)
-    if not os.path.exists(kaede_bin_dir):
-        os.mkdir(kaede_bin_dir)
+    os.makedirs(kaede_bin_dir)
 
     install()
 
