@@ -15,6 +15,8 @@ Examples in the repository use types such as:
 - `i32`
 - `i64`
 - `u64`
+- `f32`
+- `f64`
 - `bool`
 - `str`
 - `String`
