@@ -139,7 +139,7 @@ interface Writer {
 }
 ```
 
-`std.sys.Fd` (the file-descriptor wrapper used by `std.http`) satisfies both, so any helper that takes `<R: Reader>` or `<W: Writer>` works directly with a TCP connection or open file:
+`std.sys.Fd` (the file-descriptor wrapper used by `std.net.http`) satisfies both, so any helper that takes `<R: Reader>` or `<W: Writer>` works directly with a TCP connection or open file:
 
 ```rust
 import std.io
@@ -164,8 +164,8 @@ fun main() -> i32 {
 Other stdlib interfaces follow the same pattern:
 
 - `std.io.Stringer` — anything with `fun to_string(self) -> String`
-- `std.http.Payload` — bodies accepted by `Response::send` (impls for `str` and `[u8]`)
-- `std.http.WebSocketPayload` — payloads accepted by `WebSocket::send`
+- `std.net.http.Payload` — bodies accepted by `Response::send` (impls for `str` and `[u8]`)
+- `std.net.http.WebSocketPayload` — payloads accepted by `WebSocket::send`
 
 To plug in your own type, just give it the right method. No registration is needed.
 

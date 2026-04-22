@@ -42,7 +42,7 @@ It is also used for nested dispatch:
 
 ```rust
 match msg.kind {
-    std.http.WebSocketMessageKind::Close => return
+    std.net.http.WebSocketMessageKind::Close => return
     _ => ws.send(msg)
 }
 ```

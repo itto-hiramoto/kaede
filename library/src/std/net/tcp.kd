@@ -1,0 +1,51 @@
+import std.sys
+import std.ffi.sys
+
+use std.sys.Fd
+use std.ffi.sys.__sys_socket_tcp4
+use std.ffi.sys.__sys_set_reuseaddr
+use std.ffi.sys.__sys_bind_ipv4
+use std.ffi.sys.__sys_listen
+use std.ffi.sys.__sys_accept
+use std.ffi.sys.__sys_somaxconn
+
+export fun socket_tcp4() -> Fd {
+    let fd = __sys_socket_tcp4()
+    if fd < 0 {
+        panic("socket_tcp4 failed")
+    }
+    return Fd::new(fd)
+}
+
+export fun set_reuseaddr(fd: Fd) {
+    let r = __sys_set_reuseaddr(fd.raw())
+    if r < 0 {
+        panic("set_reuseaddr failed")
+    }
+}
+
+export fun bind_ipv4(fd: Fd, ip: str, port: u16) {
+    let r = __sys_bind_ipv4(fd.raw(), ip.as_ptr(), port)
+    if r < 0 {
+        panic("bind_ipv4 failed")
+    }
+}
+
+export fun listen(fd: Fd, backlog: i32) {
+    let r = __sys_listen(fd.raw(), backlog)
+    if r < 0 {
+        panic("listen failed")
+    }
+}
+
+export fun somaxconn() -> i32 {
+    return __sys_somaxconn()
+}
+
+export fun accept(fd: Fd) -> Fd {
+    let c = __sys_accept(fd.raw())
+    if c < 0 {
+        panic("accept failed")
+    }
+    return Fd::new(c)
+}

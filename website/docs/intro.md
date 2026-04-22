@@ -29,9 +29,9 @@ Kaede is still in pre-release. Language details and standard-library APIs may ch
 ## What Kaede looks like
 
 ```rust
-import std.http
+import std.net.http
 
-mut app := std.http.App::new()
+mut app := std.net.http.App::new()
 
 app.get("/", |req, res| {
     res.send("hello, world!")

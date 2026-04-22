@@ -13,17 +13,17 @@ This page stays intentionally high level. It focuses on syntax and patterns that
 Kaede uses `import` for modules and `use` to bring names into shorter scope.
 
 ```rust
-import std.http
+import std.net.http
 import std.sync
 
-use std.http.Status
+use std.net.http.Status
 use std.sync.Mutex
 ```
 
 Qualified names use `::`:
 
 ```rust
-mut app := std.http.App::new()
+mut app := std.net.http.App::new()
 ```
 
 ### Module layout
@@ -51,7 +51,7 @@ Kaede supports both the short declaration form and `let` bindings:
 
 ```rust
 vec := Vector<i32>::new()
-mut app := std.http.App::new()
+mut app := std.net.http.App::new()
 let count: i32 = 3
 ```
 

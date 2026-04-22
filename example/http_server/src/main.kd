@@ -1,6 +1,6 @@
-import std.http
+import std.net.http
 
-mut app := std.http.App::new()
+mut app := std.net.http.App::new()
 
 app.ws("/ws/echo", |req, ws| {
     loop {
@@ -8,21 +8,21 @@ app.ws("/ws/echo", |req, ws| {
         match msg {
             Option::Some(msg) => {
                 match msg.kind {
-                    std.http.WebSocketMessageKind::Text => {
+                    std.net.http.WebSocketMessageKind::Text => {
                         if !ws.send(msg) {
                             return
                         }
                     }
-                    std.http.WebSocketMessageKind::Binary => {
+                    std.net.http.WebSocketMessageKind::Binary => {
                         if !ws.send(msg) {
                             return
                         }
                     }
-                    std.http.WebSocketMessageKind::Close => {
+                    std.net.http.WebSocketMessageKind::Close => {
                         return
                     }
-                    std.http.WebSocketMessageKind::Ping => {},
-                    std.http.WebSocketMessageKind::Pong => {},
+                    std.net.http.WebSocketMessageKind::Ping => {},
+                    std.net.http.WebSocketMessageKind::Pong => {},
                 }
             }
             Option::None => {
@@ -41,7 +41,7 @@ app.post("/echo", |req, res| {
 })
 
 app.get("/status/notfound", |req, res| {
-    res.status(std.http.Status::NotFound).send("Not Found")
+    res.status(std.net.http.Status::NotFound).send("Not Found")
 })
 
 app.get("/query", |req, res| {

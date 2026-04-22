@@ -1,15 +1,13 @@
 import std.ffi.sys
-import std.string
-import std.collections
 import std.option
-import std.io
 
-use std.collections.Vector
-use std.io.Reader
 use std.option.Option
-use std.string.String
 
-use std.ffi.sys.*
+use std.ffi.sys.__sys_read
+use std.ffi.sys.__sys_write
+use std.ffi.sys.__sys_errno
+use std.ffi.sys.__sys_close
+use std.ffi.sys.__sys_sleep_ms
 
 export struct Fd {
     raw: i32,
@@ -59,49 +57,8 @@ impl Fd {
     }
 }
 
-export fun socket_tcp4() -> Fd {
-    let fd = __sys_socket_tcp4()
-    if fd < 0 {
-        panic("socket_tcp4 failed")
-    }
-    return Fd::new(fd)
-}
-
-export fun set_reuseaddr(fd: Fd) {
-    let r = __sys_set_reuseaddr(fd.raw)
-    if r < 0 {
-        panic("set_reuseaddr failed")
-    }
-}
-
-export fun bind_ipv4(fd: Fd, ip: str, port: u16) {
-    let r = __sys_bind_ipv4(fd.raw, ip.as_ptr(), port)
-    if r < 0 {
-        panic("bind_ipv4 failed")
-    }
-}
-
-export fun listen(fd: Fd, backlog: i32) {
-    let r = __sys_listen(fd.raw, backlog)
-    if r < 0 {
-        panic("listen failed")
-    }
-}
-
-export fun somaxconn() -> i32 {
-    return __sys_somaxconn()
-}
-
 export fun errno() -> i32 {
     return __sys_errno()
-}
-
-export fun accept(fd: Fd) -> Fd {
-    let c = __sys_accept(fd.raw)
-    if c < 0 {
-        panic("accept failed")
-    }
-    return Fd::new(c)
 }
 
 export fun close(fd: Fd) {
@@ -120,172 +77,4 @@ export fun sleep_ms(ms: u64) {
     if r < 0 {
         panic("sleep_ms failed")
     }
-}
-
-// ===== I/O =====
-
-export fun open_read(path: str) -> Option<Fd> {
-    let fd = __sys_open_read(path.as_ptr(), path.len())
-    if fd < 0 {
-        return Option::None
-    }
-
-    return Option::Some(Fd::new(fd))
-}
-
-export fun is_regular_file(fd: Fd) -> bool {
-    return __sys_is_regular_file(fd.raw) == 1
-}
-
-// Read exactly `len` bytes unless EOF is hit; returns bytes read.
-export fun read_exact<R: Reader>(r: R, buf: mut [u8], len: u64) -> Option<u64> {
-    let mut read_total = 0
-    while read_total < len {
-        let mut slice = buf[read_total:buf.len()]
-        let n = match r.read(slice) {
-            Option::Some(value) => value,
-            Option::None => return Option::None,
-        }
-        if n == 0 {
-            break
-        }
-        read_total += n
-    }
-    return Option::Some(read_total)
-}
-
-export fun read_all<R: Reader>(r: R, max_bytes: u64) -> Option<Vector<u8>> {
-    let mut out = Vector<u8>::new()
-    let mut buf = [0; 4096]
-
-    loop {
-        let n = match r.read(buf) {
-            Option::Some(value) => value,
-            Option::None => return Option::None,
-        }
-
-        if n == 0 {
-            break
-        }
-
-        if out.len() + n > max_bytes {
-            return Option::None
-        }
-
-        let mut i = 0
-        while i < n {
-            out.push(buf[i])
-            i += 1
-        }
-    }
-
-    return Option::Some(out)
-}
-
-export fun read_until<R: Reader>(r: R, buf: mut [u8], delim: [u8]) -> Option<u64> {
-    let mut filled = 0
-
-    loop {
-        if filled >= buf.len() {
-            panic("read_until: buffer full")
-        }
-
-        // Read 1 byte at a time so HTTP keep-alive parsing does not consume
-        // bytes that belong to the next request on the same connection.
-        let mut tail = buf[filled:(filled + 1)]
-        let n = match r.read(tail) {
-            Option::Some(value) => value,
-            Option::None => return Option::None,
-        }
-        if n == 0 {
-            // EOF: caller decides how to handle closed connection
-            return Option::Some(0)
-        }
-
-        filled += n
-
-        let p = find_subslice(buf[0:filled], delim)
-        if p >= 0 {
-            return Option::Some((p as u64) + delim.len())
-        }
-    }
-
-    __unreachable()
-}
-
-export fun find_subslice(haystack: [u8], needle: [u8]) -> i32 {
-    let hlen = haystack.len()
-    let nlen = needle.len()
-
-    if hlen < nlen {
-        return -1
-    }
-
-    let mut i = 0
-
-    while i <= hlen - nlen {
-        let mut j = 0
-        let mut ok = true
-
-        while j < nlen {
-            if haystack[i + j] != needle[j] {
-                ok = false
-                break
-            }
-            j += 1
-        }
-
-        if ok {
-            return i as i32
-        }
-
-        i += 1
-    }
-
-    return -1
-}
-
-export fun parse_request_line(header: [u8]) -> (String, String, String) {
-    let i = find_subslice(header, b"\r\n")
-    if i < 0 {
-        panic("parse_request_line: missing CRLF")
-    }
-
-    let line = header[0:i] // "GET /path HTTP/1.1"
-    return split3_spaces(line)
-}
-
-fun split3_spaces(line: [u8]) -> (String, String, String) {
-    let sp1 = find_byte(line, b' ')
-    if sp1 < 0 {
-        panic("split3_spaces: missing first space")
-    }
-
-    let rest = line[(sp1 + 1):line.len()]
-
-    let sp2 = find_byte(rest, b' ')
-    if sp2 < 0 {
-        panic("split3_spaces: missing second space")
-    }
-
-    let method_bytes = line[0:sp1]
-    let target_bytes = rest[0:sp2]
-    let ver_bytes    = rest[(sp2 + 1):rest.len()]
-
-    let method = String::from_bytes(method_bytes)
-    let target = String::from_bytes(target_bytes)
-    let ver    = String::from_bytes(ver_bytes)
-
-    return (method, target, ver)
-}
-
-fun find_byte(buf: [u8], b: u8) -> i32 {
-    let mut i = 0
-    while i < buf.len() {
-        if buf[i] == b {
-            return i as i32
-        }
-        i += 1
-    }
-    return -1
 }
