@@ -719,8 +719,10 @@ dependencies = [
  "kaede_parse",
  "kaede_semantic",
  "predicates",
+ "serde",
  "tempfile",
  "tokio",
+ "toml",
 ]
 
 [[package]]

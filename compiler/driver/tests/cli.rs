@@ -30,6 +30,7 @@ fn new_creates_hello_world_main() -> anyhow::Result<()> {
     let project_name = "hello_kaede";
     let project_dir = temp_dir.child(project_name);
     let main = project_dir.child("src/main.kd");
+    let manifest = project_dir.child("Kaede.toml");
 
     Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
         .current_dir(temp_dir.path())
@@ -43,6 +44,48 @@ fn new_creates_hello_world_main() -> anyhow::Result<()> {
         r#"fun main() {
     println("hello, world!")
 }"#,
+    );
+
+    manifest.assert(predicate::path::is_file());
+    let manifest_contents = fs::read_to_string(manifest.path())?;
+    assert!(
+        manifest_contents.contains(r#"name = "hello_kaede""#),
+        "manifest should carry the project name: {manifest_contents}"
+    );
+    assert!(
+        manifest_contents.contains(r#"out = "build/hello_kaede""#),
+        "scaffold should set `build.out` to `build/<package.name>`: {manifest_contents}"
+    );
+    assert!(
+        !manifest_contents.contains("[rust]"),
+        "plain `kaede new` should not emit a [rust] section: {manifest_contents}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn new_rust_creates_manifest_with_rust_section() -> anyhow::Result<()> {
+    let temp_dir = assert_fs::TempDir::new()?;
+    let project_name = "hello_rust_kaede";
+    let project_dir = temp_dir.child(project_name);
+    let manifest = project_dir.child("Kaede.toml");
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .current_dir(temp_dir.path())
+        .args(["new", project_name, "--rust"])
+        .assert()
+        .success();
+
+    manifest.assert(predicate::path::is_file());
+    let manifest_contents = fs::read_to_string(manifest.path())?;
+    assert!(
+        manifest_contents.contains("[rust]"),
+        "`kaede new --rust` should emit a [rust] section: {manifest_contents}"
+    );
+    assert!(
+        manifest_contents.contains(r#"path = "rust""#),
+        "[rust].path should default to \"rust\": {manifest_contents}"
     );
 
     Ok(())

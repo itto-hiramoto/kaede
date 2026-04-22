@@ -6,25 +6,7 @@ use std::{
 use anyhow::Context as _;
 use inkwell::OptimizationLevel;
 
-use crate::{compile_and_link, select_entry_unit, CompileOption, CompileUnitInfo};
-
-fn ensure_kaede_project_root() -> anyhow::Result<()> {
-    if !Path::new("src").exists() {
-        anyhow::bail!(
-            "This command expects a Kaede project.\n\
-             Expected structure:\n\
-             └── src/           (Kaede source files)\n\
-             \n\
-             To create a new project: kaede new <project_name> [--rust]\n\
-             Current directory: {}",
-            std::env::current_dir()
-                .unwrap_or_else(|_| PathBuf::from("unknown"))
-                .display()
-        );
-    }
-
-    Ok(())
-}
+use crate::{compile_and_link, manifest, select_entry_unit, CompileOption, CompileUnitInfo};
 
 fn find_kd_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
     let mut kd_files = Vec::new();
@@ -68,19 +50,37 @@ fn collect_kaede_unit_infos(src_root: &Path) -> anyhow::Result<Vec<CompileUnitIn
     Ok(unit_infos)
 }
 
-pub(crate) fn build_project() -> anyhow::Result<()> {
-    ensure_kaede_project_root()?;
+pub(crate) fn build_project() -> anyhow::Result<PathBuf> {
+    let manifest = manifest::load_from_cwd()?;
+    let src_root = manifest.build.src;
+    let output_path = manifest.build.out;
+    // `[rust]` section presence enables Rust interop; when it is absent,
+    // `import rust::<crate>` is rejected by the semantic analyzer.
+    let rust_path = manifest.rust.as_ref().map(|r| r.path.clone());
 
-    fs::create_dir_all("build").context("Failed to create build directory")?;
+    if !src_root.exists() {
+        anyhow::bail!(
+            "Kaede source directory '{}' does not exist (configured by build.src in Kaede.toml)",
+            src_root.display()
+        );
+    }
 
-    let src_root = PathBuf::from("src");
+    if let Some(parent) = output_path.parent() {
+        if !parent.as_os_str().is_empty() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create output directory '{}'", parent.display())
+            })?;
+        }
+    }
+
     let unit_infos = collect_kaede_unit_infos(&src_root)?;
 
     let option = CompileOption {
         opt_level: OptimizationLevel::Default,
         display_llvm_ir: false,
-        output_file_path: PathBuf::from("build/main"),
+        output_file_path: output_path.clone(),
         root_dir: Some(src_root),
+        rust_path,
         no_autoload: false,
         no_prelude: false,
         no_gc: false,
@@ -91,8 +91,8 @@ pub(crate) fn build_project() -> anyhow::Result<()> {
     compile_and_link(unit_infos, option)?;
 
     println!("✅ Build completed successfully!");
-    println!("📁 Output: build/main");
-    println!("🚀 Run with: ./build/main");
+    println!("📁 Output: {}", output_path.display());
+    println!("🚀 Run with: ./{}", output_path.display());
 
-    Ok(())
+    Ok(output_path)
 }
