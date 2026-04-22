@@ -270,6 +270,37 @@ fun main() -> i32 {
 }
 
 #[test]
+fn build_rejects_rust_import_when_rust_section_is_missing() -> anyhow::Result<()> {
+    let temp_dir = assert_fs::TempDir::new()?;
+
+    // Manifest omits `[rust]`, so Rust interop is not enabled even though
+    // a `rust/` directory is present on disk.
+    create_project(
+        &temp_dir,
+        "import rust::anything\n\nfun main() -> i32 { return 0 }",
+    )?;
+
+    let rust_dir = temp_dir.child("rust");
+    rust_dir.child("src").create_dir_all()?;
+    fs::write(
+        rust_dir.child("Cargo.toml").path(),
+        "[package]\nname = \"anything\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )?;
+    fs::write(rust_dir.child("src/lib.rs").path(), "pub fn f() {}\n")?;
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .current_dir(temp_dir.path())
+        .arg("build")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Add a `[rust]` section to Kaede.toml",
+        ));
+
+    Ok(())
+}
+
+#[test]
 fn run_resolves_rust_import_from_configured_rust_path() -> anyhow::Result<()> {
     let temp_dir = assert_fs::TempDir::new()?;
 

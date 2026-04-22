@@ -358,8 +358,13 @@ impl SemanticAnalyzer {
         }
         self.imported_rust_crates.insert(crate_name);
 
+        let Some(rust_path) = self.rust_path.as_deref() else {
+            return Err(anyhow::anyhow!(
+                "`import rust::{crate_name}` requires Rust interop to be enabled. Add a `[rust]` section to Kaede.toml."
+            ));
+        };
         let resolved =
-            rust_import::resolve_rust_import(&self.root_dir, &self.rust_path, crate_name.as_str())?;
+            rust_import::resolve_rust_import(&self.root_dir, rust_path, crate_name.as_str())?;
 
         if let Some(lib) = &resolved.dylib_path {
             if !self.additional_native_libs.contains(lib) {
