@@ -487,3 +487,162 @@ fn import_mutual_recursive_functions() -> anyhow::Result<()> {
     }
     .run()
 }
+
+// Sibling-file module layout: `net.kd` defines module `net`, and `net/*.kd`
+// define its submodules. They can coexist. These tests pin the behavior so it
+// cannot regress silently.
+
+#[test]
+fn sibling_layout_body_and_submodule() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "sibling_layout_body_and_submodule",
+        modules: HashMap::from([
+            ("net", "export fun root_fn() -> i32 { return 1 }"),
+            ("net/tcp", "export fun tcp_fn() -> i32 { return 2 }"),
+        ]),
+        main_content: r#"
+            import net
+            import net.tcp
+            fun main() -> i32 {
+                return net.root_fn() + net.tcp.tcp_fn()
+            }
+        "#,
+        expected_min_top_levels: 3,
+        should_fail: false,
+    }
+    .run()
+}
+
+#[test]
+fn sibling_layout_submodule_only_succeeds() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "sibling_layout_submodule_only_succeeds",
+        modules: HashMap::from([("net/tcp", "export fun tcp_fn() -> i32 { return 7 }")]),
+        main_content: r#"
+            import net.tcp
+            fun main() -> i32 {
+                return net.tcp.tcp_fn()
+            }
+        "#,
+        expected_min_top_levels: 2,
+        should_fail: false,
+    }
+    .run()
+}
+
+#[test]
+fn sibling_layout_body_missing_import_fails() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "sibling_layout_body_missing_import_fails",
+        modules: HashMap::from([("net/tcp", "export fun tcp_fn() -> i32 { return 7 }")]),
+        main_content: r#"
+            import net
+            fun main() -> i32 {
+                return 0
+            }
+        "#,
+        expected_min_top_levels: 0,
+        should_fail: true,
+    }
+    .run()
+}
+
+#[test]
+fn sibling_layout_nested_hierarchy() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "sibling_layout_nested_hierarchy",
+        modules: HashMap::from([
+            ("net", "export fun root_fn() -> i32 { return 1 }"),
+            ("net/http", "export fun http_fn() -> i32 { return 10 }"),
+            (
+                "net/http/request",
+                "export fun request_fn() -> i32 { return 100 }",
+            ),
+        ]),
+        main_content: r#"
+            import net
+            import net.http
+            import net.http.request
+            fun main() -> i32 {
+                return net.root_fn() + net.http.http_fn() + net.http.request.request_fn()
+            }
+        "#,
+        expected_min_top_levels: 4,
+        should_fail: false,
+    }
+    .run()
+}
+
+#[test]
+fn sibling_layout_body_imports_own_submodule() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "sibling_layout_body_imports_own_submodule",
+        modules: HashMap::from([
+            (
+                "net",
+                r#"
+                import net.tcp
+                export fun root_fn() -> i32 { return net.tcp.tcp_fn() + 1 }
+            "#,
+            ),
+            ("net/tcp", "export fun tcp_fn() -> i32 { return 41 }"),
+        ]),
+        main_content: r#"
+            import net
+            fun main() -> i32 {
+                return net.root_fn()
+            }
+        "#,
+        expected_min_top_levels: 3,
+        should_fail: false,
+    }
+    .run()
+}
+
+#[test]
+fn sibling_layout_use_from_body() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "sibling_layout_use_from_body",
+        modules: HashMap::from([
+            ("net", "export fun root_fn() -> i32 { return 17 }"),
+            ("net/tcp", "export fun tcp_fn() -> i32 { return 25 }"),
+        ]),
+        main_content: r#"
+            import net
+            use net.root_fn
+            fun main() -> i32 {
+                return root_fn()
+            }
+        "#,
+        expected_min_top_levels: 2,
+        should_fail: false,
+    }
+    .run()
+}
+
+// Observational test: when `net.kd` exports an item with the same name as a
+// sibling submodule `net/tcp.kd`, expression-position `net.tcp` resolves to the
+// item in `net.kd`, not the submodule. The submodule can still be loaded (and
+// its own imported symbols used via `use`), but the dotted path cannot reach
+// into it because the item in the parent module shadows the submodule name.
+// This test pins the current behavior so any future change is intentional.
+#[test]
+fn sibling_layout_item_shadows_submodule_in_expr_position() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "sibling_layout_item_shadows_submodule_in_expr_position",
+        modules: HashMap::from([
+            ("net", "export fun tcp() -> i32 { return 5 }"),
+            ("net/tcp", "export fun inner() -> i32 { return 3 }"),
+        ]),
+        main_content: r#"
+            import net
+            import net.tcp
+            fun main() -> i32 {
+                return net.tcp()
+            }
+        "#,
+        expected_min_top_levels: 3,
+        should_fail: false,
+    }
+    .run()
+}
