@@ -646,3 +646,128 @@ fn sibling_layout_item_shadows_submodule_in_expr_position() -> anyhow::Result<()
     }
     .run()
 }
+
+// `use` visibility: a bare `use` is module-local (private), `export use`
+// re-exports the name. These tests pin both directions so the internal
+// bindings of stdlib/user modules do not silently leak to importers.
+
+#[test]
+fn private_use_is_not_visible_to_importers() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "private_use_is_not_visible_to_importers",
+        modules: HashMap::from([
+            ("provider", "export fun hidden() -> i32 { return 1 }"),
+            (
+                "middle",
+                r#"
+                import provider
+                use provider.hidden
+            "#,
+            ),
+        ]),
+        main_content: r#"
+            import middle
+            fun main() -> i32 {
+                return middle.hidden()
+            }
+        "#,
+        expected_min_top_levels: 0,
+        should_fail: true,
+    }
+    .run()
+}
+
+#[test]
+fn export_use_is_visible_to_importers() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "export_use_is_visible_to_importers",
+        modules: HashMap::from([
+            ("provider", "export fun exposed() -> i32 { return 2 }"),
+            (
+                "middle",
+                r#"
+                import provider
+                export use provider.exposed
+            "#,
+            ),
+        ]),
+        main_content: r#"
+            import middle
+            fun main() -> i32 {
+                return middle.exposed()
+            }
+        "#,
+        expected_min_top_levels: 2,
+        should_fail: false,
+    }
+    .run()
+}
+
+#[test]
+fn private_use_is_still_visible_locally() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "private_use_is_still_visible_locally",
+        modules: HashMap::from([
+            ("provider", "export fun local_use() -> i32 { return 3 }"),
+            (
+                "middle",
+                r#"
+                import provider
+                use provider.local_use
+
+                export fun wrap() -> i32 {
+                    return local_use()
+                }
+            "#,
+            ),
+        ]),
+        main_content: r#"
+            import middle
+            fun main() -> i32 {
+                return middle.wrap()
+            }
+        "#,
+        expected_min_top_levels: 2,
+        should_fail: false,
+    }
+    .run()
+}
+
+// Generic function defined in module `m` whose body references a symbol brought
+// in via a private `use`. When instantiated at a call site in another module,
+// monomorphization re-enters `m`'s context — so the private `use` binding must
+// still resolve. This guards against regressing the TODO removed from
+// `analyze_use` (the old code marked every `use` as Public to keep this path
+// working; the new code must rely on same-module private lookup instead).
+#[test]
+fn private_use_is_reachable_from_generic_body() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "private_use_is_reachable_from_generic_body",
+        modules: HashMap::from([
+            (
+                "helpers",
+                "export fun identity_i32(x: i32) -> i32 { return x }",
+            ),
+            (
+                "lib",
+                r#"
+                import helpers
+                use helpers.identity_i32
+
+                export fun wrap<T>(x: T) -> i32 {
+                    return identity_i32(11)
+                }
+            "#,
+            ),
+        ]),
+        main_content: r#"
+            import lib
+            fun main() -> i32 {
+                return lib.wrap<i32>(0)
+            }
+        "#,
+        expected_min_top_levels: 2,
+        should_fail: false,
+    }
+    .run()
+}
