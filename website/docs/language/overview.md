@@ -26,6 +26,25 @@ Qualified names use `::`:
 mut app := std.http.App::new()
 ```
 
+### Module layout
+
+A module can be a single file or a file plus a sibling directory of submodules.
+
+- `net.kd` defines module `net`.
+- `net/tcp.kd` defines module `net.tcp`.
+- The two coexist: `net.kd` holds the body of `net`, and `net/*.kd` add submodules under the same `net.*` namespace.
+- A directory without a sibling same-name file has no module body; only its submodules are importable. `import net.tcp` works, but `import net` errors.
+- If an item in the body shares a name with a sibling submodule (e.g. `net.kd` exports `fun tcp()` and `net/tcp.kd` also exists), the body item takes precedence in expression position. Avoid the clash.
+
+```text
+src/
+├── net.kd            # module: net  (optional body)
+├── net/
+│   ├── tcp.kd        # module: net.tcp
+│   └── http.kd       # module: net.http
+└── main.kd
+```
+
 ## Bindings
 
 Kaede supports both the short declaration form and `let` bindings:
