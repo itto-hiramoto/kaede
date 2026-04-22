@@ -16,9 +16,7 @@ fn create_kaede_only_project(project_dir: &Path, project_name: &str) -> anyhow::
     fs::create_dir_all(&src_dir)?;
     fs::write(
         src_dir.join("main.kd"),
-        r#"fun main() {
-    println("hello, world!")
-}"#,
+        "fun main() {\n    println(\"hello, world!\")\n}\n",
     )?;
 
     println!("✅ Successfully created Kaede project: {project_name}");
@@ -68,15 +66,13 @@ fn create_rust_bridge_project(project_dir: &Path, project_name: &str) -> anyhow:
     fs::write(
         src_dir.join("main.kd"),
         format!(
-            "import rust::{project_name}\n\nfun main() -> i32 {{\n    return rust::{project_name}::add(10, 20)\n}}"
+            "import rust::{project_name}\n\nfun main() -> i32 {{\n    return rust::{project_name}::add(10, 20)\n}}\n"
         ),
     )?;
 
     // Step 4: Create lib.rs file
     let lib_rs_path = rust_dir.join("src/lib.rs");
-    let lib_rs_content = r#"pub fn add(a: i32, b: i32) -> i32 {
-    a + b
-}"#;
+    let lib_rs_content = "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n";
     fs::write(&lib_rs_path, lib_rs_content)?;
 
     println!("✅ Successfully created Kaede Rust interop project: {project_name}");

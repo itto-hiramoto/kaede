@@ -40,9 +40,7 @@ fn new_creates_hello_world_main() -> anyhow::Result<()> {
     main.assert(predicate::path::is_file());
     assert_eq!(
         fs::read_to_string(main.path())?,
-        r#"fun main() {
-    println("hello, world!")
-}"#,
+        "fun main() {\n    println(\"hello, world!\")\n}\n",
     );
 
     Ok(())
