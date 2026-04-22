@@ -2,12 +2,20 @@ use std::{fs, path::Path, process::Command};
 
 use anyhow::Context as _;
 
+use crate::manifest::{self, MANIFEST_FILENAME};
+
 fn ensure_project_does_not_exist(project_dir: &Path, project_name: &str) -> anyhow::Result<()> {
     if project_dir.exists() {
         anyhow::bail!("Directory '{project_name}' already exists");
     }
 
     Ok(())
+}
+
+fn write_manifest(project_dir: &Path, project_name: &str, with_rust: bool) -> anyhow::Result<()> {
+    let contents = manifest::render_default(project_name, with_rust);
+    fs::write(project_dir.join(MANIFEST_FILENAME), contents)
+        .with_context(|| format!("Failed to write {MANIFEST_FILENAME}"))
 }
 
 fn create_kaede_only_project(project_dir: &Path, project_name: &str) -> anyhow::Result<()> {
@@ -21,9 +29,12 @@ fn create_kaede_only_project(project_dir: &Path, project_name: &str) -> anyhow::
 }"#,
     )?;
 
+    write_manifest(project_dir, project_name, false)?;
+
     println!("✅ Successfully created Kaede project: {project_name}");
     println!("📁 Project structure:");
     println!("  {project_name}/");
+    println!("  ├── Kaede.toml");
     println!("  └── src/");
     println!("      └── main.kd");
     println!();
@@ -79,9 +90,13 @@ fn create_rust_bridge_project(project_dir: &Path, project_name: &str) -> anyhow:
 }"#;
     fs::write(&lib_rs_path, lib_rs_content)?;
 
+    // Step 5: Write Kaede.toml last so a partial scaffold is never mistaken for a valid project.
+    write_manifest(project_dir, project_name, true)?;
+
     println!("✅ Successfully created Kaede Rust interop project: {project_name}");
     println!("📁 Project structure:");
     println!("  {project_name}/");
+    println!("  ├── Kaede.toml");
     println!("  ├── src/");
     println!("  │   └── main.kd");
     println!("  └── rust/");
@@ -97,7 +112,17 @@ fn create_rust_bridge_project(project_dir: &Path, project_name: &str) -> anyhow:
     Ok(())
 }
 
-pub(crate) fn create_new_project(project_name: String, with_rust: bool) -> anyhow::Result<()> {
+fn validate_project_name(project_name: &str, with_rust: bool) -> anyhow::Result<()> {
+    if project_name.is_empty() {
+        anyhow::bail!("Project name must not be empty");
+    }
+
+    if project_name.starts_with('.') || project_name.contains('/') || project_name.contains('\\') {
+        anyhow::bail!(
+            "Project name must not contain path separators or start with '.': `{project_name}`"
+        );
+    }
+
     if with_rust
         && !project_name
             .chars()
@@ -107,6 +132,12 @@ pub(crate) fn create_new_project(project_name: String, with_rust: bool) -> anyho
             "Rust interop projects currently require an ASCII crate name (letters/digits/_): `{project_name}`"
         );
     }
+
+    Ok(())
+}
+
+pub(crate) fn create_new_project(project_name: String, with_rust: bool) -> anyhow::Result<()> {
+    validate_project_name(&project_name, with_rust)?;
 
     let project_dir = Path::new(&project_name);
 

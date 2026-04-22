@@ -11,6 +11,9 @@ fn create_project_files(
     temp_dir: &assert_fs::TempDir,
     files: &[(&str, &str)],
 ) -> anyhow::Result<()> {
+    temp_dir.child("Kaede.toml").write_str(
+        "[package]\nname = \"test\"\nversion = \"0.1.0\"\n\n[build]\nsrc = \"src\"\nout = \"build/main\"\n",
+    )?;
     let src_dir = temp_dir.child("src");
     src_dir.create_dir_all()?;
     for (path, program) in files {
@@ -28,9 +31,7 @@ fn run_fails_outside_project() -> anyhow::Result<()> {
         .arg("run")
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "This command expects a Kaede project",
-        ));
+        .stderr(predicate::str::contains("Kaede.toml"));
 
     Ok(())
 }

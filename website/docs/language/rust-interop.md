@@ -33,12 +33,20 @@ That scaffold creates a layout like:
 
 ```text
 myproject/
+├── Kaede.toml
 ├── src/
 │   └── main.kd
 └── rust/
     ├── Cargo.toml
     └── src/
         └── lib.rs
+```
+
+The generated `Kaede.toml` contains a `[rust]` section, whose presence signals that the project uses Rust interop:
+
+```toml
+[rust]
+path = "rust"
 ```
 
 The generated Kaede entry file imports the Rust crate, and the generated Rust crate starts with a tiny function you can extend.

@@ -20,6 +20,7 @@ use kaede_semantic::{AnalyzeOptions, SemanticAnalyzer};
 use tempfile::{NamedTempFile, TempPath};
 
 mod build;
+mod manifest;
 mod new;
 mod run;
 
