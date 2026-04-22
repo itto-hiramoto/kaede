@@ -28,6 +28,9 @@ pub enum CodegenError {
     #[error("integer inference should have been resolved before codegen")]
     UnresolvedInferInt,
 
+    #[error("float inference should have been resolved before codegen")]
+    UnresolvedInferFloat,
+
     #[error("unknown callee: {}", name)]
     UnknownCallee { name: Symbol },
 

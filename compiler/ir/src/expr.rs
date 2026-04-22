@@ -105,6 +105,32 @@ impl Int {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Float {
+    pub kind: FloatKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub enum FloatKind {
+    F32(f32),
+    F64(f64),
+    /// Float literal with inferred type (value stored as f64)
+    Infer(f64),
+}
+
+impl Float {
+    pub fn as_f64(&self) -> f64 {
+        use FloatKind::*;
+
+        match self.kind {
+            F32(n) => n as f64,
+            F64(n) => n,
+            Infer(n) => n,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Copy)]
 pub enum BinaryKind {
     // Addition
@@ -346,6 +372,7 @@ pub struct InterfaceMethodCall {
 #[derive(Debug, Clone)]
 pub enum ExprKind {
     Int(Int),
+    Float(Float),
     StringLiteral(StringLiteral),
     ByteStringLiteral(ByteStringLiteral),
     ByteLiteral(ByteLiteral),

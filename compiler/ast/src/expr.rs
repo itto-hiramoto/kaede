@@ -117,6 +117,33 @@ impl Int {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct Float {
+    pub kind: FloatKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+/// Float literals are always non-negative.
+/// Negative numbers like `-3.14` are represented as unary minus applied to `3.14`.
+/// Type suffixes are not yet supported; all literals have inferred types.
+pub enum FloatKind {
+    /// Float literal with inferred type (defaults to f64 if unconstrained)
+    Unsuffixed(f64),
+}
+
+impl Float {
+    pub fn as_f64(&self) -> f64 {
+        let FloatKind::Unsuffixed(n) = self.kind;
+        n
+    }
+
+    pub fn get_type(&self) -> Ty {
+        // Unsuffixed float literals default to f64 if unconstrained
+        make_fundamental_type(FundamentalTypeKind::F64, Mutability::Not, self.span)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Copy)]
 pub enum BinaryKind {
     // Addition
@@ -346,6 +373,7 @@ impl Expr {
 #[derive(Debug, Clone)]
 pub enum ExprKind {
     Int(Int),
+    Float(Float),
     StringLiteral(StringLiteral),
     ByteStringLiteral(ByteStringLiteral),
     ByteLiteral(ByteLiteral),

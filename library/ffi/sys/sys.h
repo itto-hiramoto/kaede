@@ -35,6 +35,11 @@ uint32_t kaede_utf8_char_at(const unsigned char *s, uint64_t len, uint64_t index
 uint64_t kaede_utf8_char_count(const unsigned char *s, uint64_t len);
 uint64_t kaede_utf8_byte_index_of_char(const unsigned char *s, uint64_t len, uint64_t index);
 
+/* Format a double into the caller-provided buffer using "%g" and return the
+ * number of bytes written (excluding the NUL terminator). The byte count is
+ * clamped to `cap - 1` if the formatted output would not fit. */
+uint64_t kaede_f64_to_string(double value, unsigned char *buf, uint64_t cap);
+
 #ifdef __cplusplus
 }
 #endif

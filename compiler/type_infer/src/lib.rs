@@ -15,8 +15,8 @@ use crate::{context::SharedTypeVarAllocator, env::Env};
 use kaede_ir::{
     expr::{
         Binary, BinaryKind, BitNot, BuiltinFnCall, BuiltinFnCallKind, Cast, EnumVariant, Expr,
-        ExprKind, FieldAccess, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Slicing,
-        Spawn, TupleIndexing, UnresolvedFieldAccess,
+        ExprKind, FieldAccess, Float, FloatKind, FnCall, If, Indexing, Int, IntKind, LogicalNot,
+        Loop, Slicing, Spawn, TupleIndexing, UnresolvedFieldAccess,
     },
     qualified_symbol::QualifiedSymbol,
     stmt::{Assign, Block, Let, Stmt, TupleUnpack},
@@ -38,6 +38,20 @@ pub struct TypeInferrer {
     specialized_enums: HashMap<QualifiedSymbol, Rc<IrEnum>>,
     generic_fn_substitutions:
         HashMap<kaede_ir::qualified_symbol::QualifiedSymbol, HashMap<VarId, Rc<Ty>>>,
+}
+
+/// True when `expr` is a direct unsuffixed integer literal — used to gate the
+/// "cast operand inherits the target type" shortcut in `infer_cast` (e.g.
+/// `let c = 3; let d = c as i8` would not work without it for the literal `3`
+/// when cast directly).
+fn expr_is_int_literal(expr: &Expr) -> bool {
+    matches!(expr.kind, ExprKind::Int(_))
+}
+
+/// True when `expr` is a direct unsuffixed float literal — same purpose as
+/// `expr_is_int_literal` but for the float side.
+fn expr_is_float_literal(expr: &Expr) -> bool {
+    matches!(expr.kind, ExprKind::Float(_))
 }
 
 impl TypeInferrer {
@@ -412,6 +426,7 @@ impl TypeInferrer {
         let inferred_ty = match &expr.kind {
             // Literals
             Int(int_lit) => self.infer_int(int_lit),
+            Float(float_lit) => self.infer_float(float_lit),
             StringLiteral(_) => Ok(Rc::new(Ty::new_str(Mutability::Not))),
             ByteStringLiteral(_) => {
                 let elem_ty = Rc::new(make_fundamental_type(
@@ -685,6 +700,19 @@ impl TypeInferrer {
                 // Type will be inferred from context
                 // The expression already has a type variable assigned during semantic analysis
                 // We'll return a fresh type variable here, but it will be unified with the expression's type
+                return Ok(self.context.fresh());
+            }
+        };
+        Ok(Rc::new(ty))
+    }
+
+    fn infer_float(&mut self, float_lit: &Float) -> Result<Rc<Ty>, TypeInferError> {
+        let ty = match float_lit.kind {
+            FloatKind::F32(_) => make_fundamental_type(FundamentalTypeKind::F32, Mutability::Not),
+            FloatKind::F64(_) => make_fundamental_type(FundamentalTypeKind::F64, Mutability::Not),
+            FloatKind::Infer(_) => {
+                // Type will be inferred from context; defaults to f64 if unconstrained
+                // (handled in `apply_expr`).
                 return Ok(self.context.fresh());
             }
         };
@@ -1065,9 +1093,21 @@ impl TypeInferrer {
             TyKind::Fundamental(fty) if fty.kind.is_int()
         );
 
-        // If operand is a type variable and target is an integer, unify them
-        if matches!(operand_ty.kind.as_ref(), TyKind::Var(_)) && target_is_int {
-            // Unify operand with target type to propagate type information
+        // Check if target is a floating-point type
+        let target_is_float = matches!(
+            target_ty.kind.as_ref(),
+            TyKind::Fundamental(fty) if fty.kind.is_float()
+        );
+
+        // Only propagate the cast target back into the operand when the
+        // operand is a direct literal of the *matching* flavor. This keeps
+        // `let c = 3; let d = c as i8` — the literal-narrowing shortcut —
+        // working, while preventing cross-flavor leakage like a float-typed
+        // expression being eagerly unified with an `i32` cast target (which
+        // would corrupt nested float literals).
+        let matching_literal_cast = (target_is_int && expr_is_int_literal(&cast.operand))
+            || (target_is_float && expr_is_float_literal(&cast.operand));
+        if matching_literal_cast && matches!(operand_ty.kind.as_ref(), TyKind::Var(_)) {
             self.context.unify(&operand_ty, target_ty, cast.span)?;
         }
 
@@ -1664,6 +1704,21 @@ impl TypeInferrer {
             expr.ty = default_ty;
         }
 
+        // If this is a float literal with an unconstrained type, default to f64
+        if matches!(expr.kind, ExprKind::Float(_))
+            && let TyKind::Var(id) = expr.ty.kind.as_ref()
+        {
+            let default_ty = Rc::new(Ty {
+                kind: TyKind::Fundamental(kaede_ir::ty::FundamentalType {
+                    kind: FundamentalTypeKind::F64,
+                })
+                .into(),
+                mutability: kaede_ir::ty::Mutability::Not,
+            });
+            self.context.bind_var(*id, default_ty.clone());
+            expr.ty = default_ty;
+        }
+
         // Recursively apply to child expressions
         match &mut expr.kind {
             // Integer literals need type conversion based on inferred type
@@ -1692,6 +1747,34 @@ impl TypeInferrer {
                         }
                         _ => {
                             return Err(TypeInferError::InvalidIntegerLiteralType {
+                                ty: expr.ty.kind.to_string(),
+                                span: expr.span,
+                            });
+                        }
+                    };
+                }
+            }
+
+            // Float literals need type conversion based on inferred type
+            Float(float) => {
+                if let FloatKind::Infer(value) = float.kind {
+                    float.kind = match expr.ty.kind.as_ref() {
+                        TyKind::Fundamental(fty) => match fty.kind {
+                            FundamentalTypeKind::F32 => FloatKind::F32(value as f32),
+                            FundamentalTypeKind::F64 => FloatKind::F64(value),
+                            _ => {
+                                return Err(TypeInferError::InvalidFloatLiteralType {
+                                    ty: fty.kind.to_string(),
+                                    span: expr.span,
+                                });
+                            }
+                        },
+                        TyKind::Never => {
+                            // Unreachable contexts default float literals to f64
+                            FloatKind::F64(value)
+                        }
+                        _ => {
+                            return Err(TypeInferError::InvalidFloatLiteralType {
                                 ty: expr.ty.kind.to_string(),
                                 span: expr.span,
                             });

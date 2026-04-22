@@ -76,6 +76,8 @@ fn fundamental_kind_from_rustdoc_primitive(name: &str) -> Option<ir_type::Fundam
         "u32" => Some(ir_type::FundamentalTypeKind::U32),
         "i64" => Some(ir_type::FundamentalTypeKind::I64),
         "u64" => Some(ir_type::FundamentalTypeKind::U64),
+        "f32" => Some(ir_type::FundamentalTypeKind::F32),
+        "f64" => Some(ir_type::FundamentalTypeKind::F64),
         "bool" => Some(ir_type::FundamentalTypeKind::Bool),
         _ => None,
     }
@@ -681,6 +683,8 @@ fn rust_ty_to_shim_rs(ty: &ir_type::Ty, position: ShimTyPosition) -> anyhow::Res
             ir_type::FundamentalTypeKind::U32 => Ok("u32"),
             ir_type::FundamentalTypeKind::I64 => Ok("i64"),
             ir_type::FundamentalTypeKind::U64 => Ok("u64"),
+            ir_type::FundamentalTypeKind::F32 => Ok("f32"),
+            ir_type::FundamentalTypeKind::F64 => Ok("f64"),
             ir_type::FundamentalTypeKind::Bool => Ok("bool"),
             ir_type::FundamentalTypeKind::Char => Ok("u32"),
             ir_type::FundamentalTypeKind::Str => Err(anyhow!("unsupported shim type: {}", ty.kind)),

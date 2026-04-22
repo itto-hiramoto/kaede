@@ -265,6 +265,7 @@ impl<'a> GenericSubstituter<'a> {
                 call.method.return_ty = self.apply_ty(&call.method.return_ty);
             }
             ir::expr::ExprKind::Int(_)
+            | ir::expr::ExprKind::Float(_)
             | ir::expr::ExprKind::StringLiteral(_)
             | ir::expr::ExprKind::ByteStringLiteral(_)
             | ir::expr::ExprKind::ByteLiteral(_)

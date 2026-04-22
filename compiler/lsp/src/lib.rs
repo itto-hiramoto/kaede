@@ -241,6 +241,7 @@ fn parse_error_span(err: &ParseError) -> Option<Span> {
         ParseError::ExpectedError { span, .. }
         | ParseError::OutOfRangeForI32(span)
         | ParseError::OutOfRangeForU32(span)
+        | ParseError::InvalidFloatLiteral(span)
         | ParseError::UnsupportedForeignUse { span } => Some(*span),
     }
 }
@@ -336,6 +337,7 @@ fn type_infer_error_span(err: &TypeInferError) -> Option<Span> {
         | TypeInferError::CannotInferVariableType { span }
         | TypeInferError::CannotInferGenericArguments { span, .. }
         | TypeInferError::InvalidIntegerLiteralType { span, .. }
+        | TypeInferError::InvalidFloatLiteralType { span, .. }
         | TypeInferError::ExpectedIntegerTypeForBitOp { span, .. }
         | TypeInferError::ExpectedIntegerTypeForBitNot { span, .. }
         | TypeInferError::EnumEqRequiresUnitVariants { span, .. }

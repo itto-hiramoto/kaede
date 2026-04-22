@@ -38,6 +38,72 @@ fn hex_number() {
 }
 
 #[test]
+fn float_literal() {
+    lex_test("3.14", vec![Float("3.14".to_string()), Semi, Eoi]);
+}
+
+#[test]
+fn multi_floats() {
+    lex_test(
+        "1.5 2.0 0.125",
+        vec![
+            Float("1.5".to_string()),
+            Float("2.0".to_string()),
+            Float("0.125".to_string()),
+            Semi,
+            Eoi,
+        ],
+    );
+}
+
+#[test]
+fn int_dot_ident_is_method_call() {
+    // `1.foo` must remain `Int Dot Ident` so method calls on integer literals
+    // keep tokenizing correctly.
+    lex_test(
+        "1.foo",
+        vec![
+            Int("1".to_string()),
+            Dot,
+            Ident("foo".to_string()),
+            Semi,
+            Eoi,
+        ],
+    );
+}
+
+#[test]
+fn tuple_index_chain_is_not_float() {
+    // `tup.0.1` must tokenize as `Ident Dot Int Dot Int`, not `Ident Dot Float`.
+    lex_test(
+        "tup.0.1",
+        vec![
+            Ident("tup".to_string()),
+            Dot,
+            Int("0".to_string()),
+            Dot,
+            Int("1".to_string()),
+            Semi,
+            Eoi,
+        ],
+    );
+}
+
+#[test]
+fn hex_does_not_become_float() {
+    lex_test(
+        "0x80.5",
+        vec![
+            Int("0x80".to_string()),
+            Dot,
+            Int("5".to_string()),
+            Semi,
+            Eoi,
+        ],
+    );
+}
+
+#[test]
 fn skip_whitespaces() {
     lex_test("  \n  ", vec![Eoi]);
 

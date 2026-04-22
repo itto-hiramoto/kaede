@@ -4,6 +4,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -328,4 +329,15 @@ int kaede_sys_somaxconn(void) {
 #else
   return 128;
 #endif
+}
+
+uint64_t kaede_f64_to_string(double value, unsigned char *buf, uint64_t cap) {
+  if (cap == 0)
+    return 0;
+  int n = snprintf((char *)buf, (size_t)cap, "%g", value);
+  if (n < 0)
+    return 0;
+  if ((uint64_t)n >= cap)
+    return cap - 1;
+  return (uint64_t)n;
 }

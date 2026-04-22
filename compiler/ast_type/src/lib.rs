@@ -165,9 +165,17 @@ pub enum FundamentalTypeKind {
     U32,
     I64,
     U64,
+    F32,
+    F64,
     Char,
     Bool,
     Str,
+}
+
+impl FundamentalTypeKind {
+    pub fn is_float(&self) -> bool {
+        matches!(self, FundamentalTypeKind::F32 | FundamentalTypeKind::F64)
+    }
 }
 
 impl std::fmt::Display for FundamentalTypeKind {
@@ -183,6 +191,8 @@ impl std::fmt::Display for FundamentalTypeKind {
             U32 => write!(f, "u32"),
             I64 => write!(f, "i64"),
             U64 => write!(f, "u64"),
+            F32 => write!(f, "f32"),
+            F64 => write!(f, "f64"),
             Char => write!(f, "char"),
             Bool => write!(f, "bool"),
             Str => write!(f, "str"),
@@ -352,6 +362,8 @@ impl FundamentalType {
             U32 => context.i32_type().as_basic_type_enum(),
             I64 => context.i64_type().as_basic_type_enum(),
             U64 => context.i64_type().as_basic_type_enum(),
+            F32 => context.f32_type().as_basic_type_enum(),
+            F64 => context.f64_type().as_basic_type_enum(),
             Char => context.i8_type().as_basic_type_enum(),
             Bool => context.bool_type().as_basic_type_enum(),
             Str => {
@@ -371,6 +383,7 @@ impl FundamentalType {
         match self.kind {
             I8 | I16 | I32 | I64 => true,
             U8 | U16 | U32 | U64 => false,
+            F32 | F64 => true,
             Char => true,
             Bool => false,
             Str => false,
@@ -382,6 +395,7 @@ impl FundamentalType {
 
         match self.kind {
             I8 | U8 | I16 | U16 | I32 | U32 | I64 | U64 | Bool | Char => true,
+            F32 | F64 => false,
             Str => false,
         }
     }

@@ -187,6 +187,7 @@ impl SemanticAnalyzer {
             ExprKind::ArrayLiteral(node) => self.analyze_array_literal(node, span),
             ExprKind::ArrayRepeat(node) => self.analyze_array_repeat(node, span),
             ExprKind::Int(node) => self.analyze_int(node),
+            ExprKind::Float(node) => self.analyze_float(node),
             ExprKind::True => self.analyze_boolean_literal(true, span),
             ExprKind::False => self.analyze_boolean_literal(false, span),
             ExprKind::Block(node) => self.analyze_block_expr(node),
@@ -2676,6 +2677,21 @@ impl SemanticAnalyzer {
             ty: self.infer_context.fresh(),
             kind: ir::expr::ExprKind::Int(ir::expr::Int {
                 kind: ir::expr::IntKind::Infer(n as i64),
+                span: node.span,
+            }),
+            span: node.span,
+        })
+    }
+
+    fn analyze_float(&mut self, node: &ast::expr::Float) -> anyhow::Result<ir::expr::Expr> {
+        // Float literals are always non-negative; negative is unary minus.
+        // Type can be inferred to f32 or f64 (defaults to f64 if unconstrained).
+        let ast::expr::FloatKind::Unsuffixed(n) = node.kind;
+
+        Ok(ir::expr::Expr {
+            ty: self.infer_context.fresh(),
+            kind: ir::expr::ExprKind::Float(ir::expr::Float {
+                kind: ir::expr::FloatKind::Infer(n),
                 span: node.span,
             }),
             span: node.span,

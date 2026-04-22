@@ -8,17 +8,17 @@ use crate::{
 
 use inkwell::{
     module::Linkage,
-    types::{BasicType, StructType},
+    types::{BasicType, FloatType, StructType},
     values::{BasicValue, BasicValueEnum, FunctionValue, IntValue, PointerValue},
-    AddressSpace, IntPredicate,
+    AddressSpace, FloatPredicate, IntPredicate,
 };
 
 use kaede_ir::{
     expr::{
         ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BitNot, BuiltinFnCall, BuiltinFnCallKind,
         ByteLiteral, ByteStringLiteral, Cast, CharLiteral, Closure, Else, EnumUnpack, EnumVariant,
-        Expr, ExprKind, FieldAccess, FnCall, FnPointer, FormatPart, ITable, If, Indexing, Int,
-        InterfaceBox, InterfaceMethodCall, LogicalNot, Loop, Slicing, Spawn, StringLiteral,
+        Expr, ExprKind, FieldAccess, Float, FnCall, FnPointer, FormatPart, ITable, If, Indexing,
+        Int, InterfaceBox, InterfaceMethodCall, LogicalNot, Loop, Slicing, Spawn, StringLiteral,
         StructLiteral, TupleIndexing, TupleLiteral, Variable,
     },
     stmt::Block,
@@ -133,6 +133,7 @@ impl<'ctx> CodeGenerator<'ctx> {
             ExprKind::Loop(loop_) => self.build_loop(loop_)?,
 
             ExprKind::Int(int) => self.build_int(int, &node.ty)?,
+            ExprKind::Float(float) => self.build_float(float, &node.ty)?,
 
             ExprKind::If(node) => self.build_if(node)?,
 
@@ -731,6 +732,28 @@ impl<'ctx> CodeGenerator<'ctx> {
         }
     }
 
+    fn build_float(&self, float: &Float, ty: &Rc<Ty>) -> anyhow::Result<Value<'ctx>> {
+        use kaede_ir::expr::FloatKind::*;
+
+        match float.kind {
+            F32(n) => Ok(Some(self.context().f32_type().const_float(n as f64).into())),
+            F64(n) => Ok(Some(self.context().f64_type().const_float(n).into())),
+            Infer(n) => match ty.kind.as_ref() {
+                TyKind::Fundamental(fty) => match fty.kind {
+                    FundamentalTypeKind::F32 => {
+                        Ok(Some(self.context().f32_type().const_float(n).into()))
+                    }
+                    FundamentalTypeKind::F64 => {
+                        Ok(Some(self.context().f64_type().const_float(n).into()))
+                    }
+                    _ => Err(CodegenError::UnresolvedInferFloat.into()),
+                },
+                TyKind::Var(_) => Ok(Some(self.context().f64_type().const_float(n).into())),
+                _ => Err(CodegenError::UnresolvedInferFloat.into()),
+            },
+        }
+    }
+
     /// Unit value if the end of the block is not an expression
     fn build_block_expr(&mut self, block: &Block) -> anyhow::Result<Value<'ctx>> {
         if block.body.is_empty() && block.last_expr.is_none() {
@@ -971,7 +994,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         }
 
         // Sort in ascending order based on offset
-        values.sort_by(|a, b| a.0.cmp(&b.0));
+        values.sort_by_key(|a| a.0);
         let values: Vec<_> = values.iter().map(|e| e.1).collect();
 
         let value = self.create_gc_struct(struct_llvm_ty.as_basic_type_enum(), &values)?;
@@ -1759,7 +1782,9 @@ impl<'ctx> CodeGenerator<'ctx> {
         let value_ty = node.operand.ty.clone();
         let target_ty = node.target_ty.clone();
 
-        if value_ty.kind.is_int_or_bool() && target_ty.kind.is_int_or_bool() {
+        if value_ty.kind.is_float() || target_ty.kind.is_float() {
+            self.build_float_cast(value, &value_ty, target_ty.clone())
+        } else if value_ty.kind.is_int_or_bool() && target_ty.kind.is_int_or_bool() {
             self.build_int_cast(value, target_ty.clone())
         } else if matches!(
             value_ty.kind.as_ref(),
@@ -1776,6 +1801,68 @@ impl<'ctx> CodeGenerator<'ctx> {
                 target_ty.kind.to_string()
             );
         }
+    }
+
+    fn build_float_cast(
+        &mut self,
+        value: BasicValueEnum<'ctx>,
+        value_ty: &Rc<Ty>,
+        target_ty: Rc<Ty>,
+    ) -> anyhow::Result<Value<'ctx>> {
+        let target_llvm_ty = self.conv_to_llvm_type(&target_ty);
+
+        if value_ty.kind.is_float() && target_ty.kind.is_float() {
+            // float -> float: extend or truncate based on bit width.
+            let src = value.into_float_value();
+            let dst_ty: FloatType<'ctx> = target_llvm_ty.into_float_type();
+            // Both sides are floats (gated above), so `float_bit_width` is `Some`.
+            let widening = value_ty.kind.float_bit_width() < target_ty.kind.float_bit_width();
+            return Ok(Some(if widening {
+                self.builder
+                    .build_float_ext(src, dst_ty, "")?
+                    .as_basic_value_enum()
+            } else {
+                self.builder
+                    .build_float_trunc(src, dst_ty, "")?
+                    .as_basic_value_enum()
+            }));
+        }
+
+        if value_ty.kind.is_int_or_bool() && target_ty.kind.is_float() {
+            // int -> float
+            let src = value.into_int_value();
+            let dst_ty: FloatType<'ctx> = target_llvm_ty.into_float_type();
+            return Ok(Some(if value_ty.kind.is_signed() {
+                self.builder
+                    .build_signed_int_to_float(src, dst_ty, "")?
+                    .as_basic_value_enum()
+            } else {
+                self.builder
+                    .build_unsigned_int_to_float(src, dst_ty, "")?
+                    .as_basic_value_enum()
+            }));
+        }
+
+        if value_ty.kind.is_float() && target_ty.kind.is_int_or_bool() {
+            // float -> int
+            let src = value.into_float_value();
+            let dst_ty = target_llvm_ty.into_int_type();
+            return Ok(Some(if target_ty.kind.is_signed() {
+                self.builder
+                    .build_float_to_signed_int(src, dst_ty, "")?
+                    .as_basic_value_enum()
+            } else {
+                self.builder
+                    .build_float_to_unsigned_int(src, dst_ty, "")?
+                    .as_basic_value_enum()
+            }));
+        }
+
+        anyhow::bail!(
+            "unsupported cast from `{}` to `{}`",
+            value_ty.kind.to_string(),
+            target_ty.kind.to_string()
+        );
     }
 
     fn build_int_cast(
@@ -2089,6 +2176,14 @@ impl<'ctx> CodeGenerator<'ctx> {
             });
         }
 
+        if left_ty.kind.is_float() && right_ty.kind.is_float() {
+            return self.build_float_arithmetic_binary(
+                node.kind,
+                left.into_float_value(),
+                right.into_float_value(),
+            );
+        }
+
         // If operands are not int
         if !(left.is_int_value() && right.is_int_value()) {
             anyhow::bail!(
@@ -2231,6 +2326,58 @@ impl<'ctx> CodeGenerator<'ctx> {
                             .into(),
                     )
                 }
+            }
+        })
+    }
+
+    fn build_float_arithmetic_binary(
+        &mut self,
+        op: BinaryKind,
+        left: inkwell::values::FloatValue<'ctx>,
+        right: inkwell::values::FloatValue<'ctx>,
+    ) -> anyhow::Result<Value<'ctx>> {
+        use BinaryKind::*;
+
+        Ok(match op {
+            Add => Some(self.builder.build_float_add(left, right, "")?.into()),
+            Sub => Some(self.builder.build_float_sub(left, right, "")?.into()),
+            Mul => Some(self.builder.build_float_mul(left, right, "")?.into()),
+            Div => Some(self.builder.build_float_div(left, right, "")?.into()),
+            Rem => Some(self.builder.build_float_rem(left, right, "")?.into()),
+
+            Eq => Some(
+                self.builder
+                    .build_float_compare(FloatPredicate::OEQ, left, right, "")?
+                    .into(),
+            ),
+            Ne => Some(
+                self.builder
+                    .build_float_compare(FloatPredicate::ONE, left, right, "")?
+                    .into(),
+            ),
+            Lt => Some(
+                self.builder
+                    .build_float_compare(FloatPredicate::OLT, left, right, "")?
+                    .into(),
+            ),
+            Le => Some(
+                self.builder
+                    .build_float_compare(FloatPredicate::OLE, left, right, "")?
+                    .into(),
+            ),
+            Gt => Some(
+                self.builder
+                    .build_float_compare(FloatPredicate::OGT, left, right, "")?
+                    .into(),
+            ),
+            Ge => Some(
+                self.builder
+                    .build_float_compare(FloatPredicate::OGE, left, right, "")?
+                    .into(),
+            ),
+
+            LogicalOr | LogicalAnd | BitAnd | BitOr | BitXor | Shl | Shr => {
+                anyhow::bail!("unsupported operation for float type: {:?}", op);
             }
         })
     }
