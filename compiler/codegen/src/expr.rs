@@ -31,17 +31,6 @@ use kaede_symbol::Symbol;
 
 pub type Value<'ctx> = Option<BasicValueEnum<'ctx>>;
 
-fn float_bit_width(ty: &Ty) -> u32 {
-    match ty.kind.as_ref() {
-        TyKind::Fundamental(fty) => match fty.kind {
-            FundamentalTypeKind::F32 => 32,
-            FundamentalTypeKind::F64 => 64,
-            _ => 0,
-        },
-        _ => 0,
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 struct FormatArg<'ctx> {
     ptr: PointerValue<'ctx>,
@@ -751,12 +740,9 @@ impl<'ctx> CodeGenerator<'ctx> {
             F64(n) => Ok(Some(self.context().f64_type().const_float(n).into())),
             Infer(n) => match ty.kind.as_ref() {
                 TyKind::Fundamental(fty) => match fty.kind {
-                    FundamentalTypeKind::F32 => Ok(Some(
-                        self.context()
-                            .f32_type()
-                            .const_float(n as f32 as f64)
-                            .into(),
-                    )),
+                    FundamentalTypeKind::F32 => {
+                        Ok(Some(self.context().f32_type().const_float(n).into()))
+                    }
                     FundamentalTypeKind::F64 => {
                         Ok(Some(self.context().f64_type().const_float(n).into()))
                     }
@@ -1829,7 +1815,8 @@ impl<'ctx> CodeGenerator<'ctx> {
             // float -> float: extend or truncate based on bit width.
             let src = value.into_float_value();
             let dst_ty: FloatType<'ctx> = target_llvm_ty.into_float_type();
-            let widening = float_bit_width(value_ty) < float_bit_width(&target_ty);
+            // Both sides are floats (gated above), so `float_bit_width` is `Some`.
+            let widening = value_ty.kind.float_bit_width() < target_ty.kind.float_bit_width();
             return Ok(Some(if widening {
                 self.builder
                     .build_float_ext(src, dst_ty, "")?

@@ -396,6 +396,15 @@ impl FundamentalTypeKind {
     pub fn is_float(&self) -> bool {
         matches!(self, FundamentalTypeKind::F32 | FundamentalTypeKind::F64)
     }
+
+    /// Bit width of this floating-point type, or `None` for non-floats.
+    pub fn float_bit_width(&self) -> Option<u32> {
+        match self {
+            FundamentalTypeKind::F32 => Some(32),
+            FundamentalTypeKind::F64 => Some(64),
+            _ => None,
+        }
+    }
 }
 
 pub fn make_fundamental_type(kind: FundamentalTypeKind, mutability: Mutability) -> Ty {
@@ -625,6 +634,15 @@ impl TyKind {
             | Self::Never => false,
 
             Self::Var(_) => false,
+        }
+    }
+
+    /// Bit width of this floating-point type, or `None` for non-floats.
+    pub fn float_bit_width(&self) -> Option<u32> {
+        match self {
+            Self::Fundamental(fty) => fty.kind.float_bit_width(),
+            Self::Reference(ty) => ty.refee_ty.kind.float_bit_width(),
+            _ => None,
         }
     }
 }
