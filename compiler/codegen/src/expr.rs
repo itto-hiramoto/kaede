@@ -1008,7 +1008,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         }
 
         // Sort in ascending order based on offset
-        values.sort_by(|a, b| a.0.cmp(&b.0));
+        values.sort_by_key(|a| a.0);
         let values: Vec<_> = values.iter().map(|e| e.1).collect();
 
         let value = self.create_gc_struct(struct_llvm_ty.as_basic_type_enum(), &values)?;
