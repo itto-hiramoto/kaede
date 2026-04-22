@@ -657,7 +657,9 @@ impl SemanticAnalyzer {
         }
 
         if let Some(generic_arg) = self.lookup_generic_argument(udt.name.symbol()) {
-            return Ok(generic_arg);
+            // Source position controls mutability; the substituted type's own
+            // mutability must not flow into the parameter. See `analyze_generic_type`.
+            return Ok(ir_type::change_mutability_dup(generic_arg, mutability));
         }
 
         let symbol = self
@@ -723,7 +725,7 @@ impl SemanticAnalyzer {
         }
 
         if let Some(generic_arg) = self.lookup_generic_argument(udt.name.symbol()) {
-            return Ok(generic_arg);
+            return Ok(ir_type::change_mutability_dup(generic_arg, mutability));
         }
 
         let symbol = self
