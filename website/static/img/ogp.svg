@@ -15,18 +15,18 @@
     </radialGradient>
   </defs>
 
-  <rect width="1200" height="630" rx="28" fill="url(#bg)"/>
+  <rect width="1200" height="630" fill="url(#bg)"/>
   <circle cx="214" cy="486" r="222" fill="url(#glowLeft)"/>
   <circle cx="1024" cy="128" r="186" fill="url(#glowRight)"/>
 
-  <text x="188" y="346" fill="#23150E" font-size="172">
+  <text x="188" y="366" fill="#23150E" font-size="172">
     🍁
   </text>
 
-  <text x="430" y="316" fill="#23150E" font-family="Avenir Next, Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="116" font-weight="700">
+  <text x="430" y="336" fill="#23150E" font-family="Avenir Next, Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="116" font-weight="700">
     Kaede
   </text>
-  <text x="436" y="374" fill="#8E532F" font-family="Avenir Next, Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="34" font-weight="600" letter-spacing="0.16em">
+  <text x="436" y="394" fill="#8E532F" font-family="Avenir Next, Segoe UI, Helvetica Neue, Arial, sans-serif" font-size="34" font-weight="600" letter-spacing="0.16em">
     PROGRAMMING LANGUAGE
   </text>
 </svg>
