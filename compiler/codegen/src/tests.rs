@@ -5233,6 +5233,53 @@ fn generic_param_mutability_does_not_leak_via_substitution() -> anyhow::Result<(
 }
 
 #[test]
+fn generic_param_mutability_does_not_leak_via_generic_struct_field() -> anyhow::Result<()> {
+    // Audit coverage for #245: the same leak path from #244, but via a generic
+    // struct's field type instead of a direct parameter. The first instantiation
+    // of `Wrap<Counter>` happens with a `mut` source (`mut self`.`.c`); the second
+    // uses an immutable one. If the field's source-position mutability weren't
+    // re-stamped on substitution, the cached `Wrap<Counter>` would retain `mut`
+    // on its field and the second site's immutable call would break.
+    let program = r#"
+        interface Sink {
+            fun put(self, b: u8) -> bool
+        }
+
+        struct Counter { n: i32 }
+        impl Counter {
+            fun put(self, b: u8) -> bool { return true }
+        }
+
+        struct Wrap<T: Sink> { inner: T }
+        impl<T: Sink> Wrap<T> {
+            fun fire(self) -> bool {
+                return self.inner.put(1)
+            }
+        }
+
+        struct Holder { c: Counter }
+        impl Holder {
+            fun call_mut(mut self) -> bool {
+                let w = Wrap<Counter> { inner: self.c }
+                return w.fire()
+            }
+        }
+
+        fun main() -> i32 {
+            let mut h = Holder { c: Counter { n: 0 } }
+            h.call_mut()
+            let c = Counter { n: 0 }
+            let w = Wrap<Counter> { inner: c }
+            if w.fire() { return 1 }
+            return 0
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 1);
+    Ok(())
+}
+
+#[test]
 fn generic_method_dispatches_on_str_and_slice() -> anyhow::Result<()> {
     let program = r#"
         interface Payload {

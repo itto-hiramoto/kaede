@@ -26,6 +26,9 @@ pub fn change_mutability_dup(ty: Rc<Ty>, mutability: Mutability) -> Rc<Ty> {
     duped.into()
 }
 
+// Container element mutability (`Pointer`/`Array`/`Slice`/`Tuple`) is derived
+// from the operand at each access site, not stored — so only `Reference`,
+// which wraps heap-allocated UDTs, needs to propagate.
 pub fn change_mutability(ty: &mut Ty, mutability: Mutability) {
     ty.mutability = mutability;
 
