@@ -158,6 +158,7 @@ mod tests {
                     || call.args.0.iter().any(contains_generic_call)
             }
             ExprKind::Int(_)
+            | ExprKind::Float(_)
             | ExprKind::StringLiteral(_)
             | ExprKind::ByteStringLiteral(_)
             | ExprKind::ByteLiteral(_)
@@ -526,6 +527,7 @@ impl Monomorphizer {
                 }
             }
             ExprKind::Int(_)
+            | ExprKind::Float(_)
             | ExprKind::StringLiteral(_)
             | ExprKind::ByteStringLiteral(_)
             | ExprKind::ByteLiteral(_)

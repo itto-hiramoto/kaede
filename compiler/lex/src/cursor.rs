@@ -7,6 +7,10 @@ pub const EOF_CHAR: char = '\0';
 pub struct Cursor<'a> {
     chars: Chars<'a>,
     pub span_builder: SpanBuilder,
+    /// Set when the most recently emitted significant token was `Dot`. Used
+    /// by `number()` to suppress float-literal lexing in tuple-index chains
+    /// like `tup.0.1`.
+    pub(crate) prev_was_dot: bool,
 }
 
 impl<'a> Cursor<'a> {
@@ -14,6 +18,7 @@ impl<'a> Cursor<'a> {
         Self {
             chars: input.chars(),
             span_builder: SpanBuilder::new(file),
+            prev_was_dot: false,
         }
     }
 

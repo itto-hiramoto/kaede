@@ -85,6 +85,9 @@ pub enum TypeInferError {
     #[error("{}:{}:{} integer literal cannot have type {:?}", span.file, span.start.line, span.start.column, ty)]
     InvalidIntegerLiteralType { ty: String, span: Span },
 
+    #[error("{}:{}:{} float literal cannot have type {:?}", span.file, span.start.line, span.start.column, ty)]
+    InvalidFloatLiteralType { ty: String, span: Span },
+
     #[error("{}:{}:{} bitwise operators require integer operands, got {:?}", span.file, span.start.line, span.start.column, actual)]
     ExpectedIntegerTypeForBitOp { actual: String, span: Span },
 

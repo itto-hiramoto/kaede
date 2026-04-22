@@ -280,6 +280,8 @@ impl SemanticAnalyzer {
             ast_type::FundamentalTypeKind::U32 => make(ir_type::FundamentalTypeKind::U32),
             ast_type::FundamentalTypeKind::I64 => make(ir_type::FundamentalTypeKind::I64),
             ast_type::FundamentalTypeKind::U64 => make(ir_type::FundamentalTypeKind::U64),
+            ast_type::FundamentalTypeKind::F32 => make(ir_type::FundamentalTypeKind::F32),
+            ast_type::FundamentalTypeKind::F64 => make(ir_type::FundamentalTypeKind::F64),
             ast_type::FundamentalTypeKind::Char => make(ir_type::FundamentalTypeKind::Char),
         }
     }

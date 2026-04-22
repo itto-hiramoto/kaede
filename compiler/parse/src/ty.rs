@@ -172,6 +172,8 @@ impl Parser {
             "u32" => make_fundamental_type(U32, Mutability::Not, span),
             "i64" => make_fundamental_type(I64, Mutability::Not, span),
             "u64" => make_fundamental_type(U64, Mutability::Not, span),
+            "f32" => make_fundamental_type(F32, Mutability::Not, span),
+            "f64" => make_fundamental_type(F64, Mutability::Not, span),
             "bool" => make_fundamental_type(Bool, Mutability::Not, span),
             "char" => make_fundamental_type(Char, Mutability::Not, span),
             "str" => wrap_in_reference(make_fundamental_type(Str, Mutability::Not, span)),

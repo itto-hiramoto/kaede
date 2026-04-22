@@ -231,3 +231,7 @@ pub(crate) fn parse_int_literal_u32(literal: &str) -> Option<u32> {
 
     Some(value as u32)
 }
+
+pub(crate) fn parse_float_literal_f64(literal: &str) -> Option<f64> {
+    literal.parse().ok().filter(|v: &f64| v.is_finite())
+}

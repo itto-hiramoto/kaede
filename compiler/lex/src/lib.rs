@@ -32,6 +32,7 @@ impl<'a> Lexer<'a> {
 
         loop {
             let token = cursor.advance_token();
+            cursor.prev_was_dot = matches!(token.kind, TokenKind::Dot);
 
             match token.kind {
                 TokenKind::Eoi => {
@@ -134,8 +135,12 @@ impl Cursor<'_> {
 
             // Number
             c @ '0'..='9' => {
-                let n = self.number(c);
-                self.create_token(TokenKind::Int(n))
+                let (n, is_float) = self.number(c);
+                if is_float {
+                    self.create_token(TokenKind::Float(n))
+                } else {
+                    self.create_token(TokenKind::Int(n))
+                }
             }
 
             // Byte string literal or byte literal
@@ -519,7 +524,7 @@ impl Cursor<'_> {
         result
     }
 
-    fn number(&mut self, first_digit: char) -> String {
+    fn number(&mut self, first_digit: char) -> (String, bool) {
         assert!(first_digit.is_ascii_digit());
 
         let mut result = first_digit.to_string();
@@ -534,7 +539,7 @@ impl Cursor<'_> {
                     result.push(c);
                     self.bump().unwrap();
                 } else {
-                    return result;
+                    return (result, false);
                 }
             }
         }
@@ -546,9 +551,29 @@ impl Cursor<'_> {
                 result.push(c);
                 self.bump().unwrap();
             } else {
-                return result;
+                break;
             }
         }
+
+        // Optional fractional part: only consume the '.' if a digit follows it
+        // and we are not in a tuple-index chain (e.g. `tup.0.1`). The
+        // `prev_was_dot` flag is set by the outer loop after emitting a Dot
+        // token. This also preserves method-call tokenization like `1.foo()`.
+        if !self.prev_was_dot && self.first() == '.' && self.second().is_ascii_digit() {
+            result.push(self.bump().unwrap()); // '.'
+            loop {
+                let c = self.first();
+                if c.is_ascii_digit() {
+                    result.push(c);
+                    self.bump().unwrap();
+                } else {
+                    break;
+                }
+            }
+            return (result, true);
+        }
+
+        (result, false)
     }
 
     fn ident(&mut self, first: char) -> String {

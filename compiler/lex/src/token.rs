@@ -9,6 +9,7 @@ pub struct Token {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TokenKind {
     Int(String),
+    Float(String),
     Ident(String),
     StringLiteral(String),
     ByteStringLiteral(Vec<u8>),
@@ -174,6 +175,7 @@ impl std::fmt::Display for TokenKind {
             "{}",
             match self {
                 Int(_) => "integer",
+                Float(_) => "float",
                 Ident(_) => "identifier",
                 StringLiteral(_) => "string literal",
                 ByteStringLiteral(_) => "byte string literal",

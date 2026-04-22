@@ -2,9 +2,9 @@ use std::{collections::VecDeque, rc::Rc};
 
 use kaede_ast::expr::{
     Arg, Args, ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BitNot, Break, ByteLiteral,
-    ByteStringLiteral, ChannelRecv, ChannelSend, CharLiteral, Closure, Else, Expr, ExprKind,
-    FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, Return, Slicing, Spawn,
-    StringLiteral, StructLiteral, Try, TupleLiteral, While,
+    ByteStringLiteral, ChannelRecv, ChannelSend, CharLiteral, Closure, Else, Expr, ExprKind, Float,
+    FloatKind, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, Return,
+    Slicing, Spawn, StringLiteral, StructLiteral, Try, TupleLiteral, While,
 };
 use kaede_ast_type::{GenericArgs, Ty, TyKind};
 use kaede_lex::token::TokenKind;
@@ -13,7 +13,7 @@ use kaede_symbol::{Ident, Symbol};
 
 use crate::{
     error::{ParseError, ParseResult},
-    parse_int_literal_u64, Parser,
+    parse_float_literal_f64, parse_int_literal_u64, Parser,
 };
 
 impl Parser {
@@ -312,17 +312,26 @@ impl Parser {
         }
 
         if let Ok(span) = self.consume(&TokenKind::Minus) {
-            // Subtracting a number from 0 inverts the sign
+            // Subtracting a number from 0 inverts the sign.
+            // Pick the zero literal kind based on the operand so that float
+            // operands get a `Float(0.0)` zero (avoids an int/float type clash).
+            let e = self.cast()?;
+
             let zero = Expr {
-                kind: ExprKind::Int(Int {
-                    kind: IntKind::Unsuffixed(0),
-                    span,
-                }),
+                kind: if matches!(e.kind, ExprKind::Float(_)) {
+                    ExprKind::Float(Float {
+                        kind: FloatKind::Unsuffixed(0.0),
+                        span,
+                    })
+                } else {
+                    ExprKind::Int(Int {
+                        kind: IntKind::Unsuffixed(0),
+                        span,
+                    })
+                },
                 span,
             }
             .into();
-
-            let e = self.cast()?;
 
             return Ok(Expr {
                 span: self.new_span(span.start, e.span.finish),
@@ -591,6 +600,15 @@ impl Parser {
             return Ok(Expr {
                 span: int.span,
                 kind: ExprKind::Int(int),
+            });
+        }
+
+        // Float
+        if matches!(self.first().kind, TokenKind::Float(_)) {
+            let float = self.float()?;
+            return Ok(Expr {
+                span: float.span,
+                kind: ExprKind::Float(float),
             });
         }
 
@@ -1299,6 +1317,27 @@ impl Parser {
 
             _ => Err(ParseError::ExpectedError {
                 expected: "integer".to_string(),
+                but: token.kind.to_string(),
+                span: token.span,
+            }
+            .into()),
+        }
+    }
+
+    pub fn float(&mut self) -> ParseResult<Float> {
+        let token = self.bump().unwrap();
+
+        match token.kind {
+            TokenKind::Float(float_s) => match parse_float_literal_f64(&float_s) {
+                Some(n) => Ok(Float {
+                    kind: FloatKind::Unsuffixed(n),
+                    span: token.span,
+                }),
+                None => Err(ParseError::InvalidFloatLiteral(token.span).into()),
+            },
+
+            _ => Err(ParseError::ExpectedError {
+                expected: "float".to_string(),
                 but: token.kind.to_string(),
                 span: token.span,
             }

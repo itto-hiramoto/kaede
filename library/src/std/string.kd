@@ -7,6 +7,7 @@ use std.option.Option
 extern "C" fun kaede_utf8_char_at(s: *u8, len: u64, index: u64) -> char
 extern "C" fun kaede_utf8_char_count(s: *u8, len: u64) -> u64
 extern "C" fun kaede_utf8_byte_index_of_char(s: *u8, len: u64, index: u64) -> u64
+extern "C" fun kaede_f64_to_string(value: f64, buf: *u8, cap: u64) -> u64
 
 export struct String {
     bytes: Vector<u8>,
@@ -217,6 +218,19 @@ fun u64_to_string(n: u64) -> String {
     return out
 }
 
+fun f64_to_string(n: f64) -> String {
+    // 32 bytes covers any "%g"-formatted f64 with room to spare.
+    mut buf := Vector<u8>::new()
+    mut i := 0
+    while i < 32 {
+        buf.push(0 as u8)
+        i += 1
+    }
+
+    written := kaede_f64_to_string(n, buf.as_ptr(), 32)
+    return String::from_bytes(__slice_from_raw_parts(buf.as_ptr(), written))
+}
+
 fun i64_to_string(n: i64) -> String {
     if n < 0 {
         let mut out = String::new()
@@ -350,6 +364,18 @@ impl i16 {
 impl i32 {
     export fun to_string(self) -> String {
         return i64_to_string(self as i64)
+    }
+}
+
+impl f64 {
+    export fun to_string(self) -> String {
+        return f64_to_string(self)
+    }
+}
+
+impl f32 {
+    export fun to_string(self) -> String {
+        return f64_to_string(self as f64)
     }
 }
 

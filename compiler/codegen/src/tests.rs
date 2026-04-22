@@ -5319,3 +5319,98 @@ fn generic_method_rejects_unsatisfied_bound() {
         SemanticError::GenericBoundNotSatisfied { .. }
     ));
 }
+
+#[test]
+fn float_add() -> anyhow::Result<()> {
+    assert_eq!(exec("fun main() -> i32 { return (3.5 + 1.5) as i32 }")?, 5,);
+    Ok(())
+}
+
+#[test]
+fn float_sub_mul_div_rem() -> anyhow::Result<()> {
+    assert_eq!(exec("fun main() -> i32 { return (10.0 - 4.5) as i32 }")?, 5,);
+    assert_eq!(exec("fun main() -> i32 { return (2.5 * 4.0) as i32 }")?, 10,);
+    assert_eq!(exec("fun main() -> i32 { return (9.0 / 3.0) as i32 }")?, 3,);
+    assert_eq!(exec("fun main() -> i32 { return (10.0 % 3.0) as i32 }")?, 1,);
+    Ok(())
+}
+
+#[test]
+fn float_compare() -> anyhow::Result<()> {
+    // `if cond { return X } else { return Y }` hits an unrelated cont_bb
+    // terminator bug, so we use a mutable flag instead.
+    let cmp = |op: &str, lhs: &str, rhs: &str| {
+        format!(
+            "fun main() -> i32 {{\n    mut r := 0\n    if {lhs} {op} {rhs} {{ r = 1 }}\n    return r\n}}"
+        )
+    };
+    assert_eq!(exec(&cmp("<", "3.14", "3.15"))?, 1);
+    assert_eq!(exec(&cmp("==", "3.14", "3.14"))?, 1);
+    assert_eq!(exec(&cmp("!=", "3.14", "3.15"))?, 1);
+    assert_eq!(exec(&cmp(">", "3.15", "3.14"))?, 1);
+    assert_eq!(exec(&cmp("<=", "3.14", "3.14"))?, 1);
+    assert_eq!(exec(&cmp(">=", "3.14", "3.14"))?, 1);
+    assert_eq!(exec(&cmp(">", "3.14", "3.15"))?, 0);
+    assert_eq!(exec(&cmp("==", "3.14", "3.15"))?, 0);
+    Ok(())
+}
+
+#[test]
+fn float_unary_minus() -> anyhow::Result<()> {
+    // `-3.14` is parser-desugared to `0.0 - 3.14`; the zero literal must be
+    // typed to match the operand or type inference fails.
+    assert_eq!(
+        exec("fun main() -> i32 { let x: f64 = -3.14; return (x * -1.0) as i32 }")?,
+        3,
+    );
+    Ok(())
+}
+
+#[test]
+fn float_default_to_f64() -> anyhow::Result<()> {
+    assert_eq!(
+        exec("fun main() -> i32 { x := 1.5 + 2.5; return x as i32 }")?,
+        4,
+    );
+    Ok(())
+}
+
+#[test]
+fn cast_int_to_float_to_int() -> anyhow::Result<()> {
+    assert_eq!(
+        exec("fun main() -> i32 { let x: f64 = 7 as f64; return (x / 2.0) as i32 }")?,
+        3,
+    );
+    Ok(())
+}
+
+#[test]
+fn f32_to_f64_widening() -> anyhow::Result<()> {
+    assert_eq!(
+        exec("fun main() -> i32 { let x: f32 = 1.5; let y: f64 = x as f64; return (y * 4.0) as i32 }")?,
+        6,
+    );
+    Ok(())
+}
+
+#[test]
+fn f64_to_f32_truncation() -> anyhow::Result<()> {
+    assert_eq!(
+        exec("fun main() -> i32 { let x: f64 = 1.5; let y: f32 = x as f32; return (y * 4.0) as i32 }")?,
+        6,
+    );
+    Ok(())
+}
+
+#[test]
+fn float_to_string_round_trip() -> anyhow::Result<()> {
+    let program = r#"fun main() -> i32 {
+        let v: f64 = 3.14
+        if v.to_string().as_str() == "3.14" {
+            return 1
+        }
+        return 0
+    }"#;
+    assert_eq!(exec(program)?, 1);
+    Ok(())
+}
