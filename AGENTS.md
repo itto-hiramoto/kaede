@@ -35,3 +35,4 @@
 - If clippy cannot be run or reports warnings/errors, report it explicitly and do not claim lint checks passed.
 - Ensure CI parity locally (`cargo fmt`, `cargo clippy`, `cargo test --release`); mention deviations or flaky areas in the PR.
 - Prefer small, reviewable commits; keep generated artifacts (e.g., `target/`, build outputs) out of git.
+- If you edit the Ubuntu install block in `website/docs/getting-started/installation.md` or the first-program commands in `website/docs/getting-started/first-program.md`, mirror the change in `.github/workflows/ci-docs-install.yml` (which runs those blocks verbatim in CI).
