@@ -1,0 +1,82 @@
+name: CI (docs install)
+
+# Runs the website install + first-program blocks verbatim in a clean
+# ubuntu:22.04 container so docs drift surfaces here before users hit it.
+# Block-for-block diffable against the docs - if you edit either, update both.
+
+on:
+  push:
+    paths:
+      - "website/docs/getting-started/installation.md"
+      - "website/docs/getting-started/first-program.md"
+      - "install.py"
+      - "library/**"
+      - ".github/workflows/ci-docs-install.yml"
+  pull_request:
+    paths:
+      - "website/docs/getting-started/installation.md"
+      - "website/docs/getting-started/first-program.md"
+      - "install.py"
+      - "library/**"
+      - ".github/workflows/ci-docs-install.yml"
+  schedule:
+    - cron: "0 6 * * 1" # weekly: catches upstream apt.llvm.org / rustup drift
+  workflow_dispatch:
+
+jobs:
+  ubuntu-install-from-docs:
+    name: Ubuntu install block (verbatim)
+    runs-on: ubuntu-latest
+    container:
+      image: ubuntu:22.04
+    steps:
+      - name: Bootstrap container (sudo + git for checkout)
+        run: |
+          apt-get update
+          apt-get install -y sudo git ca-certificates
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Run Ubuntu install block from website/docs/getting-started/installation.md
+        shell: bash
+        run: |
+          set -euxo pipefail
+          # === BEGIN verbatim copy of installation.md "Ubuntu / Debian" block ===
+          sudo apt update
+          sudo apt install -y build-essential cmake python3 pkg-config libssl-dev curl wget git
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 17
+          curl https://sh.rustup.rs -sSf | sh -s -- -y
+          . "$HOME/.cargo/env"
+
+          # NOTE: docs say `git clone --recursive ... && cd kaede` here. Skipped
+          # because actions/checkout already provided the source. This is the
+          # one and only intentional deviation from verbatim.
+
+          export LLVM_SYS_170_PREFIX=/usr/lib/llvm-17
+          ./install.py
+          . "$HOME/.kaede/env"
+          kaede -h
+          # === END verbatim ===
+
+      - name: Run first-program block and assert hello, world!
+        shell: bash
+        run: |
+          set -euxo pipefail
+          . "$HOME/.cargo/env"
+          . "$HOME/.kaede/env"
+          cd "$(mktemp -d)"
+
+          # === BEGIN verbatim copy of first-program.md commands ===
+          kaede new hello_kaede
+          cd hello_kaede
+          # === END verbatim ===
+
+          # `kaede run` prints build progress ("Compiling...", "Linking...",
+          # "Build completed") to stdout before the program output, so an exact
+          # equality check would not work. Require "hello, world!" as a line.
+          kaede run | tee /tmp/kaede-run.log
+          grep -Fxq 'hello, world!' /tmp/kaede-run.log
