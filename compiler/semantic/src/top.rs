@@ -80,15 +80,16 @@ impl SemanticAnalyzer {
                 })?;
 
             let current_module_path = analyzer.current_module_path().clone();
-            // TODO: Use the visibility of the use directive
-            // Why using public?
-            // Because generic structures, etc., are generated later,
-            // but if the module's use is not available at that time, an error will occur.
+            // Respect the declared visibility: a bare `use` is module-local (private),
+            // while `export use` re-exports the name. Generic bodies that reference a
+            // private `use` binding still resolve it because monomorphization re-enters
+            // the defining module via `with_defining_module`/`with_module`, and the
+            // module's private table is visible to same-module lookups.
             analyzer
                 .modules
                 .get_mut(&current_module_path)
                 .unwrap()
-                .bind_symbol(name, symbol, ast::top::Visibility::Public);
+                .bind_symbol(name, symbol, node.vis);
 
             Ok(())
         };
