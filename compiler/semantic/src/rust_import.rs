@@ -359,8 +359,8 @@ fn extract_fn_io(sig_container: &Value) -> Option<(&Value, &Value)> {
     Some((inputs, output))
 }
 
-fn project_root_from_root_dir(root_dir: &Path) -> anyhow::Result<PathBuf> {
-    let direct = root_dir.join("rust").join("Cargo.toml");
+fn project_root_from_root_dir(root_dir: &Path, rust_subdir: &Path) -> anyhow::Result<PathBuf> {
+    let direct = root_dir.join(rust_subdir).join("Cargo.toml");
     if direct.exists() {
         return Ok(root_dir.to_path_buf());
     }
@@ -368,13 +368,14 @@ fn project_root_from_root_dir(root_dir: &Path) -> anyhow::Result<PathBuf> {
     let parent = root_dir
         .parent()
         .ok_or_else(|| anyhow!("failed to resolve project root from {}", root_dir.display()))?;
-    let parent_manifest = parent.join("rust").join("Cargo.toml");
+    let parent_manifest = parent.join(rust_subdir).join("Cargo.toml");
     if parent_manifest.exists() {
         return Ok(parent.to_path_buf());
     }
 
     Err(anyhow!(
-        "rust/Cargo.toml not found (searched '{}' and '{}')",
+        "{}/Cargo.toml not found (searched '{}' and '{}')",
+        rust_subdir.display(),
         direct.display(),
         parent_manifest.display()
     ))
@@ -1015,18 +1016,23 @@ fn generate_shim_crate(
     Ok(Some(dylib))
 }
 
-pub fn resolve_rust_import(root_dir: &Path, crate_name: &str) -> anyhow::Result<RustImportOutput> {
-    let project_root = project_root_from_root_dir(root_dir)?;
-    let rust_manifest = project_root.join("rust").join("Cargo.toml");
+pub fn resolve_rust_import(
+    root_dir: &Path,
+    rust_subdir: &Path,
+    crate_name: &str,
+) -> anyhow::Result<RustImportOutput> {
+    let project_root = project_root_from_root_dir(root_dir, rust_subdir)?;
+    let rust_manifest = project_root.join(rust_subdir).join("Cargo.toml");
     let package_name = read_package_name(&rust_manifest)?;
     if package_name != crate_name {
         return Err(anyhow!(
-            "import rust::{crate_name} does not match rust/Cargo.toml package name `{package_name}`"
+            "import rust::{crate_name} does not match {}/Cargo.toml package name `{package_name}`",
+            rust_subdir.display()
         ));
     }
 
     run_rustdoc_json(&rust_manifest)?;
-    let rustdoc_json = rustdoc_json_path(project_root.join("rust").as_path(), crate_name)?;
+    let rustdoc_json = rustdoc_json_path(project_root.join(rust_subdir).as_path(), crate_name)?;
     let (functions, skipped) = parse_root_public_functions(&rustdoc_json, crate_name)?;
     let dylib_path = generate_shim_crate(
         &project_root,

@@ -15,10 +15,8 @@ pub(crate) struct KaedeManifest {
     #[allow(dead_code)]
     pub package: PackageSection,
     pub build: BuildSection,
-    // Presence of `[rust]` enables Rust interop. v1 of the manifest records
-    // the section but the compiler still defaults to `rust/` — wiring
-    // `rust.path` into `kaede_semantic::rust_import` is a follow-up task.
-    #[allow(dead_code)]
+    // Presence of `[rust]` enables Rust interop; `rust.path` tells the
+    // compiler which subdirectory holds the Rust crate.
     pub rust: Option<RustSection>,
 }
 
@@ -41,7 +39,6 @@ pub(crate) struct BuildSection {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RustSection {
-    #[allow(dead_code)]
     pub path: PathBuf,
 }
 

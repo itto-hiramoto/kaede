@@ -54,6 +54,9 @@ pub(crate) fn build_project() -> anyhow::Result<PathBuf> {
     let manifest = manifest::load_from_cwd()?;
     let src_root = manifest.build.src;
     let output_path = manifest.build.out;
+    // `[rust]` section presence enables Rust interop; when it is absent,
+    // `import rust::<crate>` is rejected by the semantic analyzer.
+    let rust_path = manifest.rust.as_ref().map(|r| r.path.clone());
 
     if !src_root.exists() {
         anyhow::bail!(
@@ -77,6 +80,7 @@ pub(crate) fn build_project() -> anyhow::Result<PathBuf> {
         display_llvm_ir: false,
         output_file_path: output_path.clone(),
         root_dir: Some(src_root),
+        rust_path,
         no_autoload: false,
         no_prelude: false,
         no_gc: false,

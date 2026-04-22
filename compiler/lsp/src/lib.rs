@@ -70,7 +70,10 @@ impl Backend {
                 Err(err) => return diagnostics_from_parse_error(err),
             };
 
-            let mut analyzer = SemanticAnalyzer::new(file, root_dir);
+            // The LSP does not parse Kaede.toml; default to the legacy "rust/"
+            // lookup so rust-interop projects still get diagnostics for
+            // `import rust::<crate>`.
+            let mut analyzer = SemanticAnalyzer::new(file, root_dir, Some(PathBuf::from("rust")));
             let is_entry_unit = ast_has_entry_candidate(&ast);
             match analyzer.analyze(
                 ast,
