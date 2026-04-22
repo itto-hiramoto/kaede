@@ -3,9 +3,9 @@ import Layout from '@theme/Layout';
 import Link from '@docusaurus/Link';
 import CodeBlock from '@theme/CodeBlock';
 
-const sampleProgram = `import std.http
+const sampleProgram = `import std.net.http
 
-mut app := std.http.App::new()
+mut app := std.net.http.App::new()
 
 app.get("/", |req, res| {
     res.send("hello, world!")
@@ -15,7 +15,7 @@ app.ws("/ws/echo", |req, ws| {
     loop {
         msg := ws.receive().unwrap()
         match msg.kind {
-            std.http.WebSocketMessageKind::Close => return
+            std.net.http.WebSocketMessageKind::Close => return
             _ => ws.send(msg)
         }
     }
