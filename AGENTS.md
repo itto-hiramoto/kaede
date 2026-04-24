@@ -8,6 +8,7 @@
 
 ## Build, Test, and Development Commands
 - Install prerequisites once: `./install.py` (sets up standard library/runtime). WebSocket-enabled stdlib builds require `pkg-config` plus OpenSSL development files so `pkg-config --cflags --libs openssl` succeeds. On macOS add `export LIBRARY_PATH="$LIBRARY_PATH:$(brew --prefix)/lib"` to load LLVM.
+- Optional: Nix users can run `nix develop` to enter a shell with LLVM 17, Rust, cmake, pkg-config, OpenSSL (and valgrind on Linux) preconfigured. `./install.py` still needs to be run once from inside the shell to populate `~/.kaede`.
 - Format check: `cargo fmt --all -- --check`.
 - Lint: `cargo clippy -- -D warnings`.
 - Tests: `cargo test --release --no-fail-fast`.
