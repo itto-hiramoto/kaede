@@ -20,6 +20,8 @@
           packages = with pkgs; [
             llvm.llvm
             llvm.libllvm
+            libffi
+            libxml2
             rustup
             cmake
             pkg-config
