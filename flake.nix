@@ -2,7 +2,10 @@
   description = "Kaede programming language dev environment";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # Pinned to nixos-24.11: still carries llvmPackages_17, which CI pins via
+    # KyleMayes/install-llvm-action. Newer nixpkgs channels have dropped
+    # llvmPackages_17 as unmaintained.
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.11";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
@@ -11,8 +14,6 @@
       let
         pkgs = import nixpkgs { inherit system; };
         llvm = pkgs.llvmPackages_17;
-        libPathEnvVar =
-          if pkgs.stdenv.isDarwin then "DYLD_LIBRARY_PATH" else "LD_LIBRARY_PATH";
       in
       {
         devShells.default = pkgs.mkShell {
@@ -29,12 +30,10 @@
           ];
 
           shellHook = ''
-            # Mirror install.py's env script: expose bdwgc's shared library
-            # once `./install.py` has populated $HOME/.kaede.
-            if [ -d "$HOME/.kaede/third_party/bdwgc/lib" ]; then
-              export ${libPathEnvVar}="$HOME/.kaede/third_party/bdwgc/lib''${${libPathEnvVar}:+:''$${libPathEnvVar}}"
-              export PATH="$HOME/.kaede/bin:$PATH"
-            fi
+            # Defer LD_LIBRARY_PATH / DYLD_LIBRARY_PATH / PATH setup to
+            # install.py's env script — it is the single source of truth
+            # for where the installed bdwgc and kaede binaries live.
+            [ -f "$HOME/.kaede/env" ] && . "$HOME/.kaede/env"
 
             # Match CI: stable (with rustfmt+clippy) plus a minimal nightly for rustdoc.
             if command -v rustup >/dev/null; then
