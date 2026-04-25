@@ -1,0 +1,37 @@
+name: CI (Nix, Linux)
+
+on: [push]
+
+jobs:
+  check-and-test:
+    name: Check and test (Nix)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Cache rust
+        id: cache-rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/
+            ~/.rustup/
+            ./target/
+          key: ${{ runner.os }}-nix-cargo-${{ hashFiles('**/Cargo.lock', 'flake.lock') }}
+
+      - name: Install kaede
+        run: nix develop --command bash -c "chmod +x install.py && ./install.py --no-setenv"
+
+      - name: Run format
+        run: nix develop --command cargo fmt --all -- --check
+
+      - name: Run clippy
+        run: nix develop --command cargo clippy -- -D warnings
+
+      - name: Run test
+        run: nix develop --command cargo test --release --no-fail-fast
