@@ -17,18 +17,21 @@
       in
       {
         devShells.default = pkgs.mkShell {
-          packages = with pkgs; [
+          nativeBuildInputs = with pkgs; [
+            rustup
+            cmake
+            pkg-config
+            python3
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            valgrind
+          ];
+
+          buildInputs = with pkgs; [
             llvm.llvm
             llvm.libllvm
             libffi
             libxml2
-            rustup
-            cmake
-            pkg-config
             openssl
-            python3
-          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
-            valgrind
           ];
 
           shellHook = ''
