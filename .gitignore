@@ -62,3 +62,8 @@ Temporary Items
 .vscode
 website/.docusaurus
 website/build
+
+# Nix
+result
+result-*
+.direnv/
