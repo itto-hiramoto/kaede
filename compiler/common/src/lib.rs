@@ -52,10 +52,6 @@ pub fn kaede_autoload_dir() -> PathBuf {
 }
 
 pub fn kaede_runtime_linker_flags() -> Vec<OsString> {
-    if !cfg!(target_os = "macos") {
-        return Vec::new();
-    }
-
     let mut flags = Vec::new();
 
     for lib_dir in std::iter::once(kaede_lib_dir()).chain(kaede_third_party_lib_dirs()) {

@@ -146,6 +146,7 @@ def install_standard_library(
         env=env,
         check=True,
     )
+    bdwgc_lib_dir = os.path.dirname(bdwgc_lib_path)
     subprocess.run(
         [
             cc,
@@ -158,6 +159,10 @@ def install_standard_library(
             *openssl_cflags,
             "-o",
             kaede_lib_path,
+            # Bake an RPATH pointing to the bdwgc dir so libkd.so resolves
+            # libgc.so.1 on its own. DT_RUNPATH is non-transitive, so the
+            # consumer binary's runpath does not cover libkd.so's deps.
+            "-Wl,-rpath,%s" % bdwgc_lib_dir,
             t1.name,
             t2.name,
             *ffi_c_files,
