@@ -1,7 +1,10 @@
 import std.ffi.sys
-import std.option
+import std.io
+import std.result
 
-use std.option.Option
+use std.io.IoError
+use std.io.IoErrorKind
+use std.result.Result
 
 use std.ffi.sys.__sys_read
 use std.ffi.sys.__sys_write
@@ -22,15 +25,15 @@ impl Fd {
         return self.raw
     }
 
-    export fun read(self, buf: mut [u8]) -> Option<u64> {
+    export fun read(self, buf: mut [u8]) -> Result<u64, IoError> {
         let n = __sys_read(self.raw, buf.as_ptr(), buf.len())
         if n < 0 {
-            return Option::None
+            return Result::Err(IoError::from_errno(__sys_errno()))
         }
-        return Option::Some(n as u64)
+        return Result::Ok(n as u64)
     }
 
-    export fun write(self, buf: [u8]) -> Option<u64> {
+    export fun write(self, buf: [u8]) -> Result<u64, IoError> {
         let mut off = 0
         let total = buf.len()
 
@@ -43,17 +46,19 @@ impl Fd {
             let n = __sys_write(self.raw, ptr, rem)
 
             if n < 0 {
-                return Option::None
+                return Result::Err(IoError::from_errno(__sys_errno()))
             }
 
             if n == 0 {
-                return Option::None
+                // Zero-length write usually means the peer is gone. There's no
+                // dedicated errno here, so report it as a broken pipe.
+                return Result::Err(IoError::new(IoErrorKind::BrokenPipe, 0))
             }
 
             off += n as u64
         }
 
-        return Option::Some(total)
+        return Result::Ok(total)
     }
 }
 

@@ -1,21 +1,70 @@
 import std.ffi.io
 import std.collections
-import std.option
+import std.result
 
 use std.ffi.io.write
 use std.collections.Vector
-use std.option.Option
+use std.result.Result
 
-// A source of bytes. Implementors populate `buf` and return how many bytes were
-// read, or `None` on failure. A return of `Some(0)` signals end-of-stream.
-export interface Reader {
-    fun read(self, buf: mut [u8]) -> Option<u64>
+// Coarse classification of an I/O failure. `from_errno` maps a few well-known
+// errnos to a kind so callers can branch without parsing errno themselves;
+// everything else falls through to `Other`. The numeric mapping is currently
+// Linux-flavored — macOS' EAGAIN (35) won't classify as `WouldBlock` until
+// we expose errno constants from the runtime.
+export enum IoErrorKind {
+    WouldBlock,
+    Interrupted,
+    BrokenPipe,
+    Other,
 }
 
-// A sink of bytes. Implementors consume `buf` and return how many bytes were
-// written, or `None` on failure.
+// Failure shape for the I/O surface. `errno` is the raw OS-level value at
+// the point of failure; `kind` is a best-effort classification for callers
+// that don't want to compare errno directly.
+export struct IoError {
+    kind: IoErrorKind,
+    errno: i32,
+}
+
+impl IoError {
+    export fun new(kind: IoErrorKind, errno: i32) -> IoError {
+        return IoError { kind, errno }
+    }
+
+    export fun from_errno(errno: i32) -> IoError {
+        let kind = if errno == 11 {
+            IoErrorKind::WouldBlock
+        } else if errno == 4 {
+            IoErrorKind::Interrupted
+        } else if errno == 32 {
+            IoErrorKind::BrokenPipe
+        } else {
+            IoErrorKind::Other
+        }
+        return IoError { kind, errno }
+    }
+
+    export fun kind(self) -> IoErrorKind {
+        return self.kind
+    }
+
+    export fun errno(self) -> i32 {
+        return self.errno
+    }
+}
+
+// A source of bytes. Implementors populate `buf` and return how many bytes
+// were read, or an `IoError` on failure. A return of `Ok(0)` signals
+// end-of-stream — the same convention as Rust's `io::Read` and the
+// underlying `read(2)` syscall.
+export interface Reader {
+    fun read(self, buf: mut [u8]) -> Result<u64, IoError>
+}
+
+// A sink of bytes. Implementors consume `buf` and return how many bytes
+// were written, or an `IoError` on failure.
 export interface Writer {
-    fun write(self, buf: [u8]) -> Option<u64>
+    fun write(self, buf: [u8]) -> Result<u64, IoError>
 }
 
 export fun print(msg: str) -> i32 {
@@ -37,30 +86,30 @@ export fun eprintln(msg: str) -> i32 {
 }
 
 // Read exactly `len` bytes unless EOF is hit; returns bytes read.
-export fun read_exact<R: Reader>(r: R, buf: mut [u8], len: u64) -> Option<u64> {
+export fun read_exact<R: Reader>(r: R, buf: mut [u8], len: u64) -> Result<u64, IoError> {
     let mut read_total = 0
     while read_total < len {
         let mut slice = buf[read_total:buf.len()]
         let n = match r.read(slice) {
-            Option::Some(value) => value,
-            Option::None => return Option::None,
+            Result::Ok(value) => value,
+            Result::Err(err) => return Result::Err(err),
         }
         if n == 0 {
             break
         }
         read_total += n
     }
-    return Option::Some(read_total)
+    return Result::Ok(read_total)
 }
 
-export fun read_all<R: Reader>(r: R, max_bytes: u64) -> Option<Vector<u8>> {
+export fun read_all<R: Reader>(r: R, max_bytes: u64) -> Result<Vector<u8>, IoError> {
     let mut out = Vector<u8>::new()
     let mut buf = [0; 4096]
 
     loop {
         let n = match r.read(buf) {
-            Option::Some(value) => value,
-            Option::None => return Option::None,
+            Result::Ok(value) => value,
+            Result::Err(err) => return Result::Err(err),
         }
 
         if n == 0 {
@@ -68,7 +117,9 @@ export fun read_all<R: Reader>(r: R, max_bytes: u64) -> Option<Vector<u8>> {
         }
 
         if out.len() + n > max_bytes {
-            return Option::None
+            // Buffer cap exceeded — surface as an Other error since we don't
+            // have a dedicated `BufferFull` kind yet.
+            return Result::Err(IoError::new(IoErrorKind::Other, 0))
         }
 
         let mut i = 0
@@ -78,10 +129,10 @@ export fun read_all<R: Reader>(r: R, max_bytes: u64) -> Option<Vector<u8>> {
         }
     }
 
-    return Option::Some(out)
+    return Result::Ok(out)
 }
 
-export fun read_until<R: Reader>(r: R, buf: mut [u8], delim: [u8]) -> Option<u64> {
+export fun read_until<R: Reader>(r: R, buf: mut [u8], delim: [u8]) -> Result<u64, IoError> {
     let mut filled = 0
 
     loop {
@@ -93,19 +144,19 @@ export fun read_until<R: Reader>(r: R, buf: mut [u8], delim: [u8]) -> Option<u64
         // bytes that belong to the next request on the same connection.
         let mut tail = buf[filled:(filled + 1)]
         let n = match r.read(tail) {
-            Option::Some(value) => value,
-            Option::None => return Option::None,
+            Result::Ok(value) => value,
+            Result::Err(err) => return Result::Err(err),
         }
         if n == 0 {
             // EOF: caller decides how to handle closed connection
-            return Option::Some(0)
+            return Result::Ok(0)
         }
 
         filled += n
 
         let p = find_subslice(buf[0:filled], delim)
         if p >= 0 {
-            return Option::Some((p as u64) + delim.len())
+            return Result::Ok((p as u64) + delim.len())
         }
     }
 
