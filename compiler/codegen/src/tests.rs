@@ -2251,6 +2251,34 @@ fn if_in_loop() -> anyhow::Result<()> {
 }
 
 #[test]
+fn if_with_both_arms_returning_does_not_leave_dangling_cont_block() -> anyhow::Result<()> {
+    // When every arm of an if/else (or match, which lowers to nested ifs)
+    // terminates with `return`, the synthetic `ifcont` continuation block has
+    // no predecessors. Make sure codegen terminates that block instead of
+    // leaving it dangling, which would fail LLVM verification.
+    let program = r#"
+        fun main() -> i32 {
+            if 1 == 1 { return 7 } else { return 9 }
+        }
+    "#;
+    assert_eq!(exec(program)?, 7);
+
+    let match_program = r#"
+        enum Color { Red, Blue }
+        fun pick() -> Color { return Color::Red }
+        fun main() -> i32 {
+            match pick() {
+                Color::Red => return 3,
+                Color::Blue => return 4,
+            }
+        }
+    "#;
+    assert_eq!(exec(match_program)?, 3);
+
+    Ok(())
+}
+
+#[test]
 fn simple_method() -> anyhow::Result<()> {
     let program = r#"struct Person {
         age: i32,
