@@ -1,4 +1,4 @@
-name: CI (Nix, Linux)
+name: CI (Linux)
 
 on: [push]
 

@@ -8,8 +8,8 @@
 </div>
 
 <p align="center">
-  <a href="https://github.com/itto-hiramoto/kaede/actions/workflows/ci-linux.yml"><img alt="CI (Linux)" src="https://github.com/itto-hiramoto/kaede/actions/workflows/ci-linux.yml/badge.svg"></a>
-  <a href="https://github.com/itto-hiramoto/kaede/actions/workflows/ci-macos.yml"><img alt="CI (macOS)" src="https://github.com/itto-hiramoto/kaede/actions/workflows/ci-macos.yml/badge.svg"></a>
+  <a href="https://github.com/itto-hiramoto/kaede/actions/workflows/ci-nix-linux.yml"><img alt="CI (Linux)" src="https://github.com/itto-hiramoto/kaede/actions/workflows/ci-nix-linux.yml/badge.svg"></a>
+  <a href="https://github.com/itto-hiramoto/kaede/actions/workflows/ci-nix-macos.yml"><img alt="CI (macOS)" src="https://github.com/itto-hiramoto/kaede/actions/workflows/ci-nix-macos.yml/badge.svg"></a>
 </p>
 
 > [!WARNING]
