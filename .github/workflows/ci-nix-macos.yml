@@ -6,6 +6,9 @@ jobs:
   check-and-test:
     name: Check and test (Nix)
     runs-on: macos-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -13,6 +16,9 @@ jobs:
 
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Set up Magic Nix Cache
+        uses: DeterminateSystems/magic-nix-cache-action@main
 
       - name: Cache rust
         id: cache-rust
