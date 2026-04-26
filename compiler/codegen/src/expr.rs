@@ -883,7 +883,8 @@ impl<'ctx> CodeGenerator<'ctx> {
         }
 
         // Since there can be no more than one terminator per block
-        if self.no_terminator() {
+        let then_falls_through = self.no_terminator();
+        if then_falls_through {
             self.builder.build_unconditional_branch(cont_bb)?;
         }
 
@@ -912,11 +913,21 @@ impl<'ctx> CodeGenerator<'ctx> {
         let else_bb = self.builder.get_insert_block().unwrap();
 
         // Since there can be no more than one terminator per block
-        if self.no_terminator() {
+        let else_falls_through = self.no_terminator();
+        if else_falls_through {
             self.builder.build_unconditional_branch(cont_bb)?;
         }
 
         self.builder.position_at_end(cont_bb);
+
+        if !then_falls_through && !else_falls_through {
+            // Neither arm branches to cont_bb (e.g. both `return`), so it has
+            // no predecessors. Terminate it with `unreachable` instead of
+            // leaving it dangling — LLVM verification would otherwise reject
+            // the function for the unterminated block.
+            self.builder.build_unreachable()?;
+            return Ok(None);
+        }
 
         // Either then_val or else_val could be never
         let phi_ty = if then_val.is_none() {
