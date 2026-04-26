@@ -119,15 +119,15 @@ use std.sync.WaitGroup
 fun handle(conn: std.sys.Fd, wg: mut WaitGroup) {{
     let mut buf = [0; 1]
     let n = match conn.read(buf) {{
-        std.option.Option::Some(value) => value,
-        std.option.Option::None => {{
+        std.result.Result::Ok(value) => value,
+        std.result.Result::Err(_) => {{
             std.sys.close_quiet(conn)
             wg.done()
             return
         }}
     }}
 
-    if n > 0 && conn.write(b"ok").is_none() {{
+    if n > 0 && conn.write(b"ok").is_err() {{
         std.sys.close_quiet(conn)
         wg.done()
         return

@@ -1,19 +1,22 @@
 import std.sys
+import std.io
+import std.result
 import std.ffi.sys
-import std.option
 
 use std.sys.Fd
-use std.option.Option
+use std.io.IoError
+use std.result.Result
 use std.ffi.sys.__sys_open_read
+use std.ffi.sys.__sys_errno
 use std.ffi.sys.__sys_is_regular_file
 
-export fun open_read(path: str) -> Option<Fd> {
+export fun open_read(path: str) -> Result<Fd, IoError> {
     let fd = __sys_open_read(path.as_ptr(), path.len())
     if fd < 0 {
-        return Option::None
+        return Result::Err(IoError::from_errno(__sys_errno()))
     }
 
-    return Option::Some(Fd::new(fd))
+    return Result::Ok(Fd::new(fd))
 }
 
 export fun is_regular_file(fd: Fd) -> bool {

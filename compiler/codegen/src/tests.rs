@@ -5116,7 +5116,8 @@ fn user_defined_reader_flows_through_stdlib_read_exact() -> anyhow::Result<()> {
         import std.sys
 
         use std.io.Reader
-        use std.option.Option
+        use std.io.IoError
+        use std.result.Result
         use std.io.read_exact
 
         struct ByteSource {
@@ -5124,13 +5125,13 @@ fn user_defined_reader_flows_through_stdlib_read_exact() -> anyhow::Result<()> {
         }
 
         impl ByteSource {
-            fun read(self, buf: mut [u8]) -> Option<u64> {
+            fun read(self, buf: mut [u8]) -> Result<u64, IoError> {
                 let mut i = 0
                 while i < buf.len() {
                     buf[i] = self.value
                     i += 1
                 }
-                return Option::Some(buf.len())
+                return Result::Ok(buf.len())
             }
         }
 
@@ -5138,8 +5139,8 @@ fn user_defined_reader_flows_through_stdlib_read_exact() -> anyhow::Result<()> {
             let src = ByteSource { value: 7 }
             let mut buf = [0; 4]
             let n = match read_exact(src, buf, 4) {
-                Option::Some(value) => value,
-                Option::None => return 1,
+                Result::Ok(value) => value,
+                Result::Err(_) => return 1,
             }
             if n != 4 { return 2 }
             if buf[0] != 7 { return 3 }
@@ -5164,15 +5165,16 @@ fn user_defined_writer_flows_through_stdlib_http_helper() -> anyhow::Result<()> 
         use std.net.http.Status
         use std.net.http.write_status_line
         use std.io.Writer
-        use std.option.Option
+        use std.io.IoError
+        use std.result.Result
 
         struct AcceptAll {
             tag: i32,
         }
 
         impl AcceptAll {
-            fun write(self, buf: [u8]) -> Option<u64> {
-                return Option::Some(buf.len())
+            fun write(self, buf: [u8]) -> Result<u64, IoError> {
+                return Result::Ok(buf.len())
             }
         }
 
