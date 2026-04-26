@@ -6,9 +6,6 @@ jobs:
   check-and-test:
     name: Check and test (Nix)
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -19,6 +16,8 @@ jobs:
 
       - name: Set up Magic Nix Cache
         uses: DeterminateSystems/magic-nix-cache-action@main
+        with:
+          use-flakehub: false
 
       - name: Cache rust
         id: cache-rust
