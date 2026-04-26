@@ -55,6 +55,11 @@ def install_bdwgc(third_party_dir):
             "cmake",
             "-DCMAKE_BUILD_TYPE=Release",
             "-DCMAKE_INSTALL_PREFIX='%s'" % install_dir,
+            # Pin libdir to "lib" so we know where libgc lands. bdwgc's
+            # CMakeLists uses GNUInstallDirs, which picks lib64 on some
+            # 64-bit distros (e.g. Fedora) and breaks the rest of the
+            # install that hard-codes <prefix>/lib/libgc.{so,dylib}.
+            "-DCMAKE_INSTALL_LIBDIR=lib",
             "-S",
             bdwgc_dir,
             "-B",
@@ -141,6 +146,7 @@ def install_standard_library(
         env=env,
         check=True,
     )
+    bdwgc_lib_dir = os.path.dirname(bdwgc_lib_path)
     subprocess.run(
         [
             cc,
@@ -153,6 +159,10 @@ def install_standard_library(
             *openssl_cflags,
             "-o",
             kaede_lib_path,
+            # Bake an RPATH pointing to the bdwgc dir so libkd.so resolves
+            # libgc.so.1 on its own. DT_RUNPATH is non-transitive, so the
+            # consumer binary's runpath does not cover libkd.so's deps.
+            "-Wl,-rpath,%s" % bdwgc_lib_dir,
             t1.name,
             t2.name,
             *ffi_c_files,
