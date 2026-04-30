@@ -1,5 +1,6 @@
 #include <kaede/signal.h>
 #include <kaede/task.h>
+#include <kaede/worker.h>
 
 #include <errno.h>
 #include <signal.h>
@@ -8,8 +9,6 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
-
-_Thread_local struct Task *kaede_current_task = NULL;
 
 // Cached at handler-install time so the handler does not need to call
 // sysconf() (which is technically async-signal-safe but better avoided).

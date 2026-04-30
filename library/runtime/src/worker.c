@@ -27,8 +27,11 @@ static bool scheduler_main_finished = false;
 static bool main_spawned = false;
 static int main_exit_code = 0;
 
+// Per-OS-thread worker state. The currently-executing task is tracked by
+// the file-scope `kaede_current_task` below (declared in kaede/worker.h)
+// so the SIGSEGV handler can read it via async-signal-safe TLS load; do
+// not shadow it here.
 struct Worker {
-    struct Task *current_task;
     struct Context context;
     void *gc_thread_handle;
     struct GC_stack_base gc_stack_base;
@@ -53,6 +56,7 @@ struct IoWaitTable {
 static struct IoWaitTable io_waits;
 
 _Thread_local struct Worker worker;
+_Thread_local struct Task *kaede_current_task = NULL;
 
 static void fail_runtime(const char *message) {
     fprintf(stderr, "%s\n", message);
@@ -320,14 +324,14 @@ static void runtime_init_impl(void) {
 }
 
 static void task_finished(void) {
-    if (!worker.current_task) {
+    if (!kaede_current_task) {
         return;
     }
 
-    worker.current_task->scheduler.state = TASK_FINISHED;
+    kaede_current_task->scheduler.state = TASK_FINISHED;
     worker.yielded_state = TASK_FINISHED;
     worker.returned_with_scheduler_lock = false;
-    if (worker.current_task->scheduler.is_main) {
+    if (kaede_current_task->scheduler.is_main) {
         pthread_mutex_lock(&main_mutex);
         main_finished = true;
         pthread_cond_broadcast(&main_cond);
@@ -340,7 +344,7 @@ static void task_finished(void) {
         (void)kaede_poller_wake();
     }
 
-    context_switch(&worker.current_task->context, &worker.context);
+    context_switch(&kaede_current_task->context, &worker.context);
 }
 
 void task_entrypoint(void) {
@@ -464,7 +468,6 @@ static void worker_loop_impl(int worker_id) {
         }
         pthread_mutex_unlock(&scheduler_mutex);
 
-        worker.current_task = task;
         kaede_current_task = task;
 
         if (worker.gc_thread_handle) {
@@ -479,7 +482,6 @@ static void worker_loop_impl(int worker_id) {
             GC_set_stackbottom(worker.gc_thread_handle, &worker.gc_stack_base);
         }
 
-        worker.current_task = NULL;
         kaede_current_task = NULL;
         // Use the state captured at yield time instead of re-reading task state
         // after a cross-worker resume.
@@ -533,13 +535,13 @@ void *worker_loop(void *arg) {
 }
 
 KaedeIoWaitResult worker_park_current_on_io(int fd, uint32_t events) {
-    if (!worker.current_task || events == KAEDE_IO_EVENT_NONE) {
+    if (!kaede_current_task || events == KAEDE_IO_EVENT_NONE) {
         return KAEDE_IO_WAIT_FAILED;
     }
 
     // `context_switch()` may suspend here and resume this frame on a different
     // worker thread, so snapshot task/worker-owned state before touching TLS.
-    struct Task *task = worker.current_task;
+    struct Task *task = kaede_current_task;
     struct Context *worker_context = &worker.context;
     void *gc_thread_handle = worker.gc_thread_handle;
     struct GC_stack_base *gc_stack_base = &worker.gc_stack_base;
@@ -602,7 +604,7 @@ void worker_yield(void) {
     if (worker.gc_thread_handle) {
         GC_set_stackbottom(worker.gc_thread_handle, &worker.gc_stack_base);
     }
-    context_switch(&worker.current_task->context, &worker.context);
+    context_switch(&kaede_current_task->context, &worker.context);
 }
 
 void worker_scheduler_lock(void) {
@@ -618,18 +620,18 @@ bool worker_shutdown_requested_locked(void) {
 }
 
 struct Task *worker_current_task(void) {
-    return worker.current_task;
+    return kaede_current_task;
 }
 
 bool worker_park_current_on_channel_locked(void *obj, uint32_t wait_kind,
                                            void *value_slot) {
-    if (!worker.current_task || wait_kind == KAEDE_TASK_WAIT_NONE ||
+    if (!kaede_current_task || wait_kind == KAEDE_TASK_WAIT_NONE ||
         shutdown_requested) {
         pthread_mutex_unlock(&scheduler_mutex);
         return false;
     }
 
-    struct Task *task = worker.current_task;
+    struct Task *task = kaede_current_task;
     struct Context *worker_context = &worker.context;
     void *gc_thread_handle = worker.gc_thread_handle;
     struct GC_stack_base *gc_stack_base = &worker.gc_stack_base;
