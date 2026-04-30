@@ -1,59 +1,6 @@
-use assert_cmd::prelude::*;
-use assert_fs::prelude::*;
-use predicates::prelude::*;
-use std::path::Path;
-use std::process::Command;
+mod runtime_test_support;
 
-fn compile(
-    file_paths: &[&Path],
-    root_dir: &Path,
-    output_path: &Path,
-) -> anyhow::Result<std::process::Output> {
-    let mut args = file_paths
-        .iter()
-        .map(|p| p.to_string_lossy().to_string())
-        .collect::<Vec<String>>();
-
-    args.push("-o".to_string());
-    args.push(output_path.to_string_lossy().to_string());
-    args.push("--root-dir".to_string());
-    args.push(root_dir.to_string_lossy().to_string());
-
-    Ok(Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
-        .args(args)
-        .output()?)
-}
-
-fn compile_project(
-    file_paths: &[&Path],
-    root_dir: &Path,
-) -> anyhow::Result<assert_fs::NamedTempFile> {
-    let exe = assert_fs::NamedTempFile::new("channel.out")?;
-    let output = compile(file_paths, root_dir, exe.path())?;
-
-    assert!(
-        output.status.success(),
-        "kaede compile failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    Ok(exe)
-}
-
-fn run_binary(expect: i32, exe_path: &Path) -> anyhow::Result<()> {
-    Command::new(exe_path).assert().code(predicate::eq(expect));
-    Ok(())
-}
-
-fn test(expect: i32, program: &str) -> anyhow::Result<()> {
-    let tempdir = assert_fs::TempDir::new()?;
-    let main = tempdir.child("main.kd");
-    main.write_str(program)?;
-
-    let exe = compile_project(&[main.path()], tempdir.path())?;
-    run_binary(expect, exe.path())
-}
+use runtime_test_support::run_program as test;
 
 #[test]
 fn unbuffered_channel_hands_off_values_between_tasks() -> anyhow::Result<()> {
