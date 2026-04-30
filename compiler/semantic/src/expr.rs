@@ -512,6 +512,13 @@ impl SemanticAnalyzer {
                 .into());
             }
 
+            if ir::ty::contains_type_var(&value.ty) || ir::ty::contains_type_var(&field_info.ty) {
+                // Defer the strict shape check to the type-inference pass; either side
+                // may still carry unresolved type variables (e.g. an `Option::Some(node)`
+                // value whose payload generic argument is not yet bound).
+                continue;
+            }
+
             if !ir::ty::is_same_type(&field_info.ty, &value.ty) {
                 return Err(SemanticError::MismatchedTypes {
                     types: (field_info.ty.kind.to_string(), value.ty.kind.to_string()),

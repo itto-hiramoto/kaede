@@ -517,6 +517,29 @@ fn option_none_allows_omitted_type_args_when_expected_type_is_known() -> anyhow:
 }
 
 #[test]
+fn struct_field_accepts_option_some_with_omitted_type_args() -> anyhow::Result<()> {
+    // Regression: a struct literal that puts `Option::Some(value)` into a recursive
+    // `Option<Self>` field used to be rejected by the pre-inference shape check
+    // because the value's payload type was still an unbound type variable.
+    semantic_analyze(
+        r#"
+        struct Node {
+            val: i32,
+            left: Option<Node>,
+        }
+
+        fun main() -> i32 {
+            let n1 = Node { val: 1, left: Option<Node>::None }
+            let n2 = Node { val: 2, left: Option::Some(n1) }
+            return n2.val
+        }
+        "#,
+    )?;
+
+    Ok(())
+}
+
+#[test]
 fn option_none_without_context_still_requires_type_args() -> anyhow::Result<()> {
     let err = semantic_analyze_expect_error(
         r#"
