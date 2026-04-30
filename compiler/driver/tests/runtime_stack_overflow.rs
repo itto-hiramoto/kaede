@@ -34,7 +34,7 @@ fn assert_stack_overflow(output: &Output, expected_task_label: &str) {
         stderr
     );
     assert!(
-        stderr.contains("kaede runtime: green thread stack overflow"),
+        stderr.contains("kaede runtime: task stack overflow"),
         "stderr did not contain stack overflow diagnostic\nstderr:\n{}",
         stderr
     );

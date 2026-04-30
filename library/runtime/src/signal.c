@@ -80,7 +80,7 @@ static void crash_handler(int sig, siginfo_t *info, void *uctx) {
         const uintptr_t guard_hi = stack_base;
 
         if (addr >= guard_lo && addr < guard_hi) {
-            write_str("\nkaede runtime: green thread stack overflow\n");
+            write_str("\nkaede runtime: task stack overflow\n");
             write_str("  task: ");
             write_str(task->scheduler.is_main ? "main\n" : "spawned\n");
             write_str("  configured stack size: ");
