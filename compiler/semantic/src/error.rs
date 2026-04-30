@@ -251,4 +251,20 @@ pub enum SemanticError {
         method_name: Symbol,
         span: Span,
     },
+
+    #[error("{}:{}:{} method `{}` of interface `{}` references the interface itself in its signature; it can only be called through a generic bound (e.g. `<T: {}>`), not on a value typed as `{}`",
+        span.file, span.start.line, span.start.column, method_name, interface, interface, interface)]
+    InterfaceMethodNotObjectSafe {
+        method_name: Symbol,
+        interface: Symbol,
+        span: Span,
+    },
+
+    #[error("{}:{}:{} cannot box value of type `{}` as interface `{}`: only user-defined types (structs / enums) can be coerced to an interface value",
+        span.file, span.start.line, span.start.column, actual, interface)]
+    CannotBoxNonUdtAsInterface {
+        actual: String,
+        interface: Symbol,
+        span: Span,
+    },
 }

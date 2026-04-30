@@ -986,6 +986,14 @@ impl SemanticAnalyzer {
 
         let qualified_name = QualifiedSymbol::new(self.current_module_path().clone(), name);
 
+        // Insert a placeholder so interface methods may reference the interface
+        // itself in their parameter / return types (Self-shaped methods).
+        let placeholder_value = SymbolTableValue::new(
+            SymbolTableValueKind::Placeholder(qualified_name.clone()),
+            self.current_module_path().clone(),
+        );
+        self.insert_symbol_to_root_scope(name, placeholder_value, vis, span)?;
+
         let mut methods = Vec::with_capacity(node.methods.len());
         for method in node.methods {
             let params = method
@@ -1001,11 +1009,18 @@ impl SemanticAnalyzer {
                 })
                 .collect::<anyhow::Result<Vec<_>>>()?;
 
+            let return_ty = self.analyze_type(&method.return_ty)?;
+            let is_self_shaped = params
+                .iter()
+                .any(|p| ir::ty::ty_mentions_interface(&p.ty, &qualified_name))
+                || ir::ty::ty_mentions_interface(&return_ty, &qualified_name);
+
             methods.push(ir::top::InterfaceMethod {
                 name: method.name.symbol(),
                 self_: method.self_.map(ir::ty::Mutability::from),
                 params,
-                return_ty: self.analyze_type(&method.return_ty)?,
+                return_ty,
+                is_self_shaped,
             });
         }
 

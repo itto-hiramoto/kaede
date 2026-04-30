@@ -97,6 +97,9 @@ pub struct InterfaceMethod {
     pub self_: Option<Mutability>,
     pub params: Vec<Param>,
     pub return_ty: Rc<Ty>,
+    /// True if any param or return type references the interface itself.
+    /// Such methods are not safe to dispatch through a fat pointer.
+    pub is_self_shaped: bool,
 }
 
 #[derive(Debug, Clone)]

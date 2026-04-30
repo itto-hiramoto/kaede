@@ -135,6 +135,163 @@ pub fn contains_type_var(ty: &Rc<Ty>) -> bool {
     }
 }
 
+fn udt_is_interface_named(udt: &UserDefinedType, interface_name: &QualifiedSymbol) -> bool {
+    match &udt.kind {
+        UserDefinedTypeKind::Interface(i) => &i.name == interface_name,
+        UserDefinedTypeKind::Placeholder(qsym) => qsym == interface_name,
+        _ => false,
+    }
+}
+
+/// True if `ty` mentions `interface_name` anywhere in its tree.
+pub fn ty_mentions_interface(ty: &Rc<Ty>, interface_name: &QualifiedSymbol) -> bool {
+    match ty.kind.as_ref() {
+        TyKind::UserDefined(udt) => {
+            udt_is_interface_named(udt, interface_name)
+                || udt.generic_instance.as_ref().is_some_and(|inst| {
+                    inst.args
+                        .iter()
+                        .any(|a| ty_mentions_interface(a, interface_name))
+                })
+        }
+        TyKind::Pointer(pty) => ty_mentions_interface(&pty.pointee_ty, interface_name),
+        TyKind::Reference(rty) => ty_mentions_interface(&rty.refee_ty, interface_name),
+        TyKind::Slice(elem) => ty_mentions_interface(elem, interface_name),
+        TyKind::Array((elem, _)) => ty_mentions_interface(elem, interface_name),
+        TyKind::Tuple(elems) => elems
+            .iter()
+            .any(|t| ty_mentions_interface(t, interface_name)),
+        TyKind::Closure(c) => {
+            c.param_tys
+                .iter()
+                .any(|t| ty_mentions_interface(t, interface_name))
+                || ty_mentions_interface(&c.ret_ty, interface_name)
+                || c.captures
+                    .iter()
+                    .any(|t| ty_mentions_interface(t, interface_name))
+        }
+        TyKind::Fundamental(_) | TyKind::Var(_) | TyKind::Unit | TyKind::Never => false,
+    }
+}
+
+/// Replace every `UserDefined::Interface` whose qualified name equals
+/// `interface_name` with `self_ty`. Used to give an interface name in
+/// parameter / return positions a `Self`-like meaning when checking that
+/// a concrete `impl` conforms to an interface declaration.
+pub fn substitute_self_in_interface_ty(
+    ty: &Rc<Ty>,
+    interface_name: &QualifiedSymbol,
+    self_ty: &Rc<Ty>,
+) -> Rc<Ty> {
+    if !ty_mentions_interface(ty, interface_name) {
+        return ty.clone();
+    }
+    match ty.kind.as_ref() {
+        TyKind::UserDefined(udt) => {
+            if udt_is_interface_named(udt, interface_name) {
+                return self_ty.clone();
+            }
+            let substituted_instance = udt.generic_instance.as_ref().map(|instance| {
+                GenericInstanceInfo::new(
+                    instance.origin.clone(),
+                    instance
+                        .args
+                        .iter()
+                        .map(|arg| substitute_self_in_interface_ty(arg, interface_name, self_ty))
+                        .collect(),
+                )
+            });
+            Rc::new(Ty {
+                kind: TyKind::UserDefined(UserDefinedType {
+                    kind: udt.kind.clone(),
+                    generic_instance: substituted_instance,
+                })
+                .into(),
+                mutability: ty.mutability,
+            })
+        }
+        TyKind::Pointer(pty) => Rc::new(Ty {
+            kind: TyKind::Pointer(PointerType {
+                pointee_ty: substitute_self_in_interface_ty(
+                    &pty.pointee_ty,
+                    interface_name,
+                    self_ty,
+                ),
+            })
+            .into(),
+            mutability: ty.mutability,
+        }),
+        TyKind::Reference(rty) => {
+            // The analyzer auto-wraps a UDT parameter type in `Reference`. If
+            // the inner type is the interface we are substituting, replace
+            // the whole `Reference` with `self_ty` so conformance against
+            // impls on fundamental types (which are not reference-wrapped)
+            // succeeds.
+            if let TyKind::UserDefined(udt) = rty.refee_ty.kind.as_ref() {
+                if udt_is_interface_named(udt, interface_name) {
+                    return self_ty.clone();
+                }
+            }
+            Rc::new(Ty {
+                kind: TyKind::Reference(ReferenceType {
+                    refee_ty: substitute_self_in_interface_ty(
+                        &rty.refee_ty,
+                        interface_name,
+                        self_ty,
+                    ),
+                })
+                .into(),
+                mutability: ty.mutability,
+            })
+        }
+        TyKind::Slice(elem) => Rc::new(Ty {
+            kind: TyKind::Slice(substitute_self_in_interface_ty(
+                elem,
+                interface_name,
+                self_ty,
+            ))
+            .into(),
+            mutability: ty.mutability,
+        }),
+        TyKind::Array((elem, size)) => Rc::new(Ty {
+            kind: TyKind::Array((
+                substitute_self_in_interface_ty(elem, interface_name, self_ty),
+                *size,
+            ))
+            .into(),
+            mutability: ty.mutability,
+        }),
+        TyKind::Tuple(elems) => Rc::new(Ty {
+            kind: TyKind::Tuple(
+                elems
+                    .iter()
+                    .map(|t| substitute_self_in_interface_ty(t, interface_name, self_ty))
+                    .collect(),
+            )
+            .into(),
+            mutability: ty.mutability,
+        }),
+        TyKind::Closure(closure) => Rc::new(Ty {
+            kind: TyKind::Closure(ClosureType {
+                param_tys: closure
+                    .param_tys
+                    .iter()
+                    .map(|t| substitute_self_in_interface_ty(t, interface_name, self_ty))
+                    .collect(),
+                ret_ty: substitute_self_in_interface_ty(&closure.ret_ty, interface_name, self_ty),
+                captures: closure
+                    .captures
+                    .iter()
+                    .map(|t| substitute_self_in_interface_ty(t, interface_name, self_ty))
+                    .collect(),
+            })
+            .into(),
+            mutability: ty.mutability,
+        }),
+        TyKind::Fundamental(_) | TyKind::Var(_) | TyKind::Unit | TyKind::Never => ty.clone(),
+    }
+}
+
 pub fn apply_type_var_bindings(ty: &Rc<Ty>, bindings: &HashMap<VarId, Rc<Ty>>) -> Rc<Ty> {
     match ty.kind.as_ref() {
         TyKind::Var(id) => bindings.get(id).cloned().unwrap_or_else(|| ty.clone()),

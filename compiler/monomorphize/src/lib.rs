@@ -205,6 +205,7 @@ mod tests {
                 self_: None,
                 params: vec![],
                 return_ty: unit_ty(),
+                is_self_shaped: false,
             }],
         })
     }

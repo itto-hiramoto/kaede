@@ -100,7 +100,12 @@ impl SemanticAnalyzer {
             let Some(actual_method) = self.lookup_method_for_interface(actual_ty, method) else {
                 return Err(method.name);
             };
-            if !self.interface_method_matches_decl(method, &actual_method) {
+            if !self.interface_method_matches_decl(
+                method,
+                &actual_method,
+                &interface.name,
+                actual_ty,
+            ) {
                 return Err(method.name);
             }
             impls.push(actual_method);
@@ -148,6 +153,8 @@ impl SemanticAnalyzer {
         &self,
         interface_method: &ir::top::InterfaceMethod,
         actual_method: &Rc<ir::top::FnDecl>,
+        interface_name: &QualifiedSymbol,
+        impl_ty: &Rc<ir_type::Ty>,
     ) -> bool {
         let actual_params = &actual_method.params;
         let expected_is_instance = interface_method.self_.is_some();
@@ -169,12 +176,31 @@ impl SemanticAnalyzer {
             &actual_params[..]
         };
 
-        actual_params_without_self.len() == interface_method.params.len()
+        // Substitute occurrences of the interface's own name in the declared
+        // parameter / return types with the implementing type, so that an
+        // interface method declared as `fun eq(self, other: Hashable) -> bool`
+        // is satisfied by `impl MyKey { fun eq(self, other: MyKey) -> bool }`
+        // and `impl i32 { fun eq(self, other: i32) -> bool }` alike. Pass
+        // `impl_ty` as-is — UDTs arrive as `Reference(...)`, fundamentals do
+        // not, and the substitute handles both shapes by replacing the entire
+        // `Reference(Interface)` (or bare `Interface`) with the impl type.
+        let expected_param_tys: Vec<_> = interface_method
+            .params
+            .iter()
+            .map(|p| ir_type::substitute_self_in_interface_ty(&p.ty, interface_name, impl_ty))
+            .collect();
+        let expected_return_ty = ir_type::substitute_self_in_interface_ty(
+            &interface_method.return_ty,
+            interface_name,
+            impl_ty,
+        );
+
+        actual_params_without_self.len() == expected_param_tys.len()
             && actual_params_without_self
                 .iter()
-                .zip(interface_method.params.iter())
-                .all(|(actual, expected)| ir_type::is_same_type(&actual.ty, &expected.ty))
-            && ir_type::is_same_type(&actual_method.return_ty, &interface_method.return_ty)
+                .zip(expected_param_tys.iter())
+                .all(|(actual, expected)| ir_type::is_same_type(&actual.ty, expected))
+            && ir_type::is_same_type(&actual_method.return_ty, &expected_return_ty)
     }
 
     pub fn analyze_type(&mut self, ty: &ast_type::Ty) -> anyhow::Result<Rc<ir_type::Ty>> {

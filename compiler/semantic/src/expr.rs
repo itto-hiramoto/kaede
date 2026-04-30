@@ -2755,6 +2755,19 @@ impl SemanticAnalyzer {
             return Ok(value);
         }
 
+        // Codegen's `InterfaceBox` builds a fat pointer `{ data, itable }`
+        // with `data` as a heap pointer to the concrete value. Fundamental
+        // scalars and `str` slices have no boxable data pointer, so reject
+        // the coercion at semantic time rather than panicking in codegen.
+        if !matches!(value_base.kind.as_ref(), ir_type::TyKind::UserDefined(_)) {
+            return Err(SemanticError::CannotBoxNonUdtAsInterface {
+                actual: value.ty.kind.to_string(),
+                interface: interface.name.symbol(),
+                span: value.span,
+            }
+            .into());
+        }
+
         let methods = self
             .resolve_interface_impl_methods(&value.ty, interface)
             .map_err(|method_name| SemanticError::InterfaceNotImplemented {
@@ -3767,6 +3780,21 @@ impl SemanticAnalyzer {
         }
         if method.self_ == Some(ir_type::Mutability::Mut) && receiver.ty.mutability.is_not() {
             return Err(SemanticError::CannotCallMutableMethodOnImmutableValue { span }.into());
+        }
+
+        // A Self-shaped method (any param or return type references the
+        // interface itself) cannot be safely dispatched through a fat
+        // pointer: each impl is specialized to its concrete type, so the
+        // vtable thunk would mis-decode the parameter when the caller
+        // boxes a different concrete type. Require these to be called via a
+        // generic bound (`<T: Interface>`).
+        if method.is_self_shaped {
+            return Err(SemanticError::InterfaceMethodNotObjectSafe {
+                method_name,
+                interface: interface.name.symbol(),
+                span: call_node.span,
+            }
+            .into());
         }
 
         let (ordered_args, variadic_args) = self.resolve_call_arguments(
