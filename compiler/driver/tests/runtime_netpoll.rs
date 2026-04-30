@@ -1,5 +1,7 @@
-use assert_cmd::prelude::*;
+mod driver_test_support;
+
 use assert_fs::prelude::*;
+use driver_test_support::compile_to;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -18,21 +20,7 @@ fn test_lock() -> &'static Mutex<()> {
 }
 
 fn compile(file_paths: &[&Path], root_dir: &Path, output_path: &Path) -> anyhow::Result<()> {
-    let mut args = file_paths
-        .iter()
-        .map(|p| p.to_string_lossy().to_string())
-        .collect::<Vec<String>>();
-
-    args.push("-o".to_string());
-    args.push(output_path.to_string_lossy().to_string());
-    args.push("--root-dir".to_string());
-    args.push(root_dir.to_string_lossy().to_string());
-
-    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
-        .args(args)
-        .assert()
-        .success();
-
+    compile_to(file_paths, root_dir, output_path)?;
     Ok(())
 }
 
