@@ -1,7 +1,6 @@
 // `std.collections` is a namespace module: the concrete implementations live in
 // sibling submodule files. Re-export the user-facing names so existing
-// `std.collections.Vector` / `std.collections.HashMap` / `std.collections.hash_str`
-// callers continue to work.
+// `std.collections.Vector` / `std.collections.HashMap` callers continue to work.
 
 import std.collections.vector
 import std.collections.hash_map
@@ -9,4 +8,3 @@ import std.collections.hash_map
 export use std.collections.vector.Vector
 export use std.collections.hash_map.HashSlotState
 export use std.collections.hash_map.HashMap
-export use std.collections.hash_map.hash_str

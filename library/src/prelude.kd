@@ -2,6 +2,7 @@
 // And this is not included in the standard library and will not be compiled
 
 import std.collections
+import std.hashable
 import std.io
 import std.option
 import std.result
@@ -11,6 +12,7 @@ import std.ffi.args
 
 export use std.collections.Vector
 export use std.collections.HashMap
+export use std.hashable.Hashable
 export use std.option.Option
 export use std.result.Result
 export use std.string.String
