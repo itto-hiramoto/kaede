@@ -215,3 +215,31 @@ fun main() -> i32 {
 
     Ok(())
 }
+
+// Regression: passing a bare filename (no leading "./" or directory) used to
+// panic in semantic analysis because Path::parent() returns an empty path,
+// which fails to canonicalize. See issue #285.
+#[test]
+fn direct_compile_accepts_bare_filename_in_cwd() -> anyhow::Result<()> {
+    let temp_dir = assert_fs::TempDir::new()?;
+    let app = temp_dir.child("app.kd");
+    let exe = temp_dir.child("a.out");
+
+    app.write_str("fun main() -> i32 { return 7 }")?;
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .current_dir(temp_dir.path())
+        .args([
+            "app.kd",
+            "-o",
+            exe.path().to_str().unwrap(),
+            "--root-dir",
+            temp_dir.path().to_str().unwrap(),
+        ])
+        .assert()
+        .success();
+
+    Command::new(exe.path()).assert().code(predicate::eq(7));
+
+    Ok(())
+}
