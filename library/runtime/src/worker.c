@@ -1,5 +1,6 @@
 #include <gc/gc.h>
 #include <kaede/poller.h>
+#include <kaede/signal.h>
 #include <kaede/task.h>
 #include <kaede/worker.h>
 #include <pthread.h>
@@ -413,6 +414,8 @@ static void worker_loop_impl(int worker_id) {
     }
     worker.gc_thread_handle = GC_get_my_stackbottom(&worker.gc_stack_base);
 
+    kaede_install_worker_altstack();
+
     for (;;) {
         struct Task *task = NULL;
 
@@ -462,6 +465,7 @@ static void worker_loop_impl(int worker_id) {
         pthread_mutex_unlock(&scheduler_mutex);
 
         worker.current_task = task;
+        kaede_current_task = task;
 
         if (worker.gc_thread_handle) {
             struct GC_stack_base task_sb;
@@ -476,6 +480,7 @@ static void worker_loop_impl(int worker_id) {
         }
 
         worker.current_task = NULL;
+        kaede_current_task = NULL;
         // Use the state captured at yield time instead of re-reading task state
         // after a cross-worker resume.
         const enum TaskState yielded_state = worker.yielded_state;
