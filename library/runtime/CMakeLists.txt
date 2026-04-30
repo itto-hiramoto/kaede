@@ -14,6 +14,7 @@ set(SOURCES
     src/task.c
     src/worker.c
     src/runtime.c
+    src/signal.c
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")

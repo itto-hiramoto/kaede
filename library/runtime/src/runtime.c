@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <gc/gc.h>
 #include <kaede/runtime.h>
+#include <kaede/signal.h>
 #include <kaede/task.h>
 #include <kaede/worker.h>
 #include <pthread.h>
@@ -21,6 +22,7 @@ void kaede_runtime_init(void) {
         fprintf(stderr, "Failed to ignore SIGPIPE: %s\n", strerror(errno));
         abort();
     }
+    kaede_install_crash_handler();
     if (!worker_init()) {
         fprintf(stderr, "Failed to initialize worker/runtime\n");
         abort();
