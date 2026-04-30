@@ -1,23 +1,9 @@
-use assert_cmd::prelude::*;
+mod driver_test_support;
+
 use assert_fs::prelude::*;
+use driver_test_support::compile_project;
 use std::path::Path;
 use std::process::{Command, Output};
-
-fn compile(file_paths: &[&Path], root_dir: &Path, output_path: &Path) -> anyhow::Result<Output> {
-    let mut args = file_paths
-        .iter()
-        .map(|p| p.to_string_lossy().to_string())
-        .collect::<Vec<String>>();
-
-    args.push("-o".to_string());
-    args.push(output_path.to_string_lossy().to_string());
-    args.push("--root-dir".to_string());
-    args.push(root_dir.to_string_lossy().to_string());
-
-    Ok(Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
-        .args(args)
-        .output()?)
-}
 
 fn compile_program(
     program: &str,
@@ -26,16 +12,7 @@ fn compile_program(
     let main = tempdir.child("main.kd");
     main.write_str(program)?;
 
-    let exe = assert_fs::NamedTempFile::new("overflow.out")?;
-    let output = compile(&[main.path()], tempdir.path(), exe.path())?;
-
-    assert!(
-        output.status.success(),
-        "kaede compile failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
+    let (exe, _) = compile_project(&[main.path()], tempdir.path())?;
     Ok((tempdir, exe))
 }
 
