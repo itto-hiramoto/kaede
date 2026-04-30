@@ -1,7 +1,7 @@
-mod runtime_test_support;
+mod driver_test_support;
 
 use assert_fs::prelude::*;
-use runtime_test_support::compile_to;
+use driver_test_support::compile_to;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};

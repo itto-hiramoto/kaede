@@ -1,6 +1,6 @@
-mod runtime_test_support;
+mod driver_test_support;
 
-use runtime_test_support::run_program as test;
+use driver_test_support::run_program as test;
 
 #[test]
 fn unbuffered_channel_hands_off_values_between_tasks() -> anyhow::Result<()> {

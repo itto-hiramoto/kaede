@@ -1,9 +1,9 @@
 //! Testing under the assumption that `lli` is installed!
 
-mod runtime_test_support;
+mod driver_test_support;
 
 use assert_fs::prelude::*;
-use runtime_test_support::{compile_project, run_binary as run_compiled_binary};
+use driver_test_support::{compile_project, run_binary as run_compiled_binary};
 use std::{fs, path::Path};
 
 fn test(expect: i32, file_paths: &[&Path], root_dir: &Path) -> anyhow::Result<()> {
