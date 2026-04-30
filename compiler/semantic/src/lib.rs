@@ -5,6 +5,7 @@ use std::{
     rc::Rc,
 };
 
+use anyhow::Context as _;
 use context::AnalysisContext;
 use kaede_common::{kaede_autoload_dir, kaede_lib_src_dir};
 use kaede_ir::{
@@ -424,7 +425,17 @@ impl SemanticAnalyzer {
         let mut diff_from_root = {
             // Get the canonical paths
             let kaede_lib_src_dir = kaede_lib_src_dir().canonicalize()?;
-            let file_parent = file_path.path().parent().unwrap().canonicalize()?;
+            // Canonicalize the file itself first so that `parent()` always
+            // returns a non-empty absolute path. Calling `parent()` directly
+            // on a bare filename like "foo.kd" would yield an empty path,
+            // which then fails to canonicalize.
+            let canonical_file = file_path.path().canonicalize().with_context(|| {
+                format!(
+                    "Failed to resolve source file '{}'",
+                    file_path.path().display()
+                )
+            })?;
+            let file_parent = canonical_file.parent().unwrap().to_path_buf();
 
             // Try to strip the project root first, if that fails try the standard library root
             if let Ok(relative_path) = file_parent.strip_prefix(&root_dir.canonicalize()?) {
