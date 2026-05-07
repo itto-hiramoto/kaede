@@ -216,7 +216,12 @@ fn parse_supported_ty(
             ir_type::Mutability::Not,
         ))),
         Type::Primitive(name) => fundamental_kind_from_rustdoc_primitive(name)
-            .map(|kind| Rc::new(ir_type::make_fundamental_type(kind, ir_type::Mutability::Not)))
+            .map(|kind| {
+                Rc::new(ir_type::make_fundamental_type(
+                    kind,
+                    ir_type::Mutability::Not,
+                ))
+            })
             .ok_or_else(|| format!("unsupported primitive type `{name}`")),
         Type::Tuple(elems) if elems.is_empty() => Ok(Rc::new(ir_type::Ty::new_unit())),
         Type::BorrowedRef { .. } => parse_borrowed_ref_ty(ty, position),
@@ -362,9 +367,7 @@ fn parse_public_function_item(
         Some(ty) if ty_is_empty_tuple(ty) => Rc::new(ir_type::Ty::new_unit()),
         Some(ty) => match parse_supported_ty(ty, TyPosition::Return, paths) {
             Ok(t) => t,
-            Err(reason) => {
-                return Some(Err(format!("{name}: unsupported return type: {reason}")))
-            }
+            Err(reason) => return Some(Err(format!("{name}: unsupported return type: {reason}"))),
         },
     };
 
