@@ -59,7 +59,9 @@
             # Mirror CI's toolchain layout (stable + minimal nightly for rustdoc).
             if command -v rustup >/dev/null; then
               rustup toolchain list | grep -q '^stable'  || rustup toolchain install stable --component rustfmt --component clippy
-              rustup toolchain list | grep -q '^nightly' || rustup toolchain install nightly --profile minimal
+              # Pinned nightly: rustdoc JSON format_version must match the rustdoc-types
+              # crate version used by compiler/semantic. Bump together when upgrading.
+              rustup toolchain list | grep -q '^nightly-2026-03-17' || rustup toolchain install nightly-2026-03-17 --profile minimal
             fi
           '';
         };

@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs,
     path::{Path, PathBuf},
     process::Command,
@@ -9,7 +10,9 @@ use anyhow::{anyhow, Context as _};
 use kaede_common::lib_extension;
 use kaede_ir::{module_path::ModulePath, qualified_symbol::QualifiedSymbol, ty as ir_type};
 use kaede_symbol::Symbol;
-use serde_json::Value;
+use rustdoc_types::{
+    Crate, FunctionSignature, Id, Item, ItemEnum, ItemKind, ItemSummary, Type, Visibility,
+};
 use toml::Value as TomlValue;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,14 +61,6 @@ fn sanitize_symbol(name: &str) -> String {
     out
 }
 
-fn json_id_to_string(value: &Value) -> Option<String> {
-    match value {
-        Value::String(s) => Some(s.clone()),
-        Value::Number(n) => Some(n.to_string()),
-        _ => None,
-    }
-}
-
 fn fundamental_kind_from_rustdoc_primitive(name: &str) -> Option<ir_type::FundamentalTypeKind> {
     match name {
         "i8" => Some(ir_type::FundamentalTypeKind::I8),
@@ -83,79 +78,30 @@ fn fundamental_kind_from_rustdoc_primitive(name: &str) -> Option<ir_type::Fundam
     }
 }
 
-fn rustdoc_ty_description(value: &Value) -> String {
-    if value.is_null() {
-        return "()".to_string();
-    }
-
-    if value
-        .get("tuple")
-        .and_then(Value::as_array)
-        .is_some_and(|arr| arr.is_empty())
-    {
-        return "()".to_string();
-    }
-
-    if let Some(primitive) = value.get("primitive").and_then(Value::as_str) {
-        return primitive.to_string();
-    }
-
-    if let Some(borrowed_ref) = value.get("borrowed_ref") {
-        let is_mutable = borrowed_ref
-            .get("is_mutable")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let prefix = if is_mutable { "&mut " } else { "&" };
-        let inner = borrowed_ref
-            .get("type")
-            .map(rustdoc_ty_description)
-            .unwrap_or_else(|| "?".to_string());
-        return format!("{prefix}{inner}");
-    }
-
-    if let Some(raw_pointer) = value.get("raw_pointer") {
-        let is_mutable = raw_pointer
-            .get("is_mutable")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
-        let prefix = if is_mutable { "*mut " } else { "*const " };
-        let inner = raw_pointer
-            .get("type")
-            .map(rustdoc_ty_description)
-            .unwrap_or_else(|| "?".to_string());
-        return format!("{prefix}{inner}");
-    }
-
-    if value.get("slice").is_some() {
-        return "[_]".to_string();
-    }
-
-    if let Some(array) = value.get("array") {
-        let inner = array
-            .get("type")
-            .map(rustdoc_ty_description)
-            .unwrap_or_else(|| "?".to_string());
-        let len = array
-            .get("len")
-            .map(|len| len.to_string())
-            .unwrap_or_else(|| "?".to_string());
-        return format!("[{inner}; {len}]");
-    }
-
-    if value.get("tuple").is_some() {
-        return "tuple".to_string();
-    }
-
-    if let Some(path) = value.get("resolved_path") {
-        if let Some(name) = path.get("name").and_then(Value::as_str) {
-            return name.to_string();
+fn rustdoc_ty_description(ty: &Type) -> String {
+    match ty {
+        Type::Primitive(name) => name.clone(),
+        Type::Tuple(elems) if elems.is_empty() => "()".to_string(),
+        Type::Tuple(_) => "tuple".to_string(),
+        Type::BorrowedRef {
+            is_mutable, type_, ..
+        } => {
+            let prefix = if *is_mutable { "&mut " } else { "&" };
+            format!("{prefix}{}", rustdoc_ty_description(type_))
         }
-        if let Some(name) = path.get("path").and_then(Value::as_str) {
-            return name.to_string();
+        Type::RawPointer { is_mutable, type_ } => {
+            let prefix = if *is_mutable { "*mut " } else { "*const " };
+            format!("{prefix}{}", rustdoc_ty_description(type_))
         }
+        Type::Slice(_) => "[_]".to_string(),
+        Type::Array { type_, len } => format!("[{}; {len}]", rustdoc_ty_description(type_)),
+        Type::ResolvedPath(path) => path.path.clone(),
+        _ => "unknown".to_string(),
     }
+}
 
-    "unknown".to_string()
+fn ty_is_empty_tuple(ty: &Type) -> bool {
+    matches!(ty, Type::Tuple(elems) if elems.is_empty())
 }
 
 fn kaede_string_qualified_symbol() -> QualifiedSymbol {
@@ -214,57 +160,39 @@ fn is_kaede_char_ty(ty: &ir_type::Ty) -> bool {
     )
 }
 
-fn resolved_path_segments(
-    value: &Value,
-    paths: Option<&serde_json::Map<String, Value>>,
-) -> Option<Vec<String>> {
-    let resolved_path = value.get("resolved_path")?;
-    let path_id = json_id_to_string(resolved_path.get("id")?)?;
-    let path_entry = paths?.get(&path_id)?;
-    let path = path_entry.get("path")?.as_array()?;
-
-    path.iter()
-        .map(|segment| segment.as_str().map(ToOwned::to_owned))
-        .collect()
+fn resolved_path_segments<'a>(
+    ty: &Type,
+    paths: Option<&'a HashMap<Id, ItemSummary>>,
+) -> Option<&'a [String]> {
+    let Type::ResolvedPath(path) = ty else {
+        return None;
+    };
+    let summary = paths?.get(&path.id)?;
+    Some(summary.path.as_slice())
 }
 
-fn is_rust_string_resolved_path(
-    value: &Value,
-    paths: Option<&serde_json::Map<String, Value>>,
-) -> bool {
-    let Some(segments) = resolved_path_segments(value, paths) else {
+fn is_rust_string_resolved_path(ty: &Type, paths: Option<&HashMap<Id, ItemSummary>>) -> bool {
+    let Some(segments) = resolved_path_segments(ty, paths) else {
         return false;
     };
-
-    let matches = |expected: &[&str]| -> bool {
-        segments.len() == expected.len()
-            && segments
-                .iter()
-                .zip(expected.iter())
-                .all(|(actual, expected)| actual == expected)
-    };
-
-    matches(&["alloc", "string", "String"]) || matches(&["std", "string", "String"])
+    segments == ["alloc", "string", "String"] || segments == ["std", "string", "String"]
 }
 
-fn parse_borrowed_ref_ty(value: &Value, position: TyPosition) -> Result<Rc<ir_type::Ty>, String> {
-    let borrowed_ref = value.get("borrowed_ref").ok_or_else(|| {
-        format!(
+fn parse_borrowed_ref_ty(ty: &Type, position: TyPosition) -> Result<Rc<ir_type::Ty>, String> {
+    let Type::BorrowedRef {
+        is_mutable, type_, ..
+    } = ty
+    else {
+        return Err(format!(
             "unsupported borrowed reference type `{}`",
-            rustdoc_ty_description(value)
-        )
-    })?;
-    let is_mutable = borrowed_ref
-        .get("is_mutable")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let inner = borrowed_ref.get("type").unwrap_or(&Value::Null);
+            rustdoc_ty_description(ty)
+        ));
+    };
 
-    if inner.get("primitive").and_then(Value::as_str) == Some("str") {
-        if is_mutable {
+    if matches!(type_.as_ref(), Type::Primitive(p) if p == "str") {
+        if *is_mutable {
             return Err("unsupported mutable borrowed string type `&mut str`".to_string());
         }
-
         return match position {
             TyPosition::Param => Ok(kaede_str_ir_ty()),
             TyPosition::Return => Ok(kaede_string_ir_ty()),
@@ -273,90 +201,42 @@ fn parse_borrowed_ref_ty(value: &Value, position: TyPosition) -> Result<Rc<ir_ty
 
     Err(format!(
         "unsupported borrowed reference type `{}`",
-        rustdoc_ty_description(value)
+        rustdoc_ty_description(ty)
     ))
 }
 
 fn parse_supported_ty(
-    value: &Value,
+    ty: &Type,
     position: TyPosition,
-    paths: Option<&serde_json::Map<String, Value>>,
+    paths: Option<&HashMap<Id, ItemSummary>>,
 ) -> Result<Rc<ir_type::Ty>, String> {
-    if value.is_null() {
-        return Ok(Rc::new(ir_type::Ty::new_unit()));
-    }
-
-    if let Some(primitive) = value.get("primitive").and_then(Value::as_str) {
-        if primitive == "char" {
-            return Ok(Rc::new(ir_type::make_fundamental_type(
-                ir_type::FundamentalTypeKind::Char,
-                ir_type::Mutability::Not,
-            )));
+    match ty {
+        Type::Primitive(name) if name == "char" => Ok(Rc::new(ir_type::make_fundamental_type(
+            ir_type::FundamentalTypeKind::Char,
+            ir_type::Mutability::Not,
+        ))),
+        Type::Primitive(name) => fundamental_kind_from_rustdoc_primitive(name)
+            .map(|kind| {
+                Rc::new(ir_type::make_fundamental_type(
+                    kind,
+                    ir_type::Mutability::Not,
+                ))
+            })
+            .ok_or_else(|| format!("unsupported primitive type `{name}`")),
+        Type::Tuple(elems) if elems.is_empty() => Ok(Rc::new(ir_type::Ty::new_unit())),
+        Type::BorrowedRef { .. } => parse_borrowed_ref_ty(ty, position),
+        Type::ResolvedPath(_) if is_rust_string_resolved_path(ty, paths) => {
+            Ok(kaede_string_ir_ty())
         }
-
-        if let Some(kind) = fundamental_kind_from_rustdoc_primitive(primitive) {
-            return Ok(Rc::new(ir_type::make_fundamental_type(
-                kind,
-                ir_type::Mutability::Not,
-            )));
-        }
-
-        return Err(format!("unsupported primitive type `{primitive}`"));
-    }
-
-    if value
-        .get("tuple")
-        .and_then(Value::as_array)
-        .is_some_and(|arr| arr.is_empty())
-    {
-        return Ok(Rc::new(ir_type::Ty::new_unit()));
-    }
-
-    if value.get("borrowed_ref").is_some() {
-        return parse_borrowed_ref_ty(value, position);
-    }
-
-    if value.get("resolved_path").is_some() && is_rust_string_resolved_path(value, paths) {
-        return Ok(kaede_string_ir_ty());
-    }
-
-    if value.get("raw_pointer").is_some() {
-        return Err(format!(
+        Type::RawPointer { .. } => Err(format!(
             "unsupported raw pointer type `{}`",
-            rustdoc_ty_description(value)
-        ));
+            rustdoc_ty_description(ty)
+        )),
+        _ => Err(format!(
+            "unsupported non-primitive type `{}`",
+            rustdoc_ty_description(ty)
+        )),
     }
-
-    Err(format!(
-        "unsupported non-primitive type `{}`",
-        rustdoc_ty_description(value)
-    ))
-}
-
-fn is_public_visibility(item: &Value) -> bool {
-    match item.get("visibility") {
-        Some(Value::String(s)) => s == "public",
-        Some(Value::Object(map)) => map.get("public").and_then(Value::as_bool).unwrap_or(false),
-        _ => false,
-    }
-}
-
-fn extract_fn_io(sig_container: &Value) -> Option<(&Value, &Value)> {
-    if let Some(sig) = sig_container.get("sig") {
-        let inputs = sig.get("inputs")?;
-        let output = sig.get("output")?;
-        return Some((inputs, output));
-    }
-
-    if let Some(decl) = sig_container.get("decl") {
-        let inputs = decl.get("inputs")?;
-        let output = decl.get("output")?;
-        return Some((inputs, output));
-    }
-
-    let inputs = sig_container.get("inputs")?;
-    let output = sig_container.get("output")?;
-    Some((inputs, output))
 }
 
 fn project_root_from_root_dir(root_dir: &Path, rust_subdir: &Path) -> anyhow::Result<PathBuf> {
@@ -409,152 +289,52 @@ fn read_package_name(manifest_path: &Path) -> anyhow::Result<String> {
         .ok_or_else(|| anyhow!("package.name not found in {}", manifest_path.display()))
 }
 
-fn run_rustdoc_json(rust_manifest: &Path) -> anyhow::Result<()> {
-    let mut cmd = Command::new("cargo");
-    cmd.args([
-        "+nightly",
-        "rustdoc",
-        "--manifest-path",
-        &rust_manifest.to_string_lossy(),
-        "--lib",
-        "--",
-        "-Z",
-        "unstable-options",
-        "--output-format",
-        "json",
-    ]);
-    run_command(cmd, "cargo +nightly rustdoc")
-}
-
-fn rustdoc_json_path(rust_dir: &Path, crate_name: &str) -> anyhow::Result<PathBuf> {
-    let doc_dir = rust_dir.join("target").join("doc");
-    let candidates = [
-        doc_dir.join(format!("{crate_name}.json")),
-        doc_dir.join(format!("{}.json", crate_name.replace('-', "_"))),
-    ];
-
-    candidates
-        .into_iter()
-        .find(|p| p.exists())
-        .ok_or_else(|| anyhow!("rustdoc JSON not found in {}", doc_dir.display()))
-}
-
-fn infer_root_id(
-    index: &serde_json::Map<String, Value>,
-    crate_name: &str,
-) -> anyhow::Result<String> {
-    index
+fn collect_candidate_ids(krate: &Crate, crate_name: &str) -> Vec<Id> {
+    let mut ids: Vec<Id> = krate
+        .paths
         .iter()
-        .find_map(|(id, item)| {
-            let is_module = item
-                .get("kind")
-                .and_then(Value::as_str)
-                .is_some_and(|k| k == "module");
-            let is_local_crate = item
-                .get("crate_id")
-                .and_then(Value::as_u64)
-                .is_some_and(|cid| cid == 0);
-            let is_named_like_crate = item
-                .get("name")
-                .and_then(Value::as_str)
-                .is_some_and(|name| name == crate_name || name == crate_name.replace('-', "_"));
-
-            if is_module && is_local_crate && is_named_like_crate {
-                Some(id.clone())
+        .filter_map(|(id, summary)| {
+            let is_root_exposed = summary.path.len() == 2
+                && summary
+                    .path
+                    .first()
+                    .is_some_and(|p| p == crate_name || p == &crate_name.replace('-', "_"));
+            if matches!(summary.kind, ItemKind::Function) && is_root_exposed {
+                Some(*id)
             } else {
                 None
             }
         })
-        .or_else(|| {
-            index.iter().find_map(|(id, item)| {
-                let is_module = item
-                    .get("kind")
-                    .and_then(Value::as_str)
-                    .is_some_and(|k| k == "module");
-                let is_local_crate = item
-                    .get("crate_id")
-                    .and_then(Value::as_u64)
-                    .is_some_and(|cid| cid == 0);
-                if is_module && is_local_crate {
-                    Some(id.clone())
-                } else {
-                    None
-                }
-            })
-        })
-        .ok_or_else(|| anyhow!("missing root id in rustdoc json and failed to infer it"))
-}
+        .collect();
 
-fn collect_candidate_ids(root_item: &Value, rustdoc: &Value, crate_name: &str) -> Vec<String> {
-    let root_item_ids = root_item
-        .get("inner")
-        .and_then(|v| v.get("module"))
-        .and_then(|v| v.get("items"))
-        .and_then(Value::as_array)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|v| json_id_to_string(&v))
-        .collect::<Vec<_>>();
-
-    if let Some(paths) = rustdoc.get("paths").and_then(Value::as_object) {
-        let mut ids = paths
-            .iter()
-            .filter_map(|(id, entry)| {
-                let kind_is_fn = entry
-                    .get("kind")
-                    .and_then(Value::as_str)
-                    .is_some_and(|k| k == "function");
-                let path = entry.get("path").and_then(Value::as_array)?;
-                let is_root_exposed = path.len() == 2
-                    && path
-                        .first()
-                        .and_then(Value::as_str)
-                        .is_some_and(|p| p == crate_name || p == crate_name.replace('-', "_"));
-
-                if kind_is_fn && is_root_exposed {
-                    Some(id.clone())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        if !ids.is_empty() {
-            ids.sort();
-            ids.dedup();
-            return ids;
-        }
+    if !ids.is_empty() {
+        ids.sort_by_key(|id| id.0);
+        ids.dedup();
+        return ids;
     }
 
-    root_item_ids
+    if let Some(root_item) = krate.index.get(&krate.root) {
+        if let ItemEnum::Module(module) = &root_item.inner {
+            return module.items.clone();
+        }
+    }
+    Vec::new()
 }
 
 fn parse_supported_params(
-    inputs: &[Value],
-    paths: Option<&serde_json::Map<String, Value>>,
+    inputs: &[(String, Type)],
+    paths: Option<&HashMap<Id, ItemSummary>>,
 ) -> Result<Vec<(Symbol, Rc<ir_type::Ty>)>, String> {
     let mut params = Vec::with_capacity(inputs.len());
 
-    for (idx, input) in inputs.iter().enumerate() {
-        let Some(input_pair) = input.as_array() else {
-            return Err(format!("parameter #{idx} format is unsupported"));
+    for (idx, (raw_name, ty)) in inputs.iter().enumerate() {
+        let sanitized = sanitize_symbol(raw_name);
+        let param_name = if sanitized.is_empty() {
+            format!("arg{idx}")
+        } else {
+            sanitized
         };
-        if input_pair.len() != 2 {
-            return Err(format!("parameter #{idx} format is unsupported"));
-        }
-        let param_name = input_pair[0]
-            .as_str()
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(|| format!("arg{idx}"));
-        let param_name = {
-            let sanitized = sanitize_symbol(&param_name);
-            if sanitized.is_empty() {
-                format!("arg{idx}")
-            } else {
-                sanitized
-            }
-        };
-        let param_ty = parse_supported_ty(&input_pair[1], TyPosition::Param, paths)
+        let param_ty = parse_supported_ty(ty, TyPosition::Param, paths)
             .map_err(|reason| format!("unsupported parameter type at #{idx}: {reason}"))?;
         params.push((Symbol::from(param_name), param_ty));
     }
@@ -563,44 +343,32 @@ fn parse_supported_params(
 }
 
 fn parse_public_function_item(
-    item: &Value,
+    item: &Item,
     crate_sanitized: &str,
-    paths: Option<&serde_json::Map<String, Value>>,
+    paths: Option<&HashMap<Id, ItemSummary>>,
 ) -> Option<Result<RustImportedFn, String>> {
-    if !is_public_visibility(item) {
+    if !matches!(item.visibility, Visibility::Public) {
         return None;
     }
 
-    let is_function = item
-        .get("kind")
-        .and_then(Value::as_str)
-        .is_some_and(|v| v == "function")
-        || item.get("inner").and_then(|v| v.get("function")).is_some();
-    if !is_function {
+    let ItemEnum::Function(function) = &item.inner else {
         return None;
-    }
+    };
+    let name = item.name.as_deref()?;
 
-    let name = item.get("name").and_then(Value::as_str)?;
-    let function_node = match item.get("inner").and_then(|v| v.get("function")) {
-        Some(node) => node,
-        None => return Some(Err(format!("{name}: failed to read function signature"))),
-    };
-    let (inputs, output) = match extract_fn_io(function_node) {
-        Some(io) => io,
-        None => return Some(Err(format!("{name}: failed to read function signature"))),
-    };
+    let FunctionSignature { inputs, output, .. } = &function.sig;
 
-    let inputs = match inputs.as_array() {
-        Some(inputs) => inputs,
-        None => return Some(Err(format!("{name}: failed to read input types"))),
-    };
     let params = match parse_supported_params(inputs, paths) {
         Ok(params) => params,
         Err(reason) => return Some(Err(format!("{name}: {reason}"))),
     };
-    let return_ty = match parse_supported_ty(output, TyPosition::Return, paths) {
-        Ok(ty) => ty,
-        Err(reason) => return Some(Err(format!("{name}: unsupported return type: {reason}"))),
+    let return_ty = match output.as_ref() {
+        None => Rc::new(ir_type::Ty::new_unit()),
+        Some(ty) if ty_is_empty_tuple(ty) => Rc::new(ir_type::Ty::new_unit()),
+        Some(ty) => match parse_supported_ty(ty, TyPosition::Return, paths) {
+            Ok(t) => t,
+            Err(reason) => return Some(Err(format!("{name}: unsupported return type: {reason}"))),
+        },
     };
 
     Some(Ok(RustImportedFn {
@@ -621,35 +389,21 @@ fn parse_root_public_functions(
 ) -> anyhow::Result<(Vec<RustImportedFn>, Vec<String>)> {
     let content = fs::read_to_string(rustdoc_json)
         .with_context(|| format!("failed to read rustdoc json: {}", rustdoc_json.display()))?;
-    let v: Value = serde_json::from_str(&content)
+    let krate: Crate = serde_json::from_str(&content)
         .with_context(|| format!("failed to parse rustdoc json: {}", rustdoc_json.display()))?;
 
-    let index = v
-        .get("index")
-        .and_then(Value::as_object)
-        .ok_or_else(|| anyhow!("missing index in rustdoc json"))?;
-    let paths = v.get("paths").and_then(Value::as_object);
-
-    let root_id = match v.get("root").and_then(json_id_to_string) {
-        Some(root) => root,
-        None => infer_root_id(index, crate_name)?,
-    };
-
-    let root_item = index
-        .get(&root_id)
-        .ok_or_else(|| anyhow!("root item not found in rustdoc index"))?;
-    let candidate_ids = collect_candidate_ids(root_item, &v, crate_name);
+    let candidate_ids = collect_candidate_ids(&krate, crate_name);
 
     let mut functions = Vec::new();
     let mut skipped = Vec::new();
     let crate_sanitized = sanitize_symbol(crate_name);
 
     for item_id in candidate_ids {
-        let Some(item) = index.get(&item_id) else {
+        let Some(item) = krate.index.get(&item_id) else {
             continue;
         };
 
-        match parse_public_function_item(item, &crate_sanitized, paths) {
+        match parse_public_function_item(item, &crate_sanitized, Some(&krate.paths)) {
             Some(Ok(parsed)) => functions.push(parsed),
             Some(Err(reason)) => skipped.push(reason),
             None => {}
@@ -1031,8 +785,17 @@ pub fn resolve_rust_import(
         ));
     }
 
-    run_rustdoc_json(&rust_manifest)?;
-    let rustdoc_json = rustdoc_json_path(project_root.join(rust_subdir).as_path(), crate_name)?;
+    let rustdoc_json = rustdoc_json::Builder::default()
+        .toolchain("nightly-2026-03-17")
+        .manifest_path(&rust_manifest)
+        .silent(true)
+        .build()
+        .with_context(|| {
+            format!(
+                "cargo +nightly rustdoc failed for {}",
+                rust_manifest.display()
+            )
+        })?;
     let (functions, skipped) = parse_root_public_functions(&rustdoc_json, crate_name)?;
     let dylib_path = generate_shim_crate(
         &project_root,
@@ -1056,7 +819,7 @@ pub fn resolve_rust_import(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
+    use serde_json::{json, Value};
 
     fn fundamental(kind: ir_type::FundamentalTypeKind) -> Rc<ir_type::Ty> {
         Rc::new(ir_type::make_fundamental_type(
@@ -1065,25 +828,35 @@ mod tests {
         ))
     }
 
-    fn rust_string_resolved_path_ty() -> Value {
-        json!({
+    fn ty(value: Value) -> Type {
+        serde_json::from_value(value).expect("failed to deserialize rustdoc_types::Type")
+    }
+
+    fn rust_string_resolved_path_ty() -> Type {
+        ty(json!({
             "resolved_path": {
                 "path": "String",
                 "id": 1,
                 "args": null
             }
-        })
+        }))
     }
 
-    fn rust_string_paths() -> serde_json::Map<String, Value> {
-        json!({
-            "1": {
-                "path": ["alloc", "string", "String"]
-            }
-        })
-        .as_object()
-        .unwrap()
-        .clone()
+    fn rust_string_paths() -> HashMap<Id, ItemSummary> {
+        let mut paths = HashMap::new();
+        paths.insert(
+            Id(1),
+            ItemSummary {
+                crate_id: 0,
+                path: vec![
+                    "alloc".to_string(),
+                    "string".to_string(),
+                    "String".to_string(),
+                ],
+                kind: ItemKind::Struct,
+            },
+        );
+        paths
     }
 
     fn rust_imported_fn(
@@ -1113,9 +886,12 @@ mod tests {
         ];
 
         for (primitive, expected) in cases {
-            let parsed =
-                parse_supported_ty(&json!({ "primitive": primitive }), TyPosition::Param, None)
-                    .unwrap();
+            let parsed = parse_supported_ty(
+                &ty(json!({ "primitive": primitive })),
+                TyPosition::Param,
+                None,
+            )
+            .unwrap();
             assert_eq!(parsed, fundamental(expected), "primitive `{primitive}`");
         }
     }
@@ -1123,11 +899,7 @@ mod tests {
     #[test]
     fn parse_supported_ty_accepts_unit_shapes() {
         assert_eq!(
-            parse_supported_ty(&Value::Null, TyPosition::Param, None).unwrap(),
-            Rc::new(ir_type::Ty::new_unit())
-        );
-        assert_eq!(
-            parse_supported_ty(&json!({ "tuple": [] }), TyPosition::Param, None).unwrap(),
+            parse_supported_ty(&ty(json!({ "tuple": [] })), TyPosition::Param, None).unwrap(),
             Rc::new(ir_type::Ty::new_unit())
         );
     }
@@ -1135,13 +907,13 @@ mod tests {
     #[test]
     fn parse_supported_ty_accepts_shared_borrowed_str_parameter() {
         let parsed = parse_supported_ty(
-            &json!({
+            &ty(json!({
                 "borrowed_ref": {
                     "lifetime": null,
                     "is_mutable": false,
                     "type": { "primitive": "str" }
                 }
-            }),
+            })),
             TyPosition::Param,
             None,
         )
@@ -1154,7 +926,8 @@ mod tests {
     #[test]
     fn parse_supported_ty_accepts_char_and_owned_string_shapes() {
         let char_ty =
-            parse_supported_ty(&json!({ "primitive": "char" }), TyPosition::Param, None).unwrap();
+            parse_supported_ty(&ty(json!({ "primitive": "char" })), TyPosition::Param, None)
+                .unwrap();
         assert_eq!(char_ty, fundamental(ir_type::FundamentalTypeKind::Char));
 
         let paths = rust_string_paths();
@@ -1167,13 +940,13 @@ mod tests {
         assert!(is_kaede_string_ty(&string_param));
 
         let str_return = parse_supported_ty(
-            &json!({
+            &ty(json!({
                 "borrowed_ref": {
                     "lifetime": null,
                     "is_mutable": false,
                     "type": { "primitive": "str" }
                 }
-            }),
+            })),
             TyPosition::Return,
             None,
         )
@@ -1198,13 +971,13 @@ mod tests {
     #[test]
     fn parse_supported_ty_rejects_unsupported_shapes_with_reason() {
         let mut_str_err = parse_supported_ty(
-            &json!({
+            &ty(json!({
                 "borrowed_ref": {
                     "lifetime": null,
                     "is_mutable": true,
                     "type": { "primitive": "str" }
                 }
-            }),
+            })),
             TyPosition::Param,
             None,
         )
@@ -1212,13 +985,13 @@ mod tests {
         assert!(mut_str_err.contains("mutable borrowed string type `&mut str`"));
 
         let borrowed_ref_err = parse_supported_ty(
-            &json!({
+            &ty(json!({
                 "borrowed_ref": {
                     "lifetime": null,
                     "is_mutable": false,
                     "type": { "primitive": "i32" }
                 }
-            }),
+            })),
             TyPosition::Param,
             None,
         )
@@ -1226,12 +999,12 @@ mod tests {
         assert!(borrowed_ref_err.contains("borrowed reference type `&i32`"));
 
         let raw_ptr_err = parse_supported_ty(
-            &json!({
+            &ty(json!({
                 "raw_pointer": {
                     "is_mutable": false,
                     "type": { "primitive": "i8" }
                 }
-            }),
+            })),
             TyPosition::Param,
             None,
         )
