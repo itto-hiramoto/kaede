@@ -270,6 +270,34 @@ fun main() -> i32 {
 }
 
 #[test]
+fn println_accepts_any_stringer() -> anyhow::Result<()> {
+    let temp_dir = assert_fs::TempDir::new()?;
+
+    create_project(
+        &temp_dir,
+        r#"import std.string
+use std.string.String
+
+fun main() {
+    println("from str")
+    println(String::from("from String"))
+    println(42 as i64)
+}"#,
+    )?;
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .current_dir(temp_dir.path())
+        .arg("run")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("from str\n"))
+        .stdout(predicate::str::contains("from String\n"))
+        .stdout(predicate::str::contains("42\n"));
+
+    Ok(())
+}
+
+#[test]
 fn build_rejects_rust_import_when_rust_section_is_missing() -> anyhow::Result<()> {
     let temp_dir = assert_fs::TempDir::new()?;
 
