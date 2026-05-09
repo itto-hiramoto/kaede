@@ -110,6 +110,10 @@ impl String {
         let byte_end = kaede_utf8_byte_index_of_char(self.as_ptr(), self.bytes.len(), safe_end)
         return String { bytes: Vector<u8>::from_slice(self.bytes.as_slice()[byte_start:byte_end]) }
     }
+
+    export fun to_string(self) -> String {
+        return self
+    }
 }
 
 fun parse_u64_from_str(s: str) -> Option<u64> {
