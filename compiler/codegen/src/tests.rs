@@ -3971,6 +3971,10 @@ fn hashable_self_substitution_for_user_struct() -> anyhow::Result<()> {
     // for `eq`'s `other` parameter; the compiler substitutes the interface
     // name with the impl type when checking conformance.
     let program = r#"
+        import std.hashable
+
+        use std.hashable.Hashable
+
         struct K {
             v: i32,
         }
@@ -4007,6 +4011,10 @@ fn hashable_bound_dispatches_per_concrete_type() -> anyhow::Result<()> {
     // The same bounded-generic function called with two different concrete
     // types instantiates each statically against the type's own impl.
     let program = r#"
+        import std.hashable
+
+        use std.hashable.Hashable
+
         fun call_hash<T: Hashable>(t: T) -> u64 {
             return t.hash()
         }
@@ -4034,6 +4042,10 @@ fn hashable_method_not_object_safe_when_called_on_interface_value() -> anyhow::R
     // dispatched through a fat pointer; calling it on a value typed as the
     // interface itself must be rejected.
     let program = r#"
+        import std.hashable
+
+        use std.hashable.Hashable
+
         struct K {
             v: i32,
         }
@@ -4067,6 +4079,10 @@ fn fundamental_cannot_be_boxed_as_interface() -> anyhow::Result<()> {
     // they have no boxable data pointer; codegen would panic. Reject at
     // semantic time so the error is actionable.
     let program = r#"
+        import std.hashable
+
+        use std.hashable.Hashable
+
         fun main() -> i32 {
             let v: i32 = 7
             let h: Hashable = v
