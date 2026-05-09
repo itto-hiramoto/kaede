@@ -1,10 +1,12 @@
 import std.ffi.io
 import std.collections
 import std.result
+import std.string
 
 use std.ffi.io.write
 use std.collections.Vector
 use std.result.Result
+use std.string.Stringer
 
 // Coarse classification of an I/O failure. `from_errno` maps a few well-known
 // errnos to a kind so callers can branch without parsing errno themselves;
@@ -67,20 +69,28 @@ export interface Writer {
     fun write(self, buf: [u8]) -> Result<u64, IoError>
 }
 
-export fun print(msg: str) -> i32 {
-    return write(1, msg)
+// Writes `msg` to stdout. Accepts any value implementing `Stringer` —
+// `str`, `String`, integers, and any user-defined type with a
+// `to_string(self) -> String` method.
+export fun print<S: Stringer>(msg: S) -> i32 {
+    return write(1, msg.to_string().as_str())
 }
 
-export fun println(msg: str) -> i32 {
+// Writes `msg` followed by a newline to stdout. See `print` for the
+// accepted argument types.
+export fun println<S: Stringer>(msg: S) -> i32 {
     print(msg)
     return write(1, "\n")
 }
 
-export fun eprint(msg: str) -> i32 {
-    return write(2, msg)
+// Writes `msg` to stderr. See `print` for the accepted argument types.
+export fun eprint<S: Stringer>(msg: S) -> i32 {
+    return write(2, msg.to_string().as_str())
 }
 
-export fun eprintln(msg: str) -> i32 {
+// Writes `msg` followed by a newline to stderr. See `print` for the
+// accepted argument types.
+export fun eprintln<S: Stringer>(msg: S) -> i32 {
     eprint(msg)
     return write(2, "\n")
 }
