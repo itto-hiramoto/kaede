@@ -73,8 +73,7 @@ export interface Writer {
 // `str`, `String`, integers, and any user-defined type with a
 // `to_string(self) -> String` method.
 export fun print<S: Stringer>(msg: S) -> i32 {
-    let s = msg.to_string()
-    return write(1, s.as_str())
+    return write(1, msg.to_string().as_str())
 }
 
 // Writes `msg` followed by a newline to stdout. See `print` for the
@@ -86,8 +85,7 @@ export fun println<S: Stringer>(msg: S) -> i32 {
 
 // Writes `msg` to stderr. See `print` for the accepted argument types.
 export fun eprint<S: Stringer>(msg: S) -> i32 {
-    let s = msg.to_string()
-    return write(2, s.as_str())
+    return write(2, msg.to_string().as_str())
 }
 
 // Writes `msg` followed by a newline to stderr. See `print` for the
