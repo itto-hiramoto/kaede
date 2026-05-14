@@ -1010,17 +1010,12 @@ impl SemanticAnalyzer {
                 .collect::<anyhow::Result<Vec<_>>>()?;
 
             let return_ty = self.analyze_type(&method.return_ty)?;
-            let is_self_shaped = params
-                .iter()
-                .any(|p| ir::ty::ty_mentions_interface(&p.ty, &qualified_name))
-                || ir::ty::ty_mentions_interface(&return_ty, &qualified_name);
 
             methods.push(ir::top::InterfaceMethod {
                 name: method.name.symbol(),
                 self_: method.self_.map(ir::ty::Mutability::from),
                 params,
                 return_ty,
-                is_self_shaped,
             });
         }
 

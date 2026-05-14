@@ -180,38 +180,23 @@ impl SemanticAnalyzer {
             return false;
         }
 
-        // Substitute occurrences of the interface's own name in the declared
-        // parameter / return types with the implementing type, so that an
-        // interface method declared as `fun eq(self, other: Hashable) -> bool`
-        // is satisfied by `impl MyKey { fun eq(self, other: MyKey) -> bool }`
-        // and `impl i32 { fun eq(self, other: i32) -> bool }` alike. UDT impl
-        // types arrive as `Reference(...)`, fundamentals do not — the
-        // substitute handles both shapes. Skip the substitution work entirely
-        // for non-Self-shaped methods (the common case).
-        let param_matches = |actual: &ir::top::Param, expected: &Rc<ir_type::Ty>| -> bool {
-            let expected_substituted = if interface_method.is_self_shaped {
-                ir_type::substitute_self_in_interface_ty(expected, interface_name, impl_ty)
-            } else {
-                expected.clone()
-            };
-            ir_type::is_same_type(&actual.ty, &expected_substituted)
-        };
-
-        let expected_return_ty = if interface_method.is_self_shaped {
-            ir_type::substitute_self_in_interface_ty(
-                &interface_method.return_ty,
-                interface_name,
-                impl_ty,
-            )
-        } else {
-            interface_method.return_ty.clone()
+        // Substitute the interface's own name with the implementing type so a
+        // Self-shaped method like `fun eq(self, other: Hashable)` matches
+        // `impl T { fun eq(self, other: T) }`. The substitute early-exits via
+        // `ty_mentions_interface` when no Self mention is present, so calling
+        // it unconditionally is cheap for non-Self-shaped methods.
+        let subst = |ty: &Rc<ir_type::Ty>| {
+            ir_type::substitute_self_in_interface_ty(ty, interface_name, impl_ty)
         };
 
         actual_params_without_self
             .iter()
             .zip(interface_method.params.iter())
-            .all(|(actual, expected)| param_matches(actual, &expected.ty))
-            && ir_type::is_same_type(&actual_method.return_ty, &expected_return_ty)
+            .all(|(actual, expected)| ir_type::is_same_type(&actual.ty, &subst(&expected.ty)))
+            && ir_type::is_same_type(
+                &actual_method.return_ty,
+                &subst(&interface_method.return_ty),
+            )
     }
 
     pub fn analyze_type(&mut self, ty: &ast_type::Ty) -> anyhow::Result<Rc<ir_type::Ty>> {

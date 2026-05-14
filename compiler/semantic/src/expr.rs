@@ -2755,20 +2755,15 @@ impl SemanticAnalyzer {
             return Ok(value);
         }
 
-        // Codegen's `InterfaceBox` builds a fat pointer `{ data, itable }`
-        // with `data` as a heap pointer to the concrete value. Only Struct
-        // and Enum UDTs have a boxable representation here — fundamentals,
-        // slices, and other interface/placeholder UDTs would mis-box or
-        // panic in codegen, so reject them at semantic time.
-        let is_boxable = matches!(
+        // Only Struct/Enum UDTs have a boxable `{ data, itable }` shape in
+        // codegen. Fundamentals, slices, interface UDTs, and placeholders
+        // would mis-box or panic in codegen, so reject at semantic time.
+        let boxable = matches!(
             value_base.kind.as_ref(),
-            ir_type::TyKind::UserDefined(udt) if matches!(
-                udt.kind,
-                ir_type::UserDefinedTypeKind::Struct(_)
-                    | ir_type::UserDefinedTypeKind::Enum(_)
-            )
+            ir_type::TyKind::UserDefined(udt)
+                if matches!(udt.kind, ir_type::UserDefinedTypeKind::Struct(_) | ir_type::UserDefinedTypeKind::Enum(_))
         );
-        if !is_boxable {
+        if !boxable {
             return Err(SemanticError::CannotBoxNonUdtAsInterface {
                 actual: value.ty.kind.to_string(),
                 interface: interface.name.symbol(),
@@ -3797,7 +3792,7 @@ impl SemanticAnalyzer {
         // vtable thunk would mis-decode the parameter when the caller
         // boxes a different concrete type. Require these to be called via a
         // generic bound (`<T: Interface>`).
-        if method.is_self_shaped {
+        if method.is_self_shaped(&interface.name) {
             return Err(SemanticError::InterfaceMethodNotObjectSafe {
                 method_name,
                 interface: interface.name.symbol(),

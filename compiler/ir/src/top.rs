@@ -97,9 +97,21 @@ pub struct InterfaceMethod {
     pub self_: Option<Mutability>,
     pub params: Vec<Param>,
     pub return_ty: Rc<Ty>,
+}
+
+impl InterfaceMethod {
     /// True if any param or return type references the interface itself.
-    /// Such methods are not safe to dispatch through a fat pointer.
-    pub is_self_shaped: bool,
+    /// Such methods are not safe to dispatch through a fat pointer and must
+    /// be substituted with the implementing type during conformance checks.
+    pub fn is_self_shaped(
+        &self,
+        interface_name: &crate::qualified_symbol::QualifiedSymbol,
+    ) -> bool {
+        self.params
+            .iter()
+            .any(|p| crate::ty::ty_mentions_interface(&p.ty, interface_name))
+            || crate::ty::ty_mentions_interface(&self.return_ty, interface_name)
+    }
 }
 
 #[derive(Debug, Clone)]

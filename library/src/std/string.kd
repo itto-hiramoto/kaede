@@ -368,12 +368,8 @@ export interface Stringer {
     fun to_string(self) -> String
 }
 
-// -----------------------------------------------------------------------------
-// Hashable + Stringer impls for fundamental scalar types.
-// Each block adds: `to_string`, `hash` (identity-like cast to u64), `eq` (==).
-// The repetition here mirrors the lack of numeric-type generics or a derive
-// mechanism in the language; see issue #261 for the longer-term plan.
-// -----------------------------------------------------------------------------
+// Hashable + Stringer impls for fundamental scalars. Repeated per type until
+// Kaede gains numeric-type generics or a derive mechanism (see #261).
 
 impl u64 {
     export fun to_string(self) -> String {
