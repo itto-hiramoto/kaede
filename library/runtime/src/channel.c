@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 // -----------------------------------------------------------------------------
 // Generic channel waiter (regular send/recv and select cases share one queue).
@@ -155,46 +156,18 @@ static struct ChannelWaiter *pop_live_waiter(struct TaskWaitQueue *queue) {
     }
 }
 
-// Wake `waiter` after copying `value` (of `elem_size` bytes) into its slot.
-// For select waiters, also marks the shared state as done with VALUE status.
-static void complete_recv_waiter_with_value(struct ChannelWaiter *waiter,
-                                            const void *value,
-                                            size_t elem_size) {
-    copy_value(waiter->value_slot, value, elem_size);
+// Mark `waiter` as completed with the given status and wake its task. For
+// select waiters this also records the chosen-case bookkeeping; for regular
+// recv waiters it stores the status onto the waiter for the parked recv() to
+// observe after wakeup. Callers are responsible for any value transfer that
+// must happen before the task can read its slot.
+static void complete_waiter(struct ChannelWaiter *waiter, int32_t status) {
     if (waiter->kind == CW_SELECT) {
         waiter->state->done = true;
         waiter->state->chosen_index = (int32_t)waiter->case_index;
-        waiter->state->chosen_status = KAEDE_SELECT_STATUS_VALUE;
+        waiter->state->chosen_status = status;
     } else {
-        waiter->recv_status = KAEDE_SELECT_STATUS_VALUE;
-    }
-    if (!worker_wake_task_locked(waiter->task, true)) {
-        abort();
-    }
-}
-
-// Wake a parked sender by copying its value into `out` and marking it sent.
-static void complete_send_waiter_into(struct ChannelWaiter *waiter, void *out,
-                                      size_t elem_size) {
-    copy_value(out, waiter->value_slot, elem_size);
-    if (waiter->kind == CW_SELECT) {
-        waiter->state->done = true;
-        waiter->state->chosen_index = (int32_t)waiter->case_index;
-        waiter->state->chosen_status = KAEDE_SELECT_STATUS_SENT;
-    }
-    if (!worker_wake_task_locked(waiter->task, true)) {
-        abort();
-    }
-}
-
-// Wake a parked sender by transferring its value into the channel buffer.
-static void complete_send_waiter_into_buffer(struct ChannelWaiter *waiter,
-                                             struct KaedeChannel *channel) {
-    buffer_push(channel, waiter->value_slot);
-    if (waiter->kind == CW_SELECT) {
-        waiter->state->done = true;
-        waiter->state->chosen_index = (int32_t)waiter->case_index;
-        waiter->state->chosen_status = KAEDE_SELECT_STATUS_SENT;
+        waiter->recv_status = status;
     }
     if (!worker_wake_task_locked(waiter->task, true)) {
         abort();
@@ -207,7 +180,8 @@ static bool wake_waiting_receiver_locked(struct KaedeChannel *channel,
     if (!receiver) {
         return false;
     }
-    complete_recv_waiter_with_value(receiver, value, channel->elem_size);
+    copy_value(receiver->value_slot, value, channel->elem_size);
+    complete_waiter(receiver, KAEDE_SELECT_STATUS_VALUE);
     return true;
 }
 
@@ -217,7 +191,8 @@ static bool wake_waiting_sender_direct_locked(struct KaedeChannel *channel,
     if (!sender) {
         return false;
     }
-    complete_send_waiter_into(sender, out, channel->elem_size);
+    copy_value(out, sender->value_slot, channel->elem_size);
+    complete_waiter(sender, KAEDE_SELECT_STATUS_SENT);
     return true;
 }
 
@@ -229,13 +204,34 @@ static bool buffer_one_waiting_sender_locked(struct KaedeChannel *channel) {
     if (!sender) {
         return false;
     }
-    complete_send_waiter_into_buffer(sender, channel);
+    buffer_push(channel, sender->value_slot);
+    complete_waiter(sender, KAEDE_SELECT_STATUS_SENT);
     return true;
+}
+
+// Drain `queue`, completing select waiters with CLOSED and waking regular
+// waiters with `wake_success=false`. Used by kaede_channel_close on both the
+// send and recv queues.
+static void wake_all_as_closed_locked(struct TaskWaitQueue *queue) {
+    struct ChannelWaiter *w;
+    while ((w = wait_queue_pop_head(queue)) != NULL) {
+        if (w->kind == CW_SELECT) {
+            if (w->state && !w->state->done) {
+                complete_waiter(w, KAEDE_SELECT_STATUS_CLOSED);
+            }
+        } else if (!worker_wake_task_locked(w->task, false)) {
+            abort();
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
 // Non-blocking attempt primitives (used by both regular ops and select Phase A)
 // -----------------------------------------------------------------------------
+
+// Internal sentinel used only by try_send_locked, distinct from the public
+// KaedeChannelSendResult values. Callers translate it to a parking decision.
+#define TRY_SEND_WOULD_BLOCK 2
 
 static int32_t try_send_locked(struct KaedeChannel *channel, void *value) {
     if (channel->closed || worker_shutdown_requested_locked()) {
@@ -251,7 +247,7 @@ static int32_t try_send_locked(struct KaedeChannel *channel, void *value) {
         return KAEDE_CHANNEL_SEND_OK;
     }
 
-    return KAEDE_CHANNEL_SEND_CLOSED + 1; // sentinel: would block
+    return TRY_SEND_WOULD_BLOCK;
 }
 
 static int32_t try_recv_locked(struct KaedeChannel *channel, void *out) {
@@ -325,7 +321,7 @@ int32_t kaede_channel_send(struct KaedeChannel *channel, void *value) {
         return result;
     }
 
-    if (result != KAEDE_CHANNEL_SEND_CLOSED + 1) {
+    if (result != TRY_SEND_WOULD_BLOCK) {
         worker_scheduler_unlock();
         return KAEDE_CHANNEL_SEND_CLOSED;
     }
@@ -430,45 +426,8 @@ void kaede_channel_close(struct KaedeChannel *channel) {
     }
 
     channel->closed = true;
-
-    // Wake all parked senders as failed (closed).
-    struct ChannelWaiter *w = NULL;
-    while ((w = wait_queue_pop_head(&channel->send_waiters)) != NULL) {
-        if (w->kind == CW_SELECT) {
-            if (w->state && !w->state->done) {
-                w->state->done = true;
-                w->state->chosen_index = (int32_t)w->case_index;
-                w->state->chosen_status = KAEDE_SELECT_STATUS_CLOSED;
-                if (!worker_wake_task_locked(w->task, true)) {
-                    abort();
-                }
-            }
-            // already-done select waiters: nothing to do.
-        } else {
-            if (!worker_wake_task_locked(w->task, false)) {
-                abort();
-            }
-        }
-    }
-    // Wake all parked receivers; for select recv cases this fires the case
-    // with CLOSED status. For regular recv it triggers RECV_CLOSED return.
-    while ((w = wait_queue_pop_head(&channel->recv_waiters)) != NULL) {
-        if (w->kind == CW_SELECT) {
-            if (w->state && !w->state->done) {
-                w->state->done = true;
-                w->state->chosen_index = (int32_t)w->case_index;
-                w->state->chosen_status = KAEDE_SELECT_STATUS_CLOSED;
-                if (!worker_wake_task_locked(w->task, true)) {
-                    abort();
-                }
-            }
-        } else {
-            if (!worker_wake_task_locked(w->task, false)) {
-                abort();
-            }
-        }
-    }
-
+    wake_all_as_closed_locked(&channel->send_waiters);
+    wake_all_as_closed_locked(&channel->recv_waiters);
     worker_scheduler_unlock();
 }
 
@@ -527,11 +486,47 @@ static bool try_select_case_locked(struct KaedeSelectCase *cs) {
     return false;
 }
 
-// Fisher-Yates shuffle on an index array using rand(). The runtime does not
-// seed rand() explicitly; tests that depend on randomness call srand().
+// Fisher-Yates shuffle on an index array using a per-thread xorshift PRNG.
+// kaede_select runs concurrently on every worker; using libc rand() would
+// race on its internal state. The seed is lazily initialized from the task
+// pointer and the wall clock so distinct workers diverge quickly.
+static _Thread_local uint64_t select_rng_state = 0;
+
+static uint64_t select_rng_next(void) {
+    if (select_rng_state == 0) {
+        select_rng_state = (uint64_t)(uintptr_t)worker_current_task()
+                           ^ ((uint64_t)time(NULL) * 0x9E3779B97F4A7C15ULL);
+        if (select_rng_state == 0) {
+            select_rng_state = 0x9E3779B97F4A7C15ULL;
+        }
+    }
+    uint64_t x = select_rng_state;
+    x ^= x << 13;
+    x ^= x >> 7;
+    x ^= x << 17;
+    select_rng_state = x;
+    return x;
+}
+
+// Remove every select waiter still linked into a channel's queue. Used both
+// on park failure (none have fired) and after wakeup (one fired and was
+// already unlinked by the waker; we drop the rest).
+static void scrub_select_waiters(struct ChannelWaiter *waiters, size_t n) {
+    for (size_t i = 0; i < n; ++i) {
+        struct ChannelWaiter *w = &waiters[i];
+        if (!w->channel) {
+            continue;
+        }
+        struct TaskWaitQueue *q = (w->op == KAEDE_SELECT_OP_SEND)
+                                      ? &w->channel->send_waiters
+                                      : &w->channel->recv_waiters;
+        wait_queue_unlink(q, w);
+    }
+}
+
 static void shuffle_indices(uint32_t *idx, size_t n) {
     for (size_t i = n; i > 1; --i) {
-        size_t j = (size_t)((unsigned)rand() % (unsigned)i);
+        size_t j = (size_t)(select_rng_next() % (uint64_t)i);
         uint32_t tmp = idx[i - 1];
         idx[i - 1] = idx[j];
         idx[j] = tmp;
@@ -637,33 +632,16 @@ int32_t kaede_select(struct KaedeSelectCase *cases, size_t n, bool has_default) 
     if (!worker_park_current_on_channel_locked()) {
         // Park failed (shutdown). Re-acquire lock to scrub residual waiters.
         worker_scheduler_lock();
-        for (size_t i = 0; i < n; ++i) {
-            struct ChannelWaiter *w = &waiters[i];
-            if (w->channel) {
-                struct TaskWaitQueue *q = (w->op == KAEDE_SELECT_OP_SEND)
-                                              ? &w->channel->send_waiters
-                                              : &w->channel->recv_waiters;
-                wait_queue_unlink(q, w);
-            }
-        }
+        scrub_select_waiters(waiters, n);
         worker_scheduler_unlock();
         free(waiters_heap);
         free(order_heap);
         return KAEDE_SELECT_DEFAULT_INDEX;
     }
 
-    // We woke; re-acquire scheduler lock to remove any leftover waiters that
-    // were not the firing case.
+    // We woke; remove any leftover waiters that were not the firing case.
     worker_scheduler_lock();
-    for (size_t i = 0; i < n; ++i) {
-        struct ChannelWaiter *w = &waiters[i];
-        if (w->channel) {
-            struct TaskWaitQueue *q = (w->op == KAEDE_SELECT_OP_SEND)
-                                          ? &w->channel->send_waiters
-                                          : &w->channel->recv_waiters;
-            wait_queue_unlink(q, w);
-        }
-    }
+    scrub_select_waiters(waiters, n);
     worker_scheduler_unlock();
 
     int32_t chosen = state.chosen_index;
