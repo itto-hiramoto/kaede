@@ -4,7 +4,8 @@ use kaede_ast::expr::{
     Arg, Args, ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BitNot, Break, ByteLiteral,
     ByteStringLiteral, ChannelRecv, ChannelSend, CharLiteral, Closure, Else, Expr, ExprKind, Float,
     FloatKind, FnCall, If, Indexing, Int, IntKind, LogicalNot, Loop, Match, MatchArm, Return,
-    Slicing, Spawn, StringLiteral, StructLiteral, Try, TupleLiteral, While,
+    Select, SelectArm, SelectBinding, SelectOp, Slicing, Spawn, StringLiteral, StructLiteral, Try,
+    TupleLiteral, While,
 };
 use kaede_ast_type::{GenericArgs, Ty, TyKind};
 use kaede_lex::token::TokenKind;
@@ -548,6 +549,10 @@ impl Parser {
             return self.match_();
         }
 
+        if self.check(&TokenKind::Select) {
+            return self.select_();
+        }
+
         if self.check(&TokenKind::Return) {
             return self.return_();
         }
@@ -793,6 +798,235 @@ impl Parser {
                 span,
             }),
         })
+    }
+
+    /// `select { (case CASE_OP "=>" BODY (",")?)* (default "=>" BODY)? }`
+    /// Case op is restricted to one of:
+    ///   - `IDENT "=" EXPR "." "recv" "(" ")"`
+    ///   - `"_" "=" EXPR "." "recv" "(" ")"`
+    ///   - `EXPR "." "send" "(" EXPR ")"`
+    fn select_(&mut self) -> ParseResult<Expr> {
+        let start = self.consume(&TokenKind::Select)?.start;
+
+        self.consume(&TokenKind::OpenBrace)?;
+
+        let mut arms: Vec<SelectArm> = Vec::new();
+        let mut default: Option<Rc<Expr>> = None;
+
+        loop {
+            if self.check(&TokenKind::CloseBrace) {
+                break;
+            }
+
+            if self.consume_b(&TokenKind::Default) {
+                self.consume(&TokenKind::Eq)?;
+                self.consume(&TokenKind::Gt)?;
+                let body = self.expr()?;
+                if default.is_some() {
+                    return Err(ParseError::ExpectedError {
+                        expected: "at most one 'default' arm in select".to_string(),
+                        but: "second 'default' arm".to_string(),
+                        span: body.span,
+                    }
+                    .into());
+                }
+                default = Some(Rc::new(body));
+            } else {
+                self.consume(&TokenKind::Case)?;
+                let arm = self.select_arm()?;
+                arms.push(arm);
+            }
+
+            if self.consume_b(&TokenKind::Comma) {
+                continue;
+            }
+            if self.check(&TokenKind::CloseBrace) {
+                break;
+            }
+            if self.check_semi() {
+                self.consume_semi()?;
+                continue;
+            }
+
+            return Err(ParseError::ExpectedError {
+                expected: "',' or '}'".to_string(),
+                but: self.first().kind.to_string(),
+                span: self.first().span,
+            }
+            .into());
+        }
+
+        let finish = self.consume(&TokenKind::CloseBrace)?.finish;
+        let span = self.new_span(start, finish);
+
+        if arms.is_empty() && default.is_none() {
+            return Err(ParseError::ExpectedError {
+                expected: "at least one 'case' or 'default' arm in select".to_string(),
+                but: "empty select".to_string(),
+                span,
+            }
+            .into());
+        }
+
+        Ok(Expr {
+            span,
+            kind: ExprKind::Select(Select {
+                arms,
+                default,
+                span,
+            }),
+        })
+    }
+
+    fn select_arm(&mut self) -> ParseResult<SelectArm> {
+        let arm_start = self.first().span.start;
+
+        // Peek at the first two tokens to decide between recv-binding form
+        // (`IDENT = ...` or `_ = ...`) and send form (`EXPR.send(...)`).
+        let is_recv_binding = {
+            let first = self.first().kind.clone();
+            let second_kind = self
+                .tokens
+                .get(1)
+                .map(|t| t.kind.clone())
+                .unwrap_or(TokenKind::Eoi);
+            matches!(first, TokenKind::Ident(_)) && matches!(second_kind, TokenKind::Eq)
+        };
+
+        if is_recv_binding {
+            let name_tok = self.first().clone();
+            let TokenKind::Ident(name_str) = name_tok.kind.clone() else {
+                unreachable!("checked above");
+            };
+            self.bump();
+            let binding = if name_str.as_str() == "_" {
+                SelectBinding::Wildcard
+            } else {
+                SelectBinding::Named(Ident::new(Symbol::from(name_str), name_tok.span))
+            };
+            self.consume(&TokenKind::Eq)?;
+            // RHS must be a method call: EXPR.recv().
+            let call = self.expr()?;
+            let (channel, _value) = Self::decompose_channel_method_call(call, "recv")?;
+            self.consume(&TokenKind::Eq)?;
+            self.consume(&TokenKind::Gt)?;
+            let body = self.expr()?;
+            let span = self.new_span(arm_start, body.span.finish);
+            return Ok(SelectArm {
+                op: SelectOp::Recv {
+                    channel: Box::new(channel),
+                    binding,
+                },
+                body: Rc::new(body),
+                span,
+            });
+        }
+
+        // Send: EXPR.send(EXPR)
+        let call = self.expr()?;
+        let (channel, value) = Self::decompose_channel_method_call(call, "send")?;
+        let value = value.ok_or_else(|| ParseError::ExpectedError {
+            expected: "send value expression".to_string(),
+            but: "missing argument".to_string(),
+            span: channel.span,
+        })?;
+        self.consume(&TokenKind::Eq)?;
+        self.consume(&TokenKind::Gt)?;
+        let body = self.expr()?;
+        let span = self.new_span(arm_start, body.span.finish);
+        Ok(SelectArm {
+            op: SelectOp::Send {
+                channel: Box::new(channel),
+                value: Box::new(value),
+            },
+            body: Rc::new(body),
+            span,
+        })
+    }
+
+    /// Given a parsed `EXPR.method(...)` call, return (channel, arg) where
+    /// channel is the receiver and arg is the first argument (for send) or
+    /// None (for recv). Errors if the expression is not a method call to
+    /// `expected_method`.
+    /// Channel method calls (`ch.method(args)`) can produce two AST shapes in
+    /// Kaede's parser, depending on whether `method` resolves as a type name in
+    /// `primary()`:
+    ///
+    /// 1. `FnCall { callee: Binary(ch, Access, method), args }` — classic.
+    /// 2. `Binary(ch, Access, FnCall { callee: method, args })` — happens when
+    ///    `primary()` consumed `method(...)` as a fn-call before postfix saw the
+    ///    surrounding `ch.`.
+    ///
+    /// Accept both and return `(channel, first_arg)`.
+    fn decompose_channel_method_call(
+        call: Expr,
+        expected_method: &str,
+    ) -> ParseResult<(Expr, Option<Expr>)> {
+        let span = call.span;
+        let err = || ParseError::ExpectedError {
+            expected: format!("'channel.{}(...)' method call", expected_method),
+            but: "non-method-call expression".to_string(),
+            span,
+        };
+
+        let (channel, method_name, method_name_span, args_iter): (
+            Expr,
+            Symbol,
+            Span,
+            Box<dyn Iterator<Item = Arg>>,
+        ) = match call.kind {
+            ExprKind::FnCall(fn_call) => {
+                let ExprKind::Binary(callee_bin) = fn_call.callee.kind else {
+                    return Err(err().into());
+                };
+                if !matches!(callee_bin.kind, BinaryKind::Access) {
+                    return Err(err().into());
+                }
+                let ExprKind::Ident(method_ident) = callee_bin.rhs.kind else {
+                    return Err(err().into());
+                };
+                (
+                    *callee_bin.lhs,
+                    method_ident.symbol(),
+                    method_ident.span(),
+                    Box::new(fn_call.args.args.into_iter()),
+                )
+            }
+            ExprKind::Binary(bin) => {
+                if !matches!(bin.kind, BinaryKind::Access) {
+                    return Err(err().into());
+                }
+                let lhs = *bin.lhs;
+                let rhs = *bin.rhs;
+                let ExprKind::FnCall(inner) = rhs.kind else {
+                    return Err(err().into());
+                };
+                let method_name_expr = *inner.callee;
+                let (method_name, method_name_span) = match method_name_expr.kind {
+                    ExprKind::Ident(ident) => (ident.symbol(), ident.span()),
+                    _ => return Err(err().into()),
+                };
+                (
+                    lhs,
+                    method_name,
+                    method_name_span,
+                    Box::new(inner.args.args.into_iter()),
+                )
+            }
+            _ => return Err(err().into()),
+        };
+
+        if method_name.as_str() != expected_method {
+            return Err(ParseError::ExpectedError {
+                expected: format!("'{}'", expected_method),
+                but: format!("'{}'", method_name),
+                span: method_name_span,
+            }
+            .into());
+        }
+
+        let first_arg = args_iter.into_iter().next().map(|a| a.value);
+        Ok((channel, first_arg))
     }
 
     fn comma_separated_elements(&mut self, end: &TokenKind) -> ParseResult<Vec<Expr>> {

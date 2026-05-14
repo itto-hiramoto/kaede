@@ -18,8 +18,8 @@ use kaede_ir::{
         ArrayLiteral, ArrayRepeat, Binary, BinaryKind, BitNot, BuiltinFnCall, BuiltinFnCallKind,
         ByteLiteral, ByteStringLiteral, Cast, CharLiteral, Closure, Else, EnumUnpack, EnumVariant,
         Expr, ExprKind, FieldAccess, Float, FnCall, FnPointer, FormatPart, ITable, If, Indexing,
-        Int, InterfaceBox, InterfaceMethodCall, LogicalNot, Loop, Slicing, Spawn, StringLiteral,
-        StructLiteral, TupleIndexing, TupleLiteral, Variable,
+        Int, InterfaceBox, InterfaceMethodCall, LogicalNot, Loop, Select, SelectOp, Slicing, Spawn,
+        StringLiteral, StructLiteral, TupleIndexing, TupleLiteral, Variable,
     },
     stmt::Block,
     ty::{
@@ -193,6 +193,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
             ExprKind::InterfaceBox(node) => self.build_interface_box(node)?,
             ExprKind::InterfaceMethodCall(node) => self.build_interface_method_call(node)?,
+            ExprKind::Select(node) => self.build_select(node)?,
         })
     }
 
@@ -1549,6 +1550,389 @@ impl<'ctx> CodeGenerator<'ctx> {
         }
 
         Ok(wrapper_fn)
+    }
+
+    /// Reach through a `Reference` (one level) to find the inner UDT, if any.
+    fn extract_user_defined_ty(ty: &Ty) -> Option<kaede_ir::ty::UserDefinedType> {
+        let inner = match ty.kind.as_ref() {
+            TyKind::Reference(rty) => rty.refee_ty.clone(),
+            _ => {
+                return match ty.kind.as_ref() {
+                    TyKind::UserDefined(u) => Some(u.clone()),
+                    _ => None,
+                }
+            }
+        };
+        match inner.kind.as_ref() {
+            TyKind::UserDefined(u) => Some(u.clone()),
+            _ => None,
+        }
+    }
+
+    /// Layout of `struct KaedeSelectCase` in the runtime, matched in LLVM:
+    ///   { i8*, i32, i32_pad, i8*, i32 }
+    /// (8) channel, (12) op, (16) value_slot, (24) status, total 32 bytes.
+    fn select_case_struct_type(&self) -> StructType<'ctx> {
+        let ptr_ty = self.context().ptr_type(AddressSpace::default());
+        let i32_ty = self.context().i32_type();
+        self.context().struct_type(
+            &[
+                ptr_ty.into(),
+                i32_ty.into(),
+                i32_ty.into(), // explicit padding to match C alignment
+                ptr_ty.into(),
+                i32_ty.into(),
+            ],
+            false,
+        )
+    }
+
+    fn build_select(&mut self, node: &Select) -> anyhow::Result<Value<'ctx>> {
+        let parent = self.get_current_fn();
+        let case_struct_ty = self.select_case_struct_type();
+        let n = node.arms.len();
+        let array_ty = case_struct_ty.array_type(n as u32);
+        let cases_alloca = self.create_entry_block_alloca("select.cases", array_ty.into())?;
+
+        // Allocate value slots per arm and populate the case array in source
+        // order (Go semantics: evaluate every channel/send value once up front).
+        let mut value_slots: Vec<PointerValue<'ctx>> = Vec::with_capacity(n);
+
+        for (i, arm) in node.arms.iter().enumerate() {
+            let elem_llvm_ty = self.conv_to_llvm_type(&arm.elem_ty);
+            let slot =
+                self.create_entry_block_alloca(&format!("select.slot{}", i), elem_llvm_ty)?;
+            value_slots.push(slot);
+
+            // Evaluate the channel expression and extract `Channel<T>.ptr`
+            // (which is *u8). The channel value is a pointer to a single-
+            // field struct `Channel<T> { ptr: *u8 }`; look up that struct
+            // type by its mangled name to GEP into it.
+            let channel_struct_ptr = self.build_expr(&arm.channel)?.unwrap().into_pointer_value();
+            let channel_udt = Self::extract_user_defined_ty(&arm.channel.ty).ok_or_else(|| {
+                anyhow::anyhow!("select channel arm operand is not a user-defined type")
+            })?;
+            let channel_qsym = match &channel_udt.kind {
+                kaede_ir::ty::UserDefinedTypeKind::Struct(s) => s.name.clone(),
+                kaede_ir::ty::UserDefinedTypeKind::Placeholder(qsym) => qsym.clone(),
+                _ => anyhow::bail!("select channel arm operand is not Channel<T>"),
+            };
+            let channel_llvm_struct = self
+                .module
+                .get_struct_type(channel_qsym.mangle().as_str())
+                .ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "Channel<T> LLVM struct type not registered: {}",
+                        channel_qsym.mangle()
+                    )
+                })?;
+            let chan_ptr_gep = unsafe {
+                self.builder.build_in_bounds_gep(
+                    channel_llvm_struct,
+                    channel_struct_ptr,
+                    &[
+                        self.context().i32_type().const_zero(),
+                        self.context().i32_type().const_zero(),
+                    ],
+                    "",
+                )?
+            };
+            let chan_raw_ptr = self
+                .builder
+                .build_load(
+                    self.context().ptr_type(AddressSpace::default()),
+                    chan_ptr_gep,
+                    "",
+                )?
+                .into_pointer_value();
+
+            // For send arms: evaluate the value and store into the slot.
+            if let SelectOp::Send = arm.op {
+                let value = self.build_expr(arm.value.as_ref().unwrap())?.unwrap();
+                self.builder.build_store(slot, value)?;
+            }
+
+            // Build a pointer to cases[i].
+            let case_ptr = unsafe {
+                self.builder.build_in_bounds_gep(
+                    array_ty,
+                    cases_alloca,
+                    &[
+                        self.context().i32_type().const_zero(),
+                        self.context().i32_type().const_int(i as u64, false),
+                    ],
+                    "",
+                )?
+            };
+
+            let store_field = |ce: &CodeGenerator<'ctx>,
+                               field: u32,
+                               value: BasicValueEnum<'ctx>|
+             -> anyhow::Result<()> {
+                let gep = unsafe {
+                    ce.builder.build_in_bounds_gep(
+                        case_struct_ty,
+                        case_ptr,
+                        &[
+                            ce.context().i32_type().const_zero(),
+                            ce.context().i32_type().const_int(field as u64, false),
+                        ],
+                        "",
+                    )?
+                };
+                ce.builder.build_store(gep, value)?;
+                Ok(())
+            };
+
+            // channel
+            store_field(self, 0, chan_raw_ptr.as_basic_value_enum())?;
+            // op
+            let op_const = self.context().i32_type().const_int(
+                match arm.op {
+                    SelectOp::Send => 0,
+                    SelectOp::Recv => 1,
+                },
+                false,
+            );
+            store_field(self, 1, op_const.as_basic_value_enum())?;
+            // pad
+            store_field(
+                self,
+                2,
+                self.context().i32_type().const_zero().as_basic_value_enum(),
+            )?;
+            // value_slot
+            store_field(self, 3, slot.as_basic_value_enum())?;
+            // status
+            store_field(
+                self,
+                4,
+                self.context().i32_type().const_zero().as_basic_value_enum(),
+            )?;
+        }
+
+        // Call kaede_select(cases, n, has_default).
+        let has_default = node.default.is_some();
+        let ptr_ty = self.context().ptr_type(AddressSpace::default());
+        let i64_ty = self.context().i64_type();
+        let i32_ty = self.context().i32_type();
+        let bool_ty = self.context().bool_type();
+        let select_fn = self.declare_runtime_fn(
+            "kaede_select",
+            i32_ty.fn_type(&[ptr_ty.into(), i64_ty.into(), bool_ty.into()], false),
+        );
+
+        let chosen = self
+            .builder
+            .build_call(
+                select_fn,
+                &[
+                    cases_alloca.as_basic_value_enum().into(),
+                    i64_ty.const_int(n as u64, false).into(),
+                    bool_ty
+                        .const_int(if has_default { 1 } else { 0 }, false)
+                        .into(),
+                ],
+                "select.chosen",
+            )?
+            .try_as_basic_value()
+            .left()
+            .unwrap()
+            .into_int_value();
+
+        // Per-arm basic blocks, plus optional default block, plus a join block.
+        let mut arm_blocks: Vec<inkwell::basic_block::BasicBlock<'ctx>> = Vec::with_capacity(n);
+        for i in 0..n {
+            arm_blocks.push(
+                self.context()
+                    .append_basic_block(parent, &format!("select.arm{}", i)),
+            );
+        }
+        let default_block = if has_default {
+            Some(self.context().append_basic_block(parent, "select.default"))
+        } else {
+            None
+        };
+        let cont_block = self.context().append_basic_block(parent, "select.cont");
+
+        // Switch: -1 -> default (if any), else arm[i].
+        let unreachable_block = self
+            .context()
+            .append_basic_block(parent, "select.unreachable");
+        let switch_default = default_block.unwrap_or(unreachable_block);
+        let cases: Vec<(IntValue<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)> = (0..n)
+            .map(|i| (i32_ty.const_int(i as u64, false), arm_blocks[i]))
+            .collect();
+        self.builder.build_switch(chosen, switch_default, &cases)?;
+
+        // Terminate the unreachable block (when no default).
+        self.builder.position_at_end(unreachable_block);
+        self.builder.build_unreachable()?;
+
+        // Per-arm bodies.
+        for (i, arm) in node.arms.iter().enumerate() {
+            self.builder.position_at_end(arm_blocks[i]);
+
+            self.tcx.push_symbol_table(SymbolTable::new());
+
+            match arm.op {
+                SelectOp::Send => {
+                    // Nothing to bind. Just build body.
+                    self.build_expr(&arm.body)?;
+                }
+                SelectOp::Recv => {
+                    if let Some(binding) = arm.binding {
+                        // Materialize Option<T>: read cases[i].status, branch
+                        // VALUE -> Some(load slot), CLOSED -> None.
+                        let option_ty = arm.option_ty.as_ref().unwrap();
+                        let enum_info = arm.option_enum_info.as_ref().ok_or_else(|| {
+                            anyhow::anyhow!("select recv arm missing resolved Option enum info")
+                        })?;
+                        let option_value = self.build_recv_option(
+                            enum_info,
+                            value_slots[i],
+                            cases_alloca,
+                            &case_struct_ty,
+                            array_ty,
+                            i,
+                        )?;
+                        let option_llvm_ty = self.conv_to_llvm_type(option_ty);
+                        self.build_let_internal(binding, option_llvm_ty, Some(option_value))?;
+                    }
+                    self.build_expr(&arm.body)?;
+                }
+            }
+
+            self.tcx.pop_symbol_table();
+
+            if self.no_terminator() {
+                self.builder.build_unconditional_branch(cont_block)?;
+            }
+        }
+
+        // Default body.
+        if let (Some(default_block), Some(default_body)) = (default_block, &node.default) {
+            self.builder.position_at_end(default_block);
+            self.tcx.push_symbol_table(SymbolTable::new());
+            self.build_expr(default_body)?;
+            self.tcx.pop_symbol_table();
+            if self.no_terminator() {
+                self.builder.build_unconditional_branch(cont_block)?;
+            }
+        }
+
+        self.builder.position_at_end(cont_block);
+        Ok(None)
+    }
+
+    fn build_recv_option(
+        &mut self,
+        enum_info: &Rc<kaede_ir::top::Enum>,
+        value_slot: PointerValue<'ctx>,
+        cases_alloca: PointerValue<'ctx>,
+        case_struct_ty: &StructType<'ctx>,
+        array_ty: inkwell::types::ArrayType<'ctx>,
+        case_index: usize,
+    ) -> anyhow::Result<BasicValueEnum<'ctx>> {
+        let some_offset = enum_info
+            .variants
+            .iter()
+            .find(|v| v.name.as_str() == "Some")
+            .map(|v| v.offset)
+            .ok_or_else(|| anyhow::anyhow!("Option enum is missing Some variant"))?;
+        let none_offset = enum_info
+            .variants
+            .iter()
+            .find(|v| v.name.as_str() == "None")
+            .map(|v| v.offset)
+            .ok_or_else(|| anyhow::anyhow!("Option enum is missing None variant"))?;
+
+        // status = cases[i].status
+        let status_gep = unsafe {
+            self.builder.build_in_bounds_gep(
+                array_ty,
+                cases_alloca,
+                &[
+                    self.context().i32_type().const_zero(),
+                    self.context()
+                        .i32_type()
+                        .const_int(case_index as u64, false),
+                    self.context().i32_type().const_int(4, false),
+                ],
+                "",
+            )?
+        };
+        let status = self
+            .builder
+            .build_load(self.context().i32_type(), status_gep, "select.status")?
+            .into_int_value();
+
+        let parent = self.get_current_fn();
+        let some_bb = self.context().append_basic_block(parent, "recv.some");
+        let none_bb = self.context().append_basic_block(parent, "recv.none");
+        let join_bb = self.context().append_basic_block(parent, "recv.join");
+
+        // KAEDE_SELECT_STATUS_VALUE = 0. status == 0 → Some, else None.
+        let zero = self.context().i32_type().const_zero();
+        let is_value =
+            self.builder
+                .build_int_compare(IntPredicate::EQ, status, zero, "is_value")?;
+        self.builder
+            .build_conditional_branch(is_value, some_bb, none_bb)?;
+
+        // Some branch: load value from slot, construct Option::Some.
+        self.builder.position_at_end(some_bb);
+        let enum_llvm_ty = self
+            .module
+            .get_struct_type(enum_info.name.mangle().as_str())
+            .ok_or_else(|| anyhow::anyhow!("Option enum LLVM type not registered"))?;
+        // Determine payload type from variant Some's ty (== T).
+        let some_variant = enum_info
+            .variants
+            .iter()
+            .find(|v| v.name.as_str() == "Some")
+            .unwrap();
+        let payload_ty = some_variant
+            .ty
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Option::Some variant has no payload type"))?;
+        let payload_llvm_ty = self.conv_to_llvm_type(payload_ty);
+        let loaded_value = self.builder.build_load(payload_llvm_ty, value_slot, "")?;
+        let some_struct = self.create_gc_struct(
+            enum_llvm_ty.as_basic_type_enum(),
+            &[
+                self.context()
+                    .i32_type()
+                    .const_int(some_offset as u64, false)
+                    .into(),
+                loaded_value,
+            ],
+        )?;
+        self.builder.build_unconditional_branch(join_bb)?;
+        let some_bb_end = self.builder.get_insert_block().unwrap();
+
+        // None branch.
+        self.builder.position_at_end(none_bb);
+        let none_struct = self.create_gc_struct(
+            enum_llvm_ty.as_basic_type_enum(),
+            &[self
+                .context()
+                .i32_type()
+                .const_int(none_offset as u64, false)
+                .into()],
+        )?;
+        self.builder.build_unconditional_branch(join_bb)?;
+        let none_bb_end = self.builder.get_insert_block().unwrap();
+
+        // Phi-join: both branches produce a pointer to the Option struct.
+        self.builder.position_at_end(join_bb);
+        let phi = self
+            .builder
+            .build_phi(self.context().ptr_type(AddressSpace::default()), "recv.phi")?;
+        phi.add_incoming(&[(&some_struct, some_bb_end), (&none_struct, none_bb_end)]);
+
+        let _ = case_struct_ty; // currently unused, kept for symmetry
+        Ok(phi.as_basic_value())
     }
 
     fn declare_runtime_fn(

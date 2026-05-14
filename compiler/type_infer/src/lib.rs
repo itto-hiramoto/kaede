@@ -510,6 +510,28 @@ impl TypeInferrer {
                 }
                 Ok(expr_ty.clone())
             }
+            Select(select) => {
+                for arm in &select.arms {
+                    self.infer_expr(&arm.channel)?;
+                    if let Some(v) = &arm.value {
+                        self.infer_expr(v)?;
+                    }
+                    self.with_new_scope(|this| {
+                        if let (Some(name), Some(opt_ty)) = (arm.binding, arm.option_ty.as_ref()) {
+                            this.register_variable(name, opt_ty.clone());
+                        }
+                        this.infer_expr(&arm.body)?;
+                        Ok(())
+                    })?;
+                }
+                if let Some(d) = &select.default {
+                    self.with_new_scope(|this| {
+                        this.infer_expr(d)?;
+                        Ok(())
+                    })?;
+                }
+                Ok(expr_ty.clone())
+            }
             Closure(closure) => {
                 for cap in &closure.captures {
                     self.infer_expr(cap)?;
@@ -2070,6 +2092,22 @@ impl TypeInferrer {
                 self.apply_expr(&mut call.receiver)?;
                 for arg in &mut call.args.0 {
                     self.apply_expr(arg)?;
+                }
+            }
+            Select(select) => {
+                for arm in &mut select.arms {
+                    self.apply_expr(&mut arm.channel)?;
+                    arm.elem_ty = self.context.apply(&arm.elem_ty);
+                    if let Some(opt_ty) = &mut arm.option_ty {
+                        *opt_ty = self.context.apply(opt_ty);
+                    }
+                    if let Some(value) = &mut arm.value {
+                        self.apply_expr(value)?;
+                    }
+                    self.apply_expr(&mut arm.body)?;
+                }
+                if let Some(default) = &mut select.default {
+                    self.apply_expr(default)?;
                 }
             }
         }

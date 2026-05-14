@@ -264,6 +264,22 @@ impl<'a> GenericSubstituter<'a> {
                 }
                 call.method.return_ty = self.apply_ty(&call.method.return_ty);
             }
+            ir::expr::ExprKind::Select(select) => {
+                for arm in &mut select.arms {
+                    self.apply_expr(&mut arm.channel);
+                    arm.elem_ty = self.apply_ty(&arm.elem_ty);
+                    if let Some(opt_ty) = &mut arm.option_ty {
+                        *opt_ty = self.apply_ty(opt_ty);
+                    }
+                    if let Some(value) = &mut arm.value {
+                        self.apply_expr(value);
+                    }
+                    self.apply_expr(&mut arm.body);
+                }
+                if let Some(default) = &mut select.default {
+                    self.apply_expr(default);
+                }
+            }
             ir::expr::ExprKind::Int(_)
             | ir::expr::ExprKind::Float(_)
             | ir::expr::ExprKind::StringLiteral(_)

@@ -188,6 +188,9 @@ impl Cursor<'_> {
                     "self" => self.create_token(TokenKind::Self_),
                     "use" => self.create_token(TokenKind::Use),
                     "spawn" => self.create_token(TokenKind::Spawn),
+                    "select" => self.create_token(TokenKind::Select),
+                    "default" => self.create_token(TokenKind::Default),
+                    "case" => self.create_token(TokenKind::Case),
                     "type" => self.create_token(TokenKind::Type),
 
                     // Identifier

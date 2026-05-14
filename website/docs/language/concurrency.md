@@ -54,6 +54,41 @@ value := match <-ch {
 }
 ```
 
+## Selecting across multiple channels
+
+`select` blocks the current task until one of its channel operations can
+proceed, then runs the matching arm. It mirrors Go's `select`:
+
+```rust
+select {
+    case value = ch1.recv() => {
+        // value: Option<T>; None means ch1 was closed.
+    }
+    case _ = ch3.recv() => {
+        // received value is discarded
+    }
+    case ch2.send(x) => {
+        // successfully sent x on ch2
+    }
+    default => {
+        // taken only if no other case is immediately ready
+    }
+}
+```
+
+Notes:
+
+- Each `case` must be a `ch.recv()` or `ch.send(value)` method call —
+  arbitrary expressions are rejected at parse time.
+- The bound name on a `recv` arm has type `Option<T>`. A closed channel
+  fires the arm immediately with `None`, mirroring `ch.recv()`'s contract.
+- With `default`, `select` is non-blocking. Without it, the task blocks
+  until at least one case can proceed.
+- When multiple cases are simultaneously ready, one is chosen at random to
+  avoid starvation (Go semantics).
+- Channel expressions and `send` value expressions are evaluated in source
+  order on entry, exactly once per `select` evaluation.
+
 ## Synchronization helpers
 
 Use `WaitGroup` when one task needs to wait for other spawned tasks to finish:

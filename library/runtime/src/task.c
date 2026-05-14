@@ -224,9 +224,5 @@ void task_cleanup(struct Task *task) {
     task->io_wait.fd = -1;
     task->io_wait.events = KAEDE_IO_EVENT_NONE;
     task->io_wait.wake_success = false;
-    task->channel_wait.obj = NULL;
-    task->channel_wait.kind = KAEDE_TASK_WAIT_NONE;
-    task->channel_wait.value_slot = NULL;
     task->channel_wait.wake_success = false;
-    task->channel_wait.next = NULL;
 }
