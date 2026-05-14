@@ -17,15 +17,15 @@ fun fnv1a_bytes(ptr: *u8, len: u64) -> u64 {
     return h
 }
 
-fun bytes_eq(a_ptr: *u8, a_len: u64, b_ptr: *u8, b_len: u64) -> bool {
-    if a_len != b_len {
+// Compares two byte slices for exact equality. Exported for re-use across
+// stdlib modules (e.g. net.http) so each module does not maintain its own copy.
+export fun bytes_eq(left: [u8], right: [u8]) -> bool {
+    if left.len() != right.len() {
         return false
     }
-    let a = __slice_from_raw_parts(a_ptr, a_len)
-    let b = __slice_from_raw_parts(b_ptr, b_len)
     let mut i = 0
-    while i < a_len {
-        if a[i] != b[i] {
+    while i < left.len() {
+        if left[i] != right[i] {
             return false
         }
         i += 1
@@ -72,7 +72,9 @@ impl String {
     }
 
     export fun eq(self, other: String) -> bool {
-        return bytes_eq(self.as_ptr(), self.bytes.len(), other.as_ptr(), other.bytes.len())
+        let a = __slice_from_raw_parts(self.as_ptr(), self.bytes.len())
+        let b = __slice_from_raw_parts(other.as_ptr(), other.bytes.len())
+        return bytes_eq(a, b)
     }
 
     export fun at(self, idx: u64) -> Option<char> {
@@ -356,13 +358,22 @@ impl str {
     }
 
     export fun eq(self, other: str) -> bool {
-        return bytes_eq(self.as_ptr(), self.len(), other.as_ptr(), other.len())
+        let a = __slice_from_raw_parts(self.as_ptr(), self.len())
+        let b = __slice_from_raw_parts(other.as_ptr(), other.len())
+        return bytes_eq(a, b)
     }
 }
 
 export interface Stringer {
     fun to_string(self) -> String
 }
+
+// -----------------------------------------------------------------------------
+// Hashable + Stringer impls for fundamental scalar types.
+// Each block adds: `to_string`, `hash` (identity-like cast to u64), `eq` (==).
+// The repetition here mirrors the lack of numeric-type generics or a derive
+// mechanism in the language; see issue #261 for the longer-term plan.
+// -----------------------------------------------------------------------------
 
 impl u64 {
     export fun to_string(self) -> String {

@@ -176,30 +176,41 @@ impl SemanticAnalyzer {
             &actual_params[..]
         };
 
+        if actual_params_without_self.len() != interface_method.params.len() {
+            return false;
+        }
+
         // Substitute occurrences of the interface's own name in the declared
         // parameter / return types with the implementing type, so that an
         // interface method declared as `fun eq(self, other: Hashable) -> bool`
         // is satisfied by `impl MyKey { fun eq(self, other: MyKey) -> bool }`
-        // and `impl i32 { fun eq(self, other: i32) -> bool }` alike. Pass
-        // `impl_ty` as-is — UDTs arrive as `Reference(...)`, fundamentals do
-        // not, and the substitute handles both shapes by replacing the entire
-        // `Reference(Interface)` (or bare `Interface`) with the impl type.
-        let expected_param_tys: Vec<_> = interface_method
-            .params
-            .iter()
-            .map(|p| ir_type::substitute_self_in_interface_ty(&p.ty, interface_name, impl_ty))
-            .collect();
-        let expected_return_ty = ir_type::substitute_self_in_interface_ty(
-            &interface_method.return_ty,
-            interface_name,
-            impl_ty,
-        );
+        // and `impl i32 { fun eq(self, other: i32) -> bool }` alike. UDT impl
+        // types arrive as `Reference(...)`, fundamentals do not — the
+        // substitute handles both shapes. Skip the substitution work entirely
+        // for non-Self-shaped methods (the common case).
+        let param_matches = |actual: &ir::top::Param, expected: &Rc<ir_type::Ty>| -> bool {
+            let expected_substituted = if interface_method.is_self_shaped {
+                ir_type::substitute_self_in_interface_ty(expected, interface_name, impl_ty)
+            } else {
+                expected.clone()
+            };
+            ir_type::is_same_type(&actual.ty, &expected_substituted)
+        };
 
-        actual_params_without_self.len() == expected_param_tys.len()
-            && actual_params_without_self
-                .iter()
-                .zip(expected_param_tys.iter())
-                .all(|(actual, expected)| ir_type::is_same_type(&actual.ty, expected))
+        let expected_return_ty = if interface_method.is_self_shaped {
+            ir_type::substitute_self_in_interface_ty(
+                &interface_method.return_ty,
+                interface_name,
+                impl_ty,
+            )
+        } else {
+            interface_method.return_ty.clone()
+        };
+
+        actual_params_without_self
+            .iter()
+            .zip(interface_method.params.iter())
+            .all(|(actual, expected)| param_matches(actual, &expected.ty))
             && ir_type::is_same_type(&actual_method.return_ty, &expected_return_ty)
     }
 

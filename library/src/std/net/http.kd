@@ -11,6 +11,7 @@ use std.sys.Fd
 use std.sys.close
 use std.sys.close_quiet
 use std.string.String
+use std.string.bytes_eq
 use std.collections.Vector
 use std.io.Reader
 use std.io.Writer
@@ -483,23 +484,6 @@ fun split3_spaces(line: [u8]) -> (String, String, String) {
     let ver    = String::from_bytes(ver_bytes)
 
     return (method, target, ver)
-}
-
-// Compares two byte slices for exact equality.
-fun bytes_eq(left: [u8], right: [u8]) -> bool {
-    if left.len() != right.len() {
-        return false
-    }
-
-    let mut i = 0
-    while i < left.len() {
-        if left[i] != right[i] {
-            return false
-        }
-        i += 1
-    }
-
-    return true
 }
 
 fun byte_to_lower(b: u8) -> u8 {

@@ -2756,10 +2756,19 @@ impl SemanticAnalyzer {
         }
 
         // Codegen's `InterfaceBox` builds a fat pointer `{ data, itable }`
-        // with `data` as a heap pointer to the concrete value. Fundamental
-        // scalars and `str` slices have no boxable data pointer, so reject
-        // the coercion at semantic time rather than panicking in codegen.
-        if !matches!(value_base.kind.as_ref(), ir_type::TyKind::UserDefined(_)) {
+        // with `data` as a heap pointer to the concrete value. Only Struct
+        // and Enum UDTs have a boxable representation here — fundamentals,
+        // slices, and other interface/placeholder UDTs would mis-box or
+        // panic in codegen, so reject them at semantic time.
+        let is_boxable = matches!(
+            value_base.kind.as_ref(),
+            ir_type::TyKind::UserDefined(udt) if matches!(
+                udt.kind,
+                ir_type::UserDefinedTypeKind::Struct(_)
+                    | ir_type::UserDefinedTypeKind::Enum(_)
+            )
+        );
+        if !is_boxable {
             return Err(SemanticError::CannotBoxNonUdtAsInterface {
                 actual: value.ty.kind.to_string(),
                 interface: interface.name.symbol(),

@@ -227,10 +227,11 @@ pub fn substitute_self_in_interface_ty(
             // the whole `Reference` with `self_ty` so conformance against
             // impls on fundamental types (which are not reference-wrapped)
             // succeeds.
-            if let TyKind::UserDefined(udt) = rty.refee_ty.kind.as_ref() {
-                if udt_is_interface_named(udt, interface_name) {
-                    return self_ty.clone();
-                }
+            if matches!(
+                rty.refee_ty.kind.as_ref(),
+                TyKind::UserDefined(udt) if udt_is_interface_named(udt, interface_name)
+            ) {
+                return self_ty.clone();
             }
             Rc::new(Ty {
                 kind: TyKind::Reference(ReferenceType {
