@@ -4,6 +4,35 @@ import std.option
 use std.collections.Vector
 use std.option.Option
 
+fun fnv1a_bytes(ptr: *u8, len: u64) -> u64 {
+    let mut h: u64 = 0xcbf29ce484222325
+    let prime: u64 = 0x100000001b3
+    let bytes = __slice_from_raw_parts(ptr, len)
+    let mut i = 0
+    while i < len {
+        h = h ^ (bytes[i] as u64)
+        h = h * prime
+        i += 1
+    }
+    return h
+}
+
+// Compares two byte slices for exact equality. Exported for re-use across
+// stdlib modules (e.g. net.http) so each module does not maintain its own copy.
+export fun bytes_eq(left: [u8], right: [u8]) -> bool {
+    if left.len() != right.len() {
+        return false
+    }
+    let mut i = 0
+    while i < left.len() {
+        if left[i] != right[i] {
+            return false
+        }
+        i += 1
+    }
+    return true
+}
+
 extern "C" fun kaede_utf8_char_at(s: *u8, len: u64, index: u64) -> char
 extern "C" fun kaede_utf8_char_count(s: *u8, len: u64) -> u64
 extern "C" fun kaede_utf8_byte_index_of_char(s: *u8, len: u64, index: u64) -> u64
@@ -36,6 +65,16 @@ impl String {
 
     export fun as_str(self) -> str {
         return __str(self.as_ptr(), self.bytes.len())
+    }
+
+    export fun hash(self) -> u64 {
+        return fnv1a_bytes(self.as_ptr(), self.bytes.len())
+    }
+
+    export fun eq(self, other: String) -> bool {
+        let a = __slice_from_raw_parts(self.as_ptr(), self.bytes.len())
+        let b = __slice_from_raw_parts(other.as_ptr(), other.bytes.len())
+        return bytes_eq(a, b)
     }
 
     export fun at(self, idx: u64) -> Option<char> {
@@ -317,58 +356,95 @@ impl str {
     export fun to_string(self) -> String {
         return String::from(self)
     }
+
+    export fun hash(self) -> u64 {
+        return fnv1a_bytes(self.as_ptr(), self.len())
+    }
+
+    export fun eq(self, other: str) -> bool {
+        let a = __slice_from_raw_parts(self.as_ptr(), self.len())
+        let b = __slice_from_raw_parts(other.as_ptr(), other.len())
+        return bytes_eq(a, b)
+    }
 }
 
 export interface Stringer {
     fun to_string(self) -> String
 }
 
+// Hashable + Stringer impls for fundamental scalars. Repeated per type until
+// Kaede gains numeric-type generics or a derive mechanism (see #261).
+
 impl u64 {
     export fun to_string(self) -> String {
         return u64_to_string(self)
     }
+
+    export fun hash(self) -> u64 { return self }
+    export fun eq(self, other: u64) -> bool { return self == other }
 }
 
 impl i64 {
     export fun to_string(self) -> String {
         return i64_to_string(self)
     }
+
+    export fun hash(self) -> u64 { return self as u64 }
+    export fun eq(self, other: i64) -> bool { return self == other }
 }
 
 impl u8 {
     export fun to_string(self) -> String {
         return u64_to_string(self as u64)
     }
+
+    export fun hash(self) -> u64 { return self as u64 }
+    export fun eq(self, other: u8) -> bool { return self == other }
 }
 
 impl u16 {
     export fun to_string(self) -> String {
         return u64_to_string(self as u64)
     }
+
+    export fun hash(self) -> u64 { return self as u64 }
+    export fun eq(self, other: u16) -> bool { return self == other }
 }
 
 impl u32 {
     export fun to_string(self) -> String {
         return u64_to_string(self as u64)
     }
+
+    export fun hash(self) -> u64 { return self as u64 }
+    export fun eq(self, other: u32) -> bool { return self == other }
 }
 
 impl i8 {
     export fun to_string(self) -> String {
         return i64_to_string(self as i64)
     }
+
+    export fun hash(self) -> u64 { return self as u64 }
+    export fun eq(self, other: i8) -> bool { return self == other }
 }
 
 impl i16 {
     export fun to_string(self) -> String {
         return i64_to_string(self as i64)
     }
+
+    export fun hash(self) -> u64 { return self as u64 }
+    export fun eq(self, other: i16) -> bool { return self == other }
 }
 
 impl i32 {
     export fun to_string(self) -> String {
         return i64_to_string(self as i64)
     }
+
+    export fun hash(self) -> u64 { return self as u64 }
+    export fun eq(self, other: i32) -> bool { return self == other }
 }
 
 impl f64 {
@@ -390,6 +466,12 @@ impl bool {
         }
         return String::from("false")
     }
+
+    export fun hash(self) -> u64 {
+        if self { return 1 }
+        return 0
+    }
+    export fun eq(self, other: bool) -> bool { return self == other }
 }
 
 impl char {
@@ -398,4 +480,7 @@ impl char {
         s.push(self)
         return s
     }
+
+    export fun hash(self) -> u64 { return self as u64 }
+    export fun eq(self, other: char) -> bool { return self == other }
 }

@@ -312,7 +312,9 @@ fn semantic_error_span(err: &SemanticError) -> Option<Span> {
         | SemanticError::TryOutsideOptionFunction { span, .. }
         | SemanticError::GenericBoundMustBeInterface { span, .. }
         | SemanticError::GenericBoundNotSatisfied { span, .. }
-        | SemanticError::InterfaceNotImplemented { span, .. } => Some(*span),
+        | SemanticError::InterfaceNotImplemented { span, .. }
+        | SemanticError::InterfaceMethodNotObjectSafe { span, .. }
+        | SemanticError::CannotBoxNonUdtAsInterface { span, .. } => Some(*span),
         SemanticError::MainNotFound
         | SemanticError::LLVMError { .. }
         | SemanticError::FailedToLookupTarget { .. }

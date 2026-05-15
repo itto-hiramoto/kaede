@@ -2762,6 +2762,23 @@ impl SemanticAnalyzer {
             return Ok(value);
         }
 
+        // Only Struct/Enum UDTs have a boxable `{ data, itable }` shape in
+        // codegen. Fundamentals, slices, interface UDTs, and placeholders
+        // would mis-box or panic in codegen, so reject at semantic time.
+        let boxable = matches!(
+            value_base.kind.as_ref(),
+            ir_type::TyKind::UserDefined(udt)
+                if matches!(udt.kind, ir_type::UserDefinedTypeKind::Struct(_) | ir_type::UserDefinedTypeKind::Enum(_))
+        );
+        if !boxable {
+            return Err(SemanticError::CannotBoxNonUdtAsInterface {
+                actual: value.ty.kind.to_string(),
+                interface: interface.name.symbol(),
+                span: value.span,
+            }
+            .into());
+        }
+
         let methods = self
             .resolve_interface_impl_methods(&value.ty, interface)
             .map_err(|method_name| SemanticError::InterfaceNotImplemented {
@@ -3774,6 +3791,20 @@ impl SemanticAnalyzer {
         }
         if method.self_ == Some(ir_type::Mutability::Mut) && receiver.ty.mutability.is_not() {
             return Err(SemanticError::CannotCallMutableMethodOnImmutableValue { span }.into());
+        }
+
+        // A method whose signature mentions the interface itself cannot be
+        // safely dispatched through a fat pointer: each impl is specialized
+        // to its concrete type, so the vtable thunk would mis-decode the
+        // parameter when the caller boxes a different concrete type.
+        // Require these to be called via a generic bound (`<T: Interface>`).
+        if method.references_interface(&interface.name) {
+            return Err(SemanticError::InterfaceMethodNotObjectSafe {
+                method_name,
+                interface: interface.name.symbol(),
+                span: call_node.span,
+            }
+            .into());
         }
 
         let (ordered_args, variadic_args) = self.resolve_call_arguments(

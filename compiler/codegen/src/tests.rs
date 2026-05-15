@@ -3994,18 +3994,146 @@ fn option_some_infers_struct_without_explicit_args() -> anyhow::Result<()> {
 }
 
 #[test]
+fn hashable_interface_substitution_for_user_struct() -> anyhow::Result<()> {
+    // A user-defined struct satisfies `Hashable` by writing its concrete type
+    // for `eq`'s `other` parameter; the compiler substitutes the interface
+    // name with the impl type when checking conformance.
+    let program = r#"
+        import std.hashable
+
+        use std.hashable.Hashable
+
+        struct K {
+            v: i32,
+        }
+
+        impl K {
+            fun hash(self) -> u64 { return self.v as u64 }
+            fun eq(self, other: K) -> bool { return self.v == other.v }
+        }
+
+        fun call_eq<T: Hashable>(a: T, b: T) -> bool {
+            return a.eq(b)
+        }
+
+        fun main() -> i32 {
+            let a = K { v: 7 }
+            let b = K { v: 7 }
+            let c = K { v: 8 }
+            if !call_eq<K>(a, b) {
+                return 1
+            }
+            if call_eq<K>(a, c) {
+                return 2
+            }
+            return 58
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn hashable_bound_dispatches_per_concrete_type() -> anyhow::Result<()> {
+    // The same bounded-generic function called with two different concrete
+    // types instantiates each statically against the type's own impl.
+    let program = r#"
+        import std.hashable
+
+        use std.hashable.Hashable
+
+        fun call_hash<T: Hashable>(t: T) -> u64 {
+            return t.hash()
+        }
+
+        fun main() -> i32 {
+            let h_int = call_hash<i32>(42)
+            if h_int != 42 {
+                return 1
+            }
+            let h_u64 = call_hash<u64>(99)
+            if h_u64 != 99 {
+                return 2
+            }
+            return 58
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn hashable_method_not_object_safe_when_called_on_interface_value() -> anyhow::Result<()> {
+    // `eq(self, other: Hashable)` mentions the interface itself and cannot
+    // be safely dispatched through a fat pointer; calling it on a value
+    // typed as the interface itself must be rejected.
+    let program = r#"
+        import std.hashable
+
+        use std.hashable.Hashable
+
+        struct K {
+            v: i32,
+        }
+
+        impl K {
+            fun hash(self) -> u64 { return self.v as u64 }
+            fun eq(self, other: K) -> bool { return self.v == other.v }
+        }
+
+        fun main() -> i32 {
+            let k = K { v: 7 }
+            let h: Hashable = k
+            let other = K { v: 7 }
+            let _r = h.eq(other)
+            return 0
+        }
+    "#;
+
+    let err = exec(program).expect_err("expected object-safety error");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("references the interface itself"),
+        "unexpected error: {msg}"
+    );
+    Ok(())
+}
+
+#[test]
+fn fundamental_cannot_be_boxed_as_interface() -> anyhow::Result<()> {
+    // Fundamental types (i32, str, ...) implement Hashable structurally but
+    // they have no boxable data pointer; codegen would panic. Reject at
+    // semantic time so the error is actionable.
+    let program = r#"
+        import std.hashable
+
+        use std.hashable.Hashable
+
+        fun main() -> i32 {
+            let v: i32 = 7
+            let h: Hashable = v
+            return 0
+        }
+    "#;
+
+    let err = exec(program).expect_err("expected boxing rejection");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("only user-defined types"),
+        "unexpected error: {msg}"
+    );
+    Ok(())
+}
+
+#[test]
 fn hashmap_basic_crud() -> anyhow::Result<()> {
     let program = r#"
         import std.collections
 
-        use std.collections.hash_str
-
-        fun eq_str(a: str, b: str) -> bool {
-            return a == b
-        }
-
         fun main() -> i32 {
-            let mut m = HashMap<str, i32>::new(hash_str, eq_str)
+            let mut m = HashMap<str, i32>::new()
             if !m.is_empty() {
                 return 1
             }
@@ -4059,14 +4187,8 @@ fn hashmap_overwrite_returns_old_value() -> anyhow::Result<()> {
     let program = r#"
         import std.collections
 
-        use std.collections.hash_str
-
-        fun eq_str(a: str, b: str) -> bool {
-            return a == b
-        }
-
         fun main() -> i32 {
-            let mut m = HashMap<str, i32>::new(hash_str, eq_str)
+            let mut m = HashMap<str, i32>::new()
 
             let r1 = m.insert("k", 11)
             if match r1 { Option::Some(_) => true, Option::None => false } {
@@ -4156,30 +4278,32 @@ fn hashmap_collision_and_rehash() -> anyhow::Result<()> {
     let program = r#"
         import std.collections
 
-        fun hash_i32_const(n: i32) -> u64 {
-            if n == -2147483648 {
-                return 1
-            }
-            return 1
+        // Constant-hash key forces every insert to collide and exercise the
+        // probing + rehash paths.
+        struct K {
+            v: i32,
         }
 
-        fun eq_i32(a: i32, b: i32) -> bool {
-            return a == b
+        impl K {
+            fun hash(self) -> u64 { return 1 }
+            fun eq(self, other: K) -> bool { return self.v == other.v }
         }
 
         fun main() -> i32 {
-            let mut m = HashMap<i32, i32>::with_capacity(8, hash_i32_const, eq_i32)
+            let mut m = HashMap<K, i32>::with_capacity(8)
 
             let mut i = 0
             while i < 20 {
-                m.insert(i, i + 100)
+                let key = K { v: i }
+                m.insert(key, i + 100)
                 i += 1
             }
 
             let mut sum = 0
             let mut j = 0
             while j < 20 {
-                let v = match m.get(j) {
+                let key = K { v: j }
+                let v = match m.get(key) {
                     Option::Some(x) => x,
                     Option::None => return 1,
                 }
@@ -4192,14 +4316,16 @@ fn hashmap_collision_and_rehash() -> anyhow::Result<()> {
                 return 2
             }
 
-            let r = match m.remove(5) {
+            let key5 = K { v: 5 }
+            let r = match m.remove(key5) {
                 Option::Some(x) => x,
                 Option::None => return 3,
             }
             if r != 105 {
                 return 4
             }
-            if m.contains(5) {
+            let key5_again = K { v: 5 }
+            if m.contains(key5_again) {
                 return 5
             }
 

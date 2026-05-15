@@ -1,8 +1,10 @@
 import std.option
 import std.collections.vector
+import std.hashable
 
 use std.option.Option
 use std.collections.vector.Vector
+use std.hashable.Hashable
 
 export enum HashSlotState {
     Empty,
@@ -17,16 +19,14 @@ export struct HashMap<K, V> {
     len: u64,
     used: u64,
     capacity: u64,
-    hash: fun(K) -> u64,
-    equals: fun(K, K) -> bool,
 }
 
-impl<K, V> HashMap<K, V> {
-    export fun new(hash: fun(K) -> u64, equals: fun(K, K) -> bool) -> mut HashMap<K, V> {
-        return HashMap<K, V>::with_capacity(8, hash, equals)
+impl<K: Hashable, V> HashMap<K, V> {
+    export fun new() -> mut HashMap<K, V> {
+        return HashMap<K, V>::with_capacity(8)
     }
 
-    export fun with_capacity(capacity: u64, hash: fun(K) -> u64, equals: fun(K, K) -> bool) -> mut HashMap<K, V> {
+    export fun with_capacity(capacity: u64) -> mut HashMap<K, V> {
         let normalized_capacity = HashMap<K, V>::normalize_capacity(capacity)
 
         let mut map = HashMap<K, V> {
@@ -36,8 +36,6 @@ impl<K, V> HashMap<K, V> {
             len: 0,
             used: 0,
             capacity: 0,
-            hash,
-            equals,
         }
 
         map.init_storage(normalized_capacity)
@@ -124,14 +122,14 @@ impl<K, V> HashMap<K, V> {
     }
 
     fun should_grow(self) -> bool {
+        // 70% load factor: balances memory waste against probe-chain length.
+        // `used` counts Filled + Deleted slots, so triggering rehash here also
+        // clears accumulated tombstones.
         return (self.used * 100) >= (self.capacity * 70)
     }
 
     fun find_slot(self, key: K) -> (bool, u64) {
-        let h = self.hash
-        let equals = self.equals
-
-        let start = h(key) % self.capacity
+        let start = key.hash() % self.capacity
         let mut first_deleted = self.capacity
         let mut i = 0
 
@@ -156,7 +154,7 @@ impl<K, V> HashMap<K, V> {
                     Option::None => panic("corrupted hashmap key slot"),
                 }
 
-                if equals(existing_key, key) {
+                if existing_key.eq(key) {
                     return (true, idx)
                 }
             }
@@ -229,18 +227,4 @@ impl<K, V> HashMap<K, V> {
             i += 1
         }
     }
-}
-
-export fun hash_str(s: str) -> u64 {
-    let mut h: u64 = 0xcbf29ce484222325 // FNV-1a 64-bit offset basis
-    let prime: u64 = 0x100000001b3 // FNV-1a 64-bit prime
-
-    let mut i = 0
-    while i < s.len() {
-        h = h ^ (s[i] as u64)
-        h = h * prime
-        i += 1
-    }
-
-    return h
 }

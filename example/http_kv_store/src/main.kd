@@ -8,16 +8,15 @@ use std.net.http.Status
 use std.string.String
 use std.collections.Vector
 use std.collections.HashMap
-use std.collections.hash_str
 use std.sync.Mutex
 use std.option.Option
 
 mut app := std.net.http.App::new()
 
 mut lock := Mutex::new()
-mut kvs := HashMap<String, String>::new(hash_string, eq_string)
-mut list_entries := HashMap<String, Vector<String>>::new(hash_string, eq_string)
-mut pub_entries := HashMap<String, Vector<PubMessage>>::new(hash_string, eq_string)
+mut kvs := HashMap<String, String>::new()
+mut list_entries := HashMap<String, Vector<String>>::new()
+mut pub_entries := HashMap<String, Vector<PubMessage>>::new()
 mut next_pub_id := Counter::new(1)
 
 app.get("/health", |req, res| {
@@ -324,12 +323,4 @@ impl Counter {
         self.value = id + 1
         return id
     }
-}
-
-fun hash_string(s: String) -> u64 {
-    return hash_str(s.as_str())
-}
-
-fun eq_string(a: String, b: String) -> bool {
-    return a.as_str() == b.as_str()
 }

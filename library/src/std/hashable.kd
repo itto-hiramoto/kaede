@@ -1,0 +1,12 @@
+// `Hashable` constrains types that can be used as keys in associative containers
+// such as `HashMap`. Implementors provide a hash function and an equality test.
+//
+// Implementations are picked up structurally — a type satisfies `Hashable`
+// if it has matching `hash` and `eq` methods. Impl methods write the concrete
+// type for the `eq` parameter (e.g. `fun eq(self, other: String) -> bool`);
+// the compiler substitutes the interface name with the implementing type when
+// checking conformance.
+export interface Hashable {
+    fun hash(self) -> u64
+    fun eq(self, other: Hashable) -> bool
+}

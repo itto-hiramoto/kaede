@@ -99,6 +99,22 @@ pub struct InterfaceMethod {
     pub return_ty: Rc<Ty>,
 }
 
+impl InterfaceMethod {
+    /// True if any param or return type mentions `interface_name`. Such a
+    /// method is not safe to dispatch through a fat pointer (each impl is
+    /// specialized to its concrete type) and its signature must be rewritten
+    /// with the implementing type during conformance checks.
+    pub fn references_interface(
+        &self,
+        interface_name: &crate::qualified_symbol::QualifiedSymbol,
+    ) -> bool {
+        self.params
+            .iter()
+            .any(|p| crate::ty::contains_interface(&p.ty, interface_name))
+            || crate::ty::contains_interface(&self.return_ty, interface_name)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Interface {
     pub name: QualifiedSymbol,
