@@ -174,14 +174,16 @@ pub fn contains_interface(ty: &Rc<Ty>, interface_name: &QualifiedSymbol) -> bool
     }
 }
 
-/// Replace every `UserDefined::Interface` whose qualified name equals
-/// `interface_name` with `self_ty`. Used to give an interface name in
-/// parameter / return positions a `Self`-like meaning when checking that
-/// a concrete `impl` conforms to an interface declaration.
-pub fn substitute_self_in_interface_ty(
+/// Replace every reference to `interface_name` inside `ty` with `impl_ty`.
+/// Used when checking that an `impl T { ... }` block conforms to an
+/// interface whose method signatures mention the interface itself in
+/// parameter or return positions (e.g. `fun eq(self, other: Hashable)`):
+/// the interface name in those positions is rewritten to `T` before the
+/// signature comparison so the impl can write the concrete type directly.
+pub fn substitute_interface(
     ty: &Rc<Ty>,
     interface_name: &QualifiedSymbol,
-    self_ty: &Rc<Ty>,
+    impl_ty: &Rc<Ty>,
 ) -> Rc<Ty> {
     if !contains_interface(ty, interface_name) {
         return ty.clone();
@@ -189,7 +191,7 @@ pub fn substitute_self_in_interface_ty(
     match ty.kind.as_ref() {
         TyKind::UserDefined(udt) => {
             if udt_is_interface_named(udt, interface_name) {
-                return self_ty.clone();
+                return impl_ty.clone();
             }
             let substituted_instance = udt.generic_instance.as_ref().map(|instance| {
                 GenericInstanceInfo::new(
@@ -197,7 +199,7 @@ pub fn substitute_self_in_interface_ty(
                     instance
                         .args
                         .iter()
-                        .map(|arg| substitute_self_in_interface_ty(arg, interface_name, self_ty))
+                        .map(|arg| substitute_interface(arg, interface_name, impl_ty))
                         .collect(),
                 )
             });
@@ -212,33 +214,33 @@ pub fn substitute_self_in_interface_ty(
         }
         TyKind::Pointer(pty) => Rc::new(Ty {
             kind: TyKind::Pointer(PointerType {
-                pointee_ty: substitute_self_in_interface_ty(
+                pointee_ty: substitute_interface(
                     &pty.pointee_ty,
                     interface_name,
-                    self_ty,
+                    impl_ty,
                 ),
             })
             .into(),
             mutability: ty.mutability,
         }),
         TyKind::Reference(rty) => {
-            // The analyzer auto-wraps a UDT parameter type in `Reference`. If
-            // the inner type is the interface we are substituting, replace
-            // the whole `Reference` with `self_ty` so conformance against
-            // impls on fundamental types (which are not reference-wrapped)
-            // succeeds.
+            // The analyzer auto-wraps a UDT parameter type in `Reference`.
+            // If the inner type is the interface we are substituting,
+            // replace the whole `Reference` with `impl_ty` so that
+            // conformance against impls on fundamental types (which are
+            // not reference-wrapped) succeeds.
             if matches!(
                 rty.refee_ty.kind.as_ref(),
                 TyKind::UserDefined(udt) if udt_is_interface_named(udt, interface_name)
             ) {
-                return self_ty.clone();
+                return impl_ty.clone();
             }
             Rc::new(Ty {
                 kind: TyKind::Reference(ReferenceType {
-                    refee_ty: substitute_self_in_interface_ty(
+                    refee_ty: substitute_interface(
                         &rty.refee_ty,
                         interface_name,
-                        self_ty,
+                        impl_ty,
                     ),
                 })
                 .into(),
@@ -246,17 +248,17 @@ pub fn substitute_self_in_interface_ty(
             })
         }
         TyKind::Slice(elem) => Rc::new(Ty {
-            kind: TyKind::Slice(substitute_self_in_interface_ty(
+            kind: TyKind::Slice(substitute_interface(
                 elem,
                 interface_name,
-                self_ty,
+                impl_ty,
             ))
             .into(),
             mutability: ty.mutability,
         }),
         TyKind::Array((elem, size)) => Rc::new(Ty {
             kind: TyKind::Array((
-                substitute_self_in_interface_ty(elem, interface_name, self_ty),
+                substitute_interface(elem, interface_name, impl_ty),
                 *size,
             ))
             .into(),
@@ -266,7 +268,7 @@ pub fn substitute_self_in_interface_ty(
             kind: TyKind::Tuple(
                 elems
                     .iter()
-                    .map(|t| substitute_self_in_interface_ty(t, interface_name, self_ty))
+                    .map(|t| substitute_interface(t, interface_name, impl_ty))
                     .collect(),
             )
             .into(),
@@ -277,13 +279,13 @@ pub fn substitute_self_in_interface_ty(
                 param_tys: closure
                     .param_tys
                     .iter()
-                    .map(|t| substitute_self_in_interface_ty(t, interface_name, self_ty))
+                    .map(|t| substitute_interface(t, interface_name, impl_ty))
                     .collect(),
-                ret_ty: substitute_self_in_interface_ty(&closure.ret_ty, interface_name, self_ty),
+                ret_ty: substitute_interface(&closure.ret_ty, interface_name, impl_ty),
                 captures: closure
                     .captures
                     .iter()
-                    .map(|t| substitute_self_in_interface_ty(t, interface_name, self_ty))
+                    .map(|t| substitute_interface(t, interface_name, impl_ty))
                     .collect(),
             })
             .into(),

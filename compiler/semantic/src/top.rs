@@ -986,8 +986,8 @@ impl SemanticAnalyzer {
 
         let qualified_name = QualifiedSymbol::new(self.current_module_path().clone(), name);
 
-        // Insert a placeholder so interface methods may reference the interface
-        // itself in their parameter / return types (Self-shaped methods).
+        // Insert a placeholder so interface methods may reference the
+        // interface itself in their parameter / return types.
         let placeholder_value = SymbolTableValue::new(
             SymbolTableValueKind::Placeholder(qualified_name.clone()),
             self.current_module_path().clone(),

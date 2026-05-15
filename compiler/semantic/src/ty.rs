@@ -180,13 +180,13 @@ impl SemanticAnalyzer {
             return false;
         }
 
-        // Substitute the interface's own name with the implementing type so a
-        // Self-shaped method like `fun eq(self, other: Hashable)` matches
-        // `impl T { fun eq(self, other: T) }`. The substitute early-exits via
-        // `contains_interface` when no Self mention is present, so calling
-        // it unconditionally is cheap for non-Self-shaped methods.
+        // Substitute the interface's own name with the implementing type so
+        // that `fun eq(self, other: Hashable)` (declared on the interface)
+        // matches `impl T { fun eq(self, other: T) }`. The substitute
+        // early-exits via `contains_interface` when the interface name does
+        // not appear in the type, so calling it unconditionally is cheap.
         let subst = |ty: &Rc<ir_type::Ty>| {
-            ir_type::substitute_self_in_interface_ty(ty, interface_name, impl_ty)
+            ir_type::substitute_interface(ty, interface_name, impl_ty)
         };
 
         actual_params_without_self

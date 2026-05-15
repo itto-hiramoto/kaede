@@ -3966,7 +3966,7 @@ fn option_some_infers_struct_without_explicit_args() -> anyhow::Result<()> {
 }
 
 #[test]
-fn hashable_self_substitution_for_user_struct() -> anyhow::Result<()> {
+fn hashable_interface_substitution_for_user_struct() -> anyhow::Result<()> {
     // A user-defined struct satisfies `Hashable` by writing its concrete type
     // for `eq`'s `other` parameter; the compiler substitutes the interface
     // name with the impl type when checking conformance.
@@ -4038,9 +4038,9 @@ fn hashable_bound_dispatches_per_concrete_type() -> anyhow::Result<()> {
 
 #[test]
 fn hashable_method_not_object_safe_when_called_on_interface_value() -> anyhow::Result<()> {
-    // `eq(self, other: Hashable)` is Self-shaped and cannot be safely
-    // dispatched through a fat pointer; calling it on a value typed as the
-    // interface itself must be rejected.
+    // `eq(self, other: Hashable)` mentions the interface itself and cannot
+    // be safely dispatched through a fat pointer; calling it on a value
+    // typed as the interface itself must be rejected.
     let program = r#"
         import std.hashable
 

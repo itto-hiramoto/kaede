@@ -3786,13 +3786,12 @@ impl SemanticAnalyzer {
             return Err(SemanticError::CannotCallMutableMethodOnImmutableValue { span }.into());
         }
 
-        // A Self-shaped method (any param or return type references the
-        // interface itself) cannot be safely dispatched through a fat
-        // pointer: each impl is specialized to its concrete type, so the
-        // vtable thunk would mis-decode the parameter when the caller
-        // boxes a different concrete type. Require these to be called via a
-        // generic bound (`<T: Interface>`).
-        if method.is_self_shaped(&interface.name) {
+        // A method whose signature mentions the interface itself cannot be
+        // safely dispatched through a fat pointer: each impl is specialized
+        // to its concrete type, so the vtable thunk would mis-decode the
+        // parameter when the caller boxes a different concrete type.
+        // Require these to be called via a generic bound (`<T: Interface>`).
+        if method.references_interface(&interface.name) {
             return Err(SemanticError::InterfaceMethodNotObjectSafe {
                 method_name,
                 interface: interface.name.symbol(),

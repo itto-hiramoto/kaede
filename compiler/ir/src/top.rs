@@ -100,10 +100,11 @@ pub struct InterfaceMethod {
 }
 
 impl InterfaceMethod {
-    /// True if any param or return type references the interface itself.
-    /// Such methods are not safe to dispatch through a fat pointer and must
-    /// be substituted with the implementing type during conformance checks.
-    pub fn is_self_shaped(
+    /// True if any param or return type mentions `interface_name`. Such a
+    /// method is not safe to dispatch through a fat pointer (each impl is
+    /// specialized to its concrete type) and its signature must be rewritten
+    /// with the implementing type during conformance checks.
+    pub fn references_interface(
         &self,
         interface_name: &crate::qualified_symbol::QualifiedSymbol,
     ) -> bool {
