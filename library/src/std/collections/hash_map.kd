@@ -122,6 +122,9 @@ impl<K: Hashable, V> HashMap<K, V> {
     }
 
     fun should_grow(self) -> bool {
+        // 70% load factor: balances memory waste against probe-chain length.
+        // `used` counts Filled + Deleted slots, so triggering rehash here also
+        // clears accumulated tombstones.
         return (self.used * 100) >= (self.capacity * 70)
     }
 
