@@ -185,9 +185,8 @@ impl SemanticAnalyzer {
         // matches `impl T { fun eq(self, other: T) }`. The substitute
         // early-exits via `contains_interface` when the interface name does
         // not appear in the type, so calling it unconditionally is cheap.
-        let subst = |ty: &Rc<ir_type::Ty>| {
-            ir_type::substitute_interface(ty, interface_name, impl_ty)
-        };
+        let subst =
+            |ty: &Rc<ir_type::Ty>| ir_type::substitute_interface(ty, interface_name, impl_ty);
 
         actual_params_without_self
             .iter()

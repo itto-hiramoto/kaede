@@ -150,9 +150,7 @@ pub fn contains_interface(ty: &Rc<Ty>, interface_name: &QualifiedSymbol) -> bool
         TyKind::Reference(rty) => contains_interface(&rty.refee_ty, interface_name),
         TyKind::Slice(elem) => contains_interface(elem, interface_name),
         TyKind::Array((elem, _)) => contains_interface(elem, interface_name),
-        TyKind::Tuple(elems) => elems
-            .iter()
-            .any(|t| contains_interface(t, interface_name)),
+        TyKind::Tuple(elems) => elems.iter().any(|t| contains_interface(t, interface_name)),
         TyKind::Closure(c) => {
             c.param_tys
                 .iter()
@@ -206,11 +204,7 @@ pub fn substitute_interface(
         }
         TyKind::Pointer(pty) => Rc::new(Ty {
             kind: TyKind::Pointer(PointerType {
-                pointee_ty: substitute_interface(
-                    &pty.pointee_ty,
-                    interface_name,
-                    impl_ty,
-                ),
+                pointee_ty: substitute_interface(&pty.pointee_ty, interface_name, impl_ty),
             })
             .into(),
             mutability: ty.mutability,
@@ -229,31 +223,19 @@ pub fn substitute_interface(
             }
             Rc::new(Ty {
                 kind: TyKind::Reference(ReferenceType {
-                    refee_ty: substitute_interface(
-                        &rty.refee_ty,
-                        interface_name,
-                        impl_ty,
-                    ),
+                    refee_ty: substitute_interface(&rty.refee_ty, interface_name, impl_ty),
                 })
                 .into(),
                 mutability: ty.mutability,
             })
         }
         TyKind::Slice(elem) => Rc::new(Ty {
-            kind: TyKind::Slice(substitute_interface(
-                elem,
-                interface_name,
-                impl_ty,
-            ))
-            .into(),
+            kind: TyKind::Slice(substitute_interface(elem, interface_name, impl_ty)).into(),
             mutability: ty.mutability,
         }),
         TyKind::Array((elem, size)) => Rc::new(Ty {
-            kind: TyKind::Array((
-                substitute_interface(elem, interface_name, impl_ty),
-                *size,
-            ))
-            .into(),
+            kind: TyKind::Array((substitute_interface(elem, interface_name, impl_ty), *size))
+                .into(),
             mutability: ty.mutability,
         }),
         TyKind::Tuple(elems) => Rc::new(Ty {
