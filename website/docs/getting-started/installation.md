@@ -6,7 +6,31 @@ sidebar_position: 2
 
 # Installation
 
-## Prerequisites
+## macOS (recommended)
+
+Install via the [`itto-hiramoto/kaede`](https://github.com/itto-hiramoto/homebrew-kaede) Homebrew tap:
+
+```bash
+brew tap itto-hiramoto/kaede
+brew install kaede
+kaede -h
+```
+
+Homebrew resolves LLVM 17, OpenSSL, CMake, and the Rust toolchain on its own. The first install compiles Kaede from source, which takes a few minutes.
+
+Supported architectures: x86-64, AArch64.
+
+:::note
+Homebrew on Linux ([Linuxbrew](https://docs.brew.sh/Homebrew-on-Linux)) also works — the same `brew install kaede` command applies.
+:::
+
+Once `kaede -h` runs, continue to [First program](./first-program.md).
+
+## Build from source
+
+Use this path if you want to hack on the compiler, need a customized build, or your platform isn't covered by the Homebrew tap.
+
+### Prerequisites
 
 - LLVM 17
 - Rust toolchain (`rustc` and `cargo`)
@@ -27,7 +51,7 @@ Supported architectures:
 - x86-64
 - AArch64
 
-## macOS / Linux (Homebrew)
+### macOS / Linux (Homebrew for dependencies)
 
 ```bash
 brew install git llvm@17 cmake python pkg-config openssl@3
@@ -49,7 +73,7 @@ cd kaede
 kaede -h
 ```
 
-## Ubuntu / Debian
+### Ubuntu / Debian
 
 ```bash
 sudo apt update
