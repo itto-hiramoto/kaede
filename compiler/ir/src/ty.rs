@@ -135,19 +135,11 @@ pub fn contains_type_var(ty: &Rc<Ty>) -> bool {
     }
 }
 
-fn udt_is_interface_named(udt: &UserDefinedType, interface_name: &QualifiedSymbol) -> bool {
-    match &udt.kind {
-        UserDefinedTypeKind::Interface(i) => &i.name == interface_name,
-        UserDefinedTypeKind::Placeholder(qsym) => qsym == interface_name,
-        _ => false,
-    }
-}
-
 /// True if `ty` mentions `interface_name` anywhere in its tree.
 pub fn contains_interface(ty: &Rc<Ty>, interface_name: &QualifiedSymbol) -> bool {
     match ty.kind.as_ref() {
         TyKind::UserDefined(udt) => {
-            udt_is_interface_named(udt, interface_name)
+            udt.is_interface_with_name(interface_name)
                 || udt.generic_instance.as_ref().is_some_and(|inst| {
                     inst.args
                         .iter()
@@ -190,7 +182,7 @@ pub fn substitute_interface(
     }
     match ty.kind.as_ref() {
         TyKind::UserDefined(udt) => {
-            if udt_is_interface_named(udt, interface_name) {
+            if udt.is_interface_with_name(interface_name) {
                 return impl_ty.clone();
             }
             let substituted_instance = udt.generic_instance.as_ref().map(|instance| {
@@ -231,7 +223,7 @@ pub fn substitute_interface(
             // not reference-wrapped) succeeds.
             if matches!(
                 rty.refee_ty.kind.as_ref(),
-                TyKind::UserDefined(udt) if udt_is_interface_named(udt, interface_name)
+                TyKind::UserDefined(udt) if udt.is_interface_with_name(interface_name)
             ) {
                 return impl_ty.clone();
             }
@@ -986,6 +978,16 @@ impl UserDefinedType {
 
     pub fn is_interface(&self) -> bool {
         matches!(self.kind, UserDefinedTypeKind::Interface(_))
+    }
+
+    /// True if this UDT is the interface (or its placeholder) whose
+    /// qualified name equals `name`.
+    pub fn is_interface_with_name(&self, name: &QualifiedSymbol) -> bool {
+        match &self.kind {
+            UserDefinedTypeKind::Interface(i) => &i.name == name,
+            UserDefinedTypeKind::Placeholder(qsym) => qsym == name,
+            _ => false,
+        }
     }
 }
 
