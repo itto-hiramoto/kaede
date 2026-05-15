@@ -1,13 +1,15 @@
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    sync::Arc,
+    time::Duration,
 };
 
 use kaede_parse::{ParseError, Parser};
 use kaede_semantic::{AnalyzeOptions, SemanticAnalyzer, SemanticError};
 use kaede_span::{file::FilePath, Location, Span};
 use kaede_type_infer::TypeInferError;
-use tokio::sync::RwLock;
+use tokio::{sync::Notify, sync::RwLock, task::JoinHandle};
 use tower_lsp::{
     async_trait,
     lsp_types::{
@@ -17,6 +19,8 @@ use tower_lsp::{
     },
     Client, LanguageServer, LspService, Server,
 };
+
+const DEBOUNCE: Duration = Duration::from_millis(100);
 
 fn ast_has_entry_candidate(ast: &kaede_ast::CompileUnit) -> bool {
     ast.items.iter().any(|item| match item {
@@ -29,9 +33,17 @@ fn ast_has_entry_candidate(ast: &kaede_ast::CompileUnit) -> bool {
 }
 
 #[derive(Debug)]
+struct DocState {
+    text: String,
+    version: u64,
+    notify: Arc<Notify>,
+}
+
+#[derive(Debug)]
 pub struct Backend {
     client: Client,
-    documents: RwLock<HashMap<Url, String>>,
+    documents: Arc<RwLock<HashMap<Url, DocState>>>,
+    workers: RwLock<HashMap<Url, JoinHandle<()>>>,
     root_dir: RwLock<Option<PathBuf>>,
 }
 
@@ -39,60 +51,89 @@ impl Backend {
     pub fn new(client: Client) -> Self {
         Self {
             client,
-            documents: RwLock::new(HashMap::new()),
+            documents: Arc::new(RwLock::new(HashMap::new())),
+            workers: RwLock::new(HashMap::new()),
             root_dir: RwLock::new(None),
         }
     }
 
-    async fn analyze_and_publish(&self, uri: Url, text: String) {
-        let file_path = match uri.to_file_path() {
-            Ok(path) => path,
-            Err(_) => {
-                self.client
-                    .log_message(MessageType::ERROR, "Invalid file URI")
-                    .await;
-                self.client.publish_diagnostics(uri, Vec::new(), None).await;
-                return;
-            }
-        };
-
-        let root_dir = self
-            .root_dir
+    async fn current_root_dir(&self, file_path: &Path) -> PathBuf {
+        self.root_dir
             .read()
             .await
             .clone()
-            .unwrap_or_else(|| fallback_root_dir(&file_path));
+            .unwrap_or_else(|| fallback_root_dir(file_path))
+    }
+}
 
-        let diagnostics = tokio::task::spawn_blocking(move || {
-            let file = FilePath::from(file_path.clone());
-            let ast = match Parser::new(&text, file).run() {
-                Ok(ast) => ast,
-                Err(err) => return diagnostics_from_parse_error(err),
-            };
+fn analyze_text(file_path: PathBuf, text: String, root_dir: PathBuf) -> Vec<Diagnostic> {
+    let file = FilePath::from(file_path);
+    let ast = match Parser::new(&text, file).run() {
+        Ok(ast) => ast,
+        Err(err) => return diagnostics_from_parse_error(err),
+    };
 
-            // The LSP does not parse Kaede.toml; default to the legacy "rust/"
-            // lookup so rust-interop projects still get diagnostics for
-            // `import rust::<crate>`.
-            let mut analyzer = SemanticAnalyzer::new(file, root_dir, Some(PathBuf::from("rust")));
-            let is_entry_unit = ast_has_entry_candidate(&ast);
-            match analyzer.analyze(
-                ast,
-                AnalyzeOptions {
-                    no_autoload: false,
-                    no_prelude: false,
-                    is_entry_unit,
-                },
-            ) {
-                Ok(_) => Vec::new(),
-                Err(err) => diagnostics_from_semantic_error(err),
+    // The LSP does not parse Kaede.toml; default to the legacy "rust/" lookup
+    // so rust-interop projects still get diagnostics for `import rust::<crate>`.
+    let mut analyzer = SemanticAnalyzer::new(file, root_dir, Some(PathBuf::from("rust")));
+    let is_entry_unit = ast_has_entry_candidate(&ast);
+    match analyzer.analyze(
+        ast,
+        AnalyzeOptions {
+            no_autoload: false,
+            no_prelude: false,
+            is_entry_unit,
+        },
+    ) {
+        Ok(_) => Vec::new(),
+        Err(err) => diagnostics_from_semantic_error(err),
+    }
+}
+
+async fn run_worker(
+    uri: Url,
+    file_path: PathBuf,
+    root_dir: PathBuf,
+    documents: Arc<RwLock<HashMap<Url, DocState>>>,
+    notify: Arc<Notify>,
+    client: Client,
+) {
+    loop {
+        notify.notified().await;
+
+        loop {
+            tokio::select! {
+                _ = tokio::time::sleep(DEBOUNCE) => break,
+                _ = notify.notified() => continue,
             }
+        }
+
+        let (text, version) = match documents.read().await.get(&uri) {
+            Some(doc) => (doc.text.clone(), doc.version),
+            None => return,
+        };
+
+        let analyze_file_path = file_path.clone();
+        let analyze_root_dir = root_dir.clone();
+        let diagnostics = tokio::task::spawn_blocking(move || {
+            analyze_text(analyze_file_path, text, analyze_root_dir)
         })
         .await
         .unwrap_or_else(|err| vec![diagnostic_with_span(None, err.to_string())]);
 
-        self.client
-            .publish_diagnostics(uri, diagnostics, None)
-            .await;
+        // Drop the result if a newer edit landed while we were analyzing — the
+        // notify pulse from that edit will already have us looping again.
+        let still_current = documents
+            .read()
+            .await
+            .get(&uri)
+            .map(|doc| doc.version == version)
+            .unwrap_or(false);
+        if still_current {
+            client
+                .publish_diagnostics(uri.clone(), diagnostics, None)
+                .await;
+        }
     }
 }
 
@@ -139,11 +180,41 @@ impl LanguageServer for Backend {
     async fn did_open(&self, params: tower_lsp::lsp_types::DidOpenTextDocumentParams) {
         let uri = params.text_document.uri;
         let text = params.text_document.text;
-        self.documents
-            .write()
-            .await
-            .insert(uri.clone(), text.clone());
-        self.analyze_and_publish(uri, text).await;
+
+        let file_path = match uri.to_file_path() {
+            Ok(path) => path,
+            Err(_) => {
+                self.client
+                    .log_message(MessageType::ERROR, "Invalid file URI")
+                    .await;
+                self.client.publish_diagnostics(uri, Vec::new(), None).await;
+                return;
+            }
+        };
+        let root_dir = self.current_root_dir(&file_path).await;
+
+        let notify = Arc::new(Notify::new());
+        self.documents.write().await.insert(
+            uri.clone(),
+            DocState {
+                text,
+                version: 0,
+                notify: notify.clone(),
+            },
+        );
+
+        let handle = tokio::spawn(run_worker(
+            uri.clone(),
+            file_path,
+            root_dir,
+            self.documents.clone(),
+            notify.clone(),
+            self.client.clone(),
+        ));
+        if let Some(old) = self.workers.write().await.insert(uri, handle) {
+            old.abort();
+        }
+        notify.notify_one();
     }
 
     async fn did_change(&self, params: tower_lsp::lsp_types::DidChangeTextDocumentParams) {
@@ -155,19 +226,26 @@ impl LanguageServer for Backend {
             .map(|change| change.text)
             .unwrap_or_default();
 
-        self.client
-            .publish_diagnostics(uri.clone(), Vec::new(), None)
-            .await;
-        self.documents
-            .write()
-            .await
-            .insert(uri.clone(), text.clone());
-        self.analyze_and_publish(uri, text).await;
+        let notify = {
+            let mut docs = self.documents.write().await;
+            match docs.get_mut(&uri) {
+                Some(doc) => {
+                    doc.text = text;
+                    doc.version = doc.version.wrapping_add(1);
+                    doc.notify.clone()
+                }
+                None => return,
+            }
+        };
+        notify.notify_one();
     }
 
     async fn did_close(&self, params: tower_lsp::lsp_types::DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
         self.documents.write().await.remove(&uri);
+        if let Some(handle) = self.workers.write().await.remove(&uri) {
+            handle.abort();
+        }
         self.client.publish_diagnostics(uri, Vec::new(), None).await;
     }
 

@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 anyhow = "1.0.68"
 tower-lsp = "0.20.0"
-tokio = { version = "=1.38.2", features = ["io-std", "rt-multi-thread", "sync"] }
+tokio = { version = "=1.38.2", features = ["io-std", "rt-multi-thread", "sync", "time", "macros"] }
 
 kaede_ast = { path = "../ast" }
 kaede_parse = { path = "../parse" }
