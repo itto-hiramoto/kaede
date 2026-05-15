@@ -1,6 +1,7 @@
 import rust::rust_interop
 
 fun main() -> i32 {
-    rust::rust_interop::greetings()
+    contents := rust::rust_interop::greetings("https://rust-lang.org/")
+    println(contents)
     return rust::rust_interop::add(10, 20)
 }
