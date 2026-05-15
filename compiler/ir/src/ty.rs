@@ -144,31 +144,31 @@ fn udt_is_interface_named(udt: &UserDefinedType, interface_name: &QualifiedSymbo
 }
 
 /// True if `ty` mentions `interface_name` anywhere in its tree.
-pub fn ty_mentions_interface(ty: &Rc<Ty>, interface_name: &QualifiedSymbol) -> bool {
+pub fn contains_interface(ty: &Rc<Ty>, interface_name: &QualifiedSymbol) -> bool {
     match ty.kind.as_ref() {
         TyKind::UserDefined(udt) => {
             udt_is_interface_named(udt, interface_name)
                 || udt.generic_instance.as_ref().is_some_and(|inst| {
                     inst.args
                         .iter()
-                        .any(|a| ty_mentions_interface(a, interface_name))
+                        .any(|a| contains_interface(a, interface_name))
                 })
         }
-        TyKind::Pointer(pty) => ty_mentions_interface(&pty.pointee_ty, interface_name),
-        TyKind::Reference(rty) => ty_mentions_interface(&rty.refee_ty, interface_name),
-        TyKind::Slice(elem) => ty_mentions_interface(elem, interface_name),
-        TyKind::Array((elem, _)) => ty_mentions_interface(elem, interface_name),
+        TyKind::Pointer(pty) => contains_interface(&pty.pointee_ty, interface_name),
+        TyKind::Reference(rty) => contains_interface(&rty.refee_ty, interface_name),
+        TyKind::Slice(elem) => contains_interface(elem, interface_name),
+        TyKind::Array((elem, _)) => contains_interface(elem, interface_name),
         TyKind::Tuple(elems) => elems
             .iter()
-            .any(|t| ty_mentions_interface(t, interface_name)),
+            .any(|t| contains_interface(t, interface_name)),
         TyKind::Closure(c) => {
             c.param_tys
                 .iter()
-                .any(|t| ty_mentions_interface(t, interface_name))
-                || ty_mentions_interface(&c.ret_ty, interface_name)
+                .any(|t| contains_interface(t, interface_name))
+                || contains_interface(&c.ret_ty, interface_name)
                 || c.captures
                     .iter()
-                    .any(|t| ty_mentions_interface(t, interface_name))
+                    .any(|t| contains_interface(t, interface_name))
         }
         TyKind::Fundamental(_) | TyKind::Var(_) | TyKind::Unit | TyKind::Never => false,
     }
@@ -183,7 +183,7 @@ pub fn substitute_self_in_interface_ty(
     interface_name: &QualifiedSymbol,
     self_ty: &Rc<Ty>,
 ) -> Rc<Ty> {
-    if !ty_mentions_interface(ty, interface_name) {
+    if !contains_interface(ty, interface_name) {
         return ty.clone();
     }
     match ty.kind.as_ref() {

@@ -109,8 +109,8 @@ impl InterfaceMethod {
     ) -> bool {
         self.params
             .iter()
-            .any(|p| crate::ty::ty_mentions_interface(&p.ty, interface_name))
-            || crate::ty::ty_mentions_interface(&self.return_ty, interface_name)
+            .any(|p| crate::ty::contains_interface(&p.ty, interface_name))
+            || crate::ty::contains_interface(&self.return_ty, interface_name)
     }
 }
 
