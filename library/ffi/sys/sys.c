@@ -107,14 +107,9 @@ static int retry_close_preserve_errno(int fd) {
   return close_result;
 }
 
-// Directory fsync is what makes a successful rename/unlink durable across a
-// crash on common Unix filesystems. It is optional because some callers may not
-// need the extra durability cost.
-static int sync_dir_if_requested(int dir_fd, int sync_dir) {
-  if (!sync_dir) {
-    return 0;
-  }
-
+// Directory fsync is what makes a successful rename/link durable across a crash
+// on common Unix filesystems.
+static int fsync_dir(int dir_fd) {
   for (;;) {
     if (fsync(dir_fd) == 0) {
       return 0;
@@ -664,7 +659,7 @@ int kaede_sys_write_atomic(const unsigned char *path, size_t path_len,
     temp_created = 0;
   }
 
-  if (sync_dir_if_requested(dir_fd, sync_dir) < 0) {
+  if (sync_dir && fsync_dir(dir_fd) < 0) {
     saved_errno = errno;
     goto fail;
   }
