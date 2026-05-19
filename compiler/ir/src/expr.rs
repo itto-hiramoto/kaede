@@ -6,7 +6,7 @@ use kaede_symbol::Symbol;
 use crate::{
     stmt::Block,
     top::{Enum, FnDecl, Interface, InterfaceMethod, Struct},
-    ty::{Ty, UserDefinedType},
+    ty::{Mutability, Ty, UserDefinedType},
 };
 
 #[derive(Debug, Clone)]
@@ -320,7 +320,7 @@ pub enum BuiltinFnCallKind {
     Unreachable,
     Str,
     Format(Vec<FormatPart>),
-    SliceFromRawParts,
+    SliceFromRawParts(Mutability),
     PointerAdd,
     SizeOf,
     TypeSize(Rc<Ty>),

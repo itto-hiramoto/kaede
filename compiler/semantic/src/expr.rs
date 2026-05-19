@@ -1882,10 +1882,16 @@ impl SemanticAnalyzer {
                 })())
             }
 
-            "__slice_from_raw_parts" => {
+            "__slice_from_raw_parts" | "__slice_from_raw_parts_mut" => {
                 if let Some(name) = keyword_arg {
                     return keyword_error(name);
                 }
+
+                let mutability = if callee.symbol().as_str() == "__slice_from_raw_parts_mut" {
+                    ir_type::Mutability::Mut
+                } else {
+                    ir_type::Mutability::Not
+                };
 
                 Some(
                     node.args
@@ -1921,19 +1927,18 @@ impl SemanticAnalyzer {
 
                             let slice_ty = Rc::new(ir_type::Ty {
                                 kind: ir_type::TyKind::Slice(elem_ty).into(),
-                                mutability: ir_type::Mutability::Not,
+                                mutability,
                             });
 
                             Ok(ir::expr::Expr {
                                 kind: ir::expr::ExprKind::BuiltinFnCall(ir::expr::BuiltinFnCall {
-                                    kind: ir::expr::BuiltinFnCallKind::SliceFromRawParts,
+                                    kind: ir::expr::BuiltinFnCallKind::SliceFromRawParts(
+                                        mutability,
+                                    ),
                                     args: ir::expr::Args(args, node.span),
                                     span: node.span,
                                 }),
-                                ty: Rc::new(ir_type::wrap_in_ref(
-                                    slice_ty,
-                                    ir_type::Mutability::Not,
-                                )),
+                                ty: Rc::new(ir_type::wrap_in_ref(slice_ty, mutability)),
                                 span: node.span,
                             })
                         }),

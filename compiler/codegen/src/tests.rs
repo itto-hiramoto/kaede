@@ -3963,6 +3963,123 @@ fn vector_filter_accepts_capturing_closure() -> anyhow::Result<()> {
 }
 
 #[test]
+fn vector_with_capacity_and_filled() -> anyhow::Result<()> {
+    let program = r#"
+        fun main() -> i32 {
+            let mut reserved = Vector<i32>::with_capacity(8)
+            if reserved.len() != 0 {
+                return 1
+            }
+            if reserved.capacity() < 8 {
+                return 2
+            }
+
+            reserved.push(11)
+            reserved.push(31)
+            if reserved.len() != 2 {
+                return 3
+            }
+            if reserved.at(0).unwrap() != 11 {
+                return 4
+            }
+            if reserved.at(1).unwrap() != 31 {
+                return 5
+            }
+
+            let filled = Vector<i32>::filled(3, 7)
+            if filled.len() != 3 {
+                return 6
+            }
+            if filled.capacity() < 3 {
+                return 7
+            }
+            if filled.at(0).unwrap() != 7 {
+                return 8
+            }
+            if filled.at(2).unwrap() != 7 {
+                return 9
+            }
+
+            return 58
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn vector_resize_and_as_mut_slice() -> anyhow::Result<()> {
+    let program = r#"
+        fun main() -> i32 {
+            let mut v = Vector<u8>::filled(4, 7)
+            let mut s = v.as_mut_slice()
+            s[1] = 9
+
+            if v.at(1).unwrap() != 9 {
+                return 1
+            }
+
+            v.resize(6, 3)
+            if v.len() != 6 {
+                return 2
+            }
+            if v.capacity() < 6 {
+                return 3
+            }
+            if v.at(1).unwrap() != 9 {
+                return 4
+            }
+            if v.at(4).unwrap() != 3 {
+                return 5
+            }
+            if v.at(5).unwrap() != 3 {
+                return 6
+            }
+
+            let mut grown = v.as_mut_slice()
+            grown[5] = 12
+            if v.at(5).unwrap() != 12 {
+                return 7
+            }
+
+            v.resize(2, 0)
+            if v.len() != 2 {
+                return 8
+            }
+            if v.at(0).unwrap() != 7 {
+                return 9
+            }
+            if v.at(1).unwrap() != 9 {
+                return 10
+            }
+
+            return 58
+        }
+    "#;
+
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
+fn vector_as_mut_slice_requires_mutable_receiver() {
+    let program = r#"
+        fun main() -> i32 {
+            let v = Vector<u8>::filled(2, 0)
+            let mut s = v.as_mut_slice()
+            s[0] = 1
+            return s[0] as i32
+        }
+    "#;
+
+    assert!(matches!(
+        extract_semantic_error(exec(program).unwrap_err()),
+        SemanticError::CannotCallMutableMethodOnImmutableValue { .. }
+    ));
+}
+
+#[test]
 fn string_push_line_appends_newline() -> anyhow::Result<()> {
     let program = r#"
         fun main() -> i32 {
