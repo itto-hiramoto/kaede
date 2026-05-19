@@ -42,8 +42,13 @@ impl Parser {
                 }
             }
 
-            if !self.consume_b(&TokenKind::Comma) {
-                break;
+            match self.consume_list_separator(&TokenKind::Gt) {
+                Ok(true) => {}
+                Ok(false) => break,
+                Err(_) => {
+                    self.backtrack();
+                    return Ok(None);
+                }
             }
         }
 
@@ -296,15 +301,14 @@ impl Parser {
         loop {
             field_types.push(self.ty()?.into());
 
-            if let Ok(span) = self.consume(&TokenKind::CloseParen) {
+            if !self.consume_list_separator(&TokenKind::CloseParen)? {
+                let span = self.consume(&TokenKind::CloseParen)?;
                 return Ok(wrap_in_reference(Ty {
                     kind: TyKind::Tuple(field_types).into(),
                     mutability: Mutability::Not,
                     span: self.new_span(start, span.finish),
                 }));
             }
-
-            self.consume(&TokenKind::Comma)?;
         }
     }
 
@@ -325,11 +329,10 @@ impl Parser {
             loop {
                 param_tys.push(self.ty()?.into());
 
-                if let Ok(span) = self.consume(&TokenKind::CloseParen) {
+                if !self.consume_list_separator(&TokenKind::CloseParen)? {
+                    let span = self.consume(&TokenKind::CloseParen)?;
                     break span.finish;
                 }
-
-                self.consume(&TokenKind::Comma)?;
             }
         } else {
             self.consume(&TokenKind::CloseParen)?.finish
