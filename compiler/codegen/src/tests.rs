@@ -2420,6 +2420,23 @@ fn static_method() -> anyhow::Result<()> {
 }
 
 #[test]
+fn static_method_for_fundamental_type() -> anyhow::Result<()> {
+    let program = r#"impl u16 {
+        fun answer() -> u16 {
+            return 42
+        }
+    }
+
+    fun main() -> i32 {
+        return u16::answer() as i32
+    }"#;
+
+    assert_eq!(exec(program)?, 42);
+
+    Ok(())
+}
+
+#[test]
 fn create_simple_enum() -> anyhow::Result<()> {
     let program = r#"enum Simple {
         A,

@@ -289,21 +289,40 @@ impl SemanticAnalyzer {
         mutability: ir_type::Mutability,
     ) -> ir_type::Ty {
         let make = |kind| ir_type::make_fundamental_type(kind, mutability);
+        make(Self::fundamental_type_kind_from_ast_kind(fty.kind))
+    }
 
-        match fty.kind {
-            ast_type::FundamentalTypeKind::Str => make(ir_type::FundamentalTypeKind::Str),
-            ast_type::FundamentalTypeKind::Bool => make(ir_type::FundamentalTypeKind::Bool),
-            ast_type::FundamentalTypeKind::I8 => make(ir_type::FundamentalTypeKind::I8),
-            ast_type::FundamentalTypeKind::U8 => make(ir_type::FundamentalTypeKind::U8),
-            ast_type::FundamentalTypeKind::I16 => make(ir_type::FundamentalTypeKind::I16),
-            ast_type::FundamentalTypeKind::U16 => make(ir_type::FundamentalTypeKind::U16),
-            ast_type::FundamentalTypeKind::I32 => make(ir_type::FundamentalTypeKind::I32),
-            ast_type::FundamentalTypeKind::U32 => make(ir_type::FundamentalTypeKind::U32),
-            ast_type::FundamentalTypeKind::I64 => make(ir_type::FundamentalTypeKind::I64),
-            ast_type::FundamentalTypeKind::U64 => make(ir_type::FundamentalTypeKind::U64),
-            ast_type::FundamentalTypeKind::F32 => make(ir_type::FundamentalTypeKind::F32),
-            ast_type::FundamentalTypeKind::F64 => make(ir_type::FundamentalTypeKind::F64),
-            ast_type::FundamentalTypeKind::Char => make(ir_type::FundamentalTypeKind::Char),
+    pub(crate) fn fundamental_type_kind_from_ast_ty(
+        ty: &ast_type::Ty,
+    ) -> Option<ir_type::FundamentalTypeKind> {
+        match ty.kind.as_ref() {
+            ast_type::TyKind::Fundamental(fty) => {
+                Some(Self::fundamental_type_kind_from_ast_kind(fty.kind))
+            }
+            ast_type::TyKind::Reference(rty) => {
+                Self::fundamental_type_kind_from_ast_ty(&rty.get_base_type())
+            }
+            _ => None,
+        }
+    }
+
+    fn fundamental_type_kind_from_ast_kind(
+        kind: ast_type::FundamentalTypeKind,
+    ) -> ir_type::FundamentalTypeKind {
+        match kind {
+            ast_type::FundamentalTypeKind::Str => ir_type::FundamentalTypeKind::Str,
+            ast_type::FundamentalTypeKind::Bool => ir_type::FundamentalTypeKind::Bool,
+            ast_type::FundamentalTypeKind::I8 => ir_type::FundamentalTypeKind::I8,
+            ast_type::FundamentalTypeKind::U8 => ir_type::FundamentalTypeKind::U8,
+            ast_type::FundamentalTypeKind::I16 => ir_type::FundamentalTypeKind::I16,
+            ast_type::FundamentalTypeKind::U16 => ir_type::FundamentalTypeKind::U16,
+            ast_type::FundamentalTypeKind::I32 => ir_type::FundamentalTypeKind::I32,
+            ast_type::FundamentalTypeKind::U32 => ir_type::FundamentalTypeKind::U32,
+            ast_type::FundamentalTypeKind::I64 => ir_type::FundamentalTypeKind::I64,
+            ast_type::FundamentalTypeKind::U64 => ir_type::FundamentalTypeKind::U64,
+            ast_type::FundamentalTypeKind::F32 => ir_type::FundamentalTypeKind::F32,
+            ast_type::FundamentalTypeKind::F64 => ir_type::FundamentalTypeKind::F64,
+            ast_type::FundamentalTypeKind::Char => ir_type::FundamentalTypeKind::Char,
         }
     }
 
