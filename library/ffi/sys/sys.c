@@ -281,24 +281,6 @@ sys_fd_t kaede_sys_accept(sys_fd_t listen_fd) {
   }
 }
 
-sys_fd_t kaede_sys_open_read(const unsigned char *path, size_t path_len) {
-  unsigned char *owned_path = path_slice_to_c_string(path, path_len);
-  if (owned_path == NULL)
-    return (sys_fd_t)-1;
-
-  for (;;) {
-    int fd = open((const char *)owned_path, O_RDONLY);
-    if (fd >= 0) {
-      free(owned_path);
-      return (sys_fd_t)fd;
-    }
-    if (errno == EINTR)
-      continue;
-    free(owned_path);
-    return (sys_fd_t)-1;
-  }
-}
-
 sys_fd_t kaede_sys_open_file(const unsigned char *path, size_t path_len,
                              int read, int write, int create, int create_new,
                              int truncate, int append, uint32_t mode) {

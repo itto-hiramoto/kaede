@@ -18,7 +18,6 @@ sys_fd_t kaede_sys_accept(sys_fd_t listen_fd); // returns client fd, -1 on error
 int kaede_sys_somaxconn(void); // best-effort SOMAXCONN, falls back to 128
 
 /* --- I/O (EINTR hidden, socket I/O parks on EAGAIN) --- */
-sys_fd_t kaede_sys_open_read(const unsigned char *path, size_t path_len);
 sys_fd_t kaede_sys_open_file(const unsigned char *path, size_t path_len,
                              int read, int write, int create, int create_new,
                              int truncate, int append, uint32_t mode);

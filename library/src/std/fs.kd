@@ -9,7 +9,6 @@ use std.io.IoError
 use std.io.IoErrorKind
 use std.result.Result
 use std.string.String
-use std.ffi.sys.__sys_open_read
 use std.ffi.sys.__sys_open_file
 use std.ffi.sys.__sys_open_dir
 use std.ffi.sys.__sys_open_file_at
@@ -329,7 +328,18 @@ export fun write_atomic(path: str, body: [u8], options: AtomicWriteOptions) -> R
 }
 
 export fun open_read(path: str) -> Result<Fd, IoError> {
-    let fd = __sys_open_read(path.as_ptr(), path.len())
+    let options = OpenOptions::read_only()
+    let fd = __sys_open_file(
+        path.as_ptr(),
+        path.len(),
+        bool_to_i32(options.read),
+        bool_to_i32(options.write),
+        bool_to_i32(options.create),
+        bool_to_i32(options.create_new),
+        bool_to_i32(options.truncate),
+        bool_to_i32(options.append),
+        options.mode,
+    )
     if fd < 0 {
         return Result::Err(IoError::from_errno(__sys_errno()))
     }

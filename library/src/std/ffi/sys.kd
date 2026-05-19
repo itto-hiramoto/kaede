@@ -3,7 +3,6 @@ export extern "C" fun kaede_sys_set_reuseaddr(fd: i32) -> i32
 export extern "C" fun kaede_sys_bind_ipv4(fd: i32, ip_or_null: *u8, port: u16) -> i32
 export extern "C" fun kaede_sys_listen(fd: i32, backlog: i32) -> i32
 export extern "C" fun kaede_sys_accept(listen_fd: i32) -> i32
-export extern "C" fun kaede_sys_open_read(path: *u8, path_len: u64) -> i32
 export extern "C" fun kaede_sys_open_file(
     path: *u8,
     path_len: u64,
@@ -85,10 +84,6 @@ export fun __sys_listen(fd: i32, backlog: i32) -> i32 {
 
 export fun __sys_accept(listen_fd: i32) -> i32 {
     return kaede_sys_accept(listen_fd)
-}
-
-export fun __sys_open_read(path: *u8, path_len: u64) -> i32 {
-    return kaede_sys_open_read(path, path_len)
 }
 
 export fun __sys_open_file(
