@@ -1796,7 +1796,7 @@ impl<'ctx> CodeGenerator<'ctx> {
         if value_ty.kind.is_float() || target_ty.kind.is_float() {
             self.build_float_cast(value, &value_ty, target_ty.clone())
         } else if value_ty.kind.is_int_or_bool() && target_ty.kind.is_int_or_bool() {
-            self.build_int_cast(value, target_ty.clone())
+            self.build_int_cast(value, &value_ty, target_ty.clone())
         } else if matches!(
             value_ty.kind.as_ref(),
             TyKind::Reference(_) | TyKind::Pointer(_)
@@ -1879,9 +1879,11 @@ impl<'ctx> CodeGenerator<'ctx> {
     fn build_int_cast(
         &mut self,
         value: BasicValueEnum<'ctx>,
+        value_ty: &Rc<Ty>,
         target_ty: Rc<Ty>,
     ) -> anyhow::Result<Value<'ctx>> {
         assert!(value.is_int_value());
+        assert!(value_ty.kind.is_int_or_bool());
         assert!(target_ty.kind.is_int_or_bool());
 
         let target_llvm_ty = self.conv_to_llvm_type(&target_ty);
@@ -1891,7 +1893,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                 .build_int_cast_sign_flag(
                     value.into_int_value(),
                     target_llvm_ty.into_int_type(),
-                    target_ty.kind.is_signed(),
+                    value_ty.kind.is_signed(),
                     "",
                 )?
                 .as_basic_value_enum(),

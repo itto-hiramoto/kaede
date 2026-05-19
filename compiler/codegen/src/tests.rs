@@ -3216,6 +3216,16 @@ fn cast_integer() -> anyhow::Result<()> {
 }
 
 #[test]
+fn cast_bool_to_integer() -> anyhow::Result<()> {
+    assert_eq!(
+        exec("fun main() -> i32 { return (true as i32) + (false as i32) }")?,
+        1
+    );
+
+    Ok(())
+}
+
+#[test]
 fn all_integer_types_arithmetic_and_casts() -> anyhow::Result<()> {
     let program = r#"fun main() -> i32 {
         let i8v: i8 = 1
