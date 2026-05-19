@@ -583,32 +583,36 @@ int kaede_sys_write_atomic(const unsigned char *path, size_t path_len,
 
   char *parent_path = NULL;
   char *base_name = NULL;
-  if (split_parent_and_basename(owned_path, &parent_path, &base_name) < 0) {
-    free(owned_path);
-    return -1;
-  }
-
-  int dir_fd = open(parent_path, O_RDONLY | O_DIRECTORY);
-  if (dir_fd < 0) {
-    free(owned_path);
-    return -1;
-  }
-
-  char temp_name[256];
+  int dir_fd = -1;
   int fd = -1;
+  int temp_created = 0;
+  int saved_errno = 0;
+  char temp_name[256];
+
+  if (split_parent_and_basename(owned_path, &parent_path, &base_name) < 0) {
+    saved_errno = errno;
+    goto fail;
+  }
+
+  dir_fd = open(parent_path, O_RDONLY | O_DIRECTORY);
+  if (dir_fd < 0) {
+    saved_errno = errno;
+    goto fail;
+  }
+
   for (unsigned attempt = 0; attempt < 1000; ++attempt) {
     int written = snprintf(temp_name, sizeof(temp_name), ".%s.tmp.%ld-%u",
                            base_name, (long)getpid(), attempt);
     if (written < 0 || (size_t)written >= sizeof(temp_name)) {
-      retry_close_preserve_errno(dir_fd);
-      free(owned_path);
-      errno = ENAMETOOLONG;
-      return -1;
+      saved_errno = ENAMETOOLONG;
+      goto fail;
     }
 
     fd = openat(dir_fd, temp_name, O_WRONLY | O_CREAT | O_EXCL, (mode_t)mode);
-    if (fd >= 0)
+    if (fd >= 0) {
+      temp_created = 1;
       break;
+    }
     if (errno == EINTR) {
       --attempt;
       continue;
@@ -616,94 +620,80 @@ int kaede_sys_write_atomic(const unsigned char *path, size_t path_len,
     if (errno == EEXIST)
       continue;
 
-    int saved_errno = errno;
-    retry_close_preserve_errno(dir_fd);
-    free(owned_path);
-    errno = saved_errno;
-    return -1;
+    saved_errno = errno;
+    goto fail;
   }
 
   if (fd < 0) {
-    int saved_errno = errno;
-    retry_close_preserve_errno(dir_fd);
-    free(owned_path);
-    errno = saved_errno;
-    return -1;
+    saved_errno = EEXIST;
+    goto fail;
   }
 
   if (write_all_blocking(fd, data, data_len) < 0) {
-    int saved_errno = errno;
-    retry_close_preserve_errno(fd);
-    unlinkat(dir_fd, temp_name, 0);
-    retry_close_preserve_errno(dir_fd);
-    free(owned_path);
-    errno = saved_errno;
-    return -1;
+    saved_errno = errno;
+    goto fail;
   }
 
   if (sync_file && kaede_sys_fsync((sys_fd_t)fd) < 0) {
-    int saved_errno = errno;
-    retry_close_preserve_errno(fd);
-    unlinkat(dir_fd, temp_name, 0);
-    retry_close_preserve_errno(dir_fd);
-    free(owned_path);
-    errno = saved_errno;
-    return -1;
+    saved_errno = errno;
+    goto fail;
   }
 
   if (close(fd) < 0) {
-    int saved_errno = errno;
-    unlinkat(dir_fd, temp_name, 0);
-    retry_close_preserve_errno(dir_fd);
-    free(owned_path);
-    errno = saved_errno;
-    return -1;
+    saved_errno = errno;
+    fd = -1;
+    goto fail;
   }
+  fd = -1;
 
   if (replace) {
     if (renameat(dir_fd, temp_name, dir_fd, base_name) < 0) {
-      int saved_errno = errno;
-      unlinkat(dir_fd, temp_name, 0);
-      retry_close_preserve_errno(dir_fd);
-      free(owned_path);
-      errno = saved_errno;
-      return -1;
+      saved_errno = errno;
+      goto fail;
     }
+    temp_created = 0;
   } else {
     if (linkat(dir_fd, temp_name, dir_fd, base_name, 0) < 0) {
-      int saved_errno = errno;
-      unlinkat(dir_fd, temp_name, 0);
-      retry_close_preserve_errno(dir_fd);
-      free(owned_path);
-      errno = saved_errno;
-      return -1;
+      saved_errno = errno;
+      goto fail;
     }
     if (unlinkat(dir_fd, temp_name, 0) < 0) {
-      int saved_errno = errno;
-      retry_close_preserve_errno(dir_fd);
-      free(owned_path);
-      errno = saved_errno;
-      return -1;
+      saved_errno = errno;
+      goto fail;
     }
+    temp_created = 0;
   }
 
   if (sync_dir_if_requested(dir_fd, sync_dir) < 0) {
-    int saved_errno = errno;
-    retry_close_preserve_errno(dir_fd);
-    free(owned_path);
-    errno = saved_errno;
-    return -1;
+    saved_errno = errno;
+    goto fail;
   }
 
   if (close(dir_fd) < 0) {
-    int saved_errno = errno;
-    free(owned_path);
-    errno = saved_errno;
-    return -1;
+    saved_errno = errno;
+    dir_fd = -1;
+    goto fail;
   }
+  dir_fd = -1;
 
   free(owned_path);
   return 0;
+
+fail:
+  // Every jump here captures the original failure in saved_errno first. Cleanup
+  // is best-effort; restore saved_errno so callers see the real cause.
+  if (fd >= 0) {
+    retry_close_preserve_errno(fd);
+  }
+  if (temp_created && dir_fd >= 0) {
+    unlinkat(dir_fd, temp_name, 0);
+  }
+  if (dir_fd >= 0) {
+    retry_close_preserve_errno(dir_fd);
+  }
+  free(owned_path);
+  errno = saved_errno;
+  return -1;
 }
 
 int kaede_sys_close(sys_fd_t fd) {
