@@ -359,7 +359,7 @@ sys_fd_t kaede_sys_create_temp_at(sys_fd_t dir_fd,
   }
 
   char candidate[256];
-  for (unsigned attempt = 0; attempt < 1000; attempt++) {
+  for (unsigned attempt = 0; attempt < 1000; ++attempt) {
     int candidate_len =
         make_temp_name((const char *)owned_pattern, attempt, candidate,
                        sizeof(candidate));
@@ -383,7 +383,7 @@ sys_fd_t kaede_sys_create_temp_at(sys_fd_t dir_fd,
     }
 
     if (errno == EINTR) {
-      attempt--;
+      --attempt;
       continue;
     }
     if (errno == EEXIST) {
@@ -585,7 +585,7 @@ int kaede_sys_write_atomic(const unsigned char *path, size_t path_len,
 
   char temp_name[256];
   int fd = -1;
-  for (unsigned attempt = 0; attempt < 1000; attempt++) {
+  for (unsigned attempt = 0; attempt < 1000; ++attempt) {
     int written = snprintf(temp_name, sizeof(temp_name), ".%s.tmp.%ld-%u",
                            base_name, (long)getpid(), attempt);
     if (written < 0 || (size_t)written >= sizeof(temp_name)) {
@@ -599,7 +599,7 @@ int kaede_sys_write_atomic(const unsigned char *path, size_t path_len,
     if (fd >= 0)
       break;
     if (errno == EINTR) {
-      attempt--;
+      --attempt;
       continue;
     }
     if (errno == EEXIST)
