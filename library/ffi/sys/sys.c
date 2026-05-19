@@ -19,7 +19,11 @@
 #define O_DIRECTORY 0
 #endif
 
-static unsigned char *copy_path(const unsigned char *path, size_t path_len) {
+// Kaede paths cross the FFI boundary as pointer + length slices. POSIX file
+// APIs require NUL-terminated strings, so every path passed to open/rename/etc.
+// must first be copied into an owned C string.
+static unsigned char *path_slice_to_c_string(const unsigned char *path,
+                                             size_t path_len) {
   if (path == NULL) {
     errno = EINVAL;
     return NULL;
@@ -35,6 +39,8 @@ static unsigned char *copy_path(const unsigned char *path, size_t path_len) {
   return owned_path;
 }
 
+// Translate the structured std.fs OpenOptions fields into POSIX open flags.
+// Keeping this mapping here keeps raw OS bit flags out of the Kaede API.
 static int build_open_flags(int read, int write, int create, int create_new,
                             int truncate, int append) {
   int flags;
@@ -63,6 +69,9 @@ static int build_open_flags(int read, int write, int create, int create_new,
   return flags;
 }
 
+// write(2) may write fewer bytes than requested, or return EINTR before
+// writing anything. Keep writing until the full temp file body is on disk
+// before the atomic rename step.
 static ssize_t write_all_blocking(int fd, const unsigned char *buf,
                                   size_t len) {
   size_t off = 0;
@@ -86,6 +95,8 @@ static ssize_t write_all_blocking(int fd, const unsigned char *buf,
   return (ssize_t)off;
 }
 
+// Error paths often close a temporary fd after another syscall has already set
+// errno. Preserve that original errno so callers see the real failure cause.
 static int retry_close_preserve_errno(int fd) {
   int saved_errno = errno;
   int close_result;
@@ -96,6 +107,9 @@ static int retry_close_preserve_errno(int fd) {
   return close_result;
 }
 
+// Directory fsync is what makes a successful rename/unlink durable across a
+// crash on common Unix filesystems. It is optional because some callers may not
+// need the extra durability cost.
 static int sync_dir_if_requested(int dir_fd, int sync_dir) {
   if (!sync_dir) {
     return 0;
@@ -111,6 +125,8 @@ static int sync_dir_if_requested(int dir_fd, int sync_dir) {
   }
 }
 
+// Split an owned, mutable C path into parent directory and basename. This edits
+// the path buffer in place by replacing the final slash with NUL.
 static int split_parent_and_basename(unsigned char *path, char **parent_out,
                                      char **base_out) {
   char *path_str = (char *)path;
@@ -140,6 +156,9 @@ static int split_parent_and_basename(unsigned char *path, char **parent_out,
   return 0;
 }
 
+// Build a deterministic candidate name from a user pattern. The caller opens it
+// with O_EXCL and retries on EEXIST, so predictability here does not overwrite
+// existing files.
 static int make_temp_name(const char *pattern, unsigned attempt, char *out,
                           size_t out_cap) {
   char suffix[64];
@@ -263,7 +282,7 @@ sys_fd_t kaede_sys_accept(sys_fd_t listen_fd) {
 }
 
 sys_fd_t kaede_sys_open_read(const unsigned char *path, size_t path_len) {
-  unsigned char *owned_path = copy_path(path, path_len);
+  unsigned char *owned_path = path_slice_to_c_string(path, path_len);
   if (owned_path == NULL)
     return (sys_fd_t)-1;
 
@@ -283,7 +302,7 @@ sys_fd_t kaede_sys_open_read(const unsigned char *path, size_t path_len) {
 sys_fd_t kaede_sys_open_file(const unsigned char *path, size_t path_len,
                              int read, int write, int create, int create_new,
                              int truncate, int append, uint32_t mode) {
-  unsigned char *owned_path = copy_path(path, path_len);
+  unsigned char *owned_path = path_slice_to_c_string(path, path_len);
   if (owned_path == NULL)
     return (sys_fd_t)-1;
 
@@ -303,7 +322,7 @@ sys_fd_t kaede_sys_open_file(const unsigned char *path, size_t path_len,
 }
 
 sys_fd_t kaede_sys_open_dir(const unsigned char *path, size_t path_len) {
-  unsigned char *owned_path = copy_path(path, path_len);
+  unsigned char *owned_path = path_slice_to_c_string(path, path_len);
   if (owned_path == NULL)
     return (sys_fd_t)-1;
 
@@ -324,7 +343,7 @@ sys_fd_t kaede_sys_open_file_at(sys_fd_t dir_fd, const unsigned char *path,
                                 size_t path_len, int read, int write,
                                 int create, int create_new, int truncate,
                                 int append, uint32_t mode) {
-  unsigned char *owned_path = copy_path(path, path_len);
+  unsigned char *owned_path = path_slice_to_c_string(path, path_len);
   if (owned_path == NULL)
     return (sys_fd_t)-1;
 
@@ -347,7 +366,7 @@ sys_fd_t kaede_sys_create_temp_at(sys_fd_t dir_fd,
                                   const unsigned char *pattern,
                                   size_t pattern_len, uint32_t mode,
                                   unsigned char *name_out, size_t name_cap) {
-  unsigned char *owned_pattern = copy_path(pattern, pattern_len);
+  unsigned char *owned_pattern = path_slice_to_c_string(pattern, pattern_len);
   if (owned_pattern == NULL)
     return (sys_fd_t)-1;
 
@@ -470,11 +489,13 @@ int kaede_sys_fdatasync(sys_fd_t fd) {
 
 int kaede_sys_rename(const unsigned char *old_path, size_t old_path_len,
                      const unsigned char *new_path, size_t new_path_len) {
-  unsigned char *owned_old_path = copy_path(old_path, old_path_len);
+  unsigned char *owned_old_path =
+      path_slice_to_c_string(old_path, old_path_len);
   if (owned_old_path == NULL)
     return -1;
 
-  unsigned char *owned_new_path = copy_path(new_path, new_path_len);
+  unsigned char *owned_new_path =
+      path_slice_to_c_string(new_path, new_path_len);
   if (owned_new_path == NULL) {
     free(owned_old_path);
     return -1;
@@ -497,11 +518,13 @@ int kaede_sys_rename(const unsigned char *old_path, size_t old_path_len,
 int kaede_sys_rename_at(sys_fd_t dir_fd, const unsigned char *old_path,
                         size_t old_path_len, const unsigned char *new_path,
                         size_t new_path_len) {
-  unsigned char *owned_old_path = copy_path(old_path, old_path_len);
+  unsigned char *owned_old_path =
+      path_slice_to_c_string(old_path, old_path_len);
   if (owned_old_path == NULL)
     return -1;
 
-  unsigned char *owned_new_path = copy_path(new_path, new_path_len);
+  unsigned char *owned_new_path =
+      path_slice_to_c_string(new_path, new_path_len);
   if (owned_new_path == NULL) {
     free(owned_old_path);
     return -1;
@@ -523,7 +546,7 @@ int kaede_sys_rename_at(sys_fd_t dir_fd, const unsigned char *old_path,
 }
 
 int kaede_sys_unlink(const unsigned char *path, size_t path_len) {
-  unsigned char *owned_path = copy_path(path, path_len);
+  unsigned char *owned_path = path_slice_to_c_string(path, path_len);
   if (owned_path == NULL)
     return -1;
 
@@ -541,7 +564,7 @@ int kaede_sys_unlink(const unsigned char *path, size_t path_len) {
 
 int kaede_sys_unlink_at(sys_fd_t dir_fd, const unsigned char *path,
                         size_t path_len) {
-  unsigned char *owned_path = copy_path(path, path_len);
+  unsigned char *owned_path = path_slice_to_c_string(path, path_len);
   if (owned_path == NULL)
     return -1;
 
@@ -561,7 +584,7 @@ int kaede_sys_write_atomic(const unsigned char *path, size_t path_len,
                            const unsigned char *data, size_t data_len,
                            uint32_t mode, int sync_file, int sync_dir,
                            int replace) {
-  unsigned char *owned_path = copy_path(path, path_len);
+  unsigned char *owned_path = path_slice_to_c_string(path, path_len);
   if (owned_path == NULL)
     return -1;
 
