@@ -30,7 +30,7 @@ fun main() -> i32 {
         mode: 420,
     }).unwrap()
 
-    file.write_all(b"entry\n").unwrap()
+    file.write(b"entry\n").unwrap()
     file.sync_data().unwrap()
     file.close().unwrap()
     return 0
@@ -53,7 +53,7 @@ renames and parent-directory syncs.
 ```rust
 dir := std.fs.open_dir("data").unwrap()
 tmp := dir.create_temp("main.tmp-*").unwrap()
-tmp.write_all(bytes).unwrap()
+tmp.write(bytes).unwrap()
 tmp.sync_all().unwrap()
 tmp.close().unwrap()
 dir.rename(tmp.name(), "main").unwrap()

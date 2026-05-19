@@ -43,7 +43,7 @@ fun main() -> i32 {
         Result::Err(_) => return 1,
     }
 
-    file.write_all(b"abc").unwrap()
+    file.write(b"abc").unwrap()
     file.sync_all().unwrap()
     file.close().unwrap()
 
@@ -52,7 +52,7 @@ fun main() -> i32 {
         Result::Err(_) => return 2,
     }
 
-    append.write_all(b"de").unwrap()
+    append.write(b"de").unwrap()
     append.sync_data().unwrap()
     append.close().unwrap()
 
@@ -121,7 +121,7 @@ fun main() -> i32 {
         Result::Err(_) => return 2,
     }
 
-    tmp.write_all(b"renamed").unwrap()
+    tmp.write(b"renamed").unwrap()
     tmp.sync_all().unwrap()
     tmp.close().unwrap()
 

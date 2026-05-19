@@ -108,10 +108,6 @@ impl File {
         return self.fd.write(buf)
     }
 
-    export fun write_all(self, buf: [u8]) -> Result<u64, IoError> {
-        return self.fd.write(buf)
-    }
-
     export fun sync_all(self) -> Result<bool, IoError> {
         return self.fd.sync_all()
     }
@@ -228,10 +224,6 @@ impl TempFile {
 
     export fun write(self, buf: [u8]) -> Result<u64, IoError> {
         return self.file.write(buf)
-    }
-
-    export fun write_all(self, buf: [u8]) -> Result<u64, IoError> {
-        return self.file.write_all(buf)
     }
 
     export fun sync_all(self) -> Result<bool, IoError> {
