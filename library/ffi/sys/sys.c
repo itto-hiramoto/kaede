@@ -15,6 +15,173 @@
 #include <time.h>
 #include <unistd.h>
 
+#ifndef O_DIRECTORY
+#define O_DIRECTORY 0
+#endif
+
+// Kaede paths cross the FFI boundary as pointer + length slices. POSIX file
+// APIs require NUL-terminated strings, so every path passed to open/rename/etc.
+// must first be copied into an owned C string.
+static unsigned char *path_slice_to_c_string(const unsigned char *path,
+                                             size_t path_len) {
+  if (path == NULL) {
+    errno = EINVAL;
+    return NULL;
+  }
+
+  unsigned char *owned_path = (unsigned char *)malloc(path_len + 1);
+  if (owned_path == NULL) {
+    return NULL;
+  }
+
+  memcpy(owned_path, path, path_len);
+  owned_path[path_len] = '\0';
+  return owned_path;
+}
+
+// Translate the structured std.fs OpenOptions fields into POSIX open flags.
+// Keeping this mapping here keeps raw OS bit flags out of the Kaede API.
+static int build_open_flags(int read, int write, int create, int create_new,
+                            int truncate, int append) {
+  int flags;
+
+  if (read && write) {
+    flags = O_RDWR;
+  } else if (write) {
+    flags = O_WRONLY;
+  } else {
+    flags = O_RDONLY;
+  }
+
+  if (create) {
+    flags |= O_CREAT;
+  }
+  if (create_new) {
+    flags |= O_CREAT | O_EXCL;
+  }
+  if (truncate) {
+    flags |= O_TRUNC;
+  }
+  if (append) {
+    flags |= O_APPEND;
+  }
+
+  return flags;
+}
+
+// write(2) may write fewer bytes than requested, or return EINTR before
+// writing anything. Keep writing until the full temp file body has been
+// accepted by the kernel; durable storage is handled separately by fsync.
+static ssize_t write_all_blocking(int fd, const unsigned char *buf,
+                                  size_t len) {
+  size_t off = 0;
+
+  while (off < len) {
+    ssize_t n = write(fd, buf + off, len - off);
+    if (n > 0) {
+      off += (size_t)n;
+      continue;
+    }
+    if (n == 0) {
+      errno = EIO;
+      return -1;
+    }
+    if (errno == EINTR) {
+      continue;
+    }
+    return -1;
+  }
+
+  return (ssize_t)off;
+}
+
+// Error paths often close a temporary fd after another syscall has already set
+// errno. Preserve that original errno so callers see the real failure cause.
+static int retry_close_preserve_errno(int fd) {
+  int saved_errno = errno;
+  int close_result;
+  do {
+    close_result = close(fd);
+  } while (close_result < 0 && errno == EINTR);
+  errno = saved_errno;
+  return close_result;
+}
+
+// Directory fsync is what makes a successful rename/link durable across a crash
+// on common Unix filesystems.
+static int fsync_dir(int dir_fd) {
+  for (;;) {
+    if (fsync(dir_fd) == 0) {
+      return 0;
+    }
+    if (errno != EINTR) {
+      return -1;
+    }
+  }
+}
+
+// Split an owned, mutable C path into parent directory and basename. This edits
+// the path buffer in place by replacing the final slash with NUL.
+static int split_parent_and_basename(unsigned char *path, char **parent_out,
+                                     char **base_out) {
+  char *path_str = (char *)path;
+  char *last_slash = strrchr(path_str, '/');
+
+  if (last_slash == NULL) {
+    *parent_out = ".";
+    *base_out = path_str;
+    return 0;
+  }
+
+  if (last_slash[1] == '\0') {
+    errno = EINVAL;
+    return -1;
+  }
+
+  *base_out = last_slash + 1;
+
+  if (last_slash == path_str) {
+    last_slash[1] = '\0';
+    *parent_out = path_str;
+    return 0;
+  }
+
+  *last_slash = '\0';
+  *parent_out = path_str;
+  return 0;
+}
+
+// Build a deterministic candidate name from a user pattern. The caller opens it
+// with O_EXCL and retries on EEXIST, so predictability here does not overwrite
+// existing files.
+static int make_temp_name(const char *pattern, unsigned attempt, char *out,
+                          size_t out_cap) {
+  char suffix[64];
+  int suffix_len =
+      snprintf(suffix, sizeof(suffix), "%ld-%u", (long)getpid(), attempt);
+  if (suffix_len < 0 || (size_t)suffix_len >= sizeof(suffix)) {
+    errno = EINVAL;
+    return -1;
+  }
+
+  const char *star = strchr(pattern, '*');
+  int written;
+  if (star != NULL) {
+    size_t prefix_len = (size_t)(star - pattern);
+    written = snprintf(out, out_cap, "%.*s%s%s", (int)prefix_len, pattern,
+                       suffix, star + 1);
+  } else {
+    written = snprintf(out, out_cap, "%s%s", pattern, suffix);
+  }
+
+  if (written < 0 || (size_t)written >= out_cap) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+
+  return written;
+}
+
 // Socket I/O has to be non-blocking so EAGAIN can park the current task
 // without blocking the whole worker thread in the kernel.
 static int set_nonblocking(int fd) {
@@ -109,16 +276,17 @@ sys_fd_t kaede_sys_accept(sys_fd_t listen_fd) {
   }
 }
 
-sys_fd_t kaede_sys_open_read(const unsigned char *path, size_t path_len) {
-  unsigned char *owned_path = (unsigned char *)malloc(path_len + 1);
+sys_fd_t kaede_sys_open_file(const unsigned char *path, size_t path_len,
+                             int read, int write, int create, int create_new,
+                             int truncate, int append, uint32_t mode) {
+  unsigned char *owned_path = path_slice_to_c_string(path, path_len);
   if (owned_path == NULL)
     return (sys_fd_t)-1;
 
-  memcpy(owned_path, path, path_len);
-  owned_path[path_len] = '\0';
+  int flags = build_open_flags(read, write, create, create_new, truncate, append);
 
   for (;;) {
-    int fd = open((const char *)owned_path, O_RDONLY);
+    int fd = open((const char *)owned_path, flags, (mode_t)mode);
     if (fd >= 0) {
       free(owned_path);
       return (sys_fd_t)fd;
@@ -128,6 +296,102 @@ sys_fd_t kaede_sys_open_read(const unsigned char *path, size_t path_len) {
     free(owned_path);
     return (sys_fd_t)-1;
   }
+}
+
+sys_fd_t kaede_sys_open_dir(const unsigned char *path, size_t path_len) {
+  unsigned char *owned_path = path_slice_to_c_string(path, path_len);
+  if (owned_path == NULL)
+    return (sys_fd_t)-1;
+
+  for (;;) {
+    int fd = open((const char *)owned_path, O_RDONLY | O_DIRECTORY);
+    if (fd >= 0) {
+      free(owned_path);
+      return (sys_fd_t)fd;
+    }
+    if (errno == EINTR)
+      continue;
+    free(owned_path);
+    return (sys_fd_t)-1;
+  }
+}
+
+sys_fd_t kaede_sys_open_file_at(sys_fd_t dir_fd, const unsigned char *path,
+                                size_t path_len, int read, int write,
+                                int create, int create_new, int truncate,
+                                int append, uint32_t mode) {
+  unsigned char *owned_path = path_slice_to_c_string(path, path_len);
+  if (owned_path == NULL)
+    return (sys_fd_t)-1;
+
+  int flags = build_open_flags(read, write, create, create_new, truncate, append);
+
+  for (;;) {
+    int fd = openat((int)dir_fd, (const char *)owned_path, flags, (mode_t)mode);
+    if (fd >= 0) {
+      free(owned_path);
+      return (sys_fd_t)fd;
+    }
+    if (errno == EINTR)
+      continue;
+    free(owned_path);
+    return (sys_fd_t)-1;
+  }
+}
+
+sys_fd_t kaede_sys_create_temp_at(sys_fd_t dir_fd,
+                                  const unsigned char *pattern,
+                                  size_t pattern_len, uint32_t mode,
+                                  unsigned char *name_out, size_t name_cap) {
+  unsigned char *owned_pattern = path_slice_to_c_string(pattern, pattern_len);
+  if (owned_pattern == NULL)
+    return (sys_fd_t)-1;
+
+  if (name_out == NULL || name_cap == 0) {
+    free(owned_pattern);
+    errno = EINVAL;
+    return (sys_fd_t)-1;
+  }
+
+  char candidate[256];
+  for (unsigned attempt = 0; attempt < 1000; ++attempt) {
+    int candidate_len =
+        make_temp_name((const char *)owned_pattern, attempt, candidate,
+                       sizeof(candidate));
+    if (candidate_len < 0) {
+      free(owned_pattern);
+      return (sys_fd_t)-1;
+    }
+
+    if ((size_t)candidate_len >= name_cap) {
+      free(owned_pattern);
+      errno = ENAMETOOLONG;
+      return (sys_fd_t)-1;
+    }
+
+    int fd = openat((int)dir_fd, candidate, O_WRONLY | O_CREAT | O_EXCL,
+                    (mode_t)mode);
+    if (fd >= 0) {
+      memcpy(name_out, candidate, (size_t)candidate_len + 1);
+      free(owned_pattern);
+      return (sys_fd_t)fd;
+    }
+
+    if (errno == EINTR) {
+      --attempt;
+      continue;
+    }
+    if (errno == EEXIST) {
+      continue;
+    }
+
+    free(owned_pattern);
+    return (sys_fd_t)-1;
+  }
+
+  free(owned_pattern);
+  errno = EEXIST;
+  return (sys_fd_t)-1;
 }
 
 long kaede_sys_read(sys_fd_t fd, unsigned char *buf, size_t len) {
@@ -176,6 +440,255 @@ int kaede_sys_is_regular_file(sys_fd_t fd) {
     return -1;
 
   return S_ISREG(st.st_mode) ? 1 : 0;
+}
+
+int kaede_sys_fsync(sys_fd_t fd) {
+  for (;;) {
+    if (fsync((int)fd) == 0)
+      return 0;
+    if (errno != EINTR)
+      return -1;
+  }
+}
+
+int kaede_sys_fdatasync(sys_fd_t fd) {
+#if defined(__APPLE__)
+  return kaede_sys_fsync(fd);
+#else
+  for (;;) {
+    if (fdatasync((int)fd) == 0)
+      return 0;
+    if (errno != EINTR)
+      return -1;
+  }
+#endif
+}
+
+int kaede_sys_rename(const unsigned char *old_path, size_t old_path_len,
+                     const unsigned char *new_path, size_t new_path_len) {
+  unsigned char *owned_old_path =
+      path_slice_to_c_string(old_path, old_path_len);
+  if (owned_old_path == NULL)
+    return -1;
+
+  unsigned char *owned_new_path =
+      path_slice_to_c_string(new_path, new_path_len);
+  if (owned_new_path == NULL) {
+    free(owned_old_path);
+    return -1;
+  }
+
+  for (;;) {
+    if (rename((const char *)owned_old_path, (const char *)owned_new_path) == 0) {
+      free(owned_old_path);
+      free(owned_new_path);
+      return 0;
+    }
+    if (errno == EINTR)
+      continue;
+    free(owned_old_path);
+    free(owned_new_path);
+    return -1;
+  }
+}
+
+int kaede_sys_rename_at(sys_fd_t dir_fd, const unsigned char *old_path,
+                        size_t old_path_len, const unsigned char *new_path,
+                        size_t new_path_len) {
+  unsigned char *owned_old_path =
+      path_slice_to_c_string(old_path, old_path_len);
+  if (owned_old_path == NULL)
+    return -1;
+
+  unsigned char *owned_new_path =
+      path_slice_to_c_string(new_path, new_path_len);
+  if (owned_new_path == NULL) {
+    free(owned_old_path);
+    return -1;
+  }
+
+  for (;;) {
+    if (renameat((int)dir_fd, (const char *)owned_old_path, (int)dir_fd,
+                 (const char *)owned_new_path) == 0) {
+      free(owned_old_path);
+      free(owned_new_path);
+      return 0;
+    }
+    if (errno == EINTR)
+      continue;
+    free(owned_old_path);
+    free(owned_new_path);
+    return -1;
+  }
+}
+
+int kaede_sys_unlink(const unsigned char *path, size_t path_len) {
+  unsigned char *owned_path = path_slice_to_c_string(path, path_len);
+  if (owned_path == NULL)
+    return -1;
+
+  for (;;) {
+    if (unlink((const char *)owned_path) == 0) {
+      free(owned_path);
+      return 0;
+    }
+    if (errno == EINTR)
+      continue;
+    free(owned_path);
+    return -1;
+  }
+}
+
+int kaede_sys_unlink_at(sys_fd_t dir_fd, const unsigned char *path,
+                        size_t path_len) {
+  unsigned char *owned_path = path_slice_to_c_string(path, path_len);
+  if (owned_path == NULL)
+    return -1;
+
+  for (;;) {
+    if (unlinkat((int)dir_fd, (const char *)owned_path, 0) == 0) {
+      free(owned_path);
+      return 0;
+    }
+    if (errno == EINTR)
+      continue;
+    free(owned_path);
+    return -1;
+  }
+}
+
+// Write data through a temp file in the target file's parent directory, then
+// publish it with an atomic directory operation. Creating the temp file in the
+// same directory keeps the final rename/link on the same filesystem.
+//
+// With replace=true, renameat(temp, final) atomically replaces the destination.
+// With replace=false, linkat(temp, final) fails if the destination already
+// exists, then the temp name is unlinked after the final name is created.
+//
+// sync_file controls whether the temp file contents are fsynced before publish.
+// sync_dir controls whether the parent directory is fsynced after publish so
+// the new directory entry is durable across a crash.
+int kaede_sys_write_atomic(const unsigned char *path, size_t path_len,
+                           const unsigned char *data, size_t data_len,
+                           uint32_t mode, int sync_file, int sync_dir,
+                           int replace) {
+  unsigned char *owned_path = path_slice_to_c_string(path, path_len);
+  if (owned_path == NULL)
+    return -1;
+
+  char *parent_path = NULL;
+  char *base_name = NULL;
+  int dir_fd = -1;
+  int fd = -1;
+  int temp_created = 0;
+  int saved_errno = 0;
+  char temp_name[256];
+
+  if (split_parent_and_basename(owned_path, &parent_path, &base_name) < 0) {
+    saved_errno = errno;
+    goto fail;
+  }
+
+  dir_fd = open(parent_path, O_RDONLY | O_DIRECTORY);
+  if (dir_fd < 0) {
+    saved_errno = errno;
+    goto fail;
+  }
+
+  for (unsigned attempt = 0; attempt < 1000; ++attempt) {
+    int written = snprintf(temp_name, sizeof(temp_name), ".%s.tmp.%ld-%u",
+                           base_name, (long)getpid(), attempt);
+    if (written < 0 || (size_t)written >= sizeof(temp_name)) {
+      saved_errno = ENAMETOOLONG;
+      goto fail;
+    }
+
+    fd = openat(dir_fd, temp_name, O_WRONLY | O_CREAT | O_EXCL, (mode_t)mode);
+    if (fd >= 0) {
+      temp_created = 1;
+      break;
+    }
+    if (errno == EINTR) {
+      --attempt;
+      continue;
+    }
+    if (errno == EEXIST)
+      continue;
+
+    saved_errno = errno;
+    goto fail;
+  }
+
+  if (fd < 0) {
+    saved_errno = EEXIST;
+    goto fail;
+  }
+
+  if (write_all_blocking(fd, data, data_len) < 0) {
+    saved_errno = errno;
+    goto fail;
+  }
+
+  if (sync_file && kaede_sys_fsync((sys_fd_t)fd) < 0) {
+    saved_errno = errno;
+    goto fail;
+  }
+
+  if (close(fd) < 0) {
+    saved_errno = errno;
+    fd = -1;
+    goto fail;
+  }
+  fd = -1;
+
+  if (replace) {
+    if (renameat(dir_fd, temp_name, dir_fd, base_name) < 0) {
+      saved_errno = errno;
+      goto fail;
+    }
+    temp_created = 0;
+  } else {
+    if (linkat(dir_fd, temp_name, dir_fd, base_name, 0) < 0) {
+      saved_errno = errno;
+      goto fail;
+    }
+    if (unlinkat(dir_fd, temp_name, 0) < 0) {
+      saved_errno = errno;
+      goto fail;
+    }
+    temp_created = 0;
+  }
+
+  if (sync_dir && fsync_dir(dir_fd) < 0) {
+    saved_errno = errno;
+    goto fail;
+  }
+
+  if (close(dir_fd) < 0) {
+    saved_errno = errno;
+    dir_fd = -1;
+    goto fail;
+  }
+  dir_fd = -1;
+
+  free(owned_path);
+  return 0;
+
+fail:
+  // Every jump here captures the original failure in saved_errno first. Cleanup
+  // is best-effort; restore saved_errno so callers see the real cause.
+  if (fd >= 0) {
+    retry_close_preserve_errno(fd);
+  }
+  if (temp_created && dir_fd >= 0) {
+    unlinkat(dir_fd, temp_name, 0);
+  }
+  if (dir_fd >= 0) {
+    retry_close_preserve_errno(dir_fd);
+  }
+  free(owned_path);
+  errno = saved_errno;
+  return -1;
 }
 
 int kaede_sys_close(sys_fd_t fd) {

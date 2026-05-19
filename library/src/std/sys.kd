@@ -9,6 +9,8 @@ use std.result.Result
 use std.ffi.sys.__sys_read
 use std.ffi.sys.__sys_write
 use std.ffi.sys.__sys_errno
+use std.ffi.sys.__sys_fsync
+use std.ffi.sys.__sys_fdatasync
 use std.ffi.sys.__sys_close
 use std.ffi.sys.__sys_sleep_ms
 
@@ -59,6 +61,20 @@ impl Fd {
         }
 
         return Result::Ok(total)
+    }
+
+    export fun sync_all(self) -> Result<bool, IoError> {
+        if __sys_fsync(self.raw) < 0 {
+            return Result::Err(IoError::from_errno(__sys_errno()))
+        }
+        return Result::Ok(true)
+    }
+
+    export fun sync_data(self) -> Result<bool, IoError> {
+        if __sys_fdatasync(self.raw) < 0 {
+            return Result::Err(IoError::from_errno(__sys_errno()))
+        }
+        return Result::Ok(true)
     }
 }
 

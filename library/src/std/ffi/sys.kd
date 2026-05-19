@@ -3,10 +3,63 @@ export extern "C" fun kaede_sys_set_reuseaddr(fd: i32) -> i32
 export extern "C" fun kaede_sys_bind_ipv4(fd: i32, ip_or_null: *u8, port: u16) -> i32
 export extern "C" fun kaede_sys_listen(fd: i32, backlog: i32) -> i32
 export extern "C" fun kaede_sys_accept(listen_fd: i32) -> i32
-export extern "C" fun kaede_sys_open_read(path: *u8, path_len: u64) -> i32
+export extern "C" fun kaede_sys_open_file(
+    path: *u8,
+    path_len: u64,
+    read: i32,
+    write: i32,
+    create: i32,
+    create_new: i32,
+    truncate: i32,
+    append: i32,
+    mode: u32,
+) -> i32
+export extern "C" fun kaede_sys_open_dir(path: *u8, path_len: u64) -> i32
+export extern "C" fun kaede_sys_open_file_at(
+    dir_fd: i32,
+    path: *u8,
+    path_len: u64,
+    read: i32,
+    write: i32,
+    create: i32,
+    create_new: i32,
+    truncate: i32,
+    append: i32,
+    mode: u32,
+) -> i32
+export extern "C" fun kaede_sys_create_temp_at(
+    dir_fd: i32,
+    pattern: *u8,
+    pattern_len: u64,
+    mode: u32,
+    name_out: *u8,
+    name_cap: u64,
+) -> i32
 export extern "C" fun kaede_sys_read(fd: i32, buf: *u8, len: u64) -> i64
 export extern "C" fun kaede_sys_write(fd: i32, buf: *u8, len: u64) -> i64
 export extern "C" fun kaede_sys_is_regular_file(fd: i32) -> i32
+export extern "C" fun kaede_sys_fsync(fd: i32) -> i32
+export extern "C" fun kaede_sys_fdatasync(fd: i32) -> i32
+export extern "C" fun kaede_sys_rename(old_path: *u8, old_path_len: u64, new_path: *u8, new_path_len: u64) -> i32
+export extern "C" fun kaede_sys_rename_at(
+    dir_fd: i32,
+    old_path: *u8,
+    old_path_len: u64,
+    new_path: *u8,
+    new_path_len: u64,
+) -> i32
+export extern "C" fun kaede_sys_unlink(path: *u8, path_len: u64) -> i32
+export extern "C" fun kaede_sys_unlink_at(dir_fd: i32, path: *u8, path_len: u64) -> i32
+export extern "C" fun kaede_sys_write_atomic(
+    path: *u8,
+    path_len: u64,
+    data: *u8,
+    data_len: u64,
+    mode: u32,
+    sync_file: i32,
+    sync_dir: i32,
+    replace: i32,
+) -> i32
 export extern "C" fun kaede_sys_close(fd: i32) -> i32
 export extern "C" fun kaede_sys_sleep_ms(ms: u64) -> i32
 export extern "C" fun kaede_sys_errno() -> i32
@@ -33,8 +86,76 @@ export fun __sys_accept(listen_fd: i32) -> i32 {
     return kaede_sys_accept(listen_fd)
 }
 
-export fun __sys_open_read(path: *u8, path_len: u64) -> i32 {
-    return kaede_sys_open_read(path, path_len)
+export fun __sys_open_file(
+    path: *u8,
+    path_len: u64,
+    read: i32,
+    write: i32,
+    create: i32,
+    create_new: i32,
+    truncate: i32,
+    append: i32,
+    mode: u32,
+) -> i32 {
+    return kaede_sys_open_file(
+        path,
+        path_len,
+        read,
+        write,
+        create,
+        create_new,
+        truncate,
+        append,
+        mode,
+    )
+}
+
+export fun __sys_open_dir(path: *u8, path_len: u64) -> i32 {
+    return kaede_sys_open_dir(path, path_len)
+}
+
+export fun __sys_open_file_at(
+    dir_fd: i32,
+    path: *u8,
+    path_len: u64,
+    read: i32,
+    write: i32,
+    create: i32,
+    create_new: i32,
+    truncate: i32,
+    append: i32,
+    mode: u32,
+) -> i32 {
+    return kaede_sys_open_file_at(
+        dir_fd,
+        path,
+        path_len,
+        read,
+        write,
+        create,
+        create_new,
+        truncate,
+        append,
+        mode,
+    )
+}
+
+export fun __sys_create_temp_at(
+    dir_fd: i32,
+    pattern: *u8,
+    pattern_len: u64,
+    mode: u32,
+    name_out: *u8,
+    name_cap: u64,
+) -> i32 {
+    return kaede_sys_create_temp_at(
+        dir_fd,
+        pattern,
+        pattern_len,
+        mode,
+        name_out,
+        name_cap,
+    )
 }
 
 export fun __sys_read(fd: i32, buf: *u8, len: u64) -> i64 {
@@ -47,6 +168,52 @@ export fun __sys_write(fd: i32, buf: *u8, len: u64) -> i64 {
 
 export fun __sys_is_regular_file(fd: i32) -> i32 {
     return kaede_sys_is_regular_file(fd)
+}
+
+export fun __sys_fsync(fd: i32) -> i32 {
+    return kaede_sys_fsync(fd)
+}
+
+export fun __sys_fdatasync(fd: i32) -> i32 {
+    return kaede_sys_fdatasync(fd)
+}
+
+export fun __sys_rename(old_path: *u8, old_path_len: u64, new_path: *u8, new_path_len: u64) -> i32 {
+    return kaede_sys_rename(old_path, old_path_len, new_path, new_path_len)
+}
+
+export fun __sys_rename_at(dir_fd: i32, old_path: *u8, old_path_len: u64, new_path: *u8, new_path_len: u64) -> i32 {
+    return kaede_sys_rename_at(dir_fd, old_path, old_path_len, new_path, new_path_len)
+}
+
+export fun __sys_unlink(path: *u8, path_len: u64) -> i32 {
+    return kaede_sys_unlink(path, path_len)
+}
+
+export fun __sys_unlink_at(dir_fd: i32, path: *u8, path_len: u64) -> i32 {
+    return kaede_sys_unlink_at(dir_fd, path, path_len)
+}
+
+export fun __sys_write_atomic(
+    path: *u8,
+    path_len: u64,
+    data: *u8,
+    data_len: u64,
+    mode: u32,
+    sync_file: i32,
+    sync_dir: i32,
+    replace: i32,
+) -> i32 {
+    return kaede_sys_write_atomic(
+        path,
+        path_len,
+        data,
+        data_len,
+        mode,
+        sync_file,
+        sync_dir,
+        replace,
+    )
 }
 
 export fun __sys_close(fd: i32) -> i32 {
