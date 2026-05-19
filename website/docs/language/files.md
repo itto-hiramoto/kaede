@@ -19,7 +19,7 @@ import std.fs
 
 use std.fs.OpenOptions
 
-fun main() -> i32 {
+fun main() {
     let file = std.fs.open_file("db.log", OpenOptions {
         read: false,
         write: true,
@@ -33,7 +33,6 @@ fun main() -> i32 {
     file.write(b"entry\n").unwrap()
     file.sync_data().unwrap()
     file.close().unwrap()
-    return 0
 }
 ```
 

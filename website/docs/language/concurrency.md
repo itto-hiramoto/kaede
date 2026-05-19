@@ -17,10 +17,9 @@ fun producer(ch: Channel<i32>) {
     ch.send(42)
 }
 
-fun main() -> i32 {
+fun main() {
     ch := Channel<i32>::new()
     spawn producer(ch)
-    return 0
 }
 ```
 
