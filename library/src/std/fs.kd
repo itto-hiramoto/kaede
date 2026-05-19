@@ -9,6 +9,7 @@ use std.io.IoError
 use std.io.IoErrorKind
 use std.result.Result
 use std.string.String
+use std.string.cstring_len
 use std.ffi.sys.__sys_open_file
 use std.ffi.sys.__sys_open_dir
 use std.ffi.sys.__sys_open_file_at
@@ -142,12 +143,12 @@ impl Dir {
             self.fd.raw(),
             path.as_ptr(),
             path.len(),
-            bool_to_i32(options.read),
-            bool_to_i32(options.write),
-            bool_to_i32(options.create),
-            bool_to_i32(options.create_new),
-            bool_to_i32(options.truncate),
-            bool_to_i32(options.append),
+            options.read as i32,
+            options.write as i32,
+            options.create as i32,
+            options.create_new as i32,
+            options.truncate as i32,
+            options.append as i32,
             options.mode,
         )
         return fd_to_file(fd)
@@ -239,24 +240,6 @@ impl TempFile {
     }
 }
 
-fun bool_to_i32(value: bool) -> i32 {
-    if value {
-        return 1
-    }
-    return 0
-}
-
-fun cstring_len(buf: [u8]) -> u64 {
-    let mut i = 0
-    while i < buf.len() {
-        if buf[i] == 0 {
-            return i
-        }
-        i += 1
-    }
-    return buf.len()
-}
-
 fun fd_to_file(fd: i32) -> Result<File, IoError> {
     if fd < 0 {
         return Result::Err(IoError::from_errno(__sys_errno()))
@@ -269,12 +252,12 @@ export fun open_file(path: str, options: OpenOptions) -> Result<File, IoError> {
     let fd = __sys_open_file(
         path.as_ptr(),
         path.len(),
-        bool_to_i32(options.read),
-        bool_to_i32(options.write),
-        bool_to_i32(options.create),
-        bool_to_i32(options.create_new),
-        bool_to_i32(options.truncate),
-        bool_to_i32(options.append),
+        options.read as i32,
+        options.write as i32,
+        options.create as i32,
+        options.create_new as i32,
+        options.truncate as i32,
+        options.append as i32,
         options.mode,
     )
     return fd_to_file(fd)
@@ -310,9 +293,9 @@ export fun write_atomic(path: str, body: [u8], options: AtomicWriteOptions) -> R
         body.as_ptr(),
         body.len(),
         options.mode,
-        bool_to_i32(options.sync_file),
-        bool_to_i32(options.sync_dir),
-        bool_to_i32(options.replace),
+        options.sync_file as i32,
+        options.sync_dir as i32,
+        options.replace as i32,
     ) < 0 {
         return Result::Err(IoError::from_errno(__sys_errno()))
     }
@@ -324,12 +307,12 @@ export fun open_read(path: str) -> Result<Fd, IoError> {
     let fd = __sys_open_file(
         path.as_ptr(),
         path.len(),
-        bool_to_i32(options.read),
-        bool_to_i32(options.write),
-        bool_to_i32(options.create),
-        bool_to_i32(options.create_new),
-        bool_to_i32(options.truncate),
-        bool_to_i32(options.append),
+        options.read as i32,
+        options.write as i32,
+        options.create as i32,
+        options.create_new as i32,
+        options.truncate as i32,
+        options.append as i32,
         options.mode,
     )
     if fd < 0 {

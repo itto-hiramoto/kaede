@@ -33,6 +33,17 @@ export fun bytes_eq(left: [u8], right: [u8]) -> bool {
     return true
 }
 
+export fun cstring_len(buf: [u8]) -> u64 {
+    let mut i = 0
+    while i < buf.len() {
+        if buf[i] == 0 {
+            return i
+        }
+        i += 1
+    }
+    return buf.len()
+}
+
 extern "C" fun kaede_utf8_char_at(s: *u8, len: u64, index: u64) -> char
 extern "C" fun kaede_utf8_char_count(s: *u8, len: u64) -> u64
 extern "C" fun kaede_utf8_byte_index_of_char(s: *u8, len: u64, index: u64) -> u64
