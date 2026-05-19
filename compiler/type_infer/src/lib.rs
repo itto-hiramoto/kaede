@@ -1390,7 +1390,7 @@ impl TypeInferrer {
             BuiltinFnCallKind::Unreachable => Ok(Rc::new(Ty::new_never())),
             BuiltinFnCallKind::Str => Ok(Rc::new(Ty::new_str(Mutability::Not))),
             BuiltinFnCallKind::Format(_) => Ok(Rc::new(Ty::new_str(Mutability::Not))),
-            BuiltinFnCallKind::SliceFromRawParts => {
+            BuiltinFnCallKind::SliceFromRawParts(mutability) => {
                 let elem_ty = match builtin_call.args.0[0].ty.kind.as_ref() {
                     TyKind::Pointer(pty) => pty.pointee_ty.clone(),
                     TyKind::Reference(rty) => match rty.get_base_type().kind.as_ref() {
@@ -1402,11 +1402,11 @@ impl TypeInferrer {
 
                 let slice_ty = Rc::new(Ty {
                     kind: TyKind::Slice(elem_ty).into(),
-                    mutability: Mutability::Not,
+                    mutability: *mutability,
                 });
                 Ok(Rc::new(Ty {
                     kind: TyKind::Reference(ReferenceType { refee_ty: slice_ty }).into(),
-                    mutability: Mutability::Not,
+                    mutability: *mutability,
                 }))
             }
             BuiltinFnCallKind::PointerAdd => Ok(builtin_call.args.0[0].ty.clone()),

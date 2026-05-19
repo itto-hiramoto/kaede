@@ -211,7 +211,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
             BuiltinFnCallKind::Format(parts) => self.build_format(node, parts),
 
-            BuiltinFnCallKind::SliceFromRawParts => {
+            BuiltinFnCallKind::SliceFromRawParts(mutability) => {
                 let data_ptr = self
                     .build_expr(&node.args.0[0])?
                     .unwrap()
@@ -235,7 +235,7 @@ impl<'ctx> CodeGenerator<'ctx> {
 
                 let slice_ty = Rc::new(Ty {
                     kind: TyKind::Slice(elem_ty).into(),
-                    mutability: Mutability::Not,
+                    mutability: *mutability,
                 });
                 let slice_llvm_ty = self.conv_to_llvm_type(&slice_ty);
                 let slice_ptr = self.create_gc_struct(

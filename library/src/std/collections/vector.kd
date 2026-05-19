@@ -16,12 +16,32 @@ impl<T> Vector<T> {
         return Vector<T> { ptr: __mem_alloc(0) as *T, len: 0, capacity: 0 }
     }
 
+    export fun with_capacity(capacity: u64) -> mut Vector<T> {
+        return Vector<T> {
+            ptr: __mem_alloc(__type_size<T>() * capacity) as *T,
+            len: 0,
+            capacity,
+        }
+    }
+
+    export fun filled(len: u64, value: T) -> mut Vector<T> {
+        let mut v = Vector<T>::with_capacity(len)
+        while v.len < len {
+            v.push(value)
+        }
+        return v
+    }
+
     export fun as_ptr(self) -> *T {
         return self.ptr
     }
 
     export fun as_slice(self) -> [T] {
         return __slice_from_raw_parts(self.ptr, self.len)
+    }
+
+    export fun as_mut_slice(mut self) -> mut [T] {
+        return __slice_from_raw_parts_mut(self.ptr, self.len)
     }
 
     export fun len(self) -> u64 {
@@ -39,6 +59,17 @@ impl<T> Vector<T> {
 
         self.ptr[self.len] = elem
         self.len += 1
+    }
+
+    export fun resize(mut self, len: u64, value: T) {
+        if len <= self.len {
+            self.len = len
+            return
+        }
+
+        while self.len < len {
+            self.push(value)
+        }
     }
 
     export fun pop(mut self) -> Option<T> {
