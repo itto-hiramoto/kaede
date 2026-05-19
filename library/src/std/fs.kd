@@ -1,14 +1,332 @@
 import std.sys
 import std.io
 import std.result
+import std.string
 import std.ffi.sys
 
 use std.sys.Fd
 use std.io.IoError
+use std.io.IoErrorKind
 use std.result.Result
+use std.string.String
 use std.ffi.sys.__sys_open_read
+use std.ffi.sys.__sys_open_file
+use std.ffi.sys.__sys_open_dir
+use std.ffi.sys.__sys_open_file_at
+use std.ffi.sys.__sys_create_temp_at
 use std.ffi.sys.__sys_errno
 use std.ffi.sys.__sys_is_regular_file
+use std.ffi.sys.__sys_rename
+use std.ffi.sys.__sys_rename_at
+use std.ffi.sys.__sys_unlink
+use std.ffi.sys.__sys_unlink_at
+use std.ffi.sys.__sys_write_atomic
+
+export struct OpenOptions {
+    read: bool,
+    write: bool,
+    create: bool,
+    create_new: bool,
+    truncate: bool,
+    append: bool,
+    mode: u32,
+}
+
+impl OpenOptions {
+    export fun read_only() -> OpenOptions {
+        return OpenOptions {
+            read: true,
+            write: false,
+            create: false,
+            create_new: false,
+            truncate: false,
+            append: false,
+            mode: 0,
+        }
+    }
+
+    export fun write_create_truncate(mode: u32) -> OpenOptions {
+        return OpenOptions {
+            read: false,
+            write: true,
+            create: true,
+            create_new: false,
+            truncate: true,
+            append: false,
+            mode,
+        }
+    }
+
+    export fun append_create(mode: u32) -> OpenOptions {
+        return OpenOptions {
+            read: false,
+            write: true,
+            create: true,
+            create_new: false,
+            truncate: false,
+            append: true,
+            mode,
+        }
+    }
+}
+
+export struct AtomicWriteOptions {
+    mode: u32,
+    sync_file: bool,
+    sync_dir: bool,
+    replace: bool,
+}
+
+impl AtomicWriteOptions {
+    export fun durable_replace(mode: u32) -> AtomicWriteOptions {
+        return AtomicWriteOptions {
+            mode,
+            sync_file: true,
+            sync_dir: true,
+            replace: true,
+        }
+    }
+}
+
+export struct File {
+    fd: Fd,
+}
+
+impl File {
+    export fun from_fd(fd: Fd) -> File {
+        return File { fd }
+    }
+
+    export fun raw(self) -> i32 {
+        return self.fd.raw()
+    }
+
+    export fun read(self, buf: mut [u8]) -> Result<u64, IoError> {
+        return self.fd.read(buf)
+    }
+
+    export fun write(self, buf: [u8]) -> Result<u64, IoError> {
+        return self.fd.write(buf)
+    }
+
+    export fun write_all(self, buf: [u8]) -> Result<u64, IoError> {
+        return self.fd.write(buf)
+    }
+
+    export fun sync_all(self) -> Result<bool, IoError> {
+        return self.fd.sync_all()
+    }
+
+    export fun sync_data(self) -> Result<bool, IoError> {
+        return self.fd.sync_data()
+    }
+
+    export fun is_regular_file(self) -> bool {
+        return __sys_is_regular_file(self.fd.raw()) == 1
+    }
+
+    export fun close(self) -> Result<bool, IoError> {
+        if std.sys.close_quiet(self.fd) {
+            return Result::Ok(true)
+        }
+        return Result::Err(IoError::from_errno(__sys_errno()))
+    }
+}
+
+export struct Dir {
+    fd: Fd,
+}
+
+impl Dir {
+    export fun raw(self) -> i32 {
+        return self.fd.raw()
+    }
+
+    export fun open_file(self, path: str, options: OpenOptions) -> Result<File, IoError> {
+        let fd = __sys_open_file_at(
+            self.fd.raw(),
+            path.as_ptr(),
+            path.len(),
+            bool_to_i32(options.read),
+            bool_to_i32(options.write),
+            bool_to_i32(options.create),
+            bool_to_i32(options.create_new),
+            bool_to_i32(options.truncate),
+            bool_to_i32(options.append),
+            options.mode,
+        )
+        return fd_to_file(fd)
+    }
+
+    export fun create_file(self, path: str, mode: u32) -> Result<File, IoError> {
+        return self.open_file(path, OpenOptions::write_create_truncate(mode))
+    }
+
+    export fun create_temp(self, pattern: str) -> Result<TempFile, IoError> {
+        return self.create_temp_mode(pattern, 384)
+    }
+
+    export fun create_temp_mode(self, pattern: str, mode: u32) -> Result<TempFile, IoError> {
+        let mut name_buf = [0 as u8; 256]
+        let fd = __sys_create_temp_at(
+            self.fd.raw(),
+            pattern.as_ptr(),
+            pattern.len(),
+            mode,
+            name_buf.as_ptr(),
+            name_buf.len(),
+        )
+        if fd < 0 {
+            return Result::Err(IoError::from_errno(__sys_errno()))
+        }
+
+        let name = String::from_bytes(name_buf[0:cstring_len(name_buf)])
+        return Result::Ok(TempFile {
+            file: File::from_fd(Fd::new(fd)),
+            name,
+        })
+    }
+
+    export fun rename(self, old_path: str, new_path: str) -> Result<bool, IoError> {
+        if __sys_rename_at(self.fd.raw(), old_path.as_ptr(), old_path.len(), new_path.as_ptr(), new_path.len()) < 0 {
+            return Result::Err(IoError::from_errno(__sys_errno()))
+        }
+        return Result::Ok(true)
+    }
+
+    export fun remove_file(self, path: str) -> Result<bool, IoError> {
+        if __sys_unlink_at(self.fd.raw(), path.as_ptr(), path.len()) < 0 {
+            return Result::Err(IoError::from_errno(__sys_errno()))
+        }
+        return Result::Ok(true)
+    }
+
+    export fun sync(self) -> Result<bool, IoError> {
+        return self.fd.sync_all()
+    }
+
+    export fun close(self) -> Result<bool, IoError> {
+        if std.sys.close_quiet(self.fd) {
+            return Result::Ok(true)
+        }
+        return Result::Err(IoError::from_errno(__sys_errno()))
+    }
+}
+
+export struct TempFile {
+    file: File,
+    name: String,
+}
+
+impl TempFile {
+    export fun name(self) -> str {
+        return self.name.as_str()
+    }
+
+    export fun read(self, buf: mut [u8]) -> Result<u64, IoError> {
+        return self.file.read(buf)
+    }
+
+    export fun write(self, buf: [u8]) -> Result<u64, IoError> {
+        return self.file.write(buf)
+    }
+
+    export fun write_all(self, buf: [u8]) -> Result<u64, IoError> {
+        return self.file.write_all(buf)
+    }
+
+    export fun sync_all(self) -> Result<bool, IoError> {
+        return self.file.sync_all()
+    }
+
+    export fun sync_data(self) -> Result<bool, IoError> {
+        return self.file.sync_data()
+    }
+
+    export fun close(self) -> Result<bool, IoError> {
+        return self.file.close()
+    }
+}
+
+fun bool_to_i32(value: bool) -> i32 {
+    if value {
+        return 1
+    }
+    return 0
+}
+
+fun cstring_len(buf: [u8]) -> u64 {
+    let mut i = 0
+    while i < buf.len() {
+        if buf[i] == 0 {
+            return i
+        }
+        i += 1
+    }
+    return buf.len()
+}
+
+fun fd_to_file(fd: i32) -> Result<File, IoError> {
+    if fd < 0 {
+        return Result::Err(IoError::from_errno(__sys_errno()))
+    }
+
+    return Result::Ok(File::from_fd(Fd::new(fd)))
+}
+
+export fun open_file(path: str, options: OpenOptions) -> Result<File, IoError> {
+    let fd = __sys_open_file(
+        path.as_ptr(),
+        path.len(),
+        bool_to_i32(options.read),
+        bool_to_i32(options.write),
+        bool_to_i32(options.create),
+        bool_to_i32(options.create_new),
+        bool_to_i32(options.truncate),
+        bool_to_i32(options.append),
+        options.mode,
+    )
+    return fd_to_file(fd)
+}
+
+export fun open_dir(path: str) -> Result<Dir, IoError> {
+    let fd = __sys_open_dir(path.as_ptr(), path.len())
+    if fd < 0 {
+        return Result::Err(IoError::from_errno(__sys_errno()))
+    }
+
+    return Result::Ok(Dir { fd: Fd::new(fd) })
+}
+
+export fun rename(old_path: str, new_path: str) -> Result<bool, IoError> {
+    if __sys_rename(old_path.as_ptr(), old_path.len(), new_path.as_ptr(), new_path.len()) < 0 {
+        return Result::Err(IoError::from_errno(__sys_errno()))
+    }
+    return Result::Ok(true)
+}
+
+export fun remove_file(path: str) -> Result<bool, IoError> {
+    if __sys_unlink(path.as_ptr(), path.len()) < 0 {
+        return Result::Err(IoError::from_errno(__sys_errno()))
+    }
+    return Result::Ok(true)
+}
+
+export fun write_atomic(path: str, body: [u8], options: AtomicWriteOptions) -> Result<bool, IoError> {
+    if __sys_write_atomic(
+        path.as_ptr(),
+        path.len(),
+        body.as_ptr(),
+        body.len(),
+        options.mode,
+        bool_to_i32(options.sync_file),
+        bool_to_i32(options.sync_dir),
+        bool_to_i32(options.replace),
+    ) < 0 {
+        return Result::Err(IoError::from_errno(__sys_errno()))
+    }
+    return Result::Ok(true)
+}
 
 export fun open_read(path: str) -> Result<Fd, IoError> {
     let fd = __sys_open_read(path.as_ptr(), path.len())
