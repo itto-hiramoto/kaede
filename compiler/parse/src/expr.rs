@@ -1263,7 +1263,7 @@ impl Parser {
 
             args.push_back(Arg { name, value, span });
 
-            if !self.consume_b(&TokenKind::Comma) {
+            if !self.consume_list_separator(&TokenKind::CloseParen)? {
                 break;
             }
         }

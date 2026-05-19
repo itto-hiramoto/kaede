@@ -175,6 +175,27 @@ impl Parser {
         false
     }
 
+    fn consume_semis(&mut self) {
+        while self.consume_b(&TokenKind::Semi) {}
+    }
+
+    /// Consume the separator after an item in a comma-separated list.
+    ///
+    /// Newlines may be inserted as `Semi` tokens before the comma or closing
+    /// delimiter. Returning `false` means the caller is positioned at `end`.
+    fn consume_list_separator(&mut self, end: &TokenKind) -> ParseResult<bool> {
+        self.consume_semis();
+
+        if self.check(end) {
+            return Ok(false);
+        }
+
+        self.consume(&TokenKind::Comma)?;
+        self.consume_semis();
+
+        Ok(!self.check(end))
+    }
+
     /// Consume a semicolon
     /// ')' or '}', then success (Following Golang's rules)
     fn consume_semi(&mut self) -> ParseResult<Span> {

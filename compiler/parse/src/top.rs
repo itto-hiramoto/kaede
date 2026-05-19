@@ -174,7 +174,7 @@ impl Parser {
             };
             params.push(GenericParam { name, bound });
 
-            if !self.consume_b(&TokenKind::Comma) {
+            if !self.consume_list_separator(&TokenKind::Gt)? {
                 break;
             }
         }
@@ -380,13 +380,13 @@ impl Parser {
             todo!("`mut is not allowed not in type");
         }
         let first_param = if has_self {
-            let _ = self.consume(&TokenKind::Comma);
+            let _ = self.consume_list_separator(&TokenKind::CloseParen)?;
             None
         } else if self.check(&TokenKind::CloseParen) {
             None
         } else {
             let param = self.fn_param()?;
-            let _ = self.consume(&TokenKind::Comma);
+            let _ = self.consume_list_separator(&TokenKind::CloseParen)?;
             Some(param)
         };
 
@@ -448,6 +448,7 @@ impl Parser {
 
         loop {
             if let Some(variadic) = self.vararg() {
+                let _ = self.consume_list_separator(&TokenKind::CloseParen)?;
                 let finish = self.consume(&TokenKind::CloseParen)?.finish;
                 break Ok(Params {
                     v: params,
@@ -458,7 +459,7 @@ impl Parser {
 
             params.push_back(self.fn_param()?);
 
-            if !self.consume_b(&TokenKind::Comma) {
+            if !self.consume_list_separator(&TokenKind::CloseParen)? {
                 let finish = self.consume(&TokenKind::CloseParen)?.finish;
                 break Ok(Params {
                     v: params,
@@ -701,13 +702,13 @@ impl Parser {
         }
 
         let first_param = if has_self {
-            let _ = self.consume(&TokenKind::Comma);
+            let _ = self.consume_list_separator(&TokenKind::CloseParen)?;
             None
         } else if self.check(&TokenKind::CloseParen) {
             None
         } else {
             let param = self.fn_param()?;
-            let _ = self.consume(&TokenKind::Comma);
+            let _ = self.consume_list_separator(&TokenKind::CloseParen)?;
             Some(param)
         };
 
