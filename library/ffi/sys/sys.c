@@ -70,8 +70,8 @@ static int build_open_flags(int read, int write, int create, int create_new,
 }
 
 // write(2) may write fewer bytes than requested, or return EINTR before
-// writing anything. Keep writing until the full temp file body is on disk
-// before the atomic rename step.
+// writing anything. Keep writing until the full temp file body has been
+// accepted by the kernel; durable storage is handled separately by fsync.
 static ssize_t write_all_blocking(int fd, const unsigned char *buf,
                                   size_t len) {
   size_t off = 0;
@@ -562,6 +562,17 @@ int kaede_sys_unlink_at(sys_fd_t dir_fd, const unsigned char *path,
   }
 }
 
+// Write data through a temp file in the target file's parent directory, then
+// publish it with an atomic directory operation. Creating the temp file in the
+// same directory keeps the final rename/link on the same filesystem.
+//
+// With replace=true, renameat(temp, final) atomically replaces the destination.
+// With replace=false, linkat(temp, final) fails if the destination already
+// exists, then the temp name is unlinked after the final name is created.
+//
+// sync_file controls whether the temp file contents are fsynced before publish.
+// sync_dir controls whether the parent directory is fsynced after publish so
+// the new directory entry is durable across a crash.
 int kaede_sys_write_atomic(const unsigned char *path, size_t path_len,
                            const unsigned char *data, size_t data_len,
                            uint32_t mode, int sync_file, int sync_dir,
