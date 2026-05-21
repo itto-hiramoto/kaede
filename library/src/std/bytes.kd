@@ -1,0 +1,108 @@
+// Byte-slice helpers for binary formats. These functions operate on explicit
+// offsets so callers can work with fixed-size pages and protocol buffers
+// without allocating temporary slices for every field.
+
+fun check_range(len: u64, offset: u64, width: u64, name: str) {
+    // Avoid `offset + width` overflow by subtracting after checking offset.
+    if offset > len || width > len - offset {
+        panic(name)
+    }
+}
+
+impl u16 {
+    // Constructs a u16 from two little-endian bytes starting at `offset`.
+    // This mirrors Rust's `u16::from_le_bytes`, but accepts a slice plus offset
+    // so callers can read fields from fixed-size pages without allocating.
+    export fun from_le_bytes(buf: [u8], offset: u64) -> u16 {
+        check_range(buf.len(), offset, 2, "u16::from_le_bytes: buffer too small")
+        return (buf[offset] as u16) | ((buf[offset + 1] as u16) << 8)
+    }
+
+    // Stores `self` as two little-endian bytes starting at `offset`.
+    // The name uses `write` rather than Rust's `to_le_bytes` because this API
+    // mutates an existing page or protocol buffer instead of returning an array.
+    export fun write_le_bytes(self, buf: mut [u8], offset: u64) {
+        check_range(buf.len(), offset, 2, "u16.write_le_bytes: buffer too small")
+        // Casting to u8 keeps the low 8 bits, so mask after shifting to make
+        // the selected byte explicit.
+        buf[offset] = (self & 0xff) as u8
+        buf[offset + 1] = ((self >> 8) & 0xff) as u8
+    }
+}
+
+impl u64 {
+    // Constructs a u64 from eight little-endian bytes starting at `offset`.
+    // This keeps page-header and pointer decoding next to the integer type that
+    // defines the binary representation.
+    export fun from_le_bytes(buf: [u8], offset: u64) -> u64 {
+        check_range(buf.len(), offset, 8, "u64::from_le_bytes: buffer too small")
+        return (buf[offset] as u64) |
+            ((buf[offset + 1] as u64) << 8) |
+            ((buf[offset + 2] as u64) << 16) |
+            ((buf[offset + 3] as u64) << 24) |
+            ((buf[offset + 4] as u64) << 32) |
+            ((buf[offset + 5] as u64) << 40) |
+            ((buf[offset + 6] as u64) << 48) |
+            ((buf[offset + 7] as u64) << 56)
+    }
+
+    // Stores `self` as eight little-endian bytes starting at `offset`.
+    // This is the in-place counterpart to `from_le_bytes` for database pages.
+    export fun write_le_bytes(self, buf: mut [u8], offset: u64) {
+        check_range(buf.len(), offset, 8, "u64.write_le_bytes: buffer too small")
+        // Casting to u8 keeps the low 8 bits, so mask after shifting to make
+        // the selected byte explicit.
+        buf[offset] = (self & 0xff) as u8
+        buf[offset + 1] = ((self >> 8) & 0xff) as u8
+        buf[offset + 2] = ((self >> 16) & 0xff) as u8
+        buf[offset + 3] = ((self >> 24) & 0xff) as u8
+        buf[offset + 4] = ((self >> 32) & 0xff) as u8
+        buf[offset + 5] = ((self >> 40) & 0xff) as u8
+        buf[offset + 6] = ((self >> 48) & 0xff) as u8
+        buf[offset + 7] = ((self >> 56) & 0xff) as u8
+    }
+}
+
+// Replaces every byte in `buf` with `value`.
+export fun fill(buf: mut [u8], value: u8) {
+    let mut i = 0
+    while i < buf.len() {
+        buf[i] = value
+        i += 1
+    }
+}
+
+// Copies up to `dst.len()` bytes from `src` and returns the number copied.
+export fun copy(dst: mut [u8], src: [u8]) -> u64 {
+    let n = if dst.len() < src.len() { dst.len() } else { src.len() }
+    let mut i = 0
+    while i < n {
+        dst[i] = src[i]
+        i += 1
+    }
+    return n
+}
+
+// Lexicographically compares byte slices, matching the ordering used by
+// database keys and binary protocol fields.
+export fun compare(left: [u8], right: [u8]) -> i32 {
+    let n = if left.len() < right.len() { left.len() } else { right.len() }
+    let mut i = 0
+    while i < n {
+        if left[i] < right[i] {
+            return -1
+        }
+        if left[i] > right[i] {
+            return 1
+        }
+        i += 1
+    }
+
+    if left.len() < right.len() {
+        return -1
+    }
+    if left.len() > right.len() {
+        return 1
+    }
+    return 0
+}
