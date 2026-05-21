@@ -817,9 +817,7 @@ impl SemanticAnalyzer {
                 self.insert_symbol_to_current_scope(
                     name,
                     SymbolTableValue::new(
-                        SymbolTableValueKind::Variable(VariableInfo {
-                            ty: variant_ty.clone(),
-                        }),
+                        SymbolTableValueKind::Variable(VariableInfo::new(variant_ty.clone())),
                         self.current_module_path().clone(),
                     ),
                     current_arm.pattern.span,
@@ -2214,7 +2212,7 @@ impl SemanticAnalyzer {
 
             SymbolTableValueKind::Generic(info) => self.analyze_generic_fn_call(info, node),
 
-            SymbolTableValueKind::Variable(VariableInfo { ty }) => {
+            SymbolTableValueKind::Variable(VariableInfo { ty, .. }) => {
                 self.analyze_callable_value(node, callee.symbol(), ty.clone(), None)
             }
 
@@ -2846,7 +2844,7 @@ impl SemanticAnalyzer {
             self.insert_symbol_to_current_scope(
                 param.symbol(),
                 SymbolTableValue::new(
-                    SymbolTableValueKind::Variable(VariableInfo { ty: ty.clone() }),
+                    SymbolTableValueKind::Variable(VariableInfo::new(ty.clone())),
                     self.current_module_path().clone(),
                 ),
                 param.span(),
@@ -4234,7 +4232,7 @@ impl SemanticAnalyzer {
         primary
             .or(fallback)
             .map(|(value, depth)| match &value.borrow().kind {
-                SymbolTableValueKind::Variable(VariableInfo { ty }) => {
+                SymbolTableValueKind::Variable(VariableInfo { ty, .. }) => {
                     self.register_capture(node.symbol(), depth);
                     Ok(ir::expr::Expr {
                         kind: ir::expr::ExprKind::Variable(ir::expr::Variable {

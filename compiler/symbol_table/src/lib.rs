@@ -143,6 +143,22 @@ impl GenericInfo {
 #[derive(Debug, Clone)]
 pub struct VariableInfo {
     pub ty: Rc<ir_type::Ty>,
+    /// True for `const` bindings. They still occupy the variable namespace, but
+    /// semantic analysis uses this bit to validate const initializers.
+    pub is_const: bool,
+}
+
+impl VariableInfo {
+    pub fn new(ty: Rc<ir_type::Ty>) -> Self {
+        Self {
+            ty,
+            is_const: false,
+        }
+    }
+
+    pub fn new_const(ty: Rc<ir_type::Ty>) -> Self {
+        Self { ty, is_const: true }
+    }
 }
 
 #[derive(Debug)]

@@ -46,6 +46,14 @@ pub struct NormalLet {
 }
 
 #[derive(Debug, Clone)]
+pub struct Const {
+    pub name: Ident,
+    pub init: Rc<Expr>,
+    pub ty: Rc<Ty>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub struct TupleUnpack {
     /// None if ignore field
     pub names: Vec<Option<(Ident, Mutability)>>,
@@ -64,6 +72,7 @@ pub struct Stmt {
 pub enum StmtKind {
     Expr(Rc<Expr>),
     Let(Let),
+    Const(Const),
 
     Assign(Box<Assign>),
 }

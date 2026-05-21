@@ -356,6 +356,7 @@ fn semantic_error_span(err: &SemanticError) -> Option<Span> {
         | SemanticError::IndexOutOfRange { span, .. }
         | SemanticError::ArrayRepeatCountNotConst { span }
         | SemanticError::ArrayRepeatCountTooLarge { span, .. }
+        | SemanticError::ConstInitializerNotConst { span }
         | SemanticError::NumberOfTupleFieldsDoesNotMatch { span, .. }
         | SemanticError::IfMustHaveElseUsedAsExpr { span }
         | SemanticError::IfAndElseHaveIncompatibleTypes { span, .. }

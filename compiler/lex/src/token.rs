@@ -113,6 +113,8 @@ pub enum TokenKind {
     Return,
     /// "let"
     Let,
+    /// "const"
+    Const,
     /// "mut"
     Mut,
     /// "if"
@@ -230,6 +232,7 @@ impl std::fmt::Display for TokenKind {
                 OldFn => "'fn'",
                 Return => "'return'",
                 Let => "'let'",
+                Const => "'const'",
                 Mut => "'mut'",
                 If => "'if'",
                 Else => "'else'",

@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use kaede_ast::{
     expr::{Expr, ExprKind},
-    stmt::{Assign, AssignOp, Block, Let, LetKind, NormalLet, Stmt, StmtKind, TupleUnpack},
+    stmt::{Assign, AssignOp, Block, Const, Let, LetKind, NormalLet, Stmt, StmtKind, TupleUnpack},
 };
 use kaede_ast_type::{Mutability, Ty};
 use kaede_lex::token::TokenKind;
@@ -49,6 +49,14 @@ impl Parser {
             return Ok(Stmt {
                 span: l.span,
                 kind: StmtKind::Let(l),
+            });
+        }
+
+        if self.check(&TokenKind::Const) {
+            let const_ = self.const_()?;
+            return Ok(Stmt {
+                span: const_.span,
+                kind: StmtKind::Const(const_),
             });
         }
 
@@ -204,6 +212,25 @@ impl Parser {
                 init,
                 ty: ty.into(),
             }),
+            span,
+        })
+    }
+
+    fn const_(&mut self) -> ParseResult<Const> {
+        let start = self.consume(&TokenKind::Const).unwrap().start;
+        let name = self.ident()?;
+
+        self.consume(&TokenKind::Colon)?;
+        let ty = self.ty()?;
+
+        self.consume(&TokenKind::Eq)?;
+        let init = self.expr()?;
+        let span = self.new_span(start, init.span.finish);
+
+        Ok(Const {
+            name,
+            init: init.into(),
+            ty: ty.into(),
             span,
         })
     }

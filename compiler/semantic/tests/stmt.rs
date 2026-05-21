@@ -59,3 +59,43 @@ fn let_and_access() -> anyhow::Result<()> {
     )?;
     Ok(())
 }
+
+#[test]
+fn local_const() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fun f() -> i32 {
+            const base: i32 = 48
+            const result: i32 = base + 10
+            return result
+        }
+    ",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn local_const_rejects_runtime_initializer() -> anyhow::Result<()> {
+    semantic_analyze_expect_error(
+        "fun value() -> i32 {
+            return 1
+        }
+
+        fun f() {
+            const x: i32 = value()
+        }
+    ",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn local_const_rejects_assignment() -> anyhow::Result<()> {
+    semantic_analyze_expect_error(
+        "fun f() {
+            const x: i32 = 1
+            x = 2
+        }
+    ",
+    )?;
+    Ok(())
+}

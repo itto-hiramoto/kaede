@@ -167,6 +167,7 @@ impl Cursor<'_> {
                     "fn" => self.create_token(TokenKind::OldFn),
                     "return" => self.create_token(TokenKind::Return),
                     "let" => self.create_token(TokenKind::Let),
+                    "const" => self.create_token(TokenKind::Const),
                     "if" => self.create_token(TokenKind::If),
                     "else" => self.create_token(TokenKind::Else),
                     "loop" => self.create_token(TokenKind::Loop),
