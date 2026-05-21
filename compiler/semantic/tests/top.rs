@@ -315,6 +315,16 @@ fn type_alias_pub() -> anyhow::Result<()> {
 }
 
 #[test]
+fn generic_type_alias_ends_at_newline_after_gt() -> anyhow::Result<()> {
+    semantic_analyze(
+        "struct Vector<T> { value: T }
+        type BNode = Vector<u8>
+        fun foo(x: BNode) {}",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn generated_generic_function_has_concrete_types_after_inference() -> anyhow::Result<()> {
     let ir = semantic_analyze(
         r#"
