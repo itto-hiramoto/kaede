@@ -42,6 +42,7 @@ impl Parser {
         let vis = self.consume_b(&TokenKind::Export).into();
 
         let token = self.first();
+        let mut consumes_own_terminator = false;
 
         let (span, kind) = match token.kind {
             TokenKind::Import => {
@@ -80,6 +81,7 @@ impl Parser {
             }
 
             TokenKind::Type => {
+                consumes_own_terminator = true;
                 let kind = self.type_alias(vis)?;
                 (kind.span, TopLevelKind::TypeAlias(kind))
             }
@@ -99,7 +101,9 @@ impl Parser {
             }
         };
 
-        self.consume_semi()?;
+        if !consumes_own_terminator {
+            self.consume_semi()?;
+        }
 
         Ok(TopLevel { kind, span })
     }
@@ -134,6 +138,7 @@ impl Parser {
         self.consume(&TokenKind::Eq)?;
         let aliased_type = self.ty()?;
         let finish = aliased_type.span.finish;
+        self.consume_type_alias_terminator(finish)?;
 
         Ok(TypeAlias {
             vis,
@@ -141,6 +146,26 @@ impl Parser {
             aliased_type,
             span: self.new_span(start, finish),
         })
+    }
+
+    fn consume_type_alias_terminator(&mut self, type_finish: Location) -> ParseResult<()> {
+        if self.consume_b(&TokenKind::Semi) {
+            return Ok(());
+        }
+
+        let next = self.first();
+        // `Vector<u8>` ends with `>`, which is also a comparison operator, so
+        // the lexer cannot safely insert a semicolon after it without context.
+        if next.kind == TokenKind::Eoi || next.span.start.line > type_finish.line {
+            return Ok(());
+        }
+
+        Err(ParseError::ExpectedError {
+            expected: TokenKind::Semi.to_string(),
+            but: next.kind.to_string(),
+            span: next.span,
+        }
+        .into())
     }
 
     fn extern_(&mut self, vis: Visibility) -> ParseResult<Extern> {
