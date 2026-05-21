@@ -424,6 +424,14 @@ fn local_const_statement() -> anyhow::Result<()> {
 
     assert_eq!(exec(program)?, 58);
 
+    let program = r"fun main() -> i32 {
+        const len: u32 = 4
+        let xs = [58; len]
+        return xs[3]
+    }";
+
+    assert_eq!(exec(program)?, 58);
+
     Ok(())
 }
 

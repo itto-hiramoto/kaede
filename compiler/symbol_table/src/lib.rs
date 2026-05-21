@@ -141,11 +141,19 @@ impl GenericInfo {
 }
 
 #[derive(Debug, Clone)]
+pub enum ConstValue {
+    Integer(i128),
+}
+
+#[derive(Debug, Clone)]
 pub struct VariableInfo {
     pub ty: Rc<ir_type::Ty>,
     /// True for `const` bindings. They still occupy the variable namespace, but
     /// semantic analysis uses this bit to validate const initializers.
     pub is_const: bool,
+    /// Compile-time value for const bindings where semantic analysis can fold
+    /// the initializer. Non-integer consts currently do not need a stored value.
+    pub const_value: Option<ConstValue>,
 }
 
 impl VariableInfo {
@@ -153,11 +161,16 @@ impl VariableInfo {
         Self {
             ty,
             is_const: false,
+            const_value: None,
         }
     }
 
-    pub fn new_const(ty: Rc<ir_type::Ty>) -> Self {
-        Self { ty, is_const: true }
+    pub fn new_const(ty: Rc<ir_type::Ty>, const_value: Option<ConstValue>) -> Self {
+        Self {
+            ty,
+            is_const: true,
+            const_value,
+        }
     }
 }
 

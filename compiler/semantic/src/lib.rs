@@ -22,6 +22,7 @@ use kaede_symbol_table::{
     SymbolTableValueKind,
 };
 
+mod const_eval;
 mod context;
 mod error;
 mod expr;
