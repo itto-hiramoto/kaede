@@ -23,8 +23,10 @@ impl u16 {
     // mutates an existing page or protocol buffer instead of returning an array.
     export fun write_le_bytes(self, buf: mut [u8], offset: u64) {
         check_range(buf.len(), offset, 2, "u16.write_le_bytes: buffer too small")
-        buf[offset] = self as u8
-        buf[offset + 1] = (self >> 8) as u8
+        // Casting to u8 keeps the low 8 bits, so mask after shifting to make
+        // the selected byte explicit.
+        buf[offset] = (self & 0xff) as u8
+        buf[offset + 1] = ((self >> 8) & 0xff) as u8
     }
 }
 
@@ -48,14 +50,16 @@ impl u64 {
     // This is the in-place counterpart to `from_le_bytes` for database pages.
     export fun write_le_bytes(self, buf: mut [u8], offset: u64) {
         check_range(buf.len(), offset, 8, "u64.write_le_bytes: buffer too small")
-        buf[offset] = self as u8
-        buf[offset + 1] = (self >> 8) as u8
-        buf[offset + 2] = (self >> 16) as u8
-        buf[offset + 3] = (self >> 24) as u8
-        buf[offset + 4] = (self >> 32) as u8
-        buf[offset + 5] = (self >> 40) as u8
-        buf[offset + 6] = (self >> 48) as u8
-        buf[offset + 7] = (self >> 56) as u8
+        // Casting to u8 keeps the low 8 bits, so mask after shifting to make
+        // the selected byte explicit.
+        buf[offset] = (self & 0xff) as u8
+        buf[offset + 1] = ((self >> 8) & 0xff) as u8
+        buf[offset + 2] = ((self >> 16) & 0xff) as u8
+        buf[offset + 3] = ((self >> 24) & 0xff) as u8
+        buf[offset + 4] = ((self >> 32) & 0xff) as u8
+        buf[offset + 5] = ((self >> 40) & 0xff) as u8
+        buf[offset + 6] = ((self >> 48) & 0xff) as u8
+        buf[offset + 7] = ((self >> 56) & 0xff) as u8
     }
 }
 
