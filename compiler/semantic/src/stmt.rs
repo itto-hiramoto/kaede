@@ -1,5 +1,5 @@
 use crate::{SemanticAnalyzer, SemanticError};
-use kaede_symbol_table::{SymbolTableValue, SymbolTableValueKind, VariableInfo};
+use kaede_symbol_table::{ConstValue, SymbolTableValue, SymbolTableValueKind, VariableInfo};
 
 use kaede_ast as ast;
 use kaede_ir::{self as ir, stmt::AssignOp};
@@ -138,11 +138,17 @@ impl SemanticAnalyzer {
         let annotated = self.analyze_type(&node.ty)?;
         let init = self.analyze_expr_with_expected_type(&node.init, annotated.clone())?;
         let const_ty = ir::ty::change_mutability_dup(annotated, ir::ty::Mutability::Not);
+        let const_value = self
+            .evaluate_integer_const_expr(&node.init)
+            .map(ConstValue::Integer);
 
         self.insert_symbol_to_current_scope(
             node.name.symbol(),
             SymbolTableValue::new(
-                SymbolTableValueKind::Variable(VariableInfo::new_const(const_ty.clone())),
+                SymbolTableValueKind::Variable(VariableInfo::new_const(
+                    const_ty.clone(),
+                    const_value,
+                )),
                 self.current_module_path().clone(),
             ),
             node.span,
@@ -156,50 +162,6 @@ impl SemanticAnalyzer {
             init: Some(init),
             span: node.span,
         })
-    }
-
-    fn is_const_initializer(&self, expr: &ast::expr::Expr) -> bool {
-        use ast::expr::{BinaryKind, ExprKind};
-
-        match &expr.kind {
-            ExprKind::Int(_)
-            | ExprKind::Float(_)
-            | ExprKind::StringLiteral(_)
-            | ExprKind::ByteStringLiteral(_)
-            | ExprKind::ByteLiteral(_)
-            | ExprKind::CharLiteral(_)
-            | ExprKind::True
-            | ExprKind::False => true,
-
-            ExprKind::Ident(ident) => self
-                .lookup_symbol_with_depth(ident.symbol())
-                .map(|(value, _)| match &value.borrow().kind {
-                    SymbolTableValueKind::Variable(info) => info.is_const,
-                    _ => false,
-                })
-                .unwrap_or(false),
-
-            ExprKind::LogicalNot(node) => self.is_const_initializer(&node.operand),
-            ExprKind::BitNot(node) => self.is_const_initializer(&node.operand),
-
-            ExprKind::Binary(node) => {
-                if matches!(node.kind, BinaryKind::Access | BinaryKind::ScopeResolution) {
-                    return false;
-                }
-
-                if matches!(node.kind, BinaryKind::Cast) {
-                    return self.is_const_initializer(&node.lhs);
-                }
-
-                self.is_const_initializer(&node.lhs) && self.is_const_initializer(&node.rhs)
-            }
-
-            ExprKind::TupleLiteral(node) => {
-                node.elements.iter().all(|e| self.is_const_initializer(e))
-            }
-
-            _ => false,
-        }
     }
 
     fn analyze_tuple_unpacking(

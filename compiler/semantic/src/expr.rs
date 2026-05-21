@@ -2659,21 +2659,21 @@ impl SemanticAnalyzer {
     }
 
     fn evaluate_array_repeat_count(&self, count: &ast::expr::Expr) -> anyhow::Result<u32> {
-        match &count.kind {
-            ast::expr::ExprKind::Int(int) => {
-                let value = int.as_u64();
+        let Some(value) = self.evaluate_integer_const_expr(count) else {
+            return Err(SemanticError::ArrayRepeatCountNotConst { span: count.span }.into());
+        };
 
-                let value =
-                    u32::try_from(value).map_err(|_| SemanticError::ArrayRepeatCountTooLarge {
-                        span: count.span,
-                        value,
-                    })?;
-
-                Ok(value)
-            }
-
-            _ => Err(SemanticError::ArrayRepeatCountNotConst { span: count.span }.into()),
+        if value < 0 {
+            return Err(SemanticError::ArrayRepeatCountNotConst { span: count.span }.into());
         }
+
+        u32::try_from(value).map_err(|_| {
+            SemanticError::ArrayRepeatCountTooLarge {
+                span: count.span,
+                value: u64::try_from(value).unwrap_or(u64::MAX),
+            }
+            .into()
+        })
     }
 
     fn analyze_int(&mut self, node: &ast::expr::Int) -> anyhow::Result<ir::expr::Expr> {

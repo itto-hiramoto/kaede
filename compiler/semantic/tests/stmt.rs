@@ -74,6 +74,19 @@ fn local_const() -> anyhow::Result<()> {
 }
 
 #[test]
+fn local_const_array_repeat_count() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fun f() {
+            const base: u32 = 2
+            const len: u32 = base + 2
+            let _ = [0; len]
+        }
+    ",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn local_const_rejects_runtime_initializer() -> anyhow::Result<()> {
     semantic_analyze_expect_error(
         "fun value() -> i32 {
