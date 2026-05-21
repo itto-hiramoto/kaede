@@ -57,6 +57,23 @@ fn multi_floats() {
 }
 
 #[test]
+fn const_keyword() {
+    lex_test(
+        "const answer: i32 = 42",
+        vec![
+            Const,
+            Ident("answer".to_string()),
+            Colon,
+            Ident("i32".to_string()),
+            Eq,
+            Int("42".to_string()),
+            Semi,
+            Eoi,
+        ],
+    );
+}
+
+#[test]
 fn int_dot_ident_is_method_call() {
     // `1.foo` must remain `Int Dot Ident` so method calls on integer literals
     // keep tokenizing correctly.

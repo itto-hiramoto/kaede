@@ -743,9 +743,7 @@ impl SemanticAnalyzer {
             let mut symbol_table = SymbolTable::new();
             for param in fn_decl.params.iter() {
                 let symbol_table_value = SymbolTableValue::new(
-                    SymbolTableValueKind::Variable(VariableInfo {
-                        ty: param.ty.clone(),
-                    }),
+                    SymbolTableValueKind::Variable(VariableInfo::new(param.ty.clone())),
                     self.current_module_path().clone(),
                 );
 

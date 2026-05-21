@@ -415,6 +415,19 @@ fn let_statement() -> anyhow::Result<()> {
 }
 
 #[test]
+fn local_const_statement() -> anyhow::Result<()> {
+    let program = r"fun main() -> i32 {
+        const base: i32 = 48
+        const result: i32 = base + 10
+        return result
+    }";
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
 fn short_decl_colon_eq() -> anyhow::Result<()> {
     let program = r"fun main() -> i32 {
         x := 48
