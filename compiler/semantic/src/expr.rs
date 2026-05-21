@@ -3118,6 +3118,12 @@ impl SemanticAnalyzer {
             return Ok(expr);
         }
 
+        if let ast::expr::ExprKind::Ty(ty) = &node.lhs.kind {
+            if let Some(fty) = Self::fundamental_type_kind_from_ast_ty(ty) {
+                return self.analyze_static_fundamental_scope_rhs(fty, &node.rhs);
+            }
+        }
+
         let (left, generic_args) = match &node.lhs.kind {
             // Foo::Bar
             ast::expr::ExprKind::Ident(id) => (id, None),
@@ -3273,17 +3279,68 @@ impl SemanticAnalyzer {
         call_node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
         let method_symbol = self.callee_symbol(call_node)?;
-        let method_name = self.create_method_key(udt.name(), method_symbol, true);
+        self.analyze_static_method_call_by_name(
+            udt.name(),
+            udt.qualified_symbol().module_path().clone(),
+            method_symbol,
+            call_node,
+        )
+    }
 
-        let qualified_method_name =
-            QualifiedSymbol::new(udt.qualified_symbol().module_path().clone(), method_name);
+    fn analyze_static_fundamental_method_call(
+        &mut self,
+        fty: ir_type::FundamentalTypeKind,
+        call_node: &ast::expr::FnCall,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let method_symbol = self.callee_symbol(call_node)?;
+        self.analyze_static_method_call_by_name(
+            Symbol::from(fty.to_string()),
+            ModulePath::root(),
+            method_symbol,
+            call_node,
+        )
+    }
+
+    fn analyze_static_fundamental_scope_rhs(
+        &mut self,
+        fty: ir_type::FundamentalTypeKind,
+        rhs: &ast::expr::Expr,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        match &rhs.kind {
+            ast::expr::ExprKind::FnCall(right) => {
+                self.analyze_static_fundamental_method_call(fty, right)
+            }
+            _ => {
+                let method_name = Self::rhs_symbol(rhs)
+                    .map(|(name, _)| name)
+                    .unwrap_or_else(|| Symbol::from("<unknown>".to_owned()));
+                Err(SemanticError::NoMethod {
+                    method_name,
+                    parent_name: Symbol::from(fty.to_string()),
+                    span: rhs.span,
+                }
+                .into())
+            }
+        }
+    }
+
+    fn analyze_static_method_call_by_name(
+        &mut self,
+        parent_name: Symbol,
+        module_path: ModulePath,
+        method_symbol: Symbol,
+        call_node: &ast::expr::FnCall,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let method_name = self.create_method_key(parent_name, method_symbol, true);
+
+        let qualified_method_name = QualifiedSymbol::new(module_path, method_name);
 
         // Lookup method from symbol table
         let method_decl =
             self.lookup_qualified_symbol(qualified_method_name)
                 .ok_or(SemanticError::NoMethod {
                     method_name: method_symbol,
-                    parent_name: udt.name(),
+                    parent_name,
                     span: call_node.span,
                 })?;
 
