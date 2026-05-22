@@ -4246,12 +4246,12 @@ impl SemanticAnalyzer {
                     is_const: true,
                     const_value: Some(kaede_symbol_table::ConstValue::Integer(value)),
                     ..
-                }) if depth == 0 => self.inline_top_level_const_int(*value, ty, node.span()).ok_or(
-                    SemanticError::Undeclared {
+                }) if depth == 0 => self
+                    .inline_top_level_const_int(*value, ty, node.span())
+                    .ok_or(SemanticError::Undeclared {
                         name: node.symbol(),
                         span: node.span(),
-                    },
-                ),
+                    }),
                 SymbolTableValueKind::Variable(VariableInfo { ty, .. }) => {
                     self.register_capture(node.symbol(), depth);
                     Ok(ir::expr::Expr {
