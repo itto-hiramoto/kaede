@@ -4237,6 +4237,10 @@ impl SemanticAnalyzer {
         primary
             .or(fallback)
             .map(|(value, depth)| match &value.borrow().kind {
+                // `depth` is the index in `symbol_table_stack` where the name was found.
+                // 0 = module root (`insert_symbol_to_root_scope`): top-level `const`, `fun`, etc.
+                // 1+ = inner scopes (function params/body, closures): local `const` lowers to `Let`
+                // and must stay `Variable`. Top-level const has no stack slot, so inline it here.
                 SymbolTableValueKind::Variable(VariableInfo {
                     ty,
                     is_const: true,
