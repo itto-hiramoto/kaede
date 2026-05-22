@@ -13,7 +13,8 @@ use kaede_symbol_table::{
     GenericImplInfo, GenericKind, ResolvedGenericParams, SymbolTableValueKind,
 };
 
-struct GenericImplTemplate {
+/// `GenericImplInfo` fields copied for one monomorphization pass (decl or body).
+struct GenericImplSnapshot {
     generic_params: ast::top::GenericParams,
     resolved_generic_params: Option<ResolvedGenericParams>,
     impl_: ast::top::Impl,
@@ -44,8 +45,8 @@ impl SemanticAnalyzer {
         }
     }
 
-    fn clone_generic_impl_template(impl_info: &GenericImplInfo) -> GenericImplTemplate {
-        GenericImplTemplate {
+    fn create_generic_impl_snapshot(impl_info: &GenericImplInfo) -> GenericImplSnapshot {
+        GenericImplSnapshot {
             generic_params: impl_info.impl_.generic_params.as_ref().unwrap().clone(),
             resolved_generic_params: impl_info.resolved_generic_params.clone(),
             impl_: impl_info.impl_.clone(),
@@ -604,31 +605,31 @@ impl SemanticAnalyzer {
                         impl_info
                             .method_decl_instantiations
                             .push(generic_args.clone());
-                        Some(Self::clone_generic_impl_template(impl_info))
+                        Some(Self::create_generic_impl_snapshot(impl_info))
                     }
                 } else {
                     None
                 }
             };
 
-            if let Some(mut template) = decl_generation {
+            if let Some(mut snapshot) = decl_generation {
                 analyzer.verify_generic_argument_length(
-                    &template.generic_params,
+                    &snapshot.generic_params,
                     &generic_args,
-                    template.generic_params.span,
+                    snapshot.generic_params.span,
                 )?;
 
                 analyzer.verify_resolved_generic_bounds(
-                    template.resolved_generic_params.as_ref(),
+                    snapshot.resolved_generic_params.as_ref(),
                     &generic_args,
-                    template.generic_params.span,
+                    snapshot.generic_params.span,
                 )?;
 
-                template.impl_.generic_params = None;
-                template.impl_.items = Rc::new(Self::link_once_impl_methods(&template.impl_));
+                snapshot.impl_.generic_params = None;
+                snapshot.impl_.items = Rc::new(Self::link_once_impl_methods(&snapshot.impl_));
 
                 analyzer.with_generic_arguments(
-                    &template.generic_params,
+                    &snapshot.generic_params,
                     &generic_args,
                     |analyzer| {
                         analyzer.with_analyze_command(AnalyzeCommand::OnlyFnDeclare, |analyzer| {
@@ -637,7 +638,7 @@ impl SemanticAnalyzer {
                                     QualifiedSymbol::new(module_path.clone(), name.symbol()),
                                     generic_args.clone(),
                                 )),
-                                |analyzer| analyzer.analyze_impl(template.impl_),
+                                |analyzer| analyzer.analyze_impl(snapshot.impl_),
                             )?;
                             Ok::<(), anyhow::Error>(())
                         })
@@ -697,7 +698,7 @@ impl SemanticAnalyzer {
             return Ok(());
         }
 
-        let generation = {
+        let mut snapshot = {
             let symbol =
                 self.lookup_qualified_symbol(origin.clone())
                     .ok_or(SemanticError::Undeclared {
@@ -715,29 +716,28 @@ impl SemanticAnalyzer {
                 return Ok(());
             };
 
-            Self::clone_generic_impl_template(impl_info)
+            Self::create_generic_impl_snapshot(impl_info)
         };
 
         self.generated_impl_method_bodies.insert(decl.name.clone());
 
-        let mut template = generation;
         self.verify_generic_argument_length(
-            &template.generic_params,
+            &snapshot.generic_params,
             &generic_args,
-            template.generic_params.span,
+            snapshot.generic_params.span,
         )?;
 
         self.verify_resolved_generic_bounds(
-            template.resolved_generic_params.as_ref(),
+            snapshot.resolved_generic_params.as_ref(),
             &generic_args,
-            template.generic_params.span,
+            snapshot.generic_params.span,
         )?;
 
         let parent_name = self.create_generated_generic_key(origin.symbol(), &generic_args);
         let target_name = decl.name.symbol();
-        template.impl_.generic_params = None;
-        template.impl_.items = Rc::new(Self::link_once_impl_methods_matching(
-            &template.impl_,
+        snapshot.impl_.generic_params = None;
+        snapshot.impl_.items = Rc::new(Self::link_once_impl_methods_matching(
+            &snapshot.impl_,
             |fn_| {
                 self.create_method_key(
                     parent_name,
@@ -747,7 +747,7 @@ impl SemanticAnalyzer {
             },
         ));
 
-        if template.impl_.items.is_empty() {
+        if snapshot.impl_.items.is_empty() {
             anyhow::bail!(
                 "internal compiler error: could not find generated impl method body for `{}`",
                 decl.name.mangle()
@@ -755,14 +755,14 @@ impl SemanticAnalyzer {
         }
 
         let impl_ir = self.with_module(origin.module_path().clone(), |analyzer| {
-            analyzer.with_generic_arguments(&template.generic_params, &generic_args, |analyzer| {
+            analyzer.with_generic_arguments(&snapshot.generic_params, &generic_args, |analyzer| {
                 analyzer.with_analyze_command(AnalyzeCommand::WithoutFnDeclare, |analyzer| {
                     analyzer.with_pending_generic_instance(
                         Some(ir_type::GenericInstanceInfo::new(
                             origin.clone(),
                             generic_args.clone(),
                         )),
-                        |analyzer| analyzer.analyze_impl(template.impl_),
+                        |analyzer| analyzer.analyze_impl(snapshot.impl_),
                     )
                 })
             })
@@ -785,20 +785,19 @@ impl SemanticAnalyzer {
             return Ok(());
         }
 
-        let (defining_module, slice_origin, template_source) = {
+        let (defining_module, slice_origin, mut snapshot) = {
             let Some(slice) = self.slice_intrinsic.as_ref() else {
                 return Ok(());
             };
             (
                 slice.defining_module.clone(),
                 slice.origin.clone(),
-                Self::clone_generic_impl_template(&slice.impl_info),
+                Self::create_generic_impl_snapshot(&slice.impl_info),
             )
         };
 
-        let mut template = template_source;
-        let generic_params = template.generic_params.clone();
-        let resolved_generic_params = template.resolved_generic_params.clone();
+        let generic_params = snapshot.generic_params.clone();
+        let resolved_generic_params = snapshot.resolved_generic_params.clone();
 
         self.generated_impl_method_bodies.insert(decl.name.clone());
 
@@ -811,9 +810,9 @@ impl SemanticAnalyzer {
 
         let parent_name = self.slice_method_parent_name(&generic_args[0]);
         let target_name = decl.name.symbol();
-        template.impl_.generic_params = None;
-        template.impl_.items = Rc::new(Self::link_once_impl_methods_matching(
-            &template.impl_,
+        snapshot.impl_.generic_params = None;
+        snapshot.impl_.items = Rc::new(Self::link_once_impl_methods_matching(
+            &snapshot.impl_,
             |fn_| {
                 self.create_method_key(
                     parent_name,
@@ -823,7 +822,7 @@ impl SemanticAnalyzer {
             },
         ));
 
-        if template.impl_.items.is_empty() {
+        if snapshot.impl_.items.is_empty() {
             anyhow::bail!(
                 "internal compiler error: could not find generated slice impl method body for `{}`",
                 decl.name.mangle()
@@ -838,7 +837,7 @@ impl SemanticAnalyzer {
                             slice_origin,
                             generic_args.to_vec(),
                         )),
-                        |analyzer| analyzer.analyze_impl(template.impl_),
+                        |analyzer| analyzer.analyze_impl(snapshot.impl_),
                     )
                 })
             })
