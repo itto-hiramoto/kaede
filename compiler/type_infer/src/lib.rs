@@ -1,6 +1,6 @@
 //! Bidirectional Type Inference
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::mem;
 use std::rc::Rc;
 
@@ -23,7 +23,7 @@ use kaede_ir::{
     top::Enum as IrEnum,
     ty::{
         FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind, UserDefinedTypeKind, VarId,
-        contains_type_var, make_fundamental_type,
+        collect_type_var_ids_in_order, contains_type_var, make_fundamental_type,
     },
 };
 mod context;
@@ -36,7 +36,7 @@ pub struct TypeInferrer {
     env: Env,
     function_return_ty: Rc<Ty>,
     specialized_enums: HashMap<QualifiedSymbol, Rc<IrEnum>>,
-    generic_fn_substitutions:
+    generated_callable_substitutions:
         HashMap<kaede_ir::qualified_symbol::QualifiedSymbol, HashMap<VarId, Rc<Ty>>>,
 }
 
@@ -67,14 +67,14 @@ impl TypeInferrer {
             env: Env::new(),
             function_return_ty,
             specialized_enums: HashMap::new(),
-            generic_fn_substitutions: HashMap::new(),
+            generated_callable_substitutions: HashMap::new(),
         }
     }
 
-    pub fn into_generic_fn_substitutions(
+    pub fn into_generated_callable_substitutions(
         self,
     ) -> HashMap<kaede_ir::qualified_symbol::QualifiedSymbol, HashMap<VarId, Rc<Ty>>> {
-        self.generic_fn_substitutions
+        self.generated_callable_substitutions
     }
 
     fn apply_fn_decl(
@@ -97,18 +97,49 @@ impl TypeInferrer {
     }
 
     /// Preserve the original type-variable-to-type mapping so semantic analysis
-    /// can substitute through the generated generic body after inference.
-    fn record_generic_fn_substitutions(&mut self, callee: &kaede_ir::top::FnDecl) {
-        let Some(instance) = &callee.generic_instance else {
-            return;
-        };
+    /// can substitute through generated function and method bodies after inference.
+    fn record_generated_callable_substitutions(&mut self, callee: &kaede_ir::top::FnDecl) {
+        let mut var_ids = Vec::new();
+        let mut seen = HashSet::new();
 
-        let bindings = self.context.bindings_for_generic_instance(instance);
+        if let Some(instance) = &callee.generic_instance {
+            for id in instance.collect_var_ids_in_order() {
+                if seen.insert(id) {
+                    var_ids.push(id);
+                }
+            }
+        }
+
+        for param in &callee.params {
+            for id in collect_type_var_ids_in_order(&param.ty) {
+                if seen.insert(id) {
+                    var_ids.push(id);
+                }
+            }
+        }
+        for id in collect_type_var_ids_in_order(&callee.return_ty) {
+            if seen.insert(id) {
+                var_ids.push(id);
+            }
+        }
+
+        let bindings = var_ids
+            .into_iter()
+            .filter_map(|id| {
+                let resolved = self.context.resolve_var(id);
+                if contains_type_var(&resolved) {
+                    None
+                } else {
+                    Some((id, resolved))
+                }
+            })
+            .collect::<HashMap<_, _>>();
+
         if bindings.is_empty() {
             return;
         }
 
-        self.generic_fn_substitutions
+        self.generated_callable_substitutions
             .entry(callee.name.clone())
             .or_default()
             .extend(bindings);
@@ -1979,7 +2010,7 @@ impl TypeInferrer {
 
                 let original_callee = fn_call.callee.clone();
                 fn_call.callee = Rc::new(self.apply_fn_decl(&fn_call.callee)?);
-                self.record_generic_fn_substitutions(&original_callee);
+                self.record_generated_callable_substitutions(&original_callee);
             }
             GenericFnCall(fn_call) => {
                 for arg in &mut fn_call.args.0 {
@@ -1994,7 +2025,7 @@ impl TypeInferrer {
                     .iter()
                     .map(|ty| self.context.apply(ty))
                     .collect();
-                self.record_generic_fn_substitutions(&original_callee);
+                self.record_generated_callable_substitutions(&original_callee);
 
                 if fn_call
                     .generic_args
@@ -2165,10 +2196,10 @@ mod tests {
 
     use kaede_common::LangLinkage;
     use kaede_ir::{
-        expr::{Args, Expr, ExprKind, GenericFnCall, UnresolvedFieldAccess, Variable},
+        expr::{Args, Expr, ExprKind, FnCall, GenericFnCall, UnresolvedFieldAccess, Variable},
         module_path::ModulePath,
         qualified_symbol::QualifiedSymbol,
-        top::{FnDecl, Struct, StructField},
+        top::{FnDecl, Param, Struct, StructField},
         ty::{
             FundamentalTypeKind, GenericInstanceInfo, Mutability, ReferenceType, Ty, TyKind,
             UserDefinedType, UserDefinedTypeKind, make_fundamental_type,
@@ -2193,6 +2224,33 @@ mod tests {
             FundamentalTypeKind::I32,
             Mutability::Not,
         ))
+    }
+
+    fn ptr_ty(pointee_ty: Rc<Ty>) -> Rc<Ty> {
+        Rc::new(Ty {
+            kind: TyKind::Pointer(kaede_ir::ty::PointerType { pointee_ty }).into(),
+            mutability: Mutability::Not,
+        })
+    }
+
+    fn slice_ty(elem_ty: Rc<Ty>) -> Rc<Ty> {
+        Rc::new(Ty {
+            kind: TyKind::Slice(elem_ty).into(),
+            mutability: Mutability::Not,
+        })
+    }
+
+    fn array_ref_ty(elem_ty: Rc<Ty>, len: u32) -> Rc<Ty> {
+        Rc::new(Ty {
+            kind: TyKind::Reference(ReferenceType {
+                refee_ty: Rc::new(Ty {
+                    kind: TyKind::Array((elem_ty, len)).into(),
+                    mutability: Mutability::Not,
+                }),
+            })
+            .into(),
+            mutability: Mutability::Mut,
+        })
     }
 
     fn make_inferrer() -> TypeInferrer {
@@ -2329,11 +2387,72 @@ mod tests {
         inferrer.check_expr(&expr, &i32_ty()).unwrap();
         inferrer.apply_expr(&mut expr).unwrap();
 
-        let substitutions = inferrer.into_generic_fn_substitutions();
+        let substitutions = inferrer.into_generated_callable_substitutions();
         let bindings = substitutions
             .get(&QualifiedSymbol::new(
                 ModulePath::root(),
                 Symbol::from("id".to_owned()),
+            ))
+            .unwrap();
+        assert!(matches!(
+            bindings.get(&0).unwrap().kind.as_ref(),
+            TyKind::Fundamental(fty) if fty.kind == FundamentalTypeKind::I32
+        ));
+    }
+
+    #[test]
+    fn fn_call_records_substitutions_from_decl_type_vars() {
+        let mut inferrer = make_inferrer();
+        let elem_ty = var_ty(0);
+        let receiver_ty = array_ref_ty(i32_ty(), 1);
+        inferrer.register_variable(Symbol::from("buf".to_owned()), receiver_ty.clone());
+
+        let callee = Rc::new(FnDecl {
+            lang_linkage: LangLinkage::Default,
+            link_once: true,
+            name: QualifiedSymbol::new(
+                ModulePath::root(),
+                Symbol::from("slice<_>.as_ptr".to_owned()),
+            ),
+            params: vec![Param {
+                name: Symbol::from("self".to_owned()),
+                ty: slice_ty(elem_ty.clone()),
+                default: None,
+            }],
+            is_c_variadic: false,
+            return_ty: ptr_ty(elem_ty),
+            generic_instance: None,
+        });
+
+        let mut expr = Expr {
+            kind: ExprKind::FnCall(FnCall {
+                callee,
+                args: Args(
+                    vec![Expr {
+                        kind: ExprKind::Variable(Variable {
+                            name: Symbol::from("buf".to_owned()),
+                            ty: receiver_ty.clone(),
+                            span: Span::dummy(),
+                        }),
+                        ty: receiver_ty,
+                        span: Span::dummy(),
+                    }],
+                    Span::dummy(),
+                ),
+                span: Span::dummy(),
+            }),
+            ty: ptr_ty(var_ty(0)),
+            span: Span::dummy(),
+        };
+
+        inferrer.infer_expr(&expr).unwrap();
+        inferrer.apply_expr(&mut expr).unwrap();
+
+        let substitutions = inferrer.into_generated_callable_substitutions();
+        let bindings = substitutions
+            .get(&QualifiedSymbol::new(
+                ModulePath::root(),
+                Symbol::from("slice<_>.as_ptr".to_owned()),
             ))
             .unwrap();
         assert!(matches!(

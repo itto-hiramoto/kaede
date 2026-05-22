@@ -80,7 +80,8 @@ pub struct SemanticAnalyzer {
     infer_context: InferContext,
     closure_capture_stack: Vec<ClosureCapture>,
     temp_symbol_counter: usize,
-    generic_fn_substitutions: HashMap<QualifiedSymbol, HashMap<ir_type::VarId, Rc<ir_type::Ty>>>,
+    generated_callable_substitutions:
+        HashMap<QualifiedSymbol, HashMap<ir_type::VarId, Rc<ir_type::Ty>>>,
     pending_generic_instance: Option<ir_type::GenericInstanceInfo>,
     slice_intrinsic: Option<SliceIntrinsic>,
 }
@@ -333,7 +334,7 @@ impl SemanticAnalyzer {
             infer_context: InferContext::default(),
             closure_capture_stack: Vec::new(),
             temp_symbol_counter: 0,
-            generic_fn_substitutions: HashMap::new(),
+            generated_callable_substitutions: HashMap::new(),
             pending_generic_instance: None,
             slice_intrinsic: None,
         }
@@ -360,7 +361,7 @@ impl SemanticAnalyzer {
             infer_context: InferContext::default(),
             closure_capture_stack: Vec::new(),
             temp_symbol_counter: 0,
-            generic_fn_substitutions: HashMap::new(),
+            generated_callable_substitutions: HashMap::new(),
             slice_intrinsic: None,
             pending_generic_instance: None,
         }
@@ -661,12 +662,12 @@ impl SemanticAnalyzer {
         compile_unit
     }
 
-    fn merge_generic_fn_substitutions(
+    fn merge_generated_callable_substitutions(
         &mut self,
         substitutions: HashMap<QualifiedSymbol, HashMap<ir_type::VarId, Rc<ir_type::Ty>>>,
     ) {
         for (name, subst) in substitutions {
-            self.generic_fn_substitutions
+            self.generated_callable_substitutions
                 .entry(name)
                 .or_default()
                 .extend(subst);
@@ -688,13 +689,13 @@ impl SemanticAnalyzer {
         self.pending_generic_instance.clone()
     }
 
-    fn apply_substitutions_to_generated_generic_functions(&mut self) {
-        if self.generic_fn_substitutions.is_empty() {
+    fn apply_substitutions_to_generated_generics(&mut self) {
+        if self.generated_callable_substitutions.is_empty() {
             return;
         }
 
         let global_subst = self
-            .generic_fn_substitutions
+            .generated_callable_substitutions
             .values()
             .flat_map(|m| m.iter())
             .map(|(k, v)| (*k, v.clone()))
@@ -711,7 +712,7 @@ impl SemanticAnalyzer {
                             substituter.apply_block(body);
                         }
                     }
-                    if let Some(subst) = self.generic_fn_substitutions.get(&fn_.decl.name) {
+                    if let Some(subst) = self.generated_callable_substitutions.get(&fn_.decl.name) {
                         let substituter = GenericSubstituter::new(subst);
                         substituter.apply_fn_decl(&mut fn_.decl);
                         if let Some(body) = &mut fn_.body {
@@ -745,7 +746,9 @@ impl SemanticAnalyzer {
                                 substituter.apply_block(body);
                             }
                         }
-                        if let Some(subst) = self.generic_fn_substitutions.get(&method.decl.name) {
+                        if let Some(subst) =
+                            self.generated_callable_substitutions.get(&method.decl.name)
+                        {
                             let substituter = GenericSubstituter::new(subst);
                             substituter.apply_fn_decl(&mut method.decl);
                             if let Some(body) = &mut method.body {
@@ -1193,7 +1196,9 @@ impl SemanticAnalyzer {
 
         // Apply inferred types back to the IR
         inferrer.apply_block(body)?;
-        self.merge_generic_fn_substitutions(inferrer.into_generic_fn_substitutions());
+        self.merge_generated_callable_substitutions(
+            inferrer.into_generated_callable_substitutions(),
+        );
 
         Ok(())
     }
@@ -1237,7 +1242,9 @@ impl SemanticAnalyzer {
         }
 
         inferrer.apply_block(body)?;
-        self.merge_generic_fn_substitutions(inferrer.into_generic_fn_substitutions());
+        self.merge_generated_callable_substitutions(
+            inferrer.into_generated_callable_substitutions(),
+        );
 
         Ok(())
     }
@@ -1309,7 +1316,7 @@ impl SemanticAnalyzer {
             self.build_main_function(&mut top_level_irs)?;
         }
 
-        self.apply_substitutions_to_generated_generic_functions();
+        self.apply_substitutions_to_generated_generics();
         self.infer_generated_generic_bodies_after_substitution()?;
 
         Ok(

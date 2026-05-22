@@ -577,6 +577,13 @@ impl GenericInstanceInfo {
     }
 }
 
+pub fn collect_type_var_ids_in_order(ty: &Rc<Ty>) -> Vec<VarId> {
+    let mut out = Vec::new();
+    let mut seen = HashSet::new();
+    collect_type_var_ids(ty, &mut out, &mut seen);
+    out
+}
+
 fn collect_type_var_ids(ty: &Rc<Ty>, out: &mut Vec<VarId>, seen: &mut HashSet<VarId>) {
     match ty.kind.as_ref() {
         TyKind::Var(id) => {
