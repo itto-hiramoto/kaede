@@ -1,0 +1,43 @@
+// Shared comparison primitives.
+//
+// `Ordering` mirrors Rust's result type for total ordering: callers can match
+// on the result instead of relying on magic integer values such as -1, 0, and 1.
+export enum Ordering {
+    Less,
+    Equal,
+    Greater,
+}
+
+// Types implementing `Ord` provide a total ordering against values of the same
+// concrete type. Implementations write the concrete type for `other`; the
+// compiler substitutes the interface name with the implementing type when
+// checking generic bounds.
+export interface Ord {
+    fun compare(self, other: Ord) -> Ordering
+}
+
+impl [u8] {
+    // Compares byte slices lexicographically. Bytes are compared first; when
+    // one slice is a prefix of the other, the shorter slice sorts first.
+    export fun compare(self, other: [u8]) -> Ordering {
+        let n = if self.len() < other.len() { self.len() } else { other.len() }
+        let mut i = 0
+        while i < n {
+            if self[i] < other[i] {
+                return Ordering::Less
+            }
+            if self[i] > other[i] {
+                return Ordering::Greater
+            }
+            i += 1
+        }
+
+        if self.len() < other.len() {
+            return Ordering::Less
+        }
+        if self.len() > other.len() {
+            return Ordering::Greater
+        }
+        return Ordering::Equal
+    }
+}
