@@ -64,12 +64,16 @@ pub struct AnalyzeOptions {
 pub struct SliceIntrinsic {
     pub impl_info: GenericImplInfo,
     pub defining_module: ModulePath,
+    /// Synthetic origin for `GenericInstanceInfo` on generated slice method declarations.
+    pub origin: QualifiedSymbol,
 }
 
 pub struct SemanticAnalyzer {
     modules: HashMap<ModulePath, ModuleContext>,
     context: AnalysisContext,
     generated_generics: Vec<ir::top::TopLevel>,
+    // Generated impl method bodies are emitted lazily when a method declaration is referenced.
+    generated_impl_method_bodies: HashSet<QualifiedSymbol>,
     generating_generics: HashSet<Symbol>,
     imported_module_paths: HashSet<PathBuf>,
     imported_rust_crates: HashSet<Symbol>,
@@ -80,7 +84,8 @@ pub struct SemanticAnalyzer {
     infer_context: InferContext,
     closure_capture_stack: Vec<ClosureCapture>,
     temp_symbol_counter: usize,
-    generic_fn_substitutions: HashMap<QualifiedSymbol, HashMap<ir_type::VarId, Rc<ir_type::Ty>>>,
+    generated_callable_substitutions:
+        HashMap<QualifiedSymbol, HashMap<ir_type::VarId, Rc<ir_type::Ty>>>,
     pending_generic_instance: Option<ir_type::GenericInstanceInfo>,
     slice_intrinsic: Option<SliceIntrinsic>,
 }
@@ -323,6 +328,7 @@ impl SemanticAnalyzer {
             modules: HashMap::from([(module_path, module_context)]),
             context,
             generated_generics: Vec::new(),
+            generated_impl_method_bodies: HashSet::new(),
             generating_generics: HashSet::new(),
             imported_module_paths: HashSet::new(),
             imported_rust_crates: HashSet::new(),
@@ -333,7 +339,7 @@ impl SemanticAnalyzer {
             infer_context: InferContext::default(),
             closure_capture_stack: Vec::new(),
             temp_symbol_counter: 0,
-            generic_fn_substitutions: HashMap::new(),
+            generated_callable_substitutions: HashMap::new(),
             pending_generic_instance: None,
             slice_intrinsic: None,
         }
@@ -350,6 +356,7 @@ impl SemanticAnalyzer {
             modules: HashMap::from([(module_path, module_context)]),
             context,
             generated_generics: Vec::new(),
+            generated_impl_method_bodies: HashSet::new(),
             generating_generics: HashSet::new(),
             imported_module_paths: HashSet::new(),
             imported_rust_crates: HashSet::new(),
@@ -360,7 +367,7 @@ impl SemanticAnalyzer {
             infer_context: InferContext::default(),
             closure_capture_stack: Vec::new(),
             temp_symbol_counter: 0,
-            generic_fn_substitutions: HashMap::new(),
+            generated_callable_substitutions: HashMap::new(),
             slice_intrinsic: None,
             pending_generic_instance: None,
         }
@@ -653,20 +660,26 @@ impl SemanticAnalyzer {
     fn inject_generated_generics_to_compile_unit(
         &mut self,
         mut compile_unit: ir::CompileUnit,
-    ) -> ir::CompileUnit {
+    ) -> anyhow::Result<ir::CompileUnit> {
         for top_level in self.generated_generics.iter() {
+            if let Some(name) = Self::unresolved_generated_callable_name(top_level) {
+                let name = name.mangle();
+                anyhow::bail!(
+                    "internal compiler error: generated callable `{name}` still has unresolved type variables after inference",
+                );
+            }
             compile_unit.top_levels.push(top_level.clone());
         }
 
-        compile_unit
+        Ok(compile_unit)
     }
 
-    fn merge_generic_fn_substitutions(
+    fn merge_generated_callable_substitutions(
         &mut self,
         substitutions: HashMap<QualifiedSymbol, HashMap<ir_type::VarId, Rc<ir_type::Ty>>>,
     ) {
         for (name, subst) in substitutions {
-            self.generic_fn_substitutions
+            self.generated_callable_substitutions
                 .entry(name)
                 .or_default()
                 .extend(subst);
@@ -688,13 +701,71 @@ impl SemanticAnalyzer {
         self.pending_generic_instance.clone()
     }
 
-    fn apply_substitutions_to_generated_generic_functions(&mut self) {
-        if self.generic_fn_substitutions.is_empty() {
+    fn instantiation_already_registered(
+        instantiations: &[Vec<Rc<ir_type::Ty>>],
+        generic_args: &[Rc<ir_type::Ty>],
+        matches: impl Fn(&[Rc<ir_type::Ty>], &[Rc<ir_type::Ty>]) -> bool,
+    ) -> bool {
+        instantiations
+            .iter()
+            .any(|args| matches(args, generic_args))
+    }
+
+    fn generic_instantiation_already_registered(
+        instantiations: &[Vec<Rc<ir_type::Ty>>],
+        generic_args: &[Rc<ir_type::Ty>],
+    ) -> bool {
+        Self::instantiation_already_registered(
+            instantiations,
+            generic_args,
+            Self::generic_args_match_exactly,
+        )
+    }
+
+    fn generic_args_match_exactly(left: &[Rc<ir_type::Ty>], right: &[Rc<ir_type::Ty>]) -> bool {
+        left.len() == right.len()
+            && left
+                .iter()
+                .zip(right)
+                .all(|(a, b)| match (a.kind.as_ref(), b.kind.as_ref()) {
+                    (ir_type::TyKind::Var(aid), ir_type::TyKind::Var(bid)) => aid == bid,
+                    (ir_type::TyKind::Var(_), _) | (_, ir_type::TyKind::Var(_)) => false,
+                    _ => a.kind == b.kind,
+                })
+    }
+
+    /// Slice monomorphization treats any two unresolved type variables as the same
+    /// instantiation so we only register `slice<_>` method declarations once.
+    fn slice_generic_args_match(left: &[Rc<ir_type::Ty>], right: &[Rc<ir_type::Ty>]) -> bool {
+        left.len() == right.len()
+            && left
+                .iter()
+                .zip(right)
+                .all(|(a, b)| match (a.kind.as_ref(), b.kind.as_ref()) {
+                    (ir_type::TyKind::Var(_), ir_type::TyKind::Var(_)) => true,
+                    (ir_type::TyKind::Var(_), _) | (_, ir_type::TyKind::Var(_)) => false,
+                    _ => a.kind == b.kind,
+                })
+    }
+
+    fn slice_instantiation_already_registered(
+        instantiations: &[Vec<Rc<ir_type::Ty>>],
+        generic_args: &[Rc<ir_type::Ty>],
+    ) -> bool {
+        Self::instantiation_already_registered(
+            instantiations,
+            generic_args,
+            Self::slice_generic_args_match,
+        )
+    }
+
+    fn apply_substitutions_to_generated_generics(&mut self) {
+        if self.generated_callable_substitutions.is_empty() {
             return;
         }
 
         let global_subst = self
-            .generic_fn_substitutions
+            .generated_callable_substitutions
             .values()
             .flat_map(|m| m.iter())
             .map(|(k, v)| (*k, v.clone()))
@@ -711,7 +782,7 @@ impl SemanticAnalyzer {
                             substituter.apply_block(body);
                         }
                     }
-                    if let Some(subst) = self.generic_fn_substitutions.get(&fn_.decl.name) {
+                    if let Some(subst) = self.generated_callable_substitutions.get(&fn_.decl.name) {
                         let substituter = GenericSubstituter::new(subst);
                         substituter.apply_fn_decl(&mut fn_.decl);
                         if let Some(body) = &mut fn_.body {
@@ -745,7 +816,9 @@ impl SemanticAnalyzer {
                                 substituter.apply_block(body);
                             }
                         }
-                        if let Some(subst) = self.generic_fn_substitutions.get(&method.decl.name) {
+                        if let Some(subst) =
+                            self.generated_callable_substitutions.get(&method.decl.name)
+                        {
                             let substituter = GenericSubstituter::new(subst);
                             substituter.apply_fn_decl(&mut method.decl);
                             if let Some(body) = &mut method.body {
@@ -1193,7 +1266,9 @@ impl SemanticAnalyzer {
 
         // Apply inferred types back to the IR
         inferrer.apply_block(body)?;
-        self.merge_generic_fn_substitutions(inferrer.into_generic_fn_substitutions());
+        self.merge_generated_callable_substitutions(
+            inferrer.into_generated_callable_substitutions(),
+        );
 
         Ok(())
     }
@@ -1205,6 +1280,25 @@ impl SemanticAnalyzer {
                 .generic_instance
                 .as_ref()
                 .is_some_and(ir_type::GenericInstanceInfo::contains_type_var)
+    }
+
+    fn unresolved_generated_callable_name(
+        top_level: &ir::top::TopLevel,
+    ) -> Option<QualifiedSymbol> {
+        match top_level {
+            ir::top::TopLevel::Fn(fn_) if Self::fn_decl_has_unresolved_types(&fn_.decl) => {
+                Some(fn_.decl.name.clone())
+            }
+            ir::top::TopLevel::Impl(impl_) => impl_
+                .methods
+                .iter()
+                .find(|method| Self::fn_decl_has_unresolved_types(&method.decl))
+                .map(|method| method.decl.name.clone()),
+            ir::top::TopLevel::Fn(_)
+            | ir::top::TopLevel::Struct(_)
+            | ir::top::TopLevel::Enum(_)
+            | ir::top::TopLevel::Interface(_) => None,
+        }
     }
 
     fn infer_function_body_with_decl(
@@ -1237,7 +1331,9 @@ impl SemanticAnalyzer {
         }
 
         inferrer.apply_block(body)?;
-        self.merge_generic_fn_substitutions(inferrer.into_generic_fn_substitutions());
+        self.merge_generated_callable_substitutions(
+            inferrer.into_generated_callable_substitutions(),
+        );
 
         Ok(())
     }
@@ -1309,13 +1405,11 @@ impl SemanticAnalyzer {
             self.build_main_function(&mut top_level_irs)?;
         }
 
-        self.apply_substitutions_to_generated_generic_functions();
+        self.apply_substitutions_to_generated_generics();
         self.infer_generated_generic_bodies_after_substitution()?;
 
-        Ok(
-            self.inject_generated_generics_to_compile_unit(ir::CompileUnit {
-                top_levels: top_level_irs,
-            }),
-        )
+        self.inject_generated_generics_to_compile_unit(ir::CompileUnit {
+            top_levels: top_level_irs,
+        })
     }
 }

@@ -499,9 +499,14 @@ impl SemanticAnalyzer {
                 }
 
                 ast_type::TyKind::Slice(_) => {
+                    let defining_module = self.current_module_path().clone();
                     self.slice_intrinsic = Some(crate::SliceIntrinsic {
                         impl_info: GenericImplInfo::new(node, resolved_generic_params, span),
-                        defining_module: self.current_module_path().clone(),
+                        defining_module: defining_module.clone(),
+                        origin: QualifiedSymbol::new(
+                            defining_module,
+                            Symbol::from("slice".to_owned()),
+                        ),
                     });
                     return Ok(TopLevelAnalysisResult::GenericTopLevel);
                 }

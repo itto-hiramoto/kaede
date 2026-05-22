@@ -9,7 +9,16 @@ use kaede_symbol::{Ident, Symbol};
 
 use crate::context::AnalyzeCommand;
 use crate::{error::SemanticError, SemanticAnalyzer, TopLevelAnalysisResult};
-use kaede_symbol_table::{GenericKind, ResolvedGenericParams, SymbolTableValueKind};
+use kaede_symbol_table::{
+    GenericImplInfo, GenericKind, ResolvedGenericParams, SymbolTableValueKind,
+};
+
+/// `GenericImplInfo` fields copied for one monomorphization pass (decl or body).
+struct GenericImplSnapshot {
+    generic_params: ast::top::GenericParams,
+    resolved_generic_params: Option<ResolvedGenericParams>,
+    impl_: ast::top::Impl,
+}
 
 struct GenericTypeOps<T> {
     get_generic_params: fn(&T) -> &ast::top::GenericParams,
@@ -20,6 +29,30 @@ struct GenericTypeOps<T> {
 }
 
 impl SemanticAnalyzer {
+    fn generic_impl_info(kind: &GenericKind) -> Option<&GenericImplInfo> {
+        match kind {
+            GenericKind::Struct(info) => info.impl_info.as_ref(),
+            GenericKind::Enum(info) => info.impl_info.as_ref(),
+            GenericKind::Func(_) => None,
+        }
+    }
+
+    fn generic_impl_info_mut(kind: &mut GenericKind) -> Option<&mut GenericImplInfo> {
+        match kind {
+            GenericKind::Struct(info) => info.impl_info.as_mut(),
+            GenericKind::Enum(info) => info.impl_info.as_mut(),
+            GenericKind::Func(_) => None,
+        }
+    }
+
+    fn create_generic_impl_snapshot(impl_info: &GenericImplInfo) -> GenericImplSnapshot {
+        GenericImplSnapshot {
+            generic_params: impl_info.impl_.generic_params.as_ref().unwrap().clone(),
+            resolved_generic_params: impl_info.resolved_generic_params.clone(),
+            impl_: impl_info.impl_.clone(),
+        }
+    }
+
     pub(crate) fn verify_resolved_generic_bounds(
         &self,
         resolved_params: Option<&ResolvedGenericParams>,
@@ -493,6 +526,35 @@ impl SemanticAnalyzer {
         self.create_generic_type_with_args(udt.name, generic_args)
     }
 
+    fn link_once_impl_methods(impl_: &ast::top::Impl) -> Vec<ast::top::TopLevel> {
+        Self::link_once_impl_methods_matching(impl_, |_| true)
+    }
+
+    fn link_once_impl_methods_matching(
+        impl_: &ast::top::Impl,
+        mut include: impl FnMut(&ast::top::Fn) -> bool,
+    ) -> Vec<ast::top::TopLevel> {
+        impl_
+            .items
+            .iter()
+            .filter_map(|method| match &method.kind {
+                ast::top::TopLevelKind::Fn(fn_) if include(fn_) => {
+                    let mut fn_decl = fn_.decl.clone();
+                    fn_decl.link_once = true;
+                    Some(ast::top::TopLevel {
+                        kind: ast::top::TopLevelKind::Fn(ast::top::Fn {
+                            decl: fn_decl,
+                            body: fn_.body.clone(),
+                            span: fn_.span,
+                        }),
+                        span: fn_.span,
+                    })
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
     fn create_generic_type_with_args(
         &mut self,
         name: Ident,
@@ -505,39 +567,27 @@ impl SemanticAnalyzer {
                 span: name.span(),
             })?;
 
-        let borrowed_symbol = symbol.borrow();
+        let module_path = {
+            let borrowed_symbol = symbol.borrow();
 
-        let generic_info = match &borrowed_symbol.kind {
-            SymbolTableValueKind::Generic(generic_info) => generic_info,
-            _ => unreachable!(),
-        };
-
-        self.verify_resolved_generic_bounds(
-            generic_info.resolved_generic_params(),
-            &generic_args,
-            name.span(),
-        )?;
-
-        let module_path = generic_info.module_path.clone();
-
-        self.with_module(module_path.clone(), |analyzer| {
             let generic_info = match &borrowed_symbol.kind {
                 SymbolTableValueKind::Generic(generic_info) => generic_info,
                 _ => unreachable!(),
             };
 
-            // Create the user defined type with the generic arguments
-            let impl_info = match &generic_info.kind {
-                GenericKind::Struct(info) => info.impl_info.as_ref(),
-                GenericKind::Enum(info) => info.impl_info.as_ref(),
-                _ => unreachable!(),
-            };
+            self.verify_resolved_generic_bounds(
+                generic_info.resolved_generic_params(),
+                &generic_args,
+                name.span(),
+            )?;
 
-            // Create methods
-            if impl_info.is_some() {
-                // To avoid borrow checker error
-                drop(borrowed_symbol);
+            generic_info.module_path.clone()
+        };
 
+        self.with_module(module_path.clone(), |analyzer| {
+            // Register method declarations for this generic instantiation. Bodies are emitted
+            // only when a method call actually references one of these declarations.
+            let decl_generation = {
                 let mut borrowed_mut_symbol = symbol.borrow_mut();
 
                 let generic_info = match &mut borrowed_mut_symbol.kind {
@@ -545,117 +595,55 @@ impl SemanticAnalyzer {
                     _ => unreachable!(),
                 };
 
-                let impl_info = match &mut generic_info.kind {
-                    GenericKind::Struct(info) => info.impl_info.as_mut().unwrap(),
-                    GenericKind::Enum(info) => info.impl_info.as_mut().unwrap(),
-                    _ => unreachable!(),
-                };
-
-                // Check if the impl has already been generated for the exact generic arguments.
-                // `Ty` equality treats type vars as wildcards, so we need a stricter comparison here.
-                let already_generated = impl_info.generateds.iter().any(|args| {
-                    args.len() == generic_args.len()
-                        && args.iter().zip(&generic_args).all(|(a, b)| {
-                            match (a.kind.as_ref(), b.kind.as_ref()) {
-                                (ir_type::TyKind::Var(aid), ir_type::TyKind::Var(bid)) => {
-                                    aid == bid
-                                }
-                                (ir_type::TyKind::Var(_), _) | (_, ir_type::TyKind::Var(_)) => {
-                                    false
-                                }
-                                _ => a.kind == b.kind,
-                            }
-                        })
-                });
-
-                if !already_generated {
-                    impl_info.generateds.push(generic_args.clone());
-
-                    let generic_params = impl_info.impl_.generic_params.as_ref().unwrap().clone();
-                    let resolved_generic_params = impl_info.resolved_generic_params.clone();
-
-                    // Check if the length of the generic arguments is the same as the number of generic parameters
-                    if generic_params.len() != generic_args.len() {
-                        return Err(SemanticError::GenericArgumentLengthMismatch {
-                            expected: generic_params.len(),
-                            actual: generic_args.len(),
-                            span: generic_params.span,
-                        }
-                        .into());
-                    }
-
-                    analyzer.verify_resolved_generic_bounds(
-                        resolved_generic_params.as_ref(),
+                if let Some(impl_info) = Self::generic_impl_info_mut(&mut generic_info.kind) {
+                    if Self::generic_instantiation_already_registered(
+                        &impl_info.method_decl_instantiations,
                         &generic_args,
-                        generic_params.span,
-                    )?;
-
-                    let mut impl_ = impl_info.impl_.clone();
-                    impl_.generic_params = None;
-
-                    let mut methods = vec![];
-
-                    // Since the generic function is generated multiple times,
-                    // we need to set link_once to true to avoid errors
-                    for method in impl_.items.iter() {
-                        if let ast::top::TopLevelKind::Fn(fn_) = &method.kind {
-                            let mut fn_decl = fn_.decl.clone();
-                            fn_decl.link_once = true;
-
-                            methods.push(ast::top::TopLevel {
-                                kind: ast::top::TopLevelKind::Fn(ast::top::Fn {
-                                    decl: fn_decl,
-                                    body: fn_.body.clone(),
-                                    span: fn_.span,
-                                }),
-                                span: fn_.span,
-                            });
-                        }
+                    ) {
+                        None
+                    } else {
+                        impl_info
+                            .method_decl_instantiations
+                            .push(generic_args.clone());
+                        Some(Self::create_generic_impl_snapshot(impl_info))
                     }
-
-                    impl_.items = Rc::new(methods);
-
-                    // To avoid borrow checker error
-                    drop(borrowed_mut_symbol);
-
-                    analyzer.with_generic_arguments(
-                        &generic_params,
-                        &generic_args,
-                        |analyzer| {
-                            let generic_instance = ir_type::GenericInstanceInfo::new(
-                                QualifiedSymbol::new(module_path.clone(), name.symbol()),
-                                generic_args.clone(),
-                            );
-                            analyzer.with_analyze_command(
-                                AnalyzeCommand::OnlyFnDeclare,
-                                |analyzer| {
-                                    analyzer.with_pending_generic_instance(
-                                        Some(generic_instance.clone()),
-                                        |analyzer| analyzer.analyze_impl(impl_.clone()),
-                                    )?;
-                                    Ok::<(), anyhow::Error>(())
-                                },
-                            )?;
-
-                            let impl_ir = analyzer.with_analyze_command(
-                                AnalyzeCommand::WithoutFnDeclare,
-                                |analyzer| {
-                                    analyzer.with_pending_generic_instance(
-                                        Some(generic_instance),
-                                        |analyzer| analyzer.analyze_impl(impl_),
-                                    )
-                                },
-                            )?;
-
-                            if let TopLevelAnalysisResult::TopLevel(top_level) = impl_ir {
-                                assert!(matches!(top_level, ir::top::TopLevel::Impl(_)));
-                                analyzer.generated_generics.push(top_level);
-                            }
-
-                            Ok::<(), anyhow::Error>(())
-                        },
-                    )?;
+                } else {
+                    None
                 }
+            };
+
+            if let Some(mut snapshot) = decl_generation {
+                analyzer.verify_generic_argument_length(
+                    &snapshot.generic_params,
+                    &generic_args,
+                    snapshot.generic_params.span,
+                )?;
+
+                analyzer.verify_resolved_generic_bounds(
+                    snapshot.resolved_generic_params.as_ref(),
+                    &generic_args,
+                    snapshot.generic_params.span,
+                )?;
+
+                snapshot.impl_.generic_params = None;
+                snapshot.impl_.items = Rc::new(Self::link_once_impl_methods(&snapshot.impl_));
+
+                analyzer.with_generic_arguments(
+                    &snapshot.generic_params,
+                    &generic_args,
+                    |analyzer| {
+                        analyzer.with_analyze_command(AnalyzeCommand::OnlyFnDeclare, |analyzer| {
+                            analyzer.with_pending_generic_instance(
+                                Some(ir_type::GenericInstanceInfo::new(
+                                    QualifiedSymbol::new(module_path.clone(), name.symbol()),
+                                    generic_args.clone(),
+                                )),
+                                |analyzer| analyzer.analyze_impl(snapshot.impl_),
+                            )?;
+                            Ok::<(), anyhow::Error>(())
+                        })
+                    },
+                )?;
             }
 
             let borrowed_symbol = symbol.borrow();
@@ -683,6 +671,184 @@ impl SemanticAnalyzer {
                 unreachable!()
             }
         })
+    }
+
+    pub(crate) fn ensure_generated_impl_method_body(
+        &mut self,
+        decl: &ir::top::FnDecl,
+    ) -> anyhow::Result<()> {
+        // Generic type instantiation registers method declarations first. Emit the concrete
+        // method body only when the declaration is actually referenced by a call.
+        let Some(instance) = &decl.generic_instance else {
+            return Ok(());
+        };
+
+        if self
+            .slice_intrinsic
+            .as_ref()
+            .is_some_and(|slice| slice.origin == instance.origin)
+        {
+            return self.ensure_slice_impl_method_body(decl, &instance.args);
+        }
+
+        let origin = instance.origin.clone();
+        let generic_args = instance.args.clone();
+
+        if self.generated_impl_method_bodies.contains(&decl.name) {
+            return Ok(());
+        }
+
+        let mut snapshot = {
+            let symbol =
+                self.lookup_qualified_symbol(origin.clone())
+                    .ok_or(SemanticError::Undeclared {
+                        name: origin.symbol(),
+                        span: Span::dummy(),
+                    })?;
+
+            let borrowed_symbol = symbol.borrow();
+            let generic_info = match &borrowed_symbol.kind {
+                SymbolTableValueKind::Generic(generic_info) => generic_info,
+                _ => return Ok(()),
+            };
+
+            let Some(impl_info) = Self::generic_impl_info(&generic_info.kind) else {
+                return Ok(());
+            };
+
+            Self::create_generic_impl_snapshot(impl_info)
+        };
+
+        self.generated_impl_method_bodies.insert(decl.name.clone());
+
+        self.verify_generic_argument_length(
+            &snapshot.generic_params,
+            &generic_args,
+            snapshot.generic_params.span,
+        )?;
+
+        self.verify_resolved_generic_bounds(
+            snapshot.resolved_generic_params.as_ref(),
+            &generic_args,
+            snapshot.generic_params.span,
+        )?;
+
+        let parent_name = self.create_generated_generic_key(origin.symbol(), &generic_args);
+        let target_name = decl.name.symbol();
+        snapshot.impl_.generic_params = None;
+        snapshot.impl_.items = Rc::new(Self::link_once_impl_methods_matching(
+            &snapshot.impl_,
+            |fn_| {
+                self.create_method_key(
+                    parent_name,
+                    fn_.decl.name.symbol(),
+                    fn_.decl.self_.is_none(),
+                ) == target_name
+            },
+        ));
+
+        if snapshot.impl_.items.is_empty() {
+            anyhow::bail!(
+                "internal compiler error: could not find generated impl method body for `{}`",
+                decl.name.mangle()
+            );
+        }
+
+        let impl_ir = self.with_module(origin.module_path().clone(), |analyzer| {
+            analyzer.with_generic_arguments(&snapshot.generic_params, &generic_args, |analyzer| {
+                analyzer.with_analyze_command(AnalyzeCommand::WithoutFnDeclare, |analyzer| {
+                    analyzer.with_pending_generic_instance(
+                        Some(ir_type::GenericInstanceInfo::new(
+                            origin.clone(),
+                            generic_args.clone(),
+                        )),
+                        |analyzer| analyzer.analyze_impl(snapshot.impl_),
+                    )
+                })
+            })
+        })?;
+
+        if let TopLevelAnalysisResult::TopLevel(top_level) = impl_ir {
+            assert!(matches!(top_level, ir::top::TopLevel::Impl(_)));
+            self.generated_generics.push(top_level);
+        }
+
+        Ok(())
+    }
+
+    fn ensure_slice_impl_method_body(
+        &mut self,
+        decl: &ir::top::FnDecl,
+        generic_args: &[Rc<ir_type::Ty>],
+    ) -> anyhow::Result<()> {
+        if self.generated_impl_method_bodies.contains(&decl.name) {
+            return Ok(());
+        }
+
+        let (defining_module, slice_origin, mut snapshot) = {
+            let Some(slice) = self.slice_intrinsic.as_ref() else {
+                return Ok(());
+            };
+            (
+                slice.defining_module.clone(),
+                slice.origin.clone(),
+                Self::create_generic_impl_snapshot(&slice.impl_info),
+            )
+        };
+
+        let generic_params = snapshot.generic_params.clone();
+        let resolved_generic_params = snapshot.resolved_generic_params.clone();
+
+        self.generated_impl_method_bodies.insert(decl.name.clone());
+
+        self.verify_generic_argument_length(&generic_params, generic_args, generic_params.span)?;
+        self.verify_resolved_generic_bounds(
+            resolved_generic_params.as_ref(),
+            generic_args,
+            generic_params.span,
+        )?;
+
+        let parent_name = self.slice_method_parent_name(&generic_args[0]);
+        let target_name = decl.name.symbol();
+        snapshot.impl_.generic_params = None;
+        snapshot.impl_.items = Rc::new(Self::link_once_impl_methods_matching(
+            &snapshot.impl_,
+            |fn_| {
+                self.create_method_key(
+                    parent_name,
+                    fn_.decl.name.symbol(),
+                    fn_.decl.self_.is_none(),
+                ) == target_name
+            },
+        ));
+
+        if snapshot.impl_.items.is_empty() {
+            anyhow::bail!(
+                "internal compiler error: could not find generated slice impl method body for `{}`",
+                decl.name.mangle()
+            );
+        }
+
+        let impl_ir = self.with_root_module_and_fallback(defining_module, |analyzer| {
+            analyzer.with_generic_arguments(&generic_params, generic_args, |analyzer| {
+                analyzer.with_analyze_command(AnalyzeCommand::WithoutFnDeclare, |analyzer| {
+                    analyzer.with_pending_generic_instance(
+                        Some(ir_type::GenericInstanceInfo::new(
+                            slice_origin,
+                            generic_args.to_vec(),
+                        )),
+                        |analyzer| analyzer.analyze_impl(snapshot.impl_),
+                    )
+                })
+            })
+        })?;
+
+        if let TopLevelAnalysisResult::TopLevel(top_level) = impl_ir {
+            assert!(matches!(top_level, ir::top::TopLevel::Impl(_)));
+            self.generated_generics.push(top_level);
+        }
+
+        Ok(())
     }
 
     pub fn analyze_user_defined_type(
@@ -847,8 +1013,6 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<ir_type::Ty> {
         let elem_ty = self.analyze_type(elem_ty)?;
 
-        self.generate_slice_impl(elem_ty.clone())?;
-
         Ok(ir_type::Ty {
             kind: ir_type::TyKind::Slice(elem_ty).into(),
             mutability,
@@ -863,21 +1027,15 @@ impl SemanticAnalyzer {
 
         let generic_args = vec![elem_ty.clone()];
 
-        let already_generated = slice.impl_info.generateds.iter().any(|args| {
-            args.len() == generic_args.len()
-                && args.iter().zip(&generic_args).all(|(a, b)| {
-                    match (a.kind.as_ref(), b.kind.as_ref()) {
-                        (ir_type::TyKind::Var(_), ir_type::TyKind::Var(_)) => true,
-                        (ir_type::TyKind::Var(_), _) | (_, ir_type::TyKind::Var(_)) => false,
-                        _ => a.kind == b.kind,
-                    }
-                })
-        });
-        if already_generated {
+        if Self::slice_instantiation_already_registered(
+            &slice.impl_info.method_decl_instantiations,
+            &generic_args,
+        ) {
             return Ok(());
         }
 
         let defining_module = slice.defining_module.clone();
+        let slice_origin = slice.origin.clone();
         let generic_params = slice
             .impl_info
             .impl_
@@ -899,47 +1057,26 @@ impl SemanticAnalyzer {
             .as_mut()
             .unwrap()
             .impl_info
-            .generateds
+            .method_decl_instantiations
             .push(generic_args.clone());
 
         impl_ast.generic_params = None;
+        impl_ast.items = Rc::new(Self::link_once_impl_methods(&impl_ast));
 
-        let methods = impl_ast
-            .items
-            .iter()
-            .filter_map(|method| match &method.kind {
-                ast::top::TopLevelKind::Fn(fn_) => {
-                    let mut fn_decl = fn_.decl.clone();
-                    fn_decl.link_once = true;
-                    Some(ast::top::TopLevel {
-                        kind: ast::top::TopLevelKind::Fn(ast::top::Fn {
-                            decl: fn_decl,
-                            body: fn_.body.clone(),
-                            span: fn_.span,
-                        }),
-                        span: fn_.span,
-                    })
-                }
-                _ => None,
-            })
-            .collect();
-        impl_ast.items = Rc::new(methods);
-
-        // Fallback to the module that declared `impl<T>[T]` so method bodies can still
-        // reference symbols declared alongside the impl block — which the root module
-        // has no view of.
-        let impl_ir = self.with_root_module_and_fallback(defining_module, |analyzer| {
+        // Register method declarations only; bodies are emitted on demand at call sites.
+        self.with_root_module_and_fallback(defining_module, |analyzer| {
             analyzer.with_generic_arguments(&generic_params, &generic_args, |analyzer| {
-                analyzer.with_analyze_command(AnalyzeCommand::NoCommand, |analyzer| {
-                    analyzer.analyze_impl(impl_ast.clone())
+                analyzer.with_analyze_command(AnalyzeCommand::OnlyFnDeclare, |analyzer| {
+                    analyzer.with_pending_generic_instance(
+                        Some(ir_type::GenericInstanceInfo::new(
+                            slice_origin,
+                            generic_args.clone(),
+                        )),
+                        |analyzer| analyzer.analyze_impl(impl_ast),
+                    )
                 })
             })
         })?;
-
-        if let TopLevelAnalysisResult::TopLevel(top_level) = impl_ir {
-            assert!(matches!(top_level, ir::top::TopLevel::Impl(_)));
-            self.generated_generics.push(top_level);
-        }
 
         Ok(())
     }
