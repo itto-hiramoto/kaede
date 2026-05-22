@@ -741,6 +741,161 @@ fn private_use_is_still_visible_locally() -> anyhow::Result<()> {
 // `analyze_use` (the old code marked every `use` as Public to keep this path
 // working; the new code must rely on same-module private lookup instead).
 #[test]
+fn import_exported_top_level_const() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "exported_top_level_const",
+        modules: HashMap::from([(
+            "constants",
+            r#"
+                export const PAGE_SIZE: u64 = 4096
+                export const LEAF: u16 = 2
+            "#,
+        )]),
+        main_content: r#"
+            import constants
+            fun main() -> i32 {
+                let page: u64 = constants.PAGE_SIZE
+                let kind: u16 = constants.LEAF
+                if page != constants.PAGE_SIZE {
+                    return 0
+                }
+                return kind as i32
+            }
+        "#,
+        expected_min_top_levels: 2,
+        should_fail: false,
+    }
+    .run()
+}
+
+#[test]
+fn import_top_level_const_via_use() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "top_level_const_via_use",
+        modules: HashMap::from([("constants", "export const ANSWER: i32 = 42")]),
+        main_content: r#"
+            import constants
+            use constants.ANSWER
+            fun main() -> i32 {
+                return ANSWER
+            }
+        "#,
+        expected_min_top_levels: 2,
+        should_fail: false,
+    }
+    .run()
+}
+
+#[test]
+fn import_top_level_const_arithmetic_in_module() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "top_level_const_arithmetic_in_module",
+        modules: HashMap::from([(
+            "layout",
+            r#"
+                export const BASE: u32 = 2
+                export const LEN: u32 = BASE + 2
+            "#,
+        )]),
+        main_content: r#"
+            import layout
+            fun main() -> i32 {
+                return layout.LEN as i32
+            }
+        "#,
+        expected_min_top_levels: 2,
+        should_fail: false,
+    }
+    .run()
+}
+
+#[test]
+fn import_top_level_const_in_array_repeat_count() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "top_level_const_in_array_repeat_count",
+        modules: HashMap::from([(
+            "layout",
+            r#"
+                export const BASE: u32 = 2
+                export const LEN: u32 = BASE + 2
+            "#,
+        )]),
+        main_content: r#"
+            import layout
+            fun main() -> i32 {
+                let xs = [0; layout.LEN]
+                return xs[3]
+            }
+        "#,
+        expected_min_top_levels: 2,
+        should_fail: false,
+    }
+    .run()
+}
+
+#[test]
+fn import_private_top_level_const_in_array_repeat_fails() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "private_top_level_const_in_array_repeat",
+        modules: HashMap::from([("secrets", "const HIDDEN: u32 = 4")]),
+        main_content: r#"
+            import secrets
+            fun main() -> i32 {
+                let _ = [0; secrets.HIDDEN]
+                return 0
+            }
+        "#,
+        expected_min_top_levels: 0,
+        should_fail: true,
+    }
+    .run()
+}
+
+#[test]
+fn import_private_top_level_const_fails() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "private_top_level_const",
+        modules: HashMap::from([("secrets", "const HIDDEN: i32 = 99")]),
+        main_content: r#"
+            import secrets
+            fun main() -> i32 {
+                return secrets.HIDDEN
+            }
+        "#,
+        expected_min_top_levels: 0,
+        should_fail: true,
+    }
+    .run()
+}
+
+#[test]
+fn export_use_reexports_top_level_const() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "export_use_top_level_const",
+        modules: HashMap::from([
+            ("provider", "export const FLAG: u16 = 7"),
+            (
+                "middle",
+                r#"
+                import provider
+                export use provider.FLAG
+            "#,
+            ),
+        ]),
+        main_content: r#"
+            import middle
+            fun main() -> i32 {
+                let flag: u16 = middle.FLAG
+                return flag as i32
+            }
+        "#,
+        expected_min_top_levels: 2,
+        should_fail: false,
+    }
+    .run()
+}
+
+#[test]
 fn private_use_is_reachable_from_generic_body() -> anyhow::Result<()> {
     ImportTestCase {
         name: "private_use_is_reachable_from_generic_body",

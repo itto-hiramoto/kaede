@@ -263,6 +263,10 @@ impl ModuleContext {
         self.symbol_table_stack.len()
     }
 
+    /// Look up `symbol` and return the binding plus its scope depth.
+    ///
+    /// Depth is the index in `symbol_table_stack` (0 = module root, 1+ = function/closure scopes).
+    /// Private module items also report depth 0.
     pub fn lookup_symbol_with_depth(
         &self,
         symbol: &Symbol,

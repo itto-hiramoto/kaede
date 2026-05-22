@@ -223,6 +223,15 @@ pub struct TypeAlias {
     pub span: Span,
 }
 
+#[derive(Debug, Clone)]
+pub struct TopConst {
+    pub vis: Visibility,
+    pub name: Ident,
+    pub ty: Rc<Ty>,
+    pub init: Rc<Expr>,
+    pub span: Span,
+}
+
 #[derive(Debug)]
 pub struct TopLevel {
     pub kind: TopLevelKind,
@@ -240,4 +249,5 @@ pub enum TopLevelKind {
     Use(Use),
     TypeAlias(TypeAlias),
     Interface(Interface),
+    Const(TopConst),
 }

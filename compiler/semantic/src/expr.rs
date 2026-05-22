@@ -4237,6 +4237,21 @@ impl SemanticAnalyzer {
         primary
             .or(fallback)
             .map(|(value, depth)| match &value.borrow().kind {
+                // `depth` is the index in `symbol_table_stack` where the name was found.
+                // 0 = module root (`insert_symbol_to_root_scope`): top-level `const`, `fun`, etc.
+                // 1+ = inner scopes (function params/body, closures): local `const` lowers to `Let`
+                // and must stay `Variable`. Top-level const has no stack slot, so inline it here.
+                SymbolTableValueKind::Variable(VariableInfo {
+                    ty,
+                    is_const: true,
+                    const_value: Some(kaede_symbol_table::ConstValue::Integer(value)),
+                    ..
+                }) if depth == 0 => self
+                    .inline_top_level_const_int(*value, ty, node.span())
+                    .ok_or(SemanticError::Undeclared {
+                        name: node.symbol(),
+                        span: node.span(),
+                    }),
                 SymbolTableValueKind::Variable(VariableInfo { ty, .. }) => {
                     self.register_capture(node.symbol(), depth);
                     Ok(ir::expr::Expr {

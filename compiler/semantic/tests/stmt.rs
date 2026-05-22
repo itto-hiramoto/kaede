@@ -112,3 +112,57 @@ fn local_const_rejects_assignment() -> anyhow::Result<()> {
     )?;
     Ok(())
 }
+
+#[test]
+fn top_level_const() -> anyhow::Result<()> {
+    semantic_analyze(
+        "const BNODE_LEAF: u16 = 2
+
+        fun main() -> i32 {
+            let kind: u16 = BNODE_LEAF
+            return kind as i32
+        }
+    ",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn top_level_const_arithmetic() -> anyhow::Result<()> {
+    semantic_analyze(
+        "const BASE: u32 = 2
+        const LEN: u32 = BASE + 2
+
+        fun f() {
+            let _ = [0; LEN]
+        }
+    ",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn top_level_const_rejects_runtime_initializer() -> anyhow::Result<()> {
+    semantic_analyze_expect_error(
+        "fun value() -> i32 {
+            return 1
+        }
+
+        const X: i32 = value()
+    ",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn top_level_const_rejects_assignment() -> anyhow::Result<()> {
+    semantic_analyze_expect_error(
+        "const X: i32 = 1
+
+        fun f() {
+            X = 2
+        }
+    ",
+    )?;
+    Ok(())
+}
