@@ -701,13 +701,25 @@ impl SemanticAnalyzer {
         self.pending_generic_instance.clone()
     }
 
-    fn generated_args_contain(
+    fn instantiation_already_registered(
         instantiations: &[Vec<Rc<ir_type::Ty>>],
         generic_args: &[Rc<ir_type::Ty>],
+        matches: impl Fn(&[Rc<ir_type::Ty>], &[Rc<ir_type::Ty>]) -> bool,
     ) -> bool {
         instantiations
             .iter()
-            .any(|args| Self::generic_args_match_exactly(args, generic_args))
+            .any(|args| matches(args, generic_args))
+    }
+
+    fn generic_instantiation_already_registered(
+        instantiations: &[Vec<Rc<ir_type::Ty>>],
+        generic_args: &[Rc<ir_type::Ty>],
+    ) -> bool {
+        Self::instantiation_already_registered(
+            instantiations,
+            generic_args,
+            Self::generic_args_match_exactly,
+        )
     }
 
     fn generic_args_match_exactly(left: &[Rc<ir_type::Ty>], right: &[Rc<ir_type::Ty>]) -> bool {
@@ -740,9 +752,11 @@ impl SemanticAnalyzer {
         instantiations: &[Vec<Rc<ir_type::Ty>>],
         generic_args: &[Rc<ir_type::Ty>],
     ) -> bool {
-        instantiations
-            .iter()
-            .any(|args| Self::slice_generic_args_match(args, generic_args))
+        Self::instantiation_already_registered(
+            instantiations,
+            generic_args,
+            Self::slice_generic_args_match,
+        )
     }
 
     fn apply_substitutions_to_generated_generics(&mut self) {

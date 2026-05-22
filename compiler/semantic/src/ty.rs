@@ -595,7 +595,7 @@ impl SemanticAnalyzer {
                 };
 
                 if let Some(impl_info) = Self::generic_impl_info_mut(&mut generic_info.kind) {
-                    if Self::generated_args_contain(
+                    if Self::generic_instantiation_already_registered(
                         &impl_info.method_decl_instantiations,
                         &generic_args,
                     ) {
