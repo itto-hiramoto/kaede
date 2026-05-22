@@ -810,6 +810,48 @@ fn import_top_level_const_arithmetic_in_module() -> anyhow::Result<()> {
 }
 
 #[test]
+fn import_top_level_const_in_array_repeat_count() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "top_level_const_in_array_repeat_count",
+        modules: HashMap::from([(
+            "layout",
+            r#"
+                export const BASE: u32 = 2
+                export const LEN: u32 = BASE + 2
+            "#,
+        )]),
+        main_content: r#"
+            import layout
+            fun main() -> i32 {
+                let xs = [0; layout.LEN]
+                return xs[3]
+            }
+        "#,
+        expected_min_top_levels: 2,
+        should_fail: false,
+    }
+    .run()
+}
+
+#[test]
+fn import_private_top_level_const_in_array_repeat_fails() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "private_top_level_const_in_array_repeat",
+        modules: HashMap::from([("secrets", "const HIDDEN: u32 = 4")]),
+        main_content: r#"
+            import secrets
+            fun main() -> i32 {
+                let _ = [0; secrets.HIDDEN]
+                return 0
+            }
+        "#,
+        expected_min_top_levels: 0,
+        should_fail: true,
+    }
+    .run()
+}
+
+#[test]
 fn import_private_top_level_const_fails() -> anyhow::Result<()> {
     ImportTestCase {
         name: "private_top_level_const",

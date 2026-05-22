@@ -3,11 +3,58 @@ use std::rc::Rc;
 use kaede_ast as ast;
 use kaede_ir::{self as ir, ty as ir_type};
 use kaede_span::Span;
-use kaede_symbol_table::{ConstValue, SymbolTableValueKind};
+use kaede_symbol_table::{ConstValue, SymbolTableValue, SymbolTableValueKind};
 
 use crate::SemanticAnalyzer;
 
 impl SemanticAnalyzer {
+    fn const_integer_from_symbol(value: &SymbolTableValue) -> Option<i128> {
+        match &value.kind {
+            SymbolTableValueKind::Variable(info) if info.is_const => info
+                .const_value
+                .as_ref()
+                .map(|ConstValue::Integer(value)| *value),
+            _ => None,
+        }
+    }
+
+    /// Resolve `module.path.CONST` / `module::CONST` to an exported top-level integer const.
+    fn evaluate_imported_module_const_expr(&self, node: &ast::expr::Binary) -> Option<i128> {
+        use ast::expr::BinaryKind;
+
+        let ast::expr::ExprKind::Ident(const_name) = &node.rhs.kind else {
+            return None;
+        };
+
+        let mut module_segments = Vec::new();
+        match node.kind {
+            BinaryKind::Access => node.lhs.collect_access_chain(&mut module_segments),
+            BinaryKind::ScopeResolution => node
+                .lhs
+                .collect_scope_resolution_chain(&mut module_segments),
+            _ => return None,
+        }
+
+        if module_segments.is_empty() {
+            return None;
+        }
+
+        let (_, module_path) = self
+            .create_module_path_from_access_chain(
+                &module_segments
+                    .iter()
+                    .map(|ident| ident.symbol())
+                    .collect::<Vec<_>>(),
+                node.lhs.span,
+            )
+            .ok()?;
+
+        let module = self.modules.get(&module_path)?;
+        let value = module.lookup_public_symbol(&const_name.symbol())?;
+        let borrowed = value.borrow();
+        Self::const_integer_from_symbol(&borrowed)
+    }
+
     pub(crate) fn is_const_initializer(&self, expr: &ast::expr::Expr) -> bool {
         use ast::expr::{BinaryKind, ExprKind};
 
@@ -34,7 +81,7 @@ impl SemanticAnalyzer {
 
             ExprKind::Binary(node) => {
                 if matches!(node.kind, BinaryKind::Access | BinaryKind::ScopeResolution) {
-                    return false;
+                    return self.evaluate_imported_module_const_expr(node).is_some();
                 }
 
                 if matches!(node.kind, BinaryKind::Cast) {
@@ -72,6 +119,10 @@ impl SemanticAnalyzer {
             ExprKind::BitNot(node) => self.evaluate_integer_const_expr(&node.operand).map(|v| !v),
 
             ExprKind::Binary(node) => {
+                if matches!(node.kind, BinaryKind::Access | BinaryKind::ScopeResolution) {
+                    return self.evaluate_imported_module_const_expr(node);
+                }
+
                 if matches!(node.kind, BinaryKind::Cast) {
                     return self.evaluate_integer_const_expr(&node.lhs);
                 }
