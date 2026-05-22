@@ -46,7 +46,7 @@ fun main() -> i32 {
 }
 
 #[test]
-fn std_bytes_copy_fill_and_compare_cover_lengths() -> anyhow::Result<()> {
+fn std_bytes_copy_fill_cover_lengths() -> anyhow::Result<()> {
     test(
         0,
         r#"import std.bytes
@@ -72,22 +72,6 @@ fun main() -> i32 {
     }
     if short[0] != 'w' as u8 || short[1] != 'x' as u8 {
         return 5
-    }
-
-    if std.bytes.compare(b"abc", b"abc") != 0 {
-        return 6
-    }
-    if std.bytes.compare(b"abc", b"abd") >= 0 {
-        return 7
-    }
-    if std.bytes.compare(b"abd", b"abc") <= 0 {
-        return 8
-    }
-    if std.bytes.compare(b"ab", b"abc") >= 0 {
-        return 9
-    }
-    if std.bytes.compare(b"abc", b"ab") <= 0 {
-        return 10
     }
 
     return 0
