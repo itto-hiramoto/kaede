@@ -64,8 +64,8 @@ pub struct AnalyzeOptions {
 pub struct SliceIntrinsic {
     pub impl_info: GenericImplInfo,
     pub defining_module: ModulePath,
-    // Slice impl bodies are emitted eagerly when slice methods are needed.
-    pub generated_args: Vec<Vec<Rc<ir_type::Ty>>>,
+    /// Synthetic origin for `GenericInstanceInfo` on generated slice method declarations.
+    pub origin: QualifiedSymbol,
 }
 
 pub struct SemanticAnalyzer {
@@ -720,6 +720,29 @@ impl SemanticAnalyzer {
                     (ir_type::TyKind::Var(_), _) | (_, ir_type::TyKind::Var(_)) => false,
                     _ => a.kind == b.kind,
                 })
+    }
+
+    /// Slice monomorphization treats any two unresolved type variables as the same
+    /// instantiation so we only register `slice<_>` method declarations once.
+    fn slice_generic_args_match(left: &[Rc<ir_type::Ty>], right: &[Rc<ir_type::Ty>]) -> bool {
+        left.len() == right.len()
+            && left
+                .iter()
+                .zip(right)
+                .all(|(a, b)| match (a.kind.as_ref(), b.kind.as_ref()) {
+                    (ir_type::TyKind::Var(_), ir_type::TyKind::Var(_)) => true,
+                    (ir_type::TyKind::Var(_), _) | (_, ir_type::TyKind::Var(_)) => false,
+                    _ => a.kind == b.kind,
+                })
+    }
+
+    fn slice_instantiation_already_registered(
+        instantiations: &[Vec<Rc<ir_type::Ty>>],
+        generic_args: &[Rc<ir_type::Ty>],
+    ) -> bool {
+        instantiations
+            .iter()
+            .any(|args| Self::slice_generic_args_match(args, generic_args))
     }
 
     fn apply_substitutions_to_generated_generics(&mut self) {
