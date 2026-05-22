@@ -6,8 +6,8 @@ use std::{
 
 use crate::{context::AnalyzeCommand, rust_import, SemanticAnalyzer, SemanticError};
 use kaede_symbol_table::{
-    GenericEnumInfo, GenericFuncInfo, GenericImplInfo, GenericInfo, GenericKind, GenericStructInfo,
-    ResolvedGenericParam, ResolvedGenericParams, SymbolTable, SymbolTableValue,
+    ConstValue, GenericEnumInfo, GenericFuncInfo, GenericImplInfo, GenericInfo, GenericKind,
+    GenericStructInfo, ResolvedGenericParam, ResolvedGenericParams, SymbolTable, SymbolTableValue,
     SymbolTableValueKind, VariableInfo,
 };
 
@@ -48,6 +48,7 @@ impl SemanticAnalyzer {
             TopLevelKind::Use(node) => self.analyze_use(node),
             TopLevelKind::TypeAlias(node) => self.analyze_type_alias(node),
             TopLevelKind::Interface(node) => self.analyze_interface(node),
+            TopLevelKind::Const(node) => self.analyze_top_const(node),
         }
     }
 
@@ -231,6 +232,7 @@ impl SemanticAnalyzer {
         self.with_module(module_path.clone(), |analyzer| {
             let mut results = vec![];
             let mut top_levels = Vec::new();
+            let mut top_level_consts = Vec::new();
             let mut explicit_main_span = None;
 
             for item in parsed_module.items {
@@ -239,7 +241,11 @@ impl SemanticAnalyzer {
                         if explicit_main_span.is_none() {
                             explicit_main_span = Self::find_explicit_main_span(&top_level);
                         }
-                        top_levels.push(top_level);
+                        if matches!(top_level.kind, ast::top::TopLevelKind::Const(_)) {
+                            top_level_consts.push(top_level);
+                        } else {
+                            top_levels.push(top_level);
+                        }
                     }
                     ast::ModuleItem::Stmt(stmt) => {
                         return Err(SemanticError::TopLevelStatementsOnlyAllowedInEntryUnit {
@@ -280,6 +286,11 @@ impl SemanticAnalyzer {
                 )
             });
 
+            let others: Vec<_> = others
+                .into_iter()
+                .filter(|top| !matches!(top.kind, ast::top::TopLevelKind::Const(_)))
+                .collect();
+
             // Analyze all imports.
             for top_level in imports {
                 results.push(analyzer.analyze_top_level(top_level)?);
@@ -292,6 +303,10 @@ impl SemanticAnalyzer {
 
             // Declare all types.
             for top_level in types {
+                results.push(analyzer.analyze_top_level(top_level)?);
+            }
+
+            for top_level in top_level_consts {
                 results.push(analyzer.analyze_top_level(top_level)?);
             }
 
@@ -1037,6 +1052,37 @@ impl SemanticAnalyzer {
         Ok(TopLevelAnalysisResult::TopLevel(
             ir::top::TopLevel::Interface(ir),
         ))
+    }
+
+    pub fn analyze_top_const(
+        &mut self,
+        node: ast::top::TopConst,
+    ) -> anyhow::Result<TopLevelAnalysisResult> {
+        if !self.is_const_initializer(&node.init) {
+            return Err(SemanticError::ConstInitializerNotConst {
+                span: node.init.span,
+            }
+            .into());
+        }
+
+        let annotated = self.analyze_type(&node.ty)?;
+        let _init = self.analyze_expr_with_expected_type(&node.init, annotated.clone())?;
+        let const_ty = ir::ty::change_mutability_dup(annotated, ir::ty::Mutability::Not);
+        let const_value = self
+            .evaluate_integer_const_expr(&node.init)
+            .map(ConstValue::Integer);
+
+        self.insert_symbol_to_root_scope(
+            node.name.symbol(),
+            SymbolTableValue::new(
+                SymbolTableValueKind::Variable(VariableInfo::new_const(const_ty, const_value)),
+                self.current_module_path().clone(),
+            ),
+            node.vis,
+            node.span,
+        )?;
+
+        Ok(TopLevelAnalysisResult::Imported(vec![]))
     }
 
     pub fn analyze_type_alias(

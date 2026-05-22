@@ -415,6 +415,30 @@ fn let_statement() -> anyhow::Result<()> {
 }
 
 #[test]
+fn top_level_const_statement() -> anyhow::Result<()> {
+    let program = r"const BNODE_LEAF: u16 = 2
+
+    fun main() -> i32 {
+        let kind: u16 = BNODE_LEAF
+        return kind as i32
+    }";
+
+    assert_eq!(exec(program)?, 2);
+
+    let program = r"const BASE: u32 = 2
+    const LEN: u32 = BASE + 2
+
+    fun main() -> i32 {
+        let xs = [58; LEN]
+        return xs[3]
+    }";
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
 fn local_const_statement() -> anyhow::Result<()> {
     let program = r"fun main() -> i32 {
         const base: i32 = 48

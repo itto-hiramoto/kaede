@@ -1,4 +1,8 @@
+use std::rc::Rc;
+
 use kaede_ast as ast;
+use kaede_ir::{self as ir, ty as ir_type};
+use kaede_span::Span;
 use kaede_symbol_table::{ConstValue, SymbolTableValueKind};
 
 use crate::SemanticAnalyzer;
@@ -92,5 +96,36 @@ impl SemanticAnalyzer {
 
             _ => None,
         }
+    }
+
+    pub(crate) fn module_const_integer_literal(
+        &self,
+        value: i128,
+        ty: &Rc<ir_type::Ty>,
+        span: Span,
+    ) -> Option<ir::expr::Expr> {
+        let int_kind = match ty.kind.as_ref() {
+            ir_type::TyKind::Fundamental(kind) => match kind.kind {
+                ir_type::FundamentalTypeKind::I8 => ir::expr::IntKind::I8(value as i8),
+                ir_type::FundamentalTypeKind::U8 => ir::expr::IntKind::U8(value as u8),
+                ir_type::FundamentalTypeKind::I16 => ir::expr::IntKind::I16(value as i16),
+                ir_type::FundamentalTypeKind::U16 => ir::expr::IntKind::U16(value as u16),
+                ir_type::FundamentalTypeKind::I32 => ir::expr::IntKind::I32(value as i32),
+                ir_type::FundamentalTypeKind::U32 => ir::expr::IntKind::U32(value as u32),
+                ir_type::FundamentalTypeKind::I64 => ir::expr::IntKind::I64(value as i64),
+                ir_type::FundamentalTypeKind::U64 => ir::expr::IntKind::U64(value as u64),
+                _ => return None,
+            },
+            _ => return None,
+        };
+
+        Some(ir::expr::Expr {
+            kind: ir::expr::ExprKind::Int(ir::expr::Int {
+                kind: int_kind,
+                span,
+            }),
+            ty: ty.clone(),
+            span,
+        })
     }
 }

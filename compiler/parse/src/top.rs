@@ -91,6 +91,11 @@ impl Parser {
                 (kind.span, TopLevelKind::Interface(kind))
             }
 
+            TokenKind::Const => {
+                let kind = self.top_level_const(vis)?;
+                (kind.span, TopLevelKind::Const(kind))
+            }
+
             _ => {
                 return Err(ParseError::ExpectedError {
                     expected: "top-level declaration".to_string(),
@@ -129,7 +134,28 @@ impl Parser {
                 | TokenKind::Use
                 | TokenKind::Type
                 | TokenKind::Interface
+                | TokenKind::Const
         )
+    }
+
+    fn top_level_const(&mut self, vis: Visibility) -> ParseResult<kaede_ast::top::TopConst> {
+        let start = self.consume(&TokenKind::Const).unwrap().start;
+        let name = self.ident()?;
+
+        self.consume(&TokenKind::Colon)?;
+        let ty = self.ty()?;
+
+        self.consume(&TokenKind::Eq)?;
+        let init = self.expr()?;
+        let span = self.new_span(start, init.span.finish);
+
+        Ok(kaede_ast::top::TopConst {
+            vis,
+            name,
+            init: init.into(),
+            ty: ty.into(),
+            span,
+        })
     }
 
     fn type_alias(&mut self, vis: Visibility) -> ParseResult<TypeAlias> {

@@ -166,6 +166,7 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<()> {
         let current_module_path = self.current_module_path().clone();
         let mut top_levels = Vec::new();
+        let mut top_level_consts = Vec::new();
         let mut top_level_statements = Vec::new();
         let mut explicit_main_span = None;
 
@@ -175,7 +176,11 @@ impl SemanticAnalyzer {
                     if explicit_main_span.is_none() {
                         explicit_main_span = Self::find_explicit_main_span(&top_level);
                     }
-                    top_levels.push(top_level);
+                    if matches!(top_level.kind, ast::top::TopLevelKind::Const(_)) {
+                        top_level_consts.push(top_level);
+                    } else {
+                        top_levels.push(top_level);
+                    }
                 }
                 ast::ModuleItem::Stmt(stmt) => top_level_statements.push(stmt),
             }
@@ -226,6 +231,11 @@ impl SemanticAnalyzer {
             .into_iter()
             .partition(|top| matches!(top.kind, ast::top::TopLevelKind::Use(_)));
 
+        let others: Vec<_> = others
+            .into_iter()
+            .filter(|top| !matches!(top.kind, ast::top::TopLevelKind::Const(_)))
+            .collect();
+
         // Analyze all imports.
         for top_level in imports {
             if let TopLevelAnalysisResult::Imported(imported_irs) =
@@ -264,6 +274,17 @@ impl SemanticAnalyzer {
                 }
                 TopLevelAnalysisResult::GenericTopLevel => {}
                 TopLevelAnalysisResult::Imported(_) => {}
+            }
+        }
+
+        // Register module constants in source order so later consts can refer to earlier ones.
+        for top_level in top_level_consts {
+            if let TopLevelAnalysisResult::Imported(imported_irs) =
+                self.analyze_top_level(top_level)?
+            {
+                assert!(imported_irs.is_empty());
+            } else {
+                unreachable!()
             }
         }
 

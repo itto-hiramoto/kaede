@@ -4237,6 +4237,17 @@ impl SemanticAnalyzer {
         primary
             .or(fallback)
             .map(|(value, depth)| match &value.borrow().kind {
+                SymbolTableValueKind::Variable(VariableInfo {
+                    ty,
+                    is_const: true,
+                    const_value: Some(kaede_symbol_table::ConstValue::Integer(value)),
+                    ..
+                }) if depth == 0 => self.module_const_integer_literal(*value, ty, node.span()).ok_or(
+                    SemanticError::Undeclared {
+                        name: node.symbol(),
+                        span: node.span(),
+                    },
+                ),
                 SymbolTableValueKind::Variable(VariableInfo { ty, .. }) => {
                     self.register_capture(node.symbol(), depth);
                     Ok(ir::expr::Expr {
