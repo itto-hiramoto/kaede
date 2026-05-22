@@ -27,6 +27,28 @@ fn write_rust_import_crate(root_dir: &Path, crate_name: &str, lib_src: &str) -> 
 }
 
 #[test]
+fn import_top_level_const() -> anyhow::Result<()> {
+    let tempdir = assert_fs::TempDir::new()?;
+
+    let constants = tempdir.child("constants.kd");
+    constants.write_str(
+        r#"export const BASE: u32 = 48
+        export const OFFSET: u32 = 10
+        export const SUM: u32 = BASE + OFFSET"#,
+    )?;
+
+    let main = tempdir.child("main.kd");
+    main.write_str(
+        r#"import constants
+        fun main() -> i32 {
+            return constants.SUM as i32
+        }"#,
+    )?;
+
+    test(58, &[constants.path(), main.path()], &tempdir)
+}
+
+#[test]
 fn import_functions() -> anyhow::Result<()> {
     let tempdir = assert_fs::TempDir::new()?;
 
