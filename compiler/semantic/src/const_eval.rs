@@ -98,7 +98,8 @@ impl SemanticAnalyzer {
         }
     }
 
-    pub(crate) fn module_const_integer_literal(
+    /// Build a typed integer literal for a top-level `const` referenced at a use site.
+    pub(crate) fn inline_top_level_const_int(
         &self,
         value: i128,
         ty: &Rc<ir_type::Ty>,
