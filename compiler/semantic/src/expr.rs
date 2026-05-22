@@ -286,6 +286,8 @@ impl SemanticAnalyzer {
             }
         }
 
+        self.ensure_generated_impl_method_body(&callee)?;
+
         let params_without_self = if callee.params.is_empty() {
             &[][..]
         } else {
@@ -2327,8 +2329,6 @@ impl SemanticAnalyzer {
             }
         };
 
-        self.generate_slice_impl(elem_ty.clone())?;
-
         let start_expr = match &node.start {
             Some(expr) => {
                 let analyzed = self.analyze_expr(expr)?;
@@ -3361,6 +3361,9 @@ impl SemanticAnalyzer {
             SymbolTableValueKind::Function(fn_) => fn_.clone(),
             _ => unreachable!(),
         };
+        drop(borrowed);
+
+        self.ensure_generated_impl_method_body(&method_decl)?;
 
         let (ordered_args, variadic_args) = self.resolve_call_arguments(
             &method_decl
@@ -4054,6 +4057,8 @@ impl SemanticAnalyzer {
                 return Err(SemanticError::CannotCallMutableMethodOnImmutableValue { span }.into());
             }
         }
+
+        self.ensure_generated_impl_method_body(&callee)?;
 
         let params_without_self = if callee.params.is_empty() {
             &[][..]

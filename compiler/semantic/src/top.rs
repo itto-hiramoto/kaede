@@ -502,6 +502,7 @@ impl SemanticAnalyzer {
                     self.slice_intrinsic = Some(crate::SliceIntrinsic {
                         impl_info: GenericImplInfo::new(node, resolved_generic_params, span),
                         defining_module: self.current_module_path().clone(),
+                        generated_args: Vec::new(),
                     });
                     return Ok(TopLevelAnalysisResult::GenericTopLevel);
                 }

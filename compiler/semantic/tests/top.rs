@@ -84,6 +84,20 @@ fn main_generic_callee_name(ir: &CompileUnit) -> kaede_ir::qualified_symbol::Qua
     find_generic_callee_in_block(body).expect("expected generated call in main body")
 }
 
+fn generated_impl_method_symbols(ir: &CompileUnit) -> Vec<String> {
+    ir.top_levels
+        .iter()
+        .flat_map(|top| match top {
+            TopLevel::Impl(impl_) => impl_
+                .methods
+                .iter()
+                .map(|method| method.decl.name.symbol().to_string())
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        })
+        .collect()
+}
+
 #[test]
 fn empty_function() -> anyhow::Result<()> {
     semantic_analyze("fun foo() {}")?;
@@ -418,6 +432,59 @@ fn generated_generic_impl_method_has_concrete_types_after_inference() -> anyhow:
             .as_ref()
             .is_some_and(|instance| !instance.contains_type_var()),
         "generated method should retain a concrete structural generic instance"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn generic_type_instantiation_does_not_emit_impl_method_bodies() -> anyhow::Result<()> {
+    let ir = semantic_analyze(
+        r#"
+        fun main() -> i32 {
+            let opt = Option::Some(58)
+            return 0
+        }
+        "#,
+    )?;
+
+    let generated_methods = generated_impl_method_symbols(&ir);
+    assert!(
+        generated_methods
+            .iter()
+            .all(|name| !name.contains("Option_")),
+        "type-only Option instantiation should not emit impl method bodies: {generated_methods:?}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn generic_impl_method_call_emits_only_referenced_method_body() -> anyhow::Result<()> {
+    let ir = semantic_analyze(
+        r#"
+        fun main() -> i32 {
+            let opt = Option::Some(58)
+            if opt.is_some() {
+                return 1
+            }
+            return 0
+        }
+        "#,
+    )?;
+
+    let generated_methods = generated_impl_method_symbols(&ir);
+    assert!(
+        generated_methods
+            .iter()
+            .any(|name| name.ends_with(".is_some")),
+        "expected generated Option.is_some body: {generated_methods:?}"
+    );
+    assert!(
+        generated_methods
+            .iter()
+            .all(|name| !name.ends_with(".is_none") && !name.ends_with(".unwrap")),
+        "unreferenced Option methods should not be emitted: {generated_methods:?}"
     );
 
     Ok(())

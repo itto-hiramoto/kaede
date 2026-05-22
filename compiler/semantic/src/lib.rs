@@ -64,12 +64,16 @@ pub struct AnalyzeOptions {
 pub struct SliceIntrinsic {
     pub impl_info: GenericImplInfo,
     pub defining_module: ModulePath,
+    // Slice impl bodies are emitted eagerly when slice methods are needed.
+    pub generated_args: Vec<Vec<Rc<ir_type::Ty>>>,
 }
 
 pub struct SemanticAnalyzer {
     modules: HashMap<ModulePath, ModuleContext>,
     context: AnalysisContext,
     generated_generics: Vec<ir::top::TopLevel>,
+    // Generated impl method bodies are emitted lazily when a method declaration is referenced.
+    generated_impl_method_bodies: HashSet<QualifiedSymbol>,
     generating_generics: HashSet<Symbol>,
     imported_module_paths: HashSet<PathBuf>,
     imported_rust_crates: HashSet<Symbol>,
@@ -324,6 +328,7 @@ impl SemanticAnalyzer {
             modules: HashMap::from([(module_path, module_context)]),
             context,
             generated_generics: Vec::new(),
+            generated_impl_method_bodies: HashSet::new(),
             generating_generics: HashSet::new(),
             imported_module_paths: HashSet::new(),
             imported_rust_crates: HashSet::new(),
@@ -351,6 +356,7 @@ impl SemanticAnalyzer {
             modules: HashMap::from([(module_path, module_context)]),
             context,
             generated_generics: Vec::new(),
+            generated_impl_method_bodies: HashSet::new(),
             generating_generics: HashSet::new(),
             imported_module_paths: HashSet::new(),
             imported_rust_crates: HashSet::new(),
@@ -654,12 +660,18 @@ impl SemanticAnalyzer {
     fn inject_generated_generics_to_compile_unit(
         &mut self,
         mut compile_unit: ir::CompileUnit,
-    ) -> ir::CompileUnit {
+    ) -> anyhow::Result<ir::CompileUnit> {
         for top_level in self.generated_generics.iter() {
+            if let Some(name) = Self::unresolved_generated_callable_name(top_level) {
+                let name = name.mangle();
+                anyhow::bail!(
+                    "internal compiler error: generated callable `{name}` still has unresolved type variables after inference",
+                );
+            }
             compile_unit.top_levels.push(top_level.clone());
         }
 
-        compile_unit
+        Ok(compile_unit)
     }
 
     fn merge_generated_callable_substitutions(
@@ -687,6 +699,27 @@ impl SemanticAnalyzer {
 
     fn pending_generic_instance(&self) -> Option<ir_type::GenericInstanceInfo> {
         self.pending_generic_instance.clone()
+    }
+
+    fn generated_args_contain(
+        instantiations: &[Vec<Rc<ir_type::Ty>>],
+        generic_args: &[Rc<ir_type::Ty>],
+    ) -> bool {
+        instantiations
+            .iter()
+            .any(|args| Self::generic_args_match_exactly(args, generic_args))
+    }
+
+    fn generic_args_match_exactly(left: &[Rc<ir_type::Ty>], right: &[Rc<ir_type::Ty>]) -> bool {
+        left.len() == right.len()
+            && left
+                .iter()
+                .zip(right)
+                .all(|(a, b)| match (a.kind.as_ref(), b.kind.as_ref()) {
+                    (ir_type::TyKind::Var(aid), ir_type::TyKind::Var(bid)) => aid == bid,
+                    (ir_type::TyKind::Var(_), _) | (_, ir_type::TyKind::Var(_)) => false,
+                    _ => a.kind == b.kind,
+                })
     }
 
     fn apply_substitutions_to_generated_generics(&mut self) {
@@ -1212,6 +1245,25 @@ impl SemanticAnalyzer {
                 .is_some_and(ir_type::GenericInstanceInfo::contains_type_var)
     }
 
+    fn unresolved_generated_callable_name(
+        top_level: &ir::top::TopLevel,
+    ) -> Option<QualifiedSymbol> {
+        match top_level {
+            ir::top::TopLevel::Fn(fn_) if Self::fn_decl_has_unresolved_types(&fn_.decl) => {
+                Some(fn_.decl.name.clone())
+            }
+            ir::top::TopLevel::Impl(impl_) => impl_
+                .methods
+                .iter()
+                .find(|method| Self::fn_decl_has_unresolved_types(&method.decl))
+                .map(|method| method.decl.name.clone()),
+            ir::top::TopLevel::Fn(_)
+            | ir::top::TopLevel::Struct(_)
+            | ir::top::TopLevel::Enum(_)
+            | ir::top::TopLevel::Interface(_) => None,
+        }
+    }
+
     fn infer_function_body_with_decl(
         &mut self,
         body: &mut kaede_ir::stmt::Block,
@@ -1319,10 +1371,8 @@ impl SemanticAnalyzer {
         self.apply_substitutions_to_generated_generics();
         self.infer_generated_generic_bodies_after_substitution()?;
 
-        Ok(
-            self.inject_generated_generics_to_compile_unit(ir::CompileUnit {
-                top_levels: top_level_irs,
-            }),
-        )
+        self.inject_generated_generics_to_compile_unit(ir::CompileUnit {
+            top_levels: top_level_irs,
+        })
     }
 }

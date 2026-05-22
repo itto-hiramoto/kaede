@@ -18,8 +18,8 @@ pub struct GenericImplInfo {
     pub impl_: ast::top::Impl,
     pub resolved_generic_params: Option<ResolvedGenericParams>,
     pub span: Span,
-    // Contains already generated generic arguments
-    pub generateds: Vec<Vec<Rc<ir_type::Ty>>>,
+    // Generic arguments whose impl method declarations have been registered.
+    pub method_decl_instantiations: Vec<Vec<Rc<ir_type::Ty>>>,
 }
 
 impl GenericImplInfo {
@@ -32,7 +32,7 @@ impl GenericImplInfo {
             impl_,
             resolved_generic_params,
             span,
-            generateds: Vec::new(),
+            method_decl_instantiations: Vec::new(),
         }
     }
 }
