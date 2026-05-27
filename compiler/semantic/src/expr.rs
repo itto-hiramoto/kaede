@@ -2156,12 +2156,12 @@ impl SemanticAnalyzer {
             return result;
         }
 
-        let symbol_value =
-            self.lookup_symbol(callee.symbol())
-                .ok_or_else(|| SemanticError::Undeclared {
-                    name: callee.symbol(),
-                    span: node.span,
-                })?;
+        let (symbol_value, depth) = self
+            .lookup_symbol_with_depth_and_fallback(callee.symbol())
+            .ok_or_else(|| SemanticError::Undeclared {
+                name: callee.symbol(),
+                span: node.span,
+            })?;
 
         let borrowed = symbol_value.borrow();
         match &borrowed.kind {
@@ -2215,6 +2215,7 @@ impl SemanticAnalyzer {
             SymbolTableValueKind::Generic(info) => self.analyze_generic_fn_call(info, node),
 
             SymbolTableValueKind::Variable(VariableInfo { ty, .. }) => {
+                self.register_capture(callee.symbol(), depth);
                 self.analyze_callable_value(node, callee.symbol(), ty.clone(), None)
             }
 

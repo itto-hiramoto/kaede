@@ -757,6 +757,52 @@ fn closure_captures_outer_variables() -> anyhow::Result<()> {
 }
 
 #[test]
+fn closure_captures_local_closure_callee() -> anyhow::Result<()> {
+    let ir = semantic_analyze(
+        "
+        fun f() -> i32 {
+            let add = |n| n + 1
+            let use_add = |n| add(n) + 1
+            return use_add(56)
+        }
+    ",
+    )?;
+
+    let body = find_function_body(ir, "f");
+
+    let closure_expr = match &body.body[1] {
+        Stmt::Let(let_stmt) => let_stmt.init.as_ref().unwrap(),
+        _ => panic!("expected let binding for closure"),
+    };
+
+    let (captures, capture_tys_len) = match &closure_expr.kind {
+        IrExprKind::Closure(closure) => {
+            let captured: HashSet<Symbol> = closure
+                .captures
+                .iter()
+                .map(|c| match &c.kind {
+                    IrExprKind::Variable(v) => v.name,
+                    _ => panic!("unexpected capture kind"),
+                })
+                .collect();
+
+            let captured_tys_len = match closure_expr.ty.kind.as_ref() {
+                IrTyKind::Closure(ty) => ty.captures.len(),
+                _ => panic!("expected closure type"),
+            };
+
+            (captured, captured_tys_len)
+        }
+        kind => panic!("expected closure expr, got {kind:?}"),
+    };
+
+    assert_eq!(captures, HashSet::from([Symbol::from("add".to_string())]));
+    assert_eq!(capture_tys_len, 1);
+
+    Ok(())
+}
+
+#[test]
 fn keyword_arguments_reorder() -> anyhow::Result<()> {
     semantic_analyze(
         "fun add(a: i32, b: i32) -> i32 { return a + b }

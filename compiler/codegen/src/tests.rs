@@ -5053,6 +5053,19 @@ fn closure_as_return_value_immediate_call() -> anyhow::Result<()> {
 }
 
 #[test]
+fn closure_captures_local_closure_callee() -> anyhow::Result<()> {
+    let program = r#"
+        fun main() -> i32 {
+            let add = |n| n + 1
+            let use_add = |n| add(n) + 1
+            return use_add(56)
+        }
+    "#;
+    assert_eq!(exec(program)?, 58);
+    Ok(())
+}
+
+#[test]
 fn function_value_assigned_and_called() -> anyhow::Result<()> {
     let program = r#"
         fun add(x: i32, y: i32) -> i32 {
