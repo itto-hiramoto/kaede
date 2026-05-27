@@ -516,34 +516,8 @@ impl SemanticAnalyzer {
     }
 
     pub fn lookup_symbol(&self, symbol: Symbol) -> Option<Rc<RefCell<SymbolTableValue>>> {
-        let panic = || {
-            panic!(
-                "Module not found: {:?}",
-                self.current_module_path().get_module_names_from_root()
-            )
-        };
-
-        if let Some(value) = self
-            .modules
-            .get(self.current_module_path())
-            .unwrap_or_else(panic)
-            .lookup_symbol(&symbol)
-        {
-            return Some(value);
-        }
-
-        if let Some(fallback_module_path) = self.fallback_lookup_module_path() {
-            if let Some(module) = self.modules.get(fallback_module_path) {
-                if let Some(value) = module.lookup_symbol(&symbol) {
-                    return Some(value);
-                }
-            }
-        }
-
-        self.modules
-            .get(self.module_path())
-            .unwrap_or_else(panic)
-            .lookup_symbol(&symbol)
+        self.lookup_symbol_with_depth_and_fallback(symbol)
+            .map(|(value, _)| value)
     }
 
     pub fn lookup_qualified_symbol(
@@ -656,6 +630,40 @@ impl SemanticAnalyzer {
         self.modules
             .get(module_path)
             .expect("Module context must exist")
+            .lookup_symbol_with_depth(&symbol)
+    }
+
+    fn lookup_symbol_with_depth_and_fallback(
+        &self,
+        symbol: Symbol,
+    ) -> Option<(Rc<RefCell<SymbolTableValue>>, usize)> {
+        let panic = || {
+            panic!(
+                "Module not found: {:?}",
+                self.current_module_path().get_module_names_from_root()
+            )
+        };
+
+        if let Some(value) = self
+            .modules
+            .get(self.current_module_path())
+            .unwrap_or_else(panic)
+            .lookup_symbol_with_depth(&symbol)
+        {
+            return Some(value);
+        }
+
+        if let Some(fallback_module_path) = self.fallback_lookup_module_path() {
+            if let Some(module) = self.modules.get(fallback_module_path) {
+                if let Some(value) = module.lookup_symbol_with_depth(&symbol) {
+                    return Some(value);
+                }
+            }
+        }
+
+        self.modules
+            .get(self.module_path())
+            .unwrap_or_else(panic)
             .lookup_symbol_with_depth(&symbol)
     }
 
