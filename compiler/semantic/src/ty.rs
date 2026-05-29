@@ -584,7 +584,7 @@ impl SemanticAnalyzer {
             generic_info.module_path.clone()
         };
 
-        self.with_module(module_path.clone(), |analyzer| {
+        self.with_defining_module(module_path.clone(), |analyzer| {
             // Register method declarations for this generic instantiation. Bodies are emitted
             // only when a method call actually references one of these declarations.
             let decl_generation = {
@@ -719,8 +719,6 @@ impl SemanticAnalyzer {
             Self::create_generic_impl_snapshot(impl_info)
         };
 
-        self.generated_impl_method_bodies.insert(decl.name.clone());
-
         self.verify_generic_argument_length(
             &snapshot.generic_params,
             &generic_args,
@@ -754,7 +752,9 @@ impl SemanticAnalyzer {
             );
         }
 
-        let impl_ir = self.with_module(origin.module_path().clone(), |analyzer| {
+        let defining_module = origin.module_path().clone();
+        let saved_closure_captures = std::mem::take(&mut self.closure_capture_stack);
+        let impl_ir = self.with_defining_module(defining_module, |analyzer| {
             analyzer.with_generic_arguments(&snapshot.generic_params, &generic_args, |analyzer| {
                 analyzer.with_analyze_command(AnalyzeCommand::WithoutFnDeclare, |analyzer| {
                     analyzer.with_pending_generic_instance(
@@ -767,11 +767,14 @@ impl SemanticAnalyzer {
                 })
             })
         })?;
+        self.closure_capture_stack = saved_closure_captures;
 
         if let TopLevelAnalysisResult::TopLevel(top_level) = impl_ir {
             assert!(matches!(top_level, ir::top::TopLevel::Impl(_)));
             self.generated_generics.push(top_level);
         }
+
+        self.generated_impl_method_bodies.insert(decl.name.clone());
 
         Ok(())
     }
@@ -798,8 +801,6 @@ impl SemanticAnalyzer {
 
         let generic_params = snapshot.generic_params.clone();
         let resolved_generic_params = snapshot.resolved_generic_params.clone();
-
-        self.generated_impl_method_bodies.insert(decl.name.clone());
 
         self.verify_generic_argument_length(&generic_params, generic_args, generic_params.span)?;
         self.verify_resolved_generic_bounds(
@@ -829,6 +830,7 @@ impl SemanticAnalyzer {
             );
         }
 
+        let saved_closure_captures = std::mem::take(&mut self.closure_capture_stack);
         let impl_ir = self.with_root_module_and_fallback(defining_module, |analyzer| {
             analyzer.with_generic_arguments(&generic_params, generic_args, |analyzer| {
                 analyzer.with_analyze_command(AnalyzeCommand::WithoutFnDeclare, |analyzer| {
@@ -842,11 +844,14 @@ impl SemanticAnalyzer {
                 })
             })
         })?;
+        self.closure_capture_stack = saved_closure_captures;
 
         if let TopLevelAnalysisResult::TopLevel(top_level) = impl_ir {
             assert!(matches!(top_level, ir::top::TopLevel::Impl(_)));
             self.generated_generics.push(top_level);
         }
+
+        self.generated_impl_method_bodies.insert(decl.name.clone());
 
         Ok(())
     }

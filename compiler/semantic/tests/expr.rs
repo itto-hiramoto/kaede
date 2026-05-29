@@ -149,6 +149,54 @@ fun f() -> i32 {
 }
 
 #[test]
+fn lazy_impl_method_body_retain_in_main() -> anyhow::Result<()> {
+    semantic_analyze(
+        r#"import std.collections.vector
+import std.sync
+
+use std.collections.vector.Vector
+use std.sync.Channel
+
+struct Subscriber {
+    events: Channel<i32>,
+}
+
+fun main() {
+    let mut subscribers = Vector<Subscriber>::new()
+    subscribers.retain(|_s| true)
+}"#,
+    )?;
+    Ok(())
+}
+
+#[test]
+fn lazy_impl_method_body_retain_in_http_handler_closure() -> anyhow::Result<()> {
+    semantic_analyze(
+        r#"import std.collections.vector
+import std.net.http
+import std.sync
+
+use std.collections.vector.Vector
+use std.sync.Channel
+
+struct Subscriber {
+    events: Channel<i32>,
+}
+
+fun main() {
+    mut app := std.net.http.App::new()
+    app.post("/x", |req, res| {
+        let mut subscribers = Vector<Subscriber>::new()
+        subscribers.retain(|_s| true)
+    })
+}"#,
+    )?;
+    Ok(())
+}
+
+// Driver regression: `compiler/semantic/tests/regression_lazy_impl_*.kd`
+
+#[test]
 fn option_try_is_accepted() -> anyhow::Result<()> {
     semantic_analyze(
         r#"import std.option

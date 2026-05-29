@@ -1,0 +1,19 @@
+import std.collections.vector
+import std.net.http
+import std.sync
+
+use std.collections.vector.Vector
+use std.sync.Channel
+
+struct Subscriber {
+    events: Channel<i32>,
+}
+
+fun main() {
+    mut app := std.net.http.App::new()
+    app.post("/x", |req, res| {
+        let mut subs = Vector<Subscriber>::new()
+        subs.retain(|s| s.events.try_send(1))
+        res.send("ok")
+    })
+}

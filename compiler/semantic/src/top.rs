@@ -728,14 +728,23 @@ impl SemanticAnalyzer {
     pub fn analyze_fn_internal(&mut self, node: ast::top::Fn) -> anyhow::Result<Rc<ir::top::Fn>> {
         assert_eq!(node.decl.self_, None);
 
+        let body_params_from_ast = if matches!(
+            self.context.analyze_command(),
+            AnalyzeCommand::WithoutFnDeclare
+        ) {
+            Some(node.decl.params.clone())
+        } else {
+            None
+        };
+
         let fn_decl = if let AnalyzeCommand::WithoutFnDeclare = self.context.analyze_command() {
             // Lookup the function declaration from the symbol table
-            let symbol_table_value =
-                self.lookup_symbol(node.decl.name.symbol())
-                    .ok_or(SemanticError::Undeclared {
-                        name: node.decl.name.symbol(),
-                        span: node.span,
-                    })?;
+            let symbol_table_value = self
+                .lookup_symbol_for_fn_body(node.decl.name.symbol())
+                .ok_or(SemanticError::Undeclared {
+                    name: node.decl.name.symbol(),
+                    span: node.span,
+                })?;
 
             let borrowed = symbol_table_value.borrow();
             match &borrowed.kind {
@@ -758,10 +767,42 @@ impl SemanticAnalyzer {
 
         self.context.set_current_function(Rc::new(fn_decl.clone()));
 
+        let scope_module = self.current_module_path().clone();
+
+        // For generated impl method bodies, `analyze_method` lowers `self_` into `params` on
+        // the AST node for this pass. Prefer that signature when building the body scope so
+        // parameters are not lost if the root-scope declaration was registered earlier.
+        let body_scope_params = if let Some(params) = body_params_from_ast {
+            let from_ast: Vec<ir::top::Param> = params
+                .v
+                .iter()
+                .map(|param| -> anyhow::Result<ir::top::Param> {
+                    Ok(ir::top::Param {
+                        name: param.name.symbol(),
+                        ty: self.analyze_type(&param.ty)?,
+                        default: None,
+                    })
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?;
+            // Template AST nodes can lose lowered `self` before lazy body emission. Prefer
+            // the registered monomorphized signature when the AST is missing parameters.
+            if fn_decl
+                .params
+                .iter()
+                .all(|p| from_ast.iter().any(|q| q.name == p.name))
+            {
+                from_ast
+            } else {
+                fn_decl.params.clone()
+            }
+        } else {
+            fn_decl.params.clone()
+        };
+
         // Create a new symbol table for the function parameters.
         {
             let mut symbol_table = SymbolTable::new();
-            for param in fn_decl.params.iter() {
+            for param in body_scope_params.iter() {
                 let symbol_table_value = SymbolTableValue::new(
                     SymbolTableValueKind::Variable(VariableInfo::new(param.ty.clone())),
                     self.current_module_path().clone(),
@@ -790,8 +831,8 @@ impl SemanticAnalyzer {
             body: Some(fn_body),
         });
 
-        // Pop the function symbol table.
-        self.pop_scope();
+        // Pop the function symbol table on the same module stack it was pushed onto.
+        self.pop_scope_in_module(&scope_module);
 
         self.context.pop_current_function();
 
