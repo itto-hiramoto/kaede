@@ -17,12 +17,28 @@ pub enum AnalyzeCommand {
 }
 
 #[derive(Debug, Clone)]
+pub enum LookupMode {
+    // Analyze the session home module. Lookups stay in `current_module_path`.
+    HomeModule,
+    // Visit another module's table without falling back to the session home.
+    ModuleOnly,
+    // Analyze a foreign module access expression (`m.foo(x)`). The member is
+    // resolved in the foreign module; nested expressions may fall back home.
+    ForeignModule,
+    // Analyze a generated body as the module where it was defined.
+    DefiningModule,
+    // Builtin impls are registered in root, while their bodies may reference
+    // helpers from the module that declared the impl.
+    RootModuleWithFallback { fallback: ModulePath },
+}
+
+#[derive(Debug, Clone)]
 pub struct AnalysisContext {
     // std.io.print(s) in test.kd -> [std, io]
     current_module_path: ModulePath,
     // std.io.print(s) in test.kd -> [test]
     module_path: ModulePath,
-    fallback_lookup_module_path: Option<ModulePath>,
+    lookup_mode: LookupMode,
 
     is_inside_loop: bool,
     current_function: Vec<Option<Rc<ir::top::FnDecl>>>,
@@ -35,7 +51,7 @@ impl AnalysisContext {
         Self {
             current_module_path: ModulePath::root(),
             module_path,
-            fallback_lookup_module_path: None,
+            lookup_mode: LookupMode::HomeModule,
             is_inside_loop: false,
             current_function: vec![None],
             no_prelude: false,
@@ -65,6 +81,11 @@ impl AnalysisContext {
 
     pub fn set_current_module_path(&mut self, path: ModulePath) {
         self.current_module_path = path;
+        self.lookup_mode = if self.current_module_path == self.module_path {
+            LookupMode::HomeModule
+        } else {
+            LookupMode::ModuleOnly
+        };
     }
 
     pub fn analyze_command(&self) -> AnalyzeCommand {
@@ -81,8 +102,8 @@ impl SemanticAnalyzer {
         &self.context.module_path
     }
 
-    pub fn fallback_lookup_module_path(&self) -> Option<&ModulePath> {
-        self.context.fallback_lookup_module_path.as_ref()
+    pub fn lookup_mode(&self) -> &LookupMode {
+        &self.context.lookup_mode
     }
 
     // Temporarily changes the current context, executes the provided closure.
@@ -113,6 +134,20 @@ impl SemanticAnalyzer {
     {
         let mut new_context = self.context.clone();
         new_context.current_module_path = path;
+        new_context.lookup_mode = LookupMode::ModuleOnly;
+        self.with_context(new_context, f)
+    }
+
+    // Temporarily analyzes a foreign module member expression. The foreign
+    // module is searched first; unresolved nested identifiers can fall back to
+    // the home module that contains the call site.
+    pub fn with_foreign_module<F, R>(&mut self, path: ModulePath, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        let mut new_context = self.context.clone();
+        new_context.current_module_path = path;
+        new_context.lookup_mode = LookupMode::ForeignModule;
         self.with_context(new_context, f)
     }
 
@@ -126,6 +161,7 @@ impl SemanticAnalyzer {
         let mut new_context = self.context.clone();
         new_context.current_module_path = path.clone();
         new_context.module_path = path;
+        new_context.lookup_mode = LookupMode::DefiningModule;
 
         self.with_isolated_closure_captures(|analyzer| analyzer.with_context(new_context, f))
     }
@@ -145,16 +181,9 @@ impl SemanticAnalyzer {
     where
         F: FnOnce(&mut Self) -> R,
     {
-        self.with_lookup_fallback_module(fallback, |analyzer| analyzer.with_root_module(f))
-    }
-
-    // Temporarily changes the fallback module path used for symbol lookup.
-    pub fn with_lookup_fallback_module<F, R>(&mut self, path: ModulePath, f: F) -> R
-    where
-        F: FnOnce(&mut Self) -> R,
-    {
         let mut new_context = self.context.clone();
-        new_context.fallback_lookup_module_path = Some(path);
+        new_context.current_module_path = ModulePath::root();
+        new_context.lookup_mode = LookupMode::RootModuleWithFallback { fallback };
         self.with_context(new_context, f)
     }
 
