@@ -1,0 +1,10 @@
+// Assertion helpers built on top of the `panic` builtin.
+//
+// The panic location currently points at this helper rather than the caller.
+// Preserving caller locations requires compiler support, but this function is
+// still useful for ordinary runtime checks.
+export fun assert(cond: bool, msg: str = "assertion failed") {
+    if !cond {
+        panic(msg)
+    }
+}
