@@ -2,7 +2,7 @@ mod common;
 
 use std::collections::HashSet;
 
-use common::{semantic_analyze, semantic_analyze_expect_error};
+use common::{semantic_analyze, semantic_analyze_expect_error, semantic_analyze_no_autoload};
 use kaede_ir::{expr::ExprKind as IrExprKind, stmt::Stmt, top::TopLevel, ty::TyKind as IrTyKind};
 use kaede_symbol::Symbol;
 
@@ -844,6 +844,66 @@ fn closure_captures_local_closure_callee() -> anyhow::Result<()> {
 
     assert_eq!(captures, HashSet::from([Symbol::from("add".to_string())]));
     assert_eq!(capture_tys_len, 1);
+
+    Ok(())
+}
+
+#[test]
+fn generated_generic_fn_body_does_not_capture_call_site_locals() -> anyhow::Result<()> {
+    let ir = semantic_analyze(
+        "
+        fun id<T>(value: T) -> T {
+            return value
+        }
+
+        fun f() -> i32 {
+            let value = 58
+            let closure = || id(1)
+            return closure()
+        }
+    ",
+    )?;
+
+    let body = find_function_body(ir, "f");
+
+    let closure_expr = match &body.body[1] {
+        Stmt::Let(let_stmt) => let_stmt.init.as_ref().unwrap(),
+        _ => panic!("expected let binding for closure"),
+    };
+
+    let captures: HashSet<Symbol> = match &closure_expr.kind {
+        IrExprKind::Closure(closure) => closure
+            .captures
+            .iter()
+            .map(|capture| match &capture.kind {
+                IrExprKind::Variable(variable) => variable.name,
+                _ => panic!("unexpected capture kind"),
+            })
+            .collect(),
+        kind => panic!("expected closure expr, got {kind:?}"),
+    };
+
+    assert!(captures.is_empty(), "unexpected captures: {captures:?}");
+
+    Ok(())
+}
+
+#[test]
+fn generated_slice_impl_body_does_not_use_call_site_capture_stack() -> anyhow::Result<()> {
+    semantic_analyze_no_autoload(
+        "
+        impl<T> [T] {
+            fun first(self) -> T {
+                return self[0]
+            }
+        }
+
+        fun f() -> i32 {
+            let closure = || [1, 2].first()
+            return closure()
+        }
+    ",
+    )?;
 
     Ok(())
 }

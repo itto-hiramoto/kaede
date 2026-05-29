@@ -96,6 +96,16 @@ impl SemanticAnalyzer {
         result
     }
 
+    pub(crate) fn with_isolated_closure_captures<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut Self) -> R,
+    {
+        let saved_closure_captures = std::mem::take(&mut self.closure_capture_stack);
+        let result = f(self);
+        self.closure_capture_stack = saved_closure_captures;
+        result
+    }
+
     // Temporarily changes the current module path, executes the provided closure.
     pub fn with_module<F, R>(&mut self, path: ModulePath, f: F) -> R
     where
@@ -106,9 +116,9 @@ impl SemanticAnalyzer {
         self.with_context(new_context, f)
     }
 
-    // Changes both `current_module_path` and `module_path`, so name-lookup fallbacks
-    // target the defining module rather than the caller (used when monomorphizing a
-    // generic whose body was written against another module's symbols).
+    // Analyze as the defining module for a generated body. This aligns both
+    // module paths so lookups use the module where the source was written, and
+    // isolates closure capture tracking from the caller's active closure frames.
     pub fn with_defining_module<F, R>(&mut self, path: ModulePath, f: F) -> R
     where
         F: FnOnce(&mut Self) -> R,
@@ -116,7 +126,8 @@ impl SemanticAnalyzer {
         let mut new_context = self.context.clone();
         new_context.current_module_path = path.clone();
         new_context.module_path = path;
-        self.with_context(new_context, f)
+
+        self.with_isolated_closure_captures(|analyzer| analyzer.with_context(new_context, f))
     }
 
     pub fn with_root_module<F, R>(&mut self, f: F) -> R
