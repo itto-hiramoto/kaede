@@ -643,7 +643,7 @@ impl SemanticAnalyzer {
         if let Some(defining_module) = defining_module {
             self.with_root_module_and_fallback(defining_module, register_decls)?;
         } else {
-            self.with_defining_module(origin.module_path().clone(), register_decls)?;
+            self.with_module(origin.module_path().clone(), register_decls)?;
         }
 
         Ok(())
@@ -678,7 +678,7 @@ impl SemanticAnalyzer {
             generic_info.module_path.clone()
         };
 
-        self.with_defining_module(module_path.clone(), |analyzer| {
+        self.with_module(module_path.clone(), |analyzer| {
             analyzer.ensure_generic_impl_method_declarations(
                 QualifiedSymbol::new(module_path.clone(), name.symbol()),
                 &generic_args,

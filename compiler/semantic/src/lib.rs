@@ -508,18 +508,6 @@ impl SemanticAnalyzer {
             .map(|(value, _)| value)
     }
 
-    pub(crate) fn lookup_symbol_for_fn_body(
-        &self,
-        symbol: Symbol,
-    ) -> Option<Rc<RefCell<SymbolTableValue>>> {
-        if self.should_skip_call_site_symbol_fallback() {
-            self.lookup_symbol_with_depth(symbol)
-                .map(|(value, _)| value)
-        } else {
-            self.lookup_symbol(symbol)
-        }
-    }
-
     pub fn lookup_qualified_symbol(
         &self,
         symbol: QualifiedSymbol,
@@ -615,22 +603,7 @@ impl SemanticAnalyzer {
 
     pub fn pop_scope(&mut self) {
         let module_path = self.current_module_path().clone();
-        self.pop_scope_in_module(&module_path);
-    }
-
-    pub fn pop_scope_in_module(&mut self, module_path: &ModulePath) {
-        self.modules.get_mut(module_path).unwrap().pop_scope();
-    }
-
-    /// While emitting a monomorphized generic impl method body, symbol lookup must stay in
-    /// the defining module. Falling back to the call site's `module_path` can bind names from
-    /// enclosing closures and produces misleading diagnostics.
-    pub(crate) fn should_skip_call_site_symbol_fallback(&self) -> bool {
-        self.pending_generic_instance.is_some()
-            && matches!(
-                self.context.analyze_command(),
-                crate::context::AnalyzeCommand::WithoutFnDeclare
-            )
+        self.modules.get_mut(&module_path).unwrap().pop_scope();
     }
 
     fn symbol_table_depth(&self) -> usize {
@@ -672,20 +645,12 @@ impl SemanticAnalyzer {
             return Some(value);
         }
 
-        if self.should_skip_call_site_symbol_fallback() {
-            return None;
-        }
-
         if let Some(fallback_module_path) = self.fallback_lookup_module_path() {
             if let Some(module) = self.modules.get(fallback_module_path) {
                 if let Some(value) = module.lookup_symbol_with_depth(&symbol) {
                     return Some(value);
                 }
             }
-        }
-
-        if self.current_module_path() == self.module_path() {
-            return None;
         }
 
         self.modules

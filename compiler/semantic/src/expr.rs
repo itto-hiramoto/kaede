@@ -4221,10 +4221,7 @@ impl SemanticAnalyzer {
     fn analyze_ident(&mut self, node: &Ident) -> anyhow::Result<ir::expr::Expr> {
         let primary = self.lookup_symbol_with_depth(node.symbol());
 
-        let fallback = if primary.is_none()
-            && !self.should_skip_call_site_symbol_fallback()
-            && self.current_module_path() != self.module_path()
-        {
+        let fallback = if primary.is_none() && self.current_module_path() != self.module_path() {
             let mut new_ctx = self.context.clone();
             new_ctx.set_current_module_path(self.module_path().clone());
             self.with_context(new_ctx, |analyzer| {
