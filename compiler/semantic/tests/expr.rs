@@ -194,8 +194,6 @@ fun main() {
     Ok(())
 }
 
-// Driver regression: `compiler/semantic/tests/regression_lazy_impl_*.kd`
-
 #[test]
 fn option_try_is_accepted() -> anyhow::Result<()> {
     semantic_analyze(
