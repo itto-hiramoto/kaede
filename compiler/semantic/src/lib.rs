@@ -40,7 +40,7 @@ use kaede_type_infer::InferContext;
 use subst::GenericSubstituter;
 pub use top::TopLevelAnalysisResult;
 
-use crate::context::{AnalyzeCommand, ModuleContext};
+use crate::context::{AnalyzeCommand, LookupMode, ModuleContext};
 
 #[derive(Debug, Clone)]
 struct ClosureCapture {
@@ -504,7 +504,7 @@ impl SemanticAnalyzer {
     }
 
     pub fn lookup_symbol(&self, symbol: Symbol) -> Option<Rc<RefCell<SymbolTableValue>>> {
-        self.lookup_symbol_with_depth_and_fallback(symbol)
+        self.lookup_symbol_with_depth_by_mode(symbol)
             .map(|(value, _)| value)
     }
 
@@ -618,14 +618,21 @@ impl SemanticAnalyzer {
         &self,
         symbol: Symbol,
     ) -> Option<(Rc<RefCell<SymbolTableValue>>, usize)> {
-        let module_path = self.current_module_path();
+        self.lookup_symbol_in_module_with_depth(self.current_module_path(), symbol)
+    }
+
+    fn lookup_symbol_in_module_with_depth(
+        &self,
+        module_path: &ModulePath,
+        symbol: Symbol,
+    ) -> Option<(Rc<RefCell<SymbolTableValue>>, usize)> {
         self.modules
             .get(module_path)
             .expect("Module context must exist")
             .lookup_symbol_with_depth(&symbol)
     }
 
-    fn lookup_symbol_with_depth_and_fallback(
+    fn lookup_symbol_with_depth_by_mode(
         &self,
         symbol: Symbol,
     ) -> Option<(Rc<RefCell<SymbolTableValue>>, usize)> {
@@ -636,27 +643,32 @@ impl SemanticAnalyzer {
             )
         };
 
-        if let Some(value) = self
-            .modules
-            .get(self.current_module_path())
-            .unwrap_or_else(panic)
-            .lookup_symbol_with_depth(&symbol)
+        if let Some(value) =
+            self.lookup_symbol_in_module_with_depth(self.current_module_path(), symbol)
         {
             return Some(value);
         }
 
-        if let Some(fallback_module_path) = self.fallback_lookup_module_path() {
-            if let Some(module) = self.modules.get(fallback_module_path) {
-                if let Some(value) = module.lookup_symbol_with_depth(&symbol) {
-                    return Some(value);
+        match self.lookup_mode() {
+            LookupMode::HomeModule | LookupMode::ModuleOnly | LookupMode::DefiningModule => None,
+            LookupMode::ForeignModule => {
+                if self.current_module_path() == self.module_path() {
+                    None
+                } else {
+                    self.lookup_symbol_in_module_with_depth(self.module_path(), symbol)
+                }
+            }
+            LookupMode::RootModuleWithFallback { fallback } => {
+                if fallback == self.current_module_path() {
+                    None
+                } else {
+                    self.modules
+                        .get(fallback)
+                        .unwrap_or_else(panic)
+                        .lookup_symbol_with_depth(&symbol)
                 }
             }
         }
-
-        self.modules
-            .get(self.module_path())
-            .unwrap_or_else(panic)
-            .lookup_symbol_with_depth(&symbol)
     }
 
     fn push_closure_capture(&mut self, base_depth: usize) {

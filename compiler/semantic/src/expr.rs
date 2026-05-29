@@ -2157,7 +2157,7 @@ impl SemanticAnalyzer {
         }
 
         let (symbol_value, depth) = self
-            .lookup_symbol_with_depth_and_fallback(callee.symbol())
+            .lookup_symbol_with_depth_by_mode(callee.symbol())
             .ok_or_else(|| SemanticError::Undeclared {
                 name: callee.symbol(),
                 span: node.span,
@@ -3981,7 +3981,7 @@ impl SemanticAnalyzer {
             }
         }
 
-        self.with_module(module_path, |analyzer| analyzer.analyze_expr(rhs))
+        self.with_foreign_module(module_path, |analyzer| analyzer.analyze_expr(rhs))
     }
 
     fn rhs_symbol(rhs: &ast::expr::Expr) -> Option<(Symbol, Span)> {
@@ -4219,20 +4219,7 @@ impl SemanticAnalyzer {
     }
 
     fn analyze_ident(&mut self, node: &Ident) -> anyhow::Result<ir::expr::Expr> {
-        let primary = self.lookup_symbol_with_depth(node.symbol());
-
-        let fallback = if primary.is_none() && self.current_module_path() != self.module_path() {
-            let mut new_ctx = self.context.clone();
-            new_ctx.set_current_module_path(self.module_path().clone());
-            self.with_context(new_ctx, |analyzer| {
-                analyzer.lookup_symbol_with_depth(node.symbol())
-            })
-        } else {
-            None
-        };
-
-        primary
-            .or(fallback)
+        self.lookup_symbol_with_depth_by_mode(node.symbol())
             .map(|(value, depth)| match &value.borrow().kind {
                 // `depth` is the index in `symbol_table_stack` where the name was found.
                 // 0 = module root (`insert_symbol_to_root_scope`): top-level `const`, `fun`, etc.

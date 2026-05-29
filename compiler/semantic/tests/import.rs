@@ -116,6 +116,55 @@ fn import_basic_function() -> anyhow::Result<()> {
 }
 
 #[test]
+fn imported_function_call_inside_closure_can_use_call_site_local_arg() -> anyhow::Result<()> {
+    let project = ImportTestProject::new()?;
+    project.create_module("utils", "export fun id(x: i32) -> i32 { return x }")?;
+
+    project.analyze(
+        r#"
+            import utils
+
+            fun main() -> i32 {
+                let x = 42
+                let closure = || utils.id(x)
+                return closure()
+            }
+        "#,
+    )?;
+
+    Ok(())
+}
+
+#[test]
+fn imported_module_body_does_not_fallback_to_entry_module_private_items() -> anyhow::Result<()> {
+    let project = ImportTestProject::new()?;
+    project.create_module(
+        "utils",
+        r#"
+            export fun call_helper<T>(value: T) -> i32 {
+                return helper()
+            }
+        "#,
+    )?;
+
+    project.analyze_expect_error(
+        r#"
+            import utils
+
+            fun helper() -> i32 {
+                return 42
+            }
+
+            fun main() -> i32 {
+                return utils.call_helper(0)
+            }
+        "#,
+    )?;
+
+    Ok(())
+}
+
+#[test]
 fn import_struct_and_impl() -> anyhow::Result<()> {
     ImportTestCase {
         name: "struct_and_impl",
