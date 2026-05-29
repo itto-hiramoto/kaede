@@ -187,7 +187,10 @@ impl SemanticAnalyzer {
             )),
             ir_type::TyKind::Slice(elem_ty) => Some((
                 kaede_ir::module_path::ModulePath::root(),
-                self.slice_method_parent_name(elem_ty),
+                self.impl_method_parent_name(
+                    &Self::slice_generic_origin(),
+                    std::slice::from_ref(elem_ty),
+                ),
             )),
             _ => None,
         }

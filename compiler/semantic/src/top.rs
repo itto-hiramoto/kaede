@@ -610,15 +610,25 @@ impl SemanticAnalyzer {
                 let base_ty = ty.get_base_type();
                 match base_ty.kind.as_ref() {
                     ir::ty::TyKind::UserDefined(udt) => (udt.name(), false),
-                    ir::ty::TyKind::Slice(elem_ty) => {
-                        (self.slice_method_parent_name(elem_ty), true)
-                    }
+                    ir::ty::TyKind::Slice(elem_ty) => (
+                        self.impl_method_parent_name(
+                            &Self::slice_generic_origin(),
+                            std::slice::from_ref(elem_ty),
+                        ),
+                        true,
+                    ),
                     _ => (Symbol::from(base_ty.kind.to_string()), true),
                 }
             }
 
             ir::ty::TyKind::Fundamental(fty) => (Symbol::from(fty.kind.to_string()), true),
-            ir::ty::TyKind::Slice(elem_ty) => (self.slice_method_parent_name(elem_ty), true),
+            ir::ty::TyKind::Slice(elem_ty) => (
+                self.impl_method_parent_name(
+                    &Self::slice_generic_origin(),
+                    std::slice::from_ref(elem_ty),
+                ),
+                true,
+            ),
 
             _ => unreachable!(),
         };

@@ -572,24 +572,12 @@ impl SemanticAnalyzer {
         .into()
     }
 
-    pub fn slice_method_parent_name(&self, elem_ty: &Rc<ir_type::Ty>) -> Symbol {
-        let elem = match elem_ty.kind.as_ref() {
-            ir_type::TyKind::Var(id) => format!("var{id}"),
-            _ => elem_ty.kind.to_string(),
-        };
-        format!("slice<{elem}>").into()
-    }
-
     pub fn impl_method_parent_name(
         &self,
         origin: &QualifiedSymbol,
         generic_args: &[Rc<ir_type::Ty>],
     ) -> Symbol {
-        if origin.symbol().as_str() == "slice" && origin.module_path() == &ModulePath::root() {
-            self.slice_method_parent_name(&generic_args[0])
-        } else {
-            self.create_generated_generic_key(origin.symbol(), generic_args)
-        }
+        self.create_generated_generic_key(origin.symbol(), generic_args)
     }
 
     pub fn create_method_key(

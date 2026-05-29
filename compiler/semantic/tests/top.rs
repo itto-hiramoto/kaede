@@ -525,14 +525,12 @@ fn slice_methods_on_distinct_element_types_are_separate_instantiations() -> anyh
 
     let generated_methods = generated_impl_method_symbols(&ir);
     assert!(
-        generated_methods.iter().any(|name| name == "slice<u8>.len"),
-        "expected slice<u8>.len body: {generated_methods:?}"
+        generated_methods.iter().any(|name| name == "slice_u8.len"),
+        "expected slice_u8.len body: {generated_methods:?}"
     );
     assert!(
-        generated_methods
-            .iter()
-            .any(|name| name == "slice<i32>.len"),
-        "expected slice<i32>.len body: {generated_methods:?}"
+        generated_methods.iter().any(|name| name == "slice_i32.len"),
+        "expected slice_i32.len body: {generated_methods:?}"
     );
 
     Ok(())
@@ -551,14 +549,14 @@ fn slice_method_call_emits_only_referenced_method_body() -> anyhow::Result<()> {
 
     let generated_methods = generated_impl_method_symbols(&ir);
     assert!(
-        generated_methods.iter().any(|name| name == "slice<u8>.len"),
-        "expected generated slice<u8>.len body: {generated_methods:?}"
+        generated_methods.iter().any(|name| name == "slice_u8.len"),
+        "expected generated slice_u8.len body: {generated_methods:?}"
     );
     assert!(
         !generated_methods
             .iter()
-            .any(|name| name == "slice<u8>.as_ptr"),
-        "unreferenced slice<u8>.as_ptr should not be emitted: {generated_methods:?}"
+            .any(|name| name == "slice_u8.as_ptr"),
+        "unreferenced slice_u8.as_ptr should not be emitted: {generated_methods:?}"
     );
 
     Ok(())

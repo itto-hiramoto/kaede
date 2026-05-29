@@ -2412,7 +2412,7 @@ mod tests {
             link_once: true,
             name: QualifiedSymbol::new(
                 ModulePath::root(),
-                Symbol::from("slice<var0>.as_ptr".to_owned()),
+                Symbol::from("slice_var0.as_ptr".to_owned()),
             ),
             params: vec![Param {
                 name: Symbol::from("self".to_owned()),
@@ -2452,7 +2452,7 @@ mod tests {
         let bindings = substitutions
             .get(&QualifiedSymbol::new(
                 ModulePath::root(),
-                Symbol::from("slice<var0>.as_ptr".to_owned()),
+                Symbol::from("slice_var0.as_ptr".to_owned()),
             ))
             .unwrap();
         assert!(matches!(
