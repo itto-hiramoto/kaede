@@ -18,8 +18,7 @@ use kaede_parse::Parser;
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::{Ident, Symbol};
 use kaede_symbol_table::{
-    GenericImplInfo, QualifiedSymbolTable, SymbolResolver, SymbolTable, SymbolTableValue,
-    SymbolTableValueKind,
+    QualifiedSymbolTable, SymbolResolver, SymbolTable, SymbolTableValue, SymbolTableValueKind,
 };
 
 mod const_eval;
@@ -56,18 +55,6 @@ pub struct AnalyzeOptions {
     pub is_entry_unit: bool,
 }
 
-// `impl<T>[T] { ... }` is declared once (autoload) but applies to every slice type in the
-// compile unit, so it's stored here as an analyzer-level intrinsic instead of a module
-// symbol. Generated methods are registered in the root module; `defining_module` records
-// where the block was written and serves as a lookup fallback during monomorphization so
-// method bodies can reach symbols declared alongside the impl block.
-pub struct SliceIntrinsic {
-    pub impl_info: GenericImplInfo,
-    pub defining_module: ModulePath,
-    /// Synthetic origin for `GenericInstanceInfo` on generated slice method declarations.
-    pub origin: QualifiedSymbol,
-}
-
 pub struct SemanticAnalyzer {
     modules: HashMap<ModulePath, ModuleContext>,
     context: AnalysisContext,
@@ -87,7 +74,6 @@ pub struct SemanticAnalyzer {
     generated_callable_substitutions:
         HashMap<QualifiedSymbol, HashMap<ir_type::VarId, Rc<ir_type::Ty>>>,
     pending_generic_instance: Option<ir_type::GenericInstanceInfo>,
-    slice_intrinsic: Option<SliceIntrinsic>,
 }
 
 impl SemanticAnalyzer {
@@ -362,7 +348,6 @@ impl SemanticAnalyzer {
             temp_symbol_counter: 0,
             generated_callable_substitutions: HashMap::new(),
             pending_generic_instance: None,
-            slice_intrinsic: None,
         }
     }
 
@@ -389,9 +374,12 @@ impl SemanticAnalyzer {
             closure_capture_stack: Vec::new(),
             temp_symbol_counter: 0,
             generated_callable_substitutions: HashMap::new(),
-            slice_intrinsic: None,
             pending_generic_instance: None,
         }
+    }
+
+    pub(crate) fn slice_generic_origin() -> QualifiedSymbol {
+        QualifiedSymbol::new(ModulePath::root(), Symbol::from("slice".to_owned()))
     }
 
     #[cfg(debug_assertions)]
@@ -585,7 +573,23 @@ impl SemanticAnalyzer {
     }
 
     pub fn slice_method_parent_name(&self, elem_ty: &Rc<ir_type::Ty>) -> Symbol {
-        format!("slice<{}>", elem_ty.kind).into()
+        let elem = match elem_ty.kind.as_ref() {
+            ir_type::TyKind::Var(id) => format!("var{id}"),
+            _ => elem_ty.kind.to_string(),
+        };
+        format!("slice<{elem}>").into()
+    }
+
+    pub fn impl_method_parent_name(
+        &self,
+        origin: &QualifiedSymbol,
+        generic_args: &[Rc<ir_type::Ty>],
+    ) -> Symbol {
+        if origin.symbol().as_str() == "slice" && origin.module_path() == &ModulePath::root() {
+            self.slice_method_parent_name(&generic_args[0])
+        } else {
+            self.create_generated_generic_key(origin.symbol(), generic_args)
+        }
     }
 
     pub fn create_method_key(
@@ -761,31 +765,6 @@ impl SemanticAnalyzer {
                     (ir_type::TyKind::Var(_), _) | (_, ir_type::TyKind::Var(_)) => false,
                     _ => a.kind == b.kind,
                 })
-    }
-
-    /// Slice monomorphization treats any two unresolved type variables as the same
-    /// instantiation so we only register `slice<_>` method declarations once.
-    fn slice_generic_args_match(left: &[Rc<ir_type::Ty>], right: &[Rc<ir_type::Ty>]) -> bool {
-        left.len() == right.len()
-            && left
-                .iter()
-                .zip(right)
-                .all(|(a, b)| match (a.kind.as_ref(), b.kind.as_ref()) {
-                    (ir_type::TyKind::Var(_), ir_type::TyKind::Var(_)) => true,
-                    (ir_type::TyKind::Var(_), _) | (_, ir_type::TyKind::Var(_)) => false,
-                    _ => a.kind == b.kind,
-                })
-    }
-
-    fn slice_instantiation_already_registered(
-        instantiations: &[Vec<Rc<ir_type::Ty>>],
-        generic_args: &[Rc<ir_type::Ty>],
-    ) -> bool {
-        Self::instantiation_already_registered(
-            instantiations,
-            generic_args,
-            Self::slice_generic_args_match,
-        )
     }
 
     fn apply_substitutions_to_generated_generics(&mut self) {

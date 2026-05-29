@@ -6,9 +6,9 @@ use std::{
 
 use crate::{context::AnalyzeCommand, rust_import, SemanticAnalyzer, SemanticError};
 use kaede_symbol_table::{
-    ConstValue, GenericEnumInfo, GenericFuncInfo, GenericImplInfo, GenericInfo, GenericKind,
-    GenericStructInfo, ResolvedGenericParam, ResolvedGenericParams, SymbolTable, SymbolTableValue,
-    SymbolTableValueKind, VariableInfo,
+    ConstValue, GenericBuiltinSliceInfo, GenericEnumInfo, GenericFuncInfo, GenericImplInfo,
+    GenericInfo, GenericKind, GenericStructInfo, ResolvedGenericParam, ResolvedGenericParams,
+    SymbolTable, SymbolTableValue, SymbolTableValueKind, VariableInfo,
 };
 
 use kaede_ast::{self as ast};
@@ -515,14 +515,45 @@ impl SemanticAnalyzer {
 
                 ast_type::TyKind::Slice(_) => {
                     let defining_module = self.current_module_path().clone();
-                    self.slice_intrinsic = Some(crate::SliceIntrinsic {
-                        impl_info: GenericImplInfo::new(node, resolved_generic_params, span),
-                        defining_module: defining_module.clone(),
-                        origin: QualifiedSymbol::new(
-                            defining_module,
-                            Symbol::from("slice".to_owned()),
-                        ),
-                    });
+                    let impl_info = GenericImplInfo::new(node, resolved_generic_params, span);
+                    let slice_symbol = Symbol::from("slice".to_owned());
+                    let root_module = self
+                        .modules
+                        .get_mut(&ModulePath::root())
+                        .expect("root module");
+
+                    if let Some(symbol) = root_module.lookup_symbol(&slice_symbol) {
+                        let mut borrowed = symbol.borrow_mut();
+                        match &mut borrowed.kind {
+                            SymbolTableValueKind::Generic(generic_info) => {
+                                match &mut generic_info.kind {
+                                    GenericKind::BuiltinSlice(info) => {
+                                        info.impl_info = impl_info;
+                                        info.defining_module = defining_module;
+                                    }
+                                    _ => todo!("Error"),
+                                }
+                            }
+                            _ => todo!("Error"),
+                        }
+                    } else {
+                        root_module.insert_symbol_to_root_scope(
+                            slice_symbol,
+                            SymbolTableValue::new(
+                                SymbolTableValueKind::Generic(Box::new(GenericInfo::new(
+                                    GenericKind::BuiltinSlice(GenericBuiltinSliceInfo {
+                                        impl_info,
+                                        defining_module,
+                                    }),
+                                    ModulePath::root(),
+                                ))),
+                                ModulePath::root(),
+                            ),
+                            ast::top::Visibility::Private,
+                            span,
+                        )?;
+                    }
+
                     return Ok(TopLevelAnalysisResult::GenericTopLevel);
                 }
 
