@@ -707,7 +707,7 @@ checksum = "92ecc6618181def0457392ccd0ee51198e065e016d1d527a7ac1b6dc7c1f09d2"
 
 [[package]]
 name = "kaede_ast"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "inkwell",
  "kaede_ast_type",
@@ -718,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "kaede_ast_type"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "inkwell",
  "kaede_span",
@@ -727,7 +727,7 @@ dependencies = [
 
 [[package]]
 name = "kaede_codegen"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "inkwell",
@@ -743,11 +743,11 @@ dependencies = [
 
 [[package]]
 name = "kaede_common"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "kaede_compiler_driver"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -771,7 +771,7 @@ dependencies = [
 
 [[package]]
 name = "kaede_ir"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "inkwell",
  "kaede_ast_type",
@@ -782,7 +782,7 @@ dependencies = [
 
 [[package]]
 name = "kaede_lex"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "kaede_span",
  "unicode-xid",
@@ -790,7 +790,7 @@ dependencies = [
 
 [[package]]
 name = "kaede_lsp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "kaede_ast",
@@ -804,7 +804,7 @@ dependencies = [
 
 [[package]]
 name = "kaede_monomorphize"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "kaede_common",
@@ -815,7 +815,7 @@ dependencies = [
 
 [[package]]
 name = "kaede_parse"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "kaede_ast",
@@ -830,7 +830,7 @@ dependencies = [
 
 [[package]]
 name = "kaede_semantic"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "kaede_ast",
@@ -852,7 +852,7 @@ dependencies = [
 
 [[package]]
 name = "kaede_span"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "once_cell",
  "slab",
@@ -860,7 +860,7 @@ dependencies = [
 
 [[package]]
 name = "kaede_symbol"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "kaede_span",
  "once_cell",
@@ -869,7 +869,7 @@ dependencies = [
 
 [[package]]
 name = "kaede_symbol_table"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "kaede_ast",
@@ -881,7 +881,7 @@ dependencies = [
 
 [[package]]
 name = "kaede_type_infer"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "kaede_common",
