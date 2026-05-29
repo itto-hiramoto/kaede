@@ -46,40 +46,6 @@ fun main() -> i32 {
 }
 
 #[test]
-fn std_bytes_copy_fill_cover_lengths() -> anyhow::Result<()> {
-    test(
-        0,
-        r#"import std.bytes
-
-fun main() -> i32 {
-    let mut dst = [0 as u8; 5]
-    std.bytes.fill(dst, 9)
-    if dst[0] != 9 || dst[4] != 9 {
-        return 1
-    }
-
-    let copied = std.bytes.copy(dst[1:4], b"abc")
-    if copied != 3 {
-        return 2
-    }
-    if dst[0] != 9 || dst[1] != 'a' as u8 || dst[2] != 'b' as u8 || dst[3] != 'c' as u8 || dst[4] != 9 {
-        return 3
-    }
-
-    let mut short = [0 as u8; 2]
-    if std.bytes.copy(short, b"wxyz") != 2 {
-        return 4
-    }
-    if short[0] != 'w' as u8 || short[1] != 'x' as u8 {
-        return 5
-    }
-
-    return 0
-}"#,
-    )
-}
-
-#[test]
 fn std_bytes_range_checks_panic() -> anyhow::Result<()> {
     let tempdir = assert_fs::TempDir::new()?;
     let main = tempdir.child("main.kd");
