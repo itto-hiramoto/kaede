@@ -754,6 +754,8 @@ impl SemanticAnalyzer {
             )
         };
 
+        // Mark before emitting the body so recursive calls (e.g. `len` calling `ne.len()`)
+        // do not re-enter this function for the same monomorphized method.
         self.generated_impl_method_bodies.insert(decl.name.clone());
 
         self.verify_generic_argument_length(
@@ -789,6 +791,7 @@ impl SemanticAnalyzer {
             );
         }
 
+        let saved_closure_captures = std::mem::take(&mut self.closure_capture_stack);
         let emit_body = |analyzer: &mut Self| {
             analyzer.with_generic_arguments(&snapshot.generic_params, &generic_args, |analyzer| {
                 analyzer.with_analyze_command(AnalyzeCommand::WithoutFnDeclare, |analyzer| {
@@ -803,11 +806,12 @@ impl SemanticAnalyzer {
             })
         };
 
-        let impl_ir = if let Some(defining_module) = defining_module {
-            self.with_root_module_and_fallback(defining_module, emit_body)?
+        let impl_ir = if let Some(slice_defining_module) = defining_module {
+            self.with_root_module_and_fallback(slice_defining_module, emit_body)?
         } else {
-            self.with_module(origin.module_path().clone(), emit_body)?
+            self.with_defining_module(origin.module_path().clone(), emit_body)?
         };
+        self.closure_capture_stack = saved_closure_captures;
 
         if let TopLevelAnalysisResult::TopLevel(top_level) = impl_ir {
             assert!(matches!(top_level, ir::top::TopLevel::Impl(_)));
