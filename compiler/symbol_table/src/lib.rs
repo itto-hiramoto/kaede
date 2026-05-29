@@ -105,11 +105,19 @@ pub struct GenericFuncInfo {
     pub resolved_generic_params: Option<ResolvedGenericParams>,
 }
 
+/// Synthetic builtin generic for `impl<T> [T] { ... }` registered as root `slice`.
+#[derive(Debug)]
+pub struct GenericBuiltinSliceInfo {
+    pub impl_info: GenericImplInfo,
+    pub defining_module: ModulePath,
+}
+
 #[derive(Debug)]
 pub enum GenericKind {
     Struct(GenericStructInfo),
     Enum(GenericEnumInfo),
     Func(GenericFuncInfo),
+    BuiltinSlice(GenericBuiltinSliceInfo),
 }
 
 #[derive(Debug)]
@@ -128,6 +136,7 @@ impl GenericInfo {
             GenericKind::Struct(info) => info.resolved_generic_params.as_ref(),
             GenericKind::Enum(info) => info.resolved_generic_params.as_ref(),
             GenericKind::Func(info) => info.resolved_generic_params.as_ref(),
+            GenericKind::BuiltinSlice(info) => info.impl_info.resolved_generic_params.as_ref(),
         }
     }
 
@@ -135,7 +144,8 @@ impl GenericInfo {
         match &self.kind {
             GenericKind::Struct(info) => info.ast.generic_params.as_ref().unwrap().len(),
             GenericKind::Enum(info) => info.ast.generic_params.as_ref().unwrap().len(),
-            _ => unreachable!(),
+            GenericKind::BuiltinSlice(_) => 1,
+            GenericKind::Func(_) => unreachable!(),
         }
     }
 }

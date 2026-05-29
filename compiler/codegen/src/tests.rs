@@ -59,52 +59,7 @@ fn link_test_executable(
     Ok(())
 }
 
-/// Return exit status
-fn exec(program: &str) -> anyhow::Result<i32> {
-    let context = Context::create();
-    let cgcx = CodegenCtx::new(&context, false).unwrap();
-
-    let file = PathBuf::from("test").into();
-
-    let ast = Parser::new(program, file).run().unwrap();
-    let ir = SemanticAnalyzer::new_for_single_file_test().analyze(
-        ast,
-        AnalyzeOptions {
-            no_autoload: false,
-            no_prelude: false,
-            is_entry_unit: true,
-        },
-    )?;
-
-    let module = CodeGenerator::new(&cgcx).unwrap().codegen(ir).unwrap();
-    if let Some(main_fn) = module.get_function("main") {
-        unsafe {
-            main_fn.delete();
-        }
-    }
-
-    let temp_dir = tempdir()?;
-    let bitcode_path = temp_dir.path().join("test.bc");
-    let obj_path = temp_dir.path().join("test.o");
-    let harness_path = temp_dir.path().join("test_main.c");
-    let exe_path = temp_dir.path().join("test_exec");
-
-    module.write_bitcode_to_path(&bitcode_path);
-
-    let status = Command::new("llc")
-        .args([
-            "-filetype=obj",
-            "-relocation-model=pic",
-            "-o",
-            obj_path.to_str().unwrap(),
-            bitcode_path.to_str().unwrap(),
-        ])
-        .status()?;
-    if !status.success() {
-        anyhow::bail!("Failed to emit object file using 'llc'");
-    }
-
-    let harness_src = r#"
+const TEST_RUNTIME_HARNESS: &str = r#"
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -135,9 +90,54 @@ int main(void) {
 }
 "#;
 
-    fs::write(&harness_path, harness_src)?;
+fn compile_and_link_test(
+    program: &str,
+    options: AnalyzeOptions,
+) -> anyhow::Result<(tempfile::TempDir, PathBuf)> {
+    let context = Context::create();
+    let cgcx = CodegenCtx::new(&context, false).unwrap();
 
+    let file = PathBuf::from("test").into();
+    let ast = Parser::new(program, file).run().unwrap();
+    let ir = SemanticAnalyzer::new_for_single_file_test().analyze(ast, options)?;
+
+    let module = CodeGenerator::new(&cgcx).unwrap().codegen(ir).unwrap();
+    if let Some(main_fn) = module.get_function("main") {
+        unsafe {
+            main_fn.delete();
+        }
+    }
+
+    let temp_dir = tempdir()?;
+    let bitcode_path = temp_dir.path().join("test.bc");
+    let obj_path = temp_dir.path().join("test.o");
+    let harness_path = temp_dir.path().join("test_main.c");
+    let exe_path = temp_dir.path().join("test_exec");
+
+    module.write_bitcode_to_path(&bitcode_path);
+
+    let status = Command::new("llc")
+        .args([
+            "-filetype=obj",
+            "-relocation-model=pic",
+            "-o",
+            obj_path.to_str().unwrap(),
+            bitcode_path.to_str().unwrap(),
+        ])
+        .status()?;
+    if !status.success() {
+        anyhow::bail!("Failed to emit object file using 'llc'");
+    }
+
+    fs::write(&harness_path, TEST_RUNTIME_HARNESS)?;
     link_test_executable(&exe_path, &harness_path, &obj_path)?;
+
+    Ok((temp_dir, exe_path))
+}
+
+/// Compile, link, run, and return the exit code written to stderr by the test harness.
+fn exec_with_options(program: &str, options: AnalyzeOptions) -> anyhow::Result<i32> {
+    let (_temp_dir, exe_path) = compile_and_link_test(program, options)?;
 
     let output = Command::new(&exe_path).output()?;
     if !output.status.success() {
@@ -145,97 +145,48 @@ int main(void) {
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let code = stderr
+    stderr
         .trim()
         .parse::<i32>()
-        .map_err(|_| anyhow::anyhow!("Failed to parse test output"))?;
-    Ok(code)
+        .map_err(|_| anyhow::anyhow!("Failed to parse test output"))
 }
 
-/// Execute a program and return stderr, expecting the program to abort
+/// Return exit status.
+fn exec(program: &str) -> anyhow::Result<i32> {
+    exec_with_options(
+        program,
+        AnalyzeOptions {
+            no_autoload: false,
+            no_prelude: false,
+            is_entry_unit: true,
+        },
+    )
+}
+
+/// Like `exec`, but without autoload so tests can supply their own `impl<T> [T]` block.
+fn exec_no_autoload(program: &str) -> anyhow::Result<i32> {
+    exec_with_options(
+        program,
+        AnalyzeOptions {
+            no_autoload: true,
+            no_prelude: false,
+            is_entry_unit: true,
+        },
+    )
+}
+
+/// Execute a program and return stderr, expecting the program to abort.
 fn exec_expect_abort(program: &str) -> anyhow::Result<String> {
-    let context = Context::create();
-    let cgcx = CodegenCtx::new(&context, false).unwrap();
-
-    let file = PathBuf::from("test").into();
-
-    let ast = Parser::new(program, file).run().unwrap();
-    let ir = SemanticAnalyzer::new_for_single_file_test().analyze(
-        ast,
+    let (_temp_dir, exe_path) = compile_and_link_test(
+        program,
         AnalyzeOptions {
             no_autoload: false,
             no_prelude: false,
             is_entry_unit: true,
         },
     )?;
-
-    let module = CodeGenerator::new(&cgcx).unwrap().codegen(ir).unwrap();
-    if let Some(main_fn) = module.get_function("main") {
-        unsafe {
-            main_fn.delete();
-        }
-    }
-
-    let temp_dir = tempdir()?;
-    let bitcode_path = temp_dir.path().join("test.bc");
-    let obj_path = temp_dir.path().join("test.o");
-    let harness_path = temp_dir.path().join("test_main.c");
-    let exe_path = temp_dir.path().join("test_exec");
-
-    module.write_bitcode_to_path(&bitcode_path);
-
-    let status = Command::new("llc")
-        .args([
-            "-filetype=obj",
-            "-relocation-model=pic",
-            "-o",
-            obj_path.to_str().unwrap(),
-            bitcode_path.to_str().unwrap(),
-        ])
-        .status()?;
-    if !status.success() {
-        anyhow::bail!("Failed to emit object file using 'llc'");
-    }
-
-    let harness_src = r#"
-#include <stddef.h>
-#include <stdint.h>
-#include <stdio.h>
-
-typedef void (*TaskFn)(void *);
-
-extern int32_t kdmain(void);
-
-void kaede_runtime_init(void);
-void kaede_spawn_main(TaskFn fn, void *arg, size_t arg_size);
-int kaede_runtime_run(void);
-void kaede_runtime_shutdown(void);
-void kaede_runtime_set_exit_code(int code);
-
-static void kaede_test_main(void *arg) {
-    (void)arg;
-    int32_t code = kdmain();
-    kaede_runtime_set_exit_code((int)code);
-}
-
-int main(void) {
-    kaede_runtime_init();
-    kaede_spawn_main(kaede_test_main, NULL, 0);
-    int code = kaede_runtime_run();
-    kaede_runtime_shutdown();
-    fprintf(stderr, "%d\n", code);
-    return 0;
-}
-"#;
-
-    fs::write(&harness_path, harness_src)?;
-
-    link_test_executable(&exe_path, &harness_path, &obj_path)?;
-
     let output = Command::new(&exe_path).output()?;
-    // We expect the program to abort, so don't check status.success()
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    Ok(stderr)
+    Ok(String::from_utf8_lossy(&output.stderr).to_string())
 }
 
 #[test]
@@ -5817,5 +5768,36 @@ fn float_to_string_round_trip() -> anyhow::Result<()> {
         return 0
     }"#;
     assert_eq!(exec(program)?, 1);
+    Ok(())
+}
+
+#[test]
+fn slice_generic_impl_copy_first_distinct_element_sizes() -> anyhow::Result<()> {
+    let program = r#"
+        impl<T> [T] {
+            fun copy_first(mut self, src: [T]) {
+                self[0] = src[0]
+            }
+        }
+
+        fun main() -> i32 {
+            let mut a: [u8] = [1, 2, 3]
+            let mut b: [u8] = [9, 8, 7]
+            a.copy_first(b)
+            if a[0] != 9 {
+                return 1
+            }
+
+            let mut x: [i32] = [10, 20, 30]
+            let mut y: [i32] = [99, 88, 77]
+            x.copy_first(y)
+            if x[0] != 99 {
+                return 2
+            }
+
+            return 0
+        }
+    "#;
+    assert_eq!(exec_no_autoload(program)?, 0);
     Ok(())
 }

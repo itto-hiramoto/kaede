@@ -3646,6 +3646,30 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
+    /// Slice and array method calls monomorphize `impl<T> [T]` at `elem_ty`.
+    fn analyze_slice_elem_method_call(
+        &mut self,
+        elem_ty: &Rc<ir_type::Ty>,
+        lhs: ir::expr::Expr,
+        call_node: &ast::expr::FnCall,
+    ) -> anyhow::Result<ir::expr::Expr> {
+        let span = Span::new(lhs.span.start, call_node.span.finish, lhs.span.file);
+        let callee_symbol = self.callee_symbol(call_node)?;
+        let origin = Self::slice_generic_origin();
+        let generic_args = std::slice::from_ref(elem_ty);
+
+        self.ensure_generic_impl_method_declarations(origin.clone(), generic_args)?;
+
+        self.create_method_call_ir(
+            callee_symbol,
+            ModulePath::root(),
+            self.impl_method_parent_name(&origin, generic_args),
+            call_node,
+            lhs,
+            span,
+        )
+    }
+
     fn analyze_struct_access_or_tuple_indexing(
         &mut self,
         lhs: ir::expr::Expr,
@@ -3672,21 +3696,7 @@ impl SemanticAnalyzer {
 
             ir_type::TyKind::Slice(elem_ty) => match &rhs.kind {
                 ast::expr::ExprKind::FnCall(call_node) => {
-                    let span = Span::new(lhs.span.start, call_node.span.finish, lhs.span.file);
-                    let callee_symbol = self.callee_symbol(call_node)?;
-
-                    // Monomorphization may produce a slice type whose methods were never
-                    // registered at the call site; ensure they exist before dispatching.
-                    self.generate_slice_impl(elem_ty.clone())?;
-
-                    self.create_method_call_ir(
-                        callee_symbol,
-                        ModulePath::root(),
-                        self.slice_method_parent_name(elem_ty),
-                        call_node,
-                        lhs,
-                        span,
-                    )
+                    self.analyze_slice_elem_method_call(elem_ty, lhs, call_node)
                 }
 
                 _ => {
@@ -3710,21 +3720,7 @@ impl SemanticAnalyzer {
 
             ir_type::TyKind::Array((elem_ty, _len)) => match &rhs.kind {
                 ast::expr::ExprKind::FnCall(call_node) => {
-                    let span = Span::new(lhs.span.start, call_node.span.finish, lhs.span.file);
-                    let callee_symbol = self.callee_symbol(call_node)?;
-
-                    // Generate slice impl for this element type
-                    self.generate_slice_impl(elem_ty.clone())?;
-
-                    // Arrays use slice methods (array is coerced to slice at codegen)
-                    self.create_method_call_ir(
-                        callee_symbol,
-                        ModulePath::root(),
-                        self.slice_method_parent_name(elem_ty),
-                        call_node,
-                        lhs,
-                        span,
-                    )
+                    self.analyze_slice_elem_method_call(elem_ty, lhs, call_node)
                 }
 
                 _ => Err(SemanticError::HasNoFields { span }.into()),
