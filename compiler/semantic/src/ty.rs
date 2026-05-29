@@ -754,6 +754,10 @@ impl SemanticAnalyzer {
             )
         };
 
+        // Mark before emitting the body so recursive calls (e.g. `len` calling `ne.len()`)
+        // do not re-enter this function for the same monomorphized method.
+        self.generated_impl_method_bodies.insert(decl.name.clone());
+
         self.verify_generic_argument_length(
             &snapshot.generic_params,
             &generic_args,
@@ -813,8 +817,6 @@ impl SemanticAnalyzer {
             assert!(matches!(top_level, ir::top::TopLevel::Impl(_)));
             self.generated_generics.push(top_level);
         }
-
-        self.generated_impl_method_bodies.insert(decl.name.clone());
 
         Ok(())
     }
