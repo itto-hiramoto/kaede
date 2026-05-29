@@ -6,4 +6,20 @@ impl<T> [T] {
     export fun len(self) -> u64 {
         return self.1
     }
+
+    // Copies every element from `src` into `self`.
+    //
+    // This is length-exact: callers that want to copy a smaller range should
+    // slice both sides explicitly so the copied range is visible.
+    export fun copy_from(mut self, src: [T]) {
+        if self.len() != src.len() {
+            panic("[T].copy_from: length mismatch")
+        }
+
+        let mut i = 0
+        while i < self.len() {
+            self[i] = src[i]
+            i += 1
+        }
+    }
 }

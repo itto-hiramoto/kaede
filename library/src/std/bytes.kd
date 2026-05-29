@@ -62,23 +62,3 @@ impl u64 {
         buf[offset + 7] = ((self >> 56) & 0xff) as u8
     }
 }
-
-// Replaces every byte in `buf` with `value`.
-export fun fill(buf: mut [u8], value: u8) {
-    let mut i = 0
-    while i < buf.len() {
-        buf[i] = value
-        i += 1
-    }
-}
-
-// Copies up to `dst.len()` bytes from `src` and returns the number copied.
-export fun copy(dst: mut [u8], src: [u8]) -> u64 {
-    let n = if dst.len() < src.len() { dst.len() } else { src.len() }
-    let mut i = 0
-    while i < n {
-        dst[i] = src[i]
-        i += 1
-    }
-    return n
-}
