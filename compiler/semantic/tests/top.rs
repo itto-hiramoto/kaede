@@ -491,7 +491,7 @@ fn generic_impl_method_call_emits_only_referenced_method_body() -> anyhow::Resul
 }
 
 #[test]
-fn slice_methods_on_distinct_type_variables_share_one_instantiation() -> anyhow::Result<()> {
+fn slice_generic_functions_with_distinct_type_variables_analyze() -> anyhow::Result<()> {
     semantic_analyze(
         r#"
         fun takes<T>(xs: [T]) -> u64 {
@@ -512,6 +512,31 @@ fn slice_methods_on_distinct_type_variables_share_one_instantiation() -> anyhow:
 }
 
 #[test]
+fn slice_methods_on_distinct_element_types_are_separate_instantiations() -> anyhow::Result<()> {
+    let ir = semantic_analyze(
+        r#"
+        fun main() -> i32 {
+            let xs: [u8] = [1, 2]
+            let ys: [i32] = [3, 4]
+            return (xs.len() + ys.len()) as i32
+        }
+        "#,
+    )?;
+
+    let generated_methods = generated_impl_method_symbols(&ir);
+    assert!(
+        generated_methods.iter().any(|name| name == "slice_u8.len"),
+        "expected slice_u8.len body: {generated_methods:?}"
+    );
+    assert!(
+        generated_methods.iter().any(|name| name == "slice_i32.len"),
+        "expected slice_i32.len body: {generated_methods:?}"
+    );
+
+    Ok(())
+}
+
+#[test]
 fn slice_method_call_emits_only_referenced_method_body() -> anyhow::Result<()> {
     let ir = semantic_analyze(
         r#"
@@ -524,14 +549,14 @@ fn slice_method_call_emits_only_referenced_method_body() -> anyhow::Result<()> {
 
     let generated_methods = generated_impl_method_symbols(&ir);
     assert!(
-        generated_methods.iter().any(|name| name == "slice<u8>.len"),
-        "expected generated slice<u8>.len body: {generated_methods:?}"
+        generated_methods.iter().any(|name| name == "slice_u8.len"),
+        "expected generated slice_u8.len body: {generated_methods:?}"
     );
     assert!(
         !generated_methods
             .iter()
-            .any(|name| name == "slice<u8>.as_ptr"),
-        "unreferenced slice<u8>.as_ptr should not be emitted: {generated_methods:?}"
+            .any(|name| name == "slice_u8.as_ptr"),
+        "unreferenced slice_u8.as_ptr should not be emitted: {generated_methods:?}"
     );
 
     Ok(())

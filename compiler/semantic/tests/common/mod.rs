@@ -28,6 +28,18 @@ pub fn semantic_analyze(program: &str) -> anyhow::Result<ir::CompileUnit> {
 }
 
 #[allow(dead_code)]
+pub fn semantic_analyze_no_autoload(program: &str) -> anyhow::Result<ir::CompileUnit> {
+    semantic_analyze_internal(
+        program,
+        AnalyzeOptions {
+            no_autoload: true,
+            no_prelude: false,
+            is_entry_unit: true,
+        },
+    )
+}
+
+#[allow(dead_code)]
 pub fn semantic_analyze_as_non_entry(program: &str) -> anyhow::Result<ir::CompileUnit> {
     semantic_analyze_internal(
         program,
