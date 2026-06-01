@@ -159,6 +159,16 @@ fun leaf_update(new: mut BNode, old: BNode, idx: u16, key: [u8], val: [u8]) {
     append_range(new, old, idx + 1, idx + 1, old.nkeys() - (idx + 1))
 }
 
+export fun leaf_delete(new: mut BNode, old: BNode, idx: u16) {
+    if idx >= old.nkeys() {
+        panic("leaf_delete: index out of range")
+    }
+
+    new.set_header(BTREE_NODE_TYPE_LEAF, old.nkeys() - 1)
+    append_range(new, old, 0, 0, idx)
+    append_range(new, old, idx, idx + 1, old.nkeys() - (idx + 1))
+}
+
 fun node_lookup_le(node: BNode, key: [u8]) -> u16 {
     nkeys := node.nkeys()
 

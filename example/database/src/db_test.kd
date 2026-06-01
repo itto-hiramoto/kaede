@@ -301,6 +301,49 @@ fun test_tree_insert() {
     test_tree_insert_internal_replaces_child()
 }
 
+fun test_leaf_delete_removes_middle_key() {
+    leaf := make_test_leaf(4, 4)
+    mut deleted := BNode::new(BTREE_PAGE_SIZE)
+    leaf_delete(deleted, leaf, 2)
+
+    key0 := make_test_key(0)
+    key1 := make_test_key(1)
+    key3 := make_test_key(3)
+
+    assert(deleted.btype() == BTREE_NODE_TYPE_LEAF, "leaf_delete middle test: expected leaf")
+    assert(deleted.nkeys() == 3, "leaf_delete middle test: key count changed incorrectly")
+    assert(deleted.get_key(0).compare(key0[:]) == Ordering::Equal, "leaf_delete middle test: first key changed")
+    assert(deleted.get_key(1).compare(key1[:]) == Ordering::Equal, "leaf_delete middle test: second key changed")
+    assert(deleted.get_key(2).compare(key3[:]) == Ordering::Equal, "leaf_delete middle test: deleted key was not removed")
+    assert(deleted.get_val(2)[0] == 3 as u8, "leaf_delete middle test: value shifted incorrectly")
+}
+
+fun test_leaf_delete_removes_edge_keys() {
+    leaf := make_test_leaf(4, 4)
+
+    mut without_first := BNode::new(BTREE_PAGE_SIZE)
+    leaf_delete(without_first, leaf, 0)
+
+    key1 := make_test_key(1)
+    key3 := make_test_key(3)
+    assert(without_first.nkeys() == 3, "leaf_delete edge test: first delete count changed incorrectly")
+    assert(without_first.get_key(0).compare(key1[:]) == Ordering::Equal, "leaf_delete edge test: first key was not removed")
+    assert(without_first.get_key(2).compare(key3[:]) == Ordering::Equal, "leaf_delete edge test: last key changed")
+
+    mut deleted_last := BNode::new(BTREE_PAGE_SIZE)
+    leaf_delete(deleted_last, leaf, 3)
+    key2 := make_test_key(2)
+    key0 := make_test_key(0)
+    assert(deleted_last.nkeys() == 3, "leaf_delete edge test: last delete count changed incorrectly")
+    assert(deleted_last.get_key(0).compare(key0[:]) == Ordering::Equal, "leaf_delete edge test: first key changed")
+    assert(deleted_last.get_key(2).compare(key2[:]) == Ordering::Equal, "leaf_delete edge test: last key was not removed")
+}
+
+fun test_leaf_delete() {
+    test_leaf_delete_removes_middle_key()
+    test_leaf_delete_removes_edge_keys()
+}
+
 fun test_btree_insert_creates_root_with_sentinel() {
     mut tree := new_memory_tree()
     key := make_test_key(1)
@@ -376,5 +419,6 @@ fun test_btree_insert() {
 export fun run_database_tests() {
     test_node_split3()
     test_tree_insert()
+    test_leaf_delete()
     test_btree_insert()
 }
