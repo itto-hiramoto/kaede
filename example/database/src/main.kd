@@ -1,0 +1,6 @@
+import db_test
+
+fun main() {
+    db_test.run_database_tests()
+    println("ok")
+}

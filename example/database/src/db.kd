@@ -1,0 +1,338 @@
+import std.bytes
+import std.cmp
+import std.assert
+import std.result
+
+use std.cmp.Ordering
+use std.assert.assert
+use std.result.Result
+
+export const BTREE_NODE_TYPE_NODE: u16 = 1
+export const BTREE_NODE_TYPE_LEAF: u16 = 2
+export const BTREE_PAGE_SIZE: u64 = 4096
+export const BTREE_MAX_KEY_SIZE: u64 = 1000
+export const BTREE_MAX_VAL_SIZE: u64 = 3000
+
+export enum BTreeError {
+    EmptyKey,
+    KeyTooLarge,
+    ValueTooLarge,
+}
+
+export struct BNode {
+    data: Vector<u8>,
+}
+
+impl BNode {
+    export fun new(size: u64) -> mut BNode {
+        return BNode { data: Vector<u8>::filled(size, 0) }
+    }
+
+    export fun from_slice(data: [u8]) -> mut BNode {
+        return BNode { data: Vector<u8>::from_slice(data) }
+    }
+
+    export fun btype(self) -> u16 {
+        return u16::from_le_bytes(self.data.as_slice(), 0)
+    }
+
+    export fun nkeys(self) -> u16 {
+        return u16::from_le_bytes(self.data.as_slice(), 2)
+    }
+
+    export fun set_header(mut self, btype: u16, nkeys: u16) {
+        btype.write_le_bytes(self.data.as_mut_slice(), 0)
+        nkeys.write_le_bytes(self.data.as_mut_slice(), 2)
+    }
+
+    export fun get_ptr(self, idx: u16) -> u64 {
+        if idx >= self.nkeys() {
+            panic("BNode.get_ptr: index out of range")
+        }
+
+        pos := 4 + 8 * (idx as u64)
+        return u64::from_le_bytes(self.data.as_slice(), pos)
+    }
+
+    export fun set_ptr(mut self, idx: u16, val: u64) {
+        if idx >= self.nkeys() {
+            panic("BNode.set_ptr: index out of range")
+        }
+
+        pos := 4 + 8 * (idx as u64)
+        val.write_le_bytes(self.data.as_mut_slice(), pos)
+    }
+
+    export fun get_offset(self, idx: u16) -> u16 {
+        if idx == 0 {
+            return 0
+        }
+        if idx > self.nkeys() {
+            panic("BNode.get_offset: index out of range")
+        }
+
+        pos := 4 + 8 * (self.nkeys() as u64) + 2 * ((idx - 1) as u64)
+        return u16::from_le_bytes(self.data.as_slice(), pos)
+    }
+
+    export fun set_offset(mut self, idx: u16, val: u16) {
+        if idx == 0 || idx > self.nkeys() {
+            panic("BNode.set_offset: index out of range")
+        }
+
+        pos := 4 + 8 * (self.nkeys() as u64) + 2 * ((idx - 1) as u64)
+        val.write_le_bytes(self.data.as_mut_slice(), pos)
+    }
+
+    export fun kv_pos(self, idx: u16) -> u64 {
+        if idx > self.nkeys() {
+            panic("BNode.kv_pos: index out of range")
+        }
+
+        return 4 + 8 * (self.nkeys() as u64) + 2 * (self.nkeys() as u64) + (self.get_offset(idx) as u64)
+    }
+
+    export fun get_key(self, idx: u16) -> [u8] {
+        if idx >= self.nkeys() {
+            panic("BNode.get_key: index out of range")
+        }
+
+        pos := self.kv_pos(idx)
+        klen := u16::from_le_bytes(self.data.as_slice(), pos) as u64
+        return self.data.as_slice()[pos + 4:][:klen]
+    }
+
+    export fun get_val(self, idx: u16) -> [u8] {
+        if idx >= self.nkeys() {
+            panic("BNode.get_val: index out of range")
+        }
+
+        pos := self.kv_pos(idx)
+        klen := u16::from_le_bytes(self.data.as_slice(), pos) as u64
+        vlen := u16::from_le_bytes(self.data.as_slice(), pos + 2) as u64
+        return self.data.as_slice()[pos + 4 + klen:][:vlen]
+    }
+
+    export fun nbytes(self) -> u64 {
+        return self.kv_pos(self.nkeys())
+    }
+
+    // Appends one encoded key/value item. The caller must append keys in sorted
+    // order because the next offset is derived from the previous item.
+    export fun append_kv(mut self, idx: u16, ptr: u64, key: [u8], val: [u8]) {
+        self.set_ptr(idx, ptr)
+
+        pos := self.kv_pos(idx)
+        (key.len() as u16).write_le_bytes(self.data.as_mut_slice(), pos)
+        (val.len() as u16).write_le_bytes(self.data.as_mut_slice(), pos + 2)
+
+        key_start := pos + 4
+        key_end := key_start + key.len()
+        self.data.as_mut_slice()[key_start:key_end].copy_from(key)
+        self.data.as_mut_slice()[key_end:key_end + val.len()].copy_from(val)
+
+        self.set_offset(idx + 1, self.get_offset(idx) + 4 + ((key.len() + val.len()) as u16))
+    }
+}
+
+fun append_range(new: mut BNode, old: BNode, dst_new: u16, src_old: u16, n: u16) {
+    mut i := 0
+    while i < n {
+        dst := dst_new + i
+        src := src_old + i
+        new.append_kv(dst, old.get_ptr(src), old.get_key(src), old.get_val(src))
+        i += 1
+    }
+}
+
+fun leaf_insert(new: mut BNode, old: BNode, idx: u16, key: [u8], val: [u8]) {
+    new.set_header(BTREE_NODE_TYPE_LEAF, old.nkeys() + 1)
+    append_range(new, old, 0, 0, idx)
+    new.append_kv(idx, 0, key, val)
+    append_range(new, old, idx + 1, idx, old.nkeys() - idx)
+}
+
+fun leaf_update(new: mut BNode, old: BNode, idx: u16, key: [u8], val: [u8]) {
+    new.set_header(BTREE_NODE_TYPE_LEAF, old.nkeys())
+    append_range(new, old, 0, 0, idx)
+    new.append_kv(idx, 0, key, val)
+    append_range(new, old, idx + 1, idx + 1, old.nkeys() - (idx + 1))
+}
+
+fun node_lookup_le(node: BNode, key: [u8]) -> u16 {
+    nkeys := node.nkeys()
+
+    mut i := 0
+    while i < nkeys {
+        cmp := node.get_key(i).compare(key)
+        match cmp {
+            Ordering::Equal => return i,
+            Ordering::Greater => return i - 1,
+            _ => {
+                i += 1
+            }
+        }
+    }
+
+    return i - 1
+}
+
+fun node_split2(left: mut BNode, right: mut BNode, old: BNode) {
+    assert(old.nkeys() >= 2, "node_split2: node must have at least two keys")
+
+    left_size := |nleft| 4 + 8 * (nleft as u64) + 2 * (nleft as u64) + (old.get_offset(nleft) as u64)
+    right_size := |nleft| old.nbytes() - left_size(nleft) + 4
+
+    mut nleft := old.nkeys() / 2
+    while left_size(nleft) > BTREE_PAGE_SIZE {
+        nleft -= 1
+    }
+    assert(nleft >= 1, "node_split2: empty left split")
+
+    while right_size(nleft) > BTREE_PAGE_SIZE {
+        nleft += 1
+    }
+    assert(nleft < old.nkeys(), "node_split2: empty right split")
+
+    nright := old.nkeys() - nleft
+    left.set_header(old.btype(), nleft)
+    right.set_header(old.btype(), nright)
+    append_range(left, old, 0, 0, nleft)
+    append_range(right, old, 0, nleft, nright)
+
+    assert(right.nbytes() <= BTREE_PAGE_SIZE, "node_split2: right split exceeds page size")
+}
+
+// Splits an updated node into one, two, or three page-sized nodes. A temporary
+// node can exceed one page after insert; the middle-key-size case may require
+// splitting the left half one more time after node_split2.
+export fun node_split3(old: BNode) -> (u16, [BNode; 3]) {
+    if old.nbytes() <= BTREE_PAGE_SIZE {
+        page := BNode::from_slice(old.data.as_slice()[:BTREE_PAGE_SIZE])
+        return (1, [page, BNode::new(BTREE_PAGE_SIZE), BNode::new(BTREE_PAGE_SIZE)])
+    }
+
+    mut left := BNode::new(2 * BTREE_PAGE_SIZE)
+    mut right := BNode::new(BTREE_PAGE_SIZE)
+    node_split2(left, right, old)
+
+    if left.nbytes() <= BTREE_PAGE_SIZE {
+        page := BNode::from_slice(left.data.as_slice()[:BTREE_PAGE_SIZE])
+        return (2, [page, right, BNode::new(BTREE_PAGE_SIZE)])
+    }
+
+    mut left_left := BNode::new(BTREE_PAGE_SIZE)
+    mut middle := BNode::new(BTREE_PAGE_SIZE)
+    node_split2(left_left, middle, left)
+
+    assert(left_left.nbytes() <= BTREE_PAGE_SIZE, "node_split3: left split exceeds page size")
+    assert(middle.nbytes() <= BTREE_PAGE_SIZE, "node_split3: middle split exceeds page size")
+
+    return (3, [left_left, middle, right])
+}
+
+export struct BTree {
+    root: u64,
+    get: fun(u64) -> [u8],
+    new: fun([u8]) -> u64,
+    del: fun(u64),
+}
+
+impl BTree {
+    export fun insert(mut self, key: [u8], val: [u8]) -> Result<bool, BTreeError> {
+        check_limit(key, val)?
+
+        if self.root == 0 {
+            mut root := BNode::new(BTREE_PAGE_SIZE)
+            root.set_header(BTREE_NODE_TYPE_LEAF, 2)
+            // The empty sentinel key covers the range before the first real
+            // key, so node_lookup_le always finds a containing child.
+            root.append_kv(0, 0, b"", b"")
+            root.append_kv(1, 0, key, val)
+            self.root = (self.new)(root.data.as_slice())
+            return Result::Ok(true)
+        }
+
+        node := tree_insert(self, BNode::from_slice((self.get)(self.root)), key, val)
+        let (nsplit, split) = node_split3(node)
+        (self.del)(self.root)
+
+        if nsplit > 1 {
+            mut root := BNode::new(BTREE_PAGE_SIZE)
+            root.set_header(BTREE_NODE_TYPE_NODE, nsplit)
+
+            mut i := 0
+            while i < nsplit {
+                knode := split[i]
+                ptr := (self.new)(knode.data.as_slice())
+                root.append_kv(i, ptr, knode.get_key(0), b"")
+                i += 1
+            }
+
+            self.root = (self.new)(root.data.as_slice())
+        } else {
+            self.root = (self.new)(split[0].data.as_slice())
+        }
+
+        return Result::Ok(true)
+    }
+}
+
+fun check_limit(key: [u8], val: [u8]) -> Result<bool, BTreeError> {
+    if key.len() == 0 {
+        return Result::Err(BTreeError::EmptyKey)
+    }
+    if key.len() > BTREE_MAX_KEY_SIZE {
+        return Result::Err(BTreeError::KeyTooLarge)
+    }
+    if val.len() > BTREE_MAX_VAL_SIZE {
+        return Result::Err(BTreeError::ValueTooLarge)
+    }
+
+    return Result::Ok(true)
+}
+
+// Replace one child link in an internal node with the one to three nodes
+// produced by node_split3, preserving the unchanged siblings on both sides.
+fun node_replace_kid_n(tree: BTree, new: mut BNode, old: BNode, idx: u16, kids: [BNode]) {
+    nkids := kids.len() as u16
+    new.set_header(BTREE_NODE_TYPE_NODE, old.nkeys() + nkids - 1)
+    append_range(new, old, 0, 0, idx)
+
+    mut i := 0
+    while i < nkids {
+        child := kids[i as u64]
+        new.append_kv(idx + i, (tree.new)(child.data.as_slice()), child.get_key(0), b"")
+        i += 1
+    }
+
+    append_range(new, old, idx + nkids, idx + 1, old.nkeys() - (idx + 1))
+}
+
+export fun tree_insert(tree: BTree, node: BNode, key: [u8], val: [u8]) -> mut BNode {
+    mut new := BNode::new(2 * BTREE_PAGE_SIZE)
+    idx := node_lookup_le(node, key)
+
+    match node.btype() {
+        BTREE_NODE_TYPE_LEAF => {
+            if key.compare(node.get_key(idx)) == Ordering::Equal {
+                leaf_update(new, node, idx, key, val)
+            } else {
+                leaf_insert(new, node, idx + 1, key, val)
+            }
+        },
+
+        BTREE_NODE_TYPE_NODE => {
+            kptr := node.get_ptr(idx)
+            knode := tree_insert(tree, BNode::from_slice((tree.get)(kptr)), key, val)
+            let (nsplit, split) = node_split3(knode)
+
+            (tree.del)(kptr)
+            node_replace_kid_n(tree, new, node, idx, split[0:nsplit as u64])
+        },
+
+        _ => panic("tree_insert: unknown node type"),
+    }
+
+    return new
+}
