@@ -13,10 +13,14 @@ use std.result.Result
 use db.*
 
 fun append_test_kv(node: mut BNode, idx: u16, val_len: u64) {
-    mut key := [0 as u8; 2]
-    key[1] = idx as u8
+    append_test_kv_with_key(node, idx, idx as u8, val_len)
+}
 
-    val := Vector<u8>::filled(val_len, idx as u8)
+fun append_test_kv_with_key(node: mut BNode, idx: u16, key_num: u8, val_len: u64) {
+    mut key := [0 as u8; 2]
+    key[1] = key_num
+
+    val := Vector<u8>::filled(val_len, key_num)
     node.append_kv(idx, 0, key[:], val.as_slice())
 }
 
@@ -27,6 +31,19 @@ fun make_test_leaf(nkeys: u16, val_len: u64) -> mut BNode {
     mut i := 0
     while i < nkeys {
         append_test_kv(node, i, val_len)
+        i += 1
+    }
+
+    return node
+}
+
+fun make_test_leaf_from(first_key: u8, nkeys: u16, val_len: u64) -> mut BNode {
+    mut node := BNode::new(2 * BTREE_PAGE_SIZE)
+    node.set_header(BTREE_NODE_TYPE_LEAF, nkeys)
+
+    mut i := 0
+    while i < nkeys {
+        append_test_kv_with_key(node, i, first_key + (i as u8), val_len)
         i += 1
     }
 
@@ -65,6 +82,11 @@ fun make_test_key(n: u8) -> [u8; 2] {
     mut key := [0 as u8; 2]
     key[1] = n
     return key
+}
+
+fun append_test_child(node: mut BNode, idx: u16, ptr: u64, key_num: u8) {
+    key := make_test_key(key_num)
+    node.append_kv(idx, ptr, key[:], b"")
 }
 
 fun dummy_tree() -> BTree {
@@ -344,6 +366,110 @@ fun test_leaf_delete() {
     test_leaf_delete_removes_edge_keys()
 }
 
+fun test_node_merge_combines_siblings() {
+    left := make_test_leaf_from(0, 2, 4)
+    right := make_test_leaf_from(2, 2, 5)
+    mut merged := BNode::new(BTREE_PAGE_SIZE)
+    node_merge(merged, left, right)
+
+    key0 := make_test_key(0)
+    key1 := make_test_key(1)
+    key2 := make_test_key(2)
+    key3 := make_test_key(3)
+
+    assert(merged.btype() == BTREE_NODE_TYPE_LEAF, "node_merge test: expected leaf")
+    assert(merged.nkeys() == 4, "node_merge test: key count changed incorrectly")
+    assert(merged.get_key(0).compare(key0[:]) == Ordering::Equal, "node_merge test: first key changed")
+    assert(merged.get_key(1).compare(key1[:]) == Ordering::Equal, "node_merge test: second key changed")
+    assert(merged.get_key(2).compare(key2[:]) == Ordering::Equal, "node_merge test: third key changed")
+    assert(merged.get_key(3).compare(key3[:]) == Ordering::Equal, "node_merge test: fourth key changed")
+    assert(merged.get_val(2)[0] == 2 as u8, "node_merge test: right value was not copied")
+}
+
+fun test_node_replace_2_kid_replaces_adjacent_links() {
+    mut old := BNode::new(BTREE_PAGE_SIZE)
+    old.set_header(BTREE_NODE_TYPE_NODE, 3)
+    append_test_child(old, 0, 10, 0)
+    append_test_child(old, 1, 11, 2)
+    append_test_child(old, 2, 12, 4)
+
+    mut new := BNode::new(BTREE_PAGE_SIZE)
+    key2 := make_test_key(2)
+    node_replace_2_kid(new, old, 1, 77, key2[:])
+
+    key0 := make_test_key(0)
+    assert(new.btype() == BTREE_NODE_TYPE_NODE, "node_replace_2_kid test: expected internal node")
+    assert(new.nkeys() == 2, "node_replace_2_kid test: key count changed incorrectly")
+    assert(new.get_ptr(0) == 10 as u64, "node_replace_2_kid test: left pointer changed")
+    assert(new.get_ptr(1) == 77 as u64, "node_replace_2_kid test: merged pointer was not inserted")
+    assert(new.get_key(0).compare(key0[:]) == Ordering::Equal, "node_replace_2_kid test: left key changed")
+    assert(new.get_key(1).compare(key2[:]) == Ordering::Equal, "node_replace_2_kid test: merged key was not inserted")
+}
+
+fun test_should_merge_selects_left_sibling() {
+    mut tree := new_memory_tree()
+    left := make_test_leaf_from(0, 2, 4)
+    updated := make_test_leaf_from(2, 1, 4)
+    left_ptr := (tree.new)(left.data.as_slice())
+    updated_ptr := (tree.new)(updated.data.as_slice())
+
+    mut parent := BNode::new(BTREE_PAGE_SIZE)
+    parent.set_header(BTREE_NODE_TYPE_NODE, 2)
+    append_test_child(parent, 0, left_ptr, 0)
+    append_test_child(parent, 1, updated_ptr, 2)
+
+    let (dir, sibling) = should_merge(tree, parent, 1, updated)
+    assert(dir < 0, "should_merge left test: expected left merge")
+    assert(sibling.get_key(0).compare(left.get_key(0)) == Ordering::Equal, "should_merge left test: wrong sibling")
+}
+
+fun test_should_merge_selects_right_sibling() {
+    mut tree := new_memory_tree()
+    updated := make_test_leaf_from(0, 1, 4)
+    right := make_test_leaf_from(1, 2, 4)
+    updated_ptr := (tree.new)(updated.data.as_slice())
+    right_ptr := (tree.new)(right.data.as_slice())
+
+    mut parent := BNode::new(BTREE_PAGE_SIZE)
+    parent.set_header(BTREE_NODE_TYPE_NODE, 2)
+    append_test_child(parent, 0, updated_ptr, 0)
+    append_test_child(parent, 1, right_ptr, 1)
+
+    let (dir, sibling) = should_merge(tree, parent, 0, updated)
+    assert(dir > 0, "should_merge right test: expected right merge")
+    assert(sibling.get_key(0).compare(right.get_key(0)) == Ordering::Equal, "should_merge right test: wrong sibling")
+}
+
+fun test_should_merge_keeps_large_or_unmergeable_nodes() {
+    large_updated := make_test_leaf(10, 300)
+    let (large_dir, large_sibling) = should_merge(dummy_tree(), BNode::new(0), 0, large_updated)
+    assert(large_dir == 0, "should_merge no-merge test: large updated node should not merge")
+    assert(large_sibling.data.len() == 0, "should_merge no-merge test: expected empty sibling")
+
+    mut tree := new_memory_tree()
+    small_updated := make_test_leaf_from(0, 1, 4)
+    large_sibling_node := make_test_leaf_from(1, 12, 324)
+    updated_ptr := (tree.new)(small_updated.data.as_slice())
+    sibling_ptr := (tree.new)(large_sibling_node.data.as_slice())
+
+    mut parent := BNode::new(BTREE_PAGE_SIZE)
+    parent.set_header(BTREE_NODE_TYPE_NODE, 2)
+    append_test_child(parent, 0, updated_ptr, 0)
+    append_test_child(parent, 1, sibling_ptr, 1)
+
+    let (merged_dir, merged_sibling) = should_merge(tree, parent, 0, small_updated)
+    assert(merged_dir == 0, "should_merge no-merge test: oversized merged node should not merge")
+    assert(merged_sibling.data.len() == 0, "should_merge no-merge test: expected empty oversized sibling")
+}
+
+fun test_node_merge_helpers() {
+    test_node_merge_combines_siblings()
+    test_node_replace_2_kid_replaces_adjacent_links()
+    test_should_merge_selects_left_sibling()
+    test_should_merge_selects_right_sibling()
+    test_should_merge_keeps_large_or_unmergeable_nodes()
+}
+
 fun test_btree_insert_creates_root_with_sentinel() {
     mut tree := new_memory_tree()
     key := make_test_key(1)
@@ -420,5 +546,6 @@ export fun run_database_tests() {
     test_node_split3()
     test_tree_insert()
     test_leaf_delete()
+    test_node_merge_helpers()
     test_btree_insert()
 }
