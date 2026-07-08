@@ -157,6 +157,16 @@ mod tests {
                 contains_generic_call(&call.receiver)
                     || call.args.0.iter().any(contains_generic_call)
             }
+            ExprKind::Select(select) => {
+                select.arms.iter().any(|arm| {
+                    contains_generic_call(&arm.channel)
+                        || arm.value.as_ref().is_some_and(|v| contains_generic_call(v))
+                        || contains_generic_call(&arm.body)
+                }) || select
+                    .default
+                    .as_ref()
+                    .is_some_and(|d| contains_generic_call(d))
+            }
             ExprKind::Int(_)
             | ExprKind::Float(_)
             | ExprKind::StringLiteral(_)
@@ -524,6 +534,18 @@ impl Monomorphizer {
                 self.rewrite_expr(&mut call.receiver)?;
                 for arg in &mut call.args.0 {
                     self.rewrite_expr(arg)?;
+                }
+            }
+            ExprKind::Select(select) => {
+                for arm in &mut select.arms {
+                    self.rewrite_expr(&mut arm.channel)?;
+                    if let Some(value) = &mut arm.value {
+                        self.rewrite_expr(value)?;
+                    }
+                    self.rewrite_expr(&mut arm.body)?;
+                }
+                if let Some(default) = &mut select.default {
+                    self.rewrite_expr(default)?;
                 }
             }
             ExprKind::Int(_)

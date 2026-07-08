@@ -209,6 +209,7 @@ impl SemanticAnalyzer {
             ExprKind::Loop(node) => self.analyze_loop(node),
             ExprKind::While(node) => self.analyze_while(node),
             ExprKind::Match(node) => self.analyze_match(node),
+            ExprKind::Select(node) => self.analyze_select(node),
             ExprKind::StructLiteral(node) => self.analyze_struct_literal(node),
             ExprKind::TupleLiteral(node) => self.analyze_tuple_literal(node),
             ExprKind::Closure(node) => self.analyze_closure(node, None),
@@ -356,6 +357,160 @@ impl SemanticAnalyzer {
             &[],
             node.span,
         )
+    }
+
+    /// Channel<T> element type T, extracted from a Channel UDT's generic args.
+    fn channel_elem_ty(udt: &ir_type::UserDefinedType) -> Option<Rc<ir_type::Ty>> {
+        udt.generic_instance
+            .as_ref()
+            .and_then(|gi| gi.args.first().cloned())
+    }
+
+    fn analyze_select(&mut self, node: &ast::expr::Select) -> anyhow::Result<ir::expr::Expr> {
+        let mut ir_arms: Vec<ir::expr::SelectArm> = Vec::with_capacity(node.arms.len());
+
+        for arm in &node.arms {
+            let arm_ir = match &arm.op {
+                ast::expr::SelectOp::Send { channel, value } => {
+                    let chan_ir = self.analyze_expr(channel)?;
+                    let Some(udt) = self.channel_udt_from_ty(&chan_ir.ty) else {
+                        return Err(SemanticError::SelectCaseRequiresChannel {
+                            actual: chan_ir.ty.kind.to_string(),
+                            span: channel.span,
+                        }
+                        .into());
+                    };
+                    let elem_ty = Self::channel_elem_ty(&udt).ok_or_else(|| {
+                        SemanticError::SelectCaseRequiresChannel {
+                            actual: chan_ir.ty.kind.to_string(),
+                            span: channel.span,
+                        }
+                    })?;
+                    let value_ir = self.analyze_expr_with_expected_type(value, elem_ty.clone())?;
+
+                    self.push_scope(SymbolTable::new());
+                    let body = self.analyze_expr(arm.body.as_ref())?;
+                    self.pop_scope();
+
+                    ir::expr::SelectArm {
+                        op: ir::expr::SelectOp::Send,
+                        channel: Box::new(chan_ir),
+                        elem_ty,
+                        value: Some(Box::new(value_ir)),
+                        binding: None,
+                        option_ty: None,
+                        option_enum_info: None,
+                        body: Box::new(body),
+                        span: arm.span,
+                    }
+                }
+                ast::expr::SelectOp::Recv { channel, binding } => {
+                    let chan_ir = self.analyze_expr(channel)?;
+                    let Some(udt) = self.channel_udt_from_ty(&chan_ir.ty) else {
+                        return Err(SemanticError::SelectCaseRequiresChannel {
+                            actual: chan_ir.ty.kind.to_string(),
+                            span: channel.span,
+                        }
+                        .into());
+                    };
+                    let elem_ty = Self::channel_elem_ty(&udt).ok_or_else(|| {
+                        SemanticError::SelectCaseRequiresChannel {
+                            actual: chan_ir.ty.kind.to_string(),
+                            span: channel.span,
+                        }
+                    })?;
+
+                    // Resolve `Option<T>` by asking the channel UDT for its
+                    // `recv` method: its return type is `Option<T>` already.
+                    let dummy_call = self.build_channel_method_call_expr(
+                        chan_ir.clone(),
+                        &udt,
+                        Symbol::from("recv".to_owned()),
+                        &[],
+                        arm.span,
+                    )?;
+                    let option_ty = dummy_call.ty.clone();
+
+                    // Resolve the Option enum (may be a Placeholder UDT at
+                    // this point) so codegen does not have to chase symbol
+                    // tables to find the variants.
+                    let option_enum_info = {
+                        let inner = match option_ty.kind.as_ref() {
+                            ir_type::TyKind::Reference(rty) => rty.refee_ty.clone(),
+                            _ => option_ty.clone(),
+                        };
+                        let opt_udt = match inner.kind.as_ref() {
+                            ir_type::TyKind::UserDefined(u) => Some(u.clone()),
+                            _ => None,
+                        };
+                        opt_udt.and_then(|u| match &u.kind {
+                            ir_type::UserDefinedTypeKind::Enum(e) => Some(e.clone()),
+                            ir_type::UserDefinedTypeKind::Placeholder(qsym) => self
+                                .lookup_qualified_symbol(qsym.clone())
+                                .and_then(|v| match &v.borrow().kind {
+                                    SymbolTableValueKind::Enum(e) => Some(e.clone()),
+                                    _ => None,
+                                }),
+                            _ => None,
+                        })
+                    };
+
+                    self.push_scope(SymbolTable::new());
+                    let bound_symbol = match binding {
+                        ast::expr::SelectBinding::Named(ident) => {
+                            let sym = ident.symbol();
+                            self.insert_symbol_to_current_scope(
+                                sym,
+                                SymbolTableValue::new(
+                                    SymbolTableValueKind::Variable(VariableInfo {
+                                        ty: option_ty.clone(),
+                                    }),
+                                    self.current_module_path().clone(),
+                                ),
+                                ident.span(),
+                            )?;
+                            Some(sym)
+                        }
+                        ast::expr::SelectBinding::Wildcard => None,
+                    };
+                    let body = self.analyze_expr(arm.body.as_ref())?;
+                    self.pop_scope();
+
+                    ir::expr::SelectArm {
+                        op: ir::expr::SelectOp::Recv,
+                        channel: Box::new(chan_ir),
+                        elem_ty,
+                        value: None,
+                        binding: bound_symbol,
+                        option_ty: Some(option_ty),
+                        option_enum_info,
+                        body: Box::new(body),
+                        span: arm.span,
+                    }
+                }
+            };
+            ir_arms.push(arm_ir);
+        }
+
+        let default_ir = match &node.default {
+            Some(body) => {
+                self.push_scope(SymbolTable::new());
+                let ir = self.analyze_expr(body.as_ref())?;
+                self.pop_scope();
+                Some(Box::new(ir))
+            }
+            None => None,
+        };
+
+        Ok(ir::expr::Expr {
+            kind: ir::expr::ExprKind::Select(ir::expr::Select {
+                arms: ir_arms,
+                default: default_ir,
+                span: node.span,
+            }),
+            ty: Rc::new(ir_type::Ty::new_unit()),
+            span: node.span,
+        })
     }
 
     fn analyze_spawn(&mut self, node: &ast::expr::Spawn) -> anyhow::Result<ir::expr::Expr> {
