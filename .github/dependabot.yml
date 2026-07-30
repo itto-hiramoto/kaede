@@ -25,6 +25,17 @@ updates:
     commit-message:
       prefix: "chore(deps)"
     groups:
+      # react and react-dom must move together or `npm ci` fails on a peer
+      # dependency conflict; same for the docusaurus packages, which are
+      # released in lockstep. Listed before website-minor-patch because the
+      # first matching group wins.
+      react:
+        patterns:
+          - react
+          - react-dom
+      docusaurus:
+        patterns:
+          - "@docusaurus/*"
       website-minor-patch:
         patterns:
           - "*"
