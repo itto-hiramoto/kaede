@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm17-0"] }
 anyhow = { version = "1.0.68", features = ["backtrace"] }
 clap = { version = "4.1.4", features = ["derive"] }
-colored = "2.0.4"
+colored = "3.1.1"
 serde = { version = "1", features = ["derive"] }
 tempfile = "3.5.0"
 tokio = { version = "=1.38.2", features = ["io-std", "net", "rt-multi-thread", "time"] }
