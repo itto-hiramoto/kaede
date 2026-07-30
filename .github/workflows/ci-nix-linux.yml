@@ -14,11 +14,6 @@ jobs:
       - name: Install Nix
         uses: DeterminateSystems/nix-installer-action@main
 
-      - name: Set up Magic Nix Cache
-        uses: DeterminateSystems/magic-nix-cache-action@main
-        with:
-          use-flakehub: false
-
       - name: Cache rust
         id: cache-rust
         uses: actions/cache@v6
@@ -28,6 +23,8 @@ jobs:
             ~/.rustup/
             ./target/
           key: ${{ runner.os }}-nix-cargo-${{ hashFiles('**/Cargo.lock', 'flake.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-nix-cargo-
 
       - name: Install kaede
         run: nix develop --command bash -c "chmod +x install.py && ./install.py --no-setenv"
