@@ -23,8 +23,6 @@ jobs:
             ~/.rustup/
             ./target/
           key: ${{ runner.os }}-nix-cargo-${{ hashFiles('**/Cargo.lock', 'flake.lock') }}
-          # Without a prefix fallback every Cargo.lock change restores nothing,
-          # which is exactly what a dependabot cargo PR does.
           restore-keys: |
             ${{ runner.os }}-nix-cargo-
 
