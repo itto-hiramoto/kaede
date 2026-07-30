@@ -6,7 +6,7 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 [dependencies]
 anyhow = "1.0.68"
-thiserror = "1.0.38"
+thiserror = "2.0.18"
 
 kaede_span = { path = "../span" }
 kaede_ir = { path = "../ir" }
