@@ -8,7 +8,7 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 [dependencies]
 anyhow = "1.0.68"
-thiserror = "1.0.38"
+thiserror = "2.0.18"
 inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", features = ["llvm17-0"] }
 
 kaede_ir = { path = "../ir" }
