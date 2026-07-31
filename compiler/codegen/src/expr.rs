@@ -1808,8 +1808,8 @@ impl<'ctx> CodeGenerator<'ctx> {
         } else {
             anyhow::bail!(
                 "unsupported cast from `{}` to `{}`",
-                value_ty.kind.to_string(),
-                target_ty.kind.to_string()
+                value_ty.kind,
+                target_ty.kind
             );
         }
     }
@@ -1871,8 +1871,8 @@ impl<'ctx> CodeGenerator<'ctx> {
 
         anyhow::bail!(
             "unsupported cast from `{}` to `{}`",
-            value_ty.kind.to_string(),
-            target_ty.kind.to_string()
+            value_ty.kind,
+            target_ty.kind
         );
     }
 
