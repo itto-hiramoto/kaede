@@ -13,7 +13,7 @@ use kaede_symbol::Symbol;
 use rustdoc_types::{
     Crate, FunctionSignature, Id, Item, ItemEnum, ItemKind, ItemSummary, Type, Visibility,
 };
-use toml::Value as TomlValue;
+use toml::{Table as TomlTable, Value as TomlValue};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum TyPosition {
@@ -275,7 +275,7 @@ fn run_command(mut cmd: Command, name: &str) -> anyhow::Result<()> {
 fn read_package_name(manifest_path: &Path) -> anyhow::Result<String> {
     let content = fs::read_to_string(manifest_path)
         .with_context(|| format!("failed to read {}", manifest_path.display()))?;
-    let toml = content.parse::<TomlValue>().with_context(|| {
+    let toml = content.parse::<TomlTable>().with_context(|| {
         format!(
             "failed to parse Cargo.toml at {}",
             manifest_path.to_string_lossy()
