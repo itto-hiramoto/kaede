@@ -67,7 +67,7 @@ select {
         // received value is discarded
     }
     case ch2.send(x) => {
-        // successfully sent x on ch2
+        // x was handed off on ch2
     }
     default => {
         // taken only if no other case is immediately ready
@@ -79,8 +79,13 @@ Notes:
 
 - Each `case` must be a `ch.recv()` or `ch.send(value)` method call —
   arbitrary expressions are rejected at parse time.
-- The bound name on a `recv` arm has type `Option<T>`. A closed channel
-  fires the arm immediately with `None`, mirroring `ch.recv()`'s contract.
+- The bound name on a `recv` arm has type `Option<T>`. A closed channel is
+  always ready; once anything still buffered has been drained the arm fires
+  immediately with `None`, mirroring `ch.recv()`'s contract.
+- A `send` arm on a closed channel is also ready, and taking it panics, just
+  as `ch.send(x)` does. `select` does not route around a closed channel — if
+  that matters, check `is_closed()` first or use a separate cancellation
+  channel.
 - With `default`, `select` is non-blocking. Without it, the task blocks
   until at least one case can proceed.
 - When multiple cases are simultaneously ready, one is chosen at random to
