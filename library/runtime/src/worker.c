@@ -58,7 +58,7 @@ static struct IoWaitTable io_waits;
 _Thread_local struct Worker worker;
 _Thread_local struct Task *kaede_current_task = NULL;
 
-static void fail_runtime(const char *message) {
+_Noreturn void worker_fail(const char *message) {
     fprintf(stderr, "%s\n", message);
     abort();
 }
@@ -253,7 +253,7 @@ static size_t wake_waiting_tasks_locked(int fd, uint32_t ready_events,
 
     const uint32_t new_events = io_wait_entry_events(entry);
     if (!update_poller_interest_locked(fd, old_events, new_events)) {
-        fail_runtime("Failed to update poller interest while waking task");
+        worker_fail("Failed to update poller interest while waking task");
     }
     if (new_events == KAEDE_IO_EVENT_NONE) {
         io_wait_table_remove_entry(&io_waits, entry);
@@ -262,7 +262,7 @@ static size_t wake_waiting_tasks_locked(int fd, uint32_t ready_events,
     for (size_t i = 0; i < wake_count; ++i) {
         tasks_to_wake[i]->io_wait.wake_success = wake_success;
         if (!enqueue_runnable_task_locked(tasks_to_wake[i])) {
-            fail_runtime("Failed to enqueue runnable task");
+            worker_fail("Failed to enqueue runnable task");
         }
     }
 
@@ -409,7 +409,7 @@ static void worker_loop_impl(int worker_id) {
     if (GC_get_stack_base(&sb) == GC_SUCCESS && !GC_thread_is_registered()) {
         int reg_result = GC_register_my_thread(&sb);
         if (reg_result != GC_SUCCESS && reg_result != GC_DUPLICATE) {
-            fail_runtime("Failed to register GC thread");
+            worker_fail("Failed to register GC thread");
         }
     }
     worker.gc_thread_handle = GC_get_my_stackbottom(&worker.gc_stack_base);
@@ -450,7 +450,7 @@ static void worker_loop_impl(int worker_id) {
 
                 if (ready < 0) {
                     pthread_mutex_unlock(&scheduler_mutex);
-                    fail_runtime("Poller wait failed");
+                    worker_fail("Poller wait failed");
                 }
 
                 for (int i = 0; i < ready; ++i) {
@@ -504,7 +504,7 @@ static void worker_loop_impl(int worker_id) {
             pthread_mutex_lock(&scheduler_mutex);
             if (!task_queue_push(&runnable_tasks, task)) {
                 pthread_mutex_unlock(&scheduler_mutex);
-                fail_runtime("Failed to requeue task");
+                worker_fail("Failed to requeue task");
             }
             pthread_cond_signal(&scheduler_cond);
             pthread_mutex_unlock(&scheduler_mutex);
@@ -517,7 +517,7 @@ static void worker_loop_impl(int worker_id) {
             free(task);
             break;
         default:
-            fail_runtime("Unknown task state");
+            worker_fail("Unknown task state");
         }
     }
 

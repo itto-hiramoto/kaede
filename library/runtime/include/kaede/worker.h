@@ -30,6 +30,9 @@ void *worker_loop(void *arg);
 bool worker_spawn(TaskFn fn, void *arg, size_t arg_size, bool is_main);
 KaedeIoWaitResult worker_park_current_on_io(int fd, uint32_t events);
 void worker_forget_fd(int fd);
+// Print `message` to stderr and abort. For scheduler and channel states that
+// cannot be recovered from, where continuing would corrupt shared structures.
+_Noreturn void worker_fail(const char *message);
 void worker_scheduler_lock(void);
 void worker_scheduler_unlock(void);
 bool worker_shutdown_requested_locked(void);

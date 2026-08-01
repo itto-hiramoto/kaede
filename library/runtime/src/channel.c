@@ -176,7 +176,7 @@ static void complete_waiter_locked(struct ChannelWaiter *waiter,
         waiter->recv_status = status;
     }
     if (!worker_wake_task_locked(waiter->task, true)) {
-        abort();
+        worker_fail("channel: could not schedule a woken task");
     }
 }
 
@@ -229,7 +229,7 @@ static void wake_all_as_closed_locked(struct ChannelWaitQueue *queue) {
                 complete_waiter_locked(w, KAEDE_SELECT_STATUS_CLOSED);
             }
         } else if (!worker_wake_task_locked(w->task, false)) {
-            abort();
+            worker_fail("channel: could not schedule a task woken by close");
         }
     }
 }
@@ -544,16 +544,15 @@ static void shuffle_indices(uint32_t *idx, size_t n) {
 
 int32_t kaede_select(struct KaedeSelectCase *cases, size_t n, bool has_default) {
     if (n == 0) {
-        // Empty select: no cases. With default, return default; without it,
-        // there is nothing to wait on — this is treated like Go's `select {}`
-        // (blocks forever). Approximate by parking, which the parser should
-        // make unreachable.
+        // `select { default => ... }` is legal and takes the default arm.
         if (has_default) {
             return KAEDE_SELECT_DEFAULT_INDEX;
         }
-        worker_scheduler_lock();
-        (void)worker_park_current_on_channel_locked();
-        return KAEDE_SELECT_DEFAULT_INDEX;
+        // No cases and no default. The parser rejects `select {}`, so reaching
+        // here means a frontend or FFI caller built something it should not
+        // have. Parking would block this task forever with nothing able to
+        // wake it, so say what happened instead of hanging.
+        worker_fail("kaede_select: no cases and no default arm");
     }
 
     // Shuffling the try order is what keeps one case from starving the others.
