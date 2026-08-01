@@ -1589,8 +1589,9 @@ impl<'ctx> CodeGenerator<'ctx> {
     }
 
     /// Layout of `struct KaedeSelectCase` in the runtime, matched in LLVM:
-    ///   { i8*, i32, i32_pad, i8*, i32 }
-    /// (8) channel, (12) op, (16) value_slot, (24) status, total 32 bytes.
+    ///   { ptr, i32, i32 (pad), ptr, i32 }
+    /// Offsets 0 channel, 8 op, 12 pad, 16 value_slot, 24 status; size 32 on
+    /// LP64. `channel.h` static-asserts the C side of this.
     /// The named constants below index this struct.
     fn select_case_struct_type(&self) -> StructType<'ctx> {
         let ptr_ty = self.context().ptr_type(AddressSpace::default());

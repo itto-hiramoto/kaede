@@ -32,7 +32,10 @@ enum KaedeSelectStatus {
 
 struct KaedeChannel;
 
-// Layout must match the LLVM struct emitted by codegen for select cases.
+// Layout must match the LLVM struct emitted by
+// CodeGenerator::select_case_struct_type in compiler/codegen/src/expr.rs.
+// Codegen addresses these by field index, which is why the padding is an
+// explicit member on both sides rather than left to the C compiler.
 struct KaedeSelectCase {
     struct KaedeChannel *channel;
     uint32_t op;        // KaedeSelectOp
@@ -40,6 +43,14 @@ struct KaedeSelectCase {
     void *value_slot;   // send: pointer to value; recv: pointer to out slot
     int32_t status;     // out: meaningful for the chosen case only
 };
+
+// Codegen hard-codes these offsets; a reorder on either side would otherwise
+// compile clean and corrupt memory at run time.
+_Static_assert(offsetof(struct KaedeSelectCase, channel) == 0, "case layout");
+_Static_assert(offsetof(struct KaedeSelectCase, op) == 8, "case layout");
+_Static_assert(offsetof(struct KaedeSelectCase, value_slot) == 16, "case layout");
+_Static_assert(offsetof(struct KaedeSelectCase, status) == 24, "case layout");
+_Static_assert(sizeof(struct KaedeSelectCase) == 32, "case layout");
 
 struct KaedeChannel *kaede_channel_new(size_t elem_size, size_t capacity);
 int32_t kaede_channel_send(struct KaedeChannel *channel, void *value);
