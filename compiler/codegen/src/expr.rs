@@ -27,6 +27,7 @@ use kaede_ir::{
         TyKind,
     },
 };
+use kaede_span::Span;
 use kaede_symbol::Symbol;
 
 pub type Value<'ctx> = Option<BasicValueEnum<'ctx>>;
@@ -418,10 +419,10 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     /// Emit a panic with a message fixed at compile time, for failures the
     /// compiler detects itself rather than ones written as `panic(...)` in
-    /// Kaede source. Same stderr-then-abort shape as `build_panic`, but the
-    /// whole line is one global string since there is no user expression and no
-    /// meaningful source location to report.
-    fn build_static_panic(&mut self, message: &str) -> anyhow::Result<()> {
+    /// Kaede source. Same stderr-then-abort shape and same " (at file:line)"
+    /// suffix as `build_panic`, but emitted as one global string since there is
+    /// no user expression to format.
+    fn build_static_panic(&mut self, message: &str, span: Span) -> anyhow::Result<()> {
         let i32_ty = self.context().i32_type();
         let i64_ty = self.context().i64_type();
         let ptr_ty = self.context().ptr_type(inkwell::AddressSpace::default());
@@ -432,7 +433,15 @@ impl<'ctx> CodeGenerator<'ctx> {
         let abort_fn_ty = void_ty.fn_type(&[], false);
         let abort_fn = self.declare_runtime_fn("abort", abort_fn_ty);
 
-        let text = format!("panic: {}\n", message);
+        let file_path = span.file.path();
+        let file_name = file_path
+            .file_name()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_else(|| "<unknown>".to_string());
+        let text = format!(
+            "panic: {} (at {}:{})\n",
+            message, file_name, span.start.line
+        );
         let text_global = self
             .builder
             .build_global_string_ptr(&text, "panic.static")?;
@@ -1797,7 +1806,7 @@ impl<'ctx> CodeGenerator<'ctx> {
                         .build_conditional_branch(is_closed, closed_bb, sent_bb)?;
 
                     self.builder.position_at_end(closed_bb);
-                    self.build_static_panic("send on closed channel")?;
+                    self.build_static_panic("send on closed channel", arm.span)?;
 
                     self.builder.position_at_end(sent_bb);
                     self.build_expr(&arm.body)?;
