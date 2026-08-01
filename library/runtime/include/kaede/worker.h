@@ -34,8 +34,12 @@ void worker_scheduler_lock(void);
 void worker_scheduler_unlock(void);
 bool worker_shutdown_requested_locked(void);
 struct Task *worker_current_task(void);
-bool worker_park_current_on_channel_locked(void *obj, uint32_t wait_kind,
-                                           void *value_slot);
+// Park the current task until something wakes it. Call with the scheduler lock
+// held. Unlike every other `_locked` function here, this always returns without
+// the lock: on success it is handed to the scheduler across the context switch,
+// and on failure it is released before returning. Returns false when the task
+// could not park at all, which today means shutdown is already in progress.
+bool worker_park_current_on_channel_locked(void);
 bool worker_wake_task_locked(struct Task *task, bool success);
 void worker_yield(void);
 void worker_reset_main_state(void);

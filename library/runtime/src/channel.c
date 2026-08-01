@@ -7,9 +7,30 @@
 #include <stdlib.h>
 #include <string.h>
 
-struct TaskWaitQueue {
-    struct Task *head;
-    struct Task *tail;
+// -----------------------------------------------------------------------------
+// Channel waiters
+//
+// A parked send/recv is represented by a waiter that the channel owns, linked
+// into one of the channel's queues. The waiter lives on the parked task's own
+// stack frame, so it stays valid until that task resumes.
+//
+// The list is doubly linked and each waiter keeps a back-pointer to the queue's
+// channel, so a waiter can be removed without walking the list.
+// -----------------------------------------------------------------------------
+
+struct KaedeChannel;
+
+struct ChannelWaiter {
+    struct ChannelWaiter *prev;
+    struct ChannelWaiter *next;
+    struct KaedeChannel *channel;  // queue this waiter is on, NULL once removed
+    struct Task *task;             // task to wake
+    void *value_slot;              // send: source; recv: destination
+};
+
+struct ChannelWaitQueue {
+    struct ChannelWaiter *head;
+    struct ChannelWaiter *tail;
 };
 
 struct KaedeChannel {
@@ -20,33 +41,41 @@ struct KaedeChannel {
     size_t len;
     size_t head;
     size_t tail;
-    struct TaskWaitQueue send_waiters;
-    struct TaskWaitQueue recv_waiters;
+    struct ChannelWaitQueue send_waiters;
+    struct ChannelWaitQueue recv_waiters;
 };
 
-static void wait_queue_push(struct TaskWaitQueue *queue, struct Task *task) {
-    task->channel_wait.next = NULL;
-    if (queue->tail) {
-        queue->tail->channel_wait.next = task;
+static void wait_queue_push_tail(struct ChannelWaitQueue *q,
+                                 struct ChannelWaiter *w,
+                                 struct KaedeChannel *channel) {
+    w->prev = q->tail;
+    w->next = NULL;
+    w->channel = channel;
+    if (q->tail) {
+        q->tail->next = w;
     } else {
-        queue->head = task;
+        q->head = w;
     }
-    queue->tail = task;
+    q->tail = w;
 }
 
-static struct Task *wait_queue_pop(struct TaskWaitQueue *queue) {
-    struct Task *task = queue->head;
-    if (!task) {
+static struct ChannelWaiter *wait_queue_pop_head(struct ChannelWaitQueue *q) {
+    struct ChannelWaiter *w = q->head;
+    if (!w) {
         return NULL;
     }
-
-    queue->head = task->channel_wait.next;
-    if (!queue->head) {
-        queue->tail = NULL;
+    q->head = w->next;
+    if (q->head) {
+        q->head->prev = NULL;
+    } else {
+        q->tail = NULL;
     }
-    task->channel_wait.next = NULL;
-    return task;
+    w->prev = NULL;
+    w->next = NULL;
+    w->channel = NULL;
+    return w;
 }
+
 
 static uint8_t *buffer_slot(struct KaedeChannel *channel, size_t index) {
     if (!channel->buffer || channel->elem_size == 0) {
@@ -74,31 +103,35 @@ static void buffer_pop(struct KaedeChannel *channel, void *out) {
     channel->len--;
 }
 
+// Wake a waiter that completed successfully. The caller must have already done
+// any value transfer the woken task expects to find in its slot.
+static void wake_waiter_locked(struct ChannelWaiter *waiter) {
+    if (!worker_wake_task_locked(waiter->task, true)) {
+        abort();
+    }
+}
+
 static bool wake_waiting_receiver_locked(struct KaedeChannel *channel,
                                          const void *value) {
-    struct Task *receiver = wait_queue_pop(&channel->recv_waiters);
+    struct ChannelWaiter *receiver = wait_queue_pop_head(&channel->recv_waiters);
     if (!receiver) {
         return false;
     }
 
-    copy_value(receiver->channel_wait.value_slot, value, channel->elem_size);
-    if (!worker_wake_task_locked(receiver, true)) {
-        abort();
-    }
+    copy_value(receiver->value_slot, value, channel->elem_size);
+    wake_waiter_locked(receiver);
     return true;
 }
 
 static bool wake_waiting_sender_direct_locked(struct KaedeChannel *channel,
                                               void *out) {
-    struct Task *sender = wait_queue_pop(&channel->send_waiters);
+    struct ChannelWaiter *sender = wait_queue_pop_head(&channel->send_waiters);
     if (!sender) {
         return false;
     }
 
-    copy_value(out, sender->channel_wait.value_slot, channel->elem_size);
-    if (!worker_wake_task_locked(sender, true)) {
-        abort();
-    }
+    copy_value(out, sender->value_slot, channel->elem_size);
+    wake_waiter_locked(sender);
     return true;
 }
 
@@ -107,17 +140,30 @@ static bool buffer_one_waiting_sender_locked(struct KaedeChannel *channel) {
         return false;
     }
 
-    struct Task *sender = wait_queue_pop(&channel->send_waiters);
+    struct ChannelWaiter *sender = wait_queue_pop_head(&channel->send_waiters);
     if (!sender) {
         return false;
     }
 
-    buffer_push(channel, sender->channel_wait.value_slot);
-    if (!worker_wake_task_locked(sender, true)) {
-        abort();
-    }
+    buffer_push(channel, sender->value_slot);
+    wake_waiter_locked(sender);
     return true;
 }
+
+// Drain `queue`, waking every waiter with `wake_success = false` so the parked
+// send/recv reports the channel as closed.
+static void wake_all_as_closed_locked(struct ChannelWaitQueue *queue) {
+    struct ChannelWaiter *w;
+    while ((w = wait_queue_pop_head(queue)) != NULL) {
+        if (!worker_wake_task_locked(w->task, false)) {
+            abort();
+        }
+    }
+}
+
+// Internal sentinel used only by try_send_locked, distinct from the public
+// KaedeChannelSendResult values. Callers translate it to a parking decision.
+#define TRY_SEND_WOULD_BLOCK 2
 
 static int32_t try_send_locked(struct KaedeChannel *channel, void *value) {
     if (channel->closed || worker_shutdown_requested_locked()) {
@@ -133,7 +179,7 @@ static int32_t try_send_locked(struct KaedeChannel *channel, void *value) {
         return KAEDE_CHANNEL_SEND_OK;
     }
 
-    return KAEDE_CHANNEL_SEND_CLOSED + 1;
+    return TRY_SEND_WOULD_BLOCK;
 }
 
 static int32_t try_recv_locked(struct KaedeChannel *channel, void *out) {
@@ -203,7 +249,7 @@ int32_t kaede_channel_send(struct KaedeChannel *channel, void *value) {
         return result;
     }
 
-    if (result != KAEDE_CHANNEL_SEND_CLOSED + 1) {
+    if (result != TRY_SEND_WOULD_BLOCK) {
         worker_scheduler_unlock();
         return KAEDE_CHANNEL_SEND_CLOSED;
     }
@@ -214,9 +260,12 @@ int32_t kaede_channel_send(struct KaedeChannel *channel, void *value) {
         return KAEDE_CHANNEL_SEND_CLOSED;
     }
 
-    wait_queue_push(&channel->send_waiters, task);
-    if (!worker_park_current_on_channel_locked(
-            channel, KAEDE_TASK_WAIT_CHANNEL_SEND, value)) {
+    struct ChannelWaiter waiter = {0};
+    waiter.task = task;
+    waiter.value_slot = value;
+    wait_queue_push_tail(&channel->send_waiters, &waiter, channel);
+
+    if (!worker_park_current_on_channel_locked()) {
         return KAEDE_CHANNEL_SEND_CLOSED;
     }
 
@@ -253,9 +302,12 @@ int32_t kaede_channel_recv(struct KaedeChannel *channel, void *out) {
         return KAEDE_CHANNEL_RECV_EMPTY;
     }
 
-    wait_queue_push(&channel->recv_waiters, task);
-    if (!worker_park_current_on_channel_locked(
-            channel, KAEDE_TASK_WAIT_CHANNEL_RECV, out)) {
+    struct ChannelWaiter waiter = {0};
+    waiter.task = task;
+    waiter.value_slot = out;
+    wait_queue_push_tail(&channel->recv_waiters, &waiter, channel);
+
+    if (!worker_park_current_on_channel_locked()) {
         return KAEDE_CHANNEL_RECV_CLOSED;
     }
 
@@ -287,17 +339,8 @@ void kaede_channel_close(struct KaedeChannel *channel) {
 
     channel->closed = true;
 
-    struct Task *task = NULL;
-    while ((task = wait_queue_pop(&channel->send_waiters)) != NULL) {
-        if (!worker_wake_task_locked(task, false)) {
-            abort();
-        }
-    }
-    while ((task = wait_queue_pop(&channel->recv_waiters)) != NULL) {
-        if (!worker_wake_task_locked(task, false)) {
-            abort();
-        }
-    }
+    wake_all_as_closed_locked(&channel->send_waiters);
+    wake_all_as_closed_locked(&channel->recv_waiters);
 
     worker_scheduler_unlock();
 }

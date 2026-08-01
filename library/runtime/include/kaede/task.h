@@ -51,20 +51,13 @@ struct TaskIoWaitState {
     uint32_t events;
     bool wake_success;
 };
-enum KaedeTaskWaitKind {
-    KAEDE_TASK_WAIT_NONE = 0,
-    KAEDE_TASK_WAIT_CHANNEL_SEND = 1u << 0,
-    KAEDE_TASK_WAIT_CHANNEL_RECV = 1u << 1,
-};
-
 struct Task;
 
+// Set by the waker (channel runtime) before a parked task is re-enqueued.
+// `true` means the wait completed normally and the waiter (channel-side) has
+// populated its result fields; `false` signals shutdown or a closed channel.
 struct TaskChannelWaitState {
-    void *obj;
-    uint32_t kind;
-    void *value_slot;
     bool wake_success;
-    struct Task *next;
 };
 struct Task {
     struct Context context;
