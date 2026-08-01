@@ -26,9 +26,8 @@ struct ChannelWaiter {
     struct ChannelWaiter *prev;
     struct ChannelWaiter *next;
     struct KaedeChannel *channel;  // queue this waiter is parked on (or NULL once removed)
-    struct Task *task;             // task to wake; for select, == state->task
+    struct Task *task;             // task to wake
     void *value_slot;              // send: source; recv: destination
-    int32_t recv_status;           // for regular recv: VALUE/CLOSED
     struct KaedeSelectState *state;  // NULL for regular waiters
     uint32_t case_index;             // for select waiters
 };
@@ -58,7 +57,6 @@ struct KaedeSelectState {
     bool done;
     int32_t chosen_index;
     int32_t chosen_status;
-    struct Task *task;
 };
 
 static void wait_queue_push_tail(struct ChannelWaitQueue *q,
@@ -161,19 +159,16 @@ static struct ChannelWaiter *pop_live_waiter_locked(
     }
 }
 
-// Mark `waiter` as completed with the given status and wake its task. For
-// select waiters this also records the chosen-case bookkeeping; for regular
-// recv waiters it stores the status onto the waiter for the parked recv() to
-// observe after wakeup. Callers are responsible for any value transfer that
-// must happen before the task can read its slot.
+// Complete `waiter` and wake its task. `status` is recorded only for select
+// waiters, which need to know which case fired and how; a regular send/recv
+// reads its outcome from `wake_success` instead. Callers are responsible for
+// any value transfer that must happen before the task can read its slot.
 static void complete_waiter_locked(struct ChannelWaiter *waiter,
                                    int32_t status) {
     if (waiter->kind == CW_SELECT) {
         waiter->state->done = true;
         waiter->state->chosen_index = (int32_t)waiter->case_index;
         waiter->state->chosen_status = status;
-    } else {
-        waiter->recv_status = status;
     }
     if (!worker_wake_task_locked(waiter->task, true)) {
         worker_fail("channel: could not schedule a woken task");
@@ -396,7 +391,6 @@ int32_t kaede_channel_recv(struct KaedeChannel *channel, void *out) {
     waiter.op = KAEDE_SELECT_OP_RECV;
     waiter.task = task;
     waiter.value_slot = out;
-    waiter.recv_status = KAEDE_CHANNEL_RECV_CLOSED;
     wait_queue_push_tail(&channel->recv_waiters, &waiter, channel);
 
     if (!worker_park_current_on_channel_locked()) {
@@ -608,7 +602,6 @@ int32_t kaede_select(struct KaedeSelectCase *cases, size_t n, bool has_default) 
     state.done = false;
     state.chosen_index = -1;
     state.chosen_status = 0;
-    state.task = task;
 
     struct ChannelWaiter waiters_buf[32];
     struct ChannelWaiter *waiters = waiters_buf;
