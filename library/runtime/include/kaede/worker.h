@@ -39,9 +39,15 @@ bool worker_shutdown_requested_locked(void);
 struct Task *worker_current_task(void);
 // Park the current task until something wakes it. Call with the scheduler lock
 // held. Unlike every other `_locked` function here, this always returns without
-// the lock: on success it is handed to the scheduler across the context switch,
-// and on failure it is released before returning. Returns false when the task
-// could not park at all, which today means shutdown is already in progress.
+// the lock: on a successful park it is handed to the scheduler across the
+// context switch, and otherwise it is released before returning.
+//
+// The return value is the wake outcome, not whether parking happened. It is
+// false both when the task could not park at all (no current task, or shutdown
+// already requested) and when it parked and was then woken with
+// `success = false`, which is what `kaede_channel_close` does to regular
+// waiters. Callers that need to tell those apart must inspect their own
+// waiter.
 bool worker_park_current_on_channel_locked(void);
 bool worker_wake_task_locked(struct Task *task, bool success);
 void worker_yield(void);

@@ -61,8 +61,8 @@ bool kaede_channel_is_closed(struct KaedeChannel *channel);
 //
 //   - `has_default` was set and no case was immediately ready, so the caller
 //     should take its `default` arm.
-//   - The runtime could not wait at all: shutdown is already in progress, or a
-//     waiter allocation failed. This happens whether or not `has_default` is
+//   - The runtime could not wait at all: shutdown is already in progress, or
+//     there is no current task. This happens whether or not `has_default` is
 //     set, so a caller with no `default` arm must still handle it — as "no case
 //     ran", not as an impossible outcome.
 int32_t kaede_select(struct KaedeSelectCase *cases, size_t n, bool has_default);

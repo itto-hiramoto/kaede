@@ -49,10 +49,13 @@ struct KaedeChannel {
     struct ChannelWaitQueue recv_waiters;
 };
 
-// Shared by every waiter registered for one `select` evaluation. All fields are
-// guarded by the scheduler lock, which is what lets `done` be a plain bool: the
-// read in pop_live_waiter_locked and the write in complete_waiter_locked cannot
-// interleave.
+// Shared by every waiter registered for one `select` evaluation.
+//
+// `done` is read under the scheduler lock in pop_live_waiter_locked and
+// wake_all_as_closed_locked, and written under it in complete_waiter_locked,
+// which is what lets it be a plain bool rather than an atomic. The chosen-case
+// fields are written under the lock too, then read by the owning task after it
+// has unlinked every waiter, at which point no writer remains.
 struct KaedeSelectState {
     bool done;
     int32_t chosen_index;
