@@ -370,6 +370,43 @@ pub struct InterfaceMethodCall {
 }
 
 #[derive(Debug, Clone)]
+pub enum SelectOp {
+    Send,
+    Recv,
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectArm {
+    pub op: SelectOp,
+    /// Resolved Channel<T> expression.
+    pub channel: Box<Expr>,
+    /// Channel element type T.
+    pub elem_ty: Rc<Ty>,
+    /// For send arms: the value expression (already type-checked against T).
+    /// For recv arms: None.
+    pub value: Option<Box<Expr>>,
+    /// For recv arms with a name binding: the bound symbol whose type is
+    /// `Option<T>`. `None` for `_ = ...` (discarded) or for send arms.
+    pub binding: Option<Symbol>,
+    /// `Option<T>` type for recv arms (used by codegen to materialize the
+    /// Some/None value). `None` for send arms.
+    pub option_ty: Option<Rc<Ty>>,
+    /// Pre-resolved `Option` enum metadata for recv arms (variants + name).
+    /// Set during semantic analysis so codegen does not need to chase
+    /// Placeholder lookups.
+    pub option_enum_info: Option<Rc<crate::top::Enum>>,
+    pub body: Box<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct Select {
+    pub arms: Vec<SelectArm>,
+    pub default: Option<Box<Expr>>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub enum ExprKind {
     Int(Int),
     Float(Float),
@@ -406,6 +443,7 @@ pub enum ExprKind {
     BuiltinFnCall(BuiltinFnCall),
     InterfaceBox(InterfaceBox),
     InterfaceMethodCall(InterfaceMethodCall),
+    Select(Select),
 }
 
 #[derive(Debug, Clone)]

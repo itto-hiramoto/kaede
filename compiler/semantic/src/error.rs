@@ -211,6 +211,9 @@ pub enum SemanticError {
     #[error("{}:{}:{} channel receive requires `std.sync.Channel<T>`, got `{}`", span.file, span.start.line, span.start.column, actual)]
     ChannelRecvRequiresChannel { actual: String, span: Span },
 
+    #[error("{}:{}:{} select case requires `std.sync.Channel<T>`, got `{}`", span.file, span.start.line, span.start.column, actual)]
+    SelectCaseRequiresChannel { actual: String, span: Span },
+
     #[error("{}:{}:{} `format` template must be a string literal", span.file, span.start.line, span.start.column)]
     FormatTemplateMustBeStringLiteral { span: Span },
 

@@ -314,6 +314,42 @@ pub struct Match {
 }
 
 #[derive(Debug, Clone)]
+pub enum SelectBinding {
+    /// `case value = ch.recv()` — bind the received value to a name.
+    Named(Ident),
+    /// `case _ = ch.recv()` — discard the received value.
+    Wildcard,
+}
+
+#[derive(Debug, Clone)]
+pub enum SelectOp {
+    /// `case ch.send(value)`
+    Send {
+        channel: Box<Expr>,
+        value: Box<Expr>,
+    },
+    /// `case binding = ch.recv()`
+    Recv {
+        channel: Box<Expr>,
+        binding: SelectBinding,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub struct SelectArm {
+    pub op: SelectOp,
+    pub body: Rc<Expr>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
+pub struct Select {
+    pub arms: Vec<SelectArm>,
+    pub default: Option<Rc<Expr>>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone)]
 pub struct Expr {
     pub kind: ExprKind,
     pub span: Span,
@@ -403,6 +439,7 @@ pub enum ExprKind {
     While(While),
     Break(Break),
     Match(Match),
+    Select(Select),
     Block(Block),
     Ty(Ty),
 }
