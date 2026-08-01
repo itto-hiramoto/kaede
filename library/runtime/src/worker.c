@@ -58,7 +58,7 @@ static struct IoWaitTable io_waits;
 _Thread_local struct Worker worker;
 _Thread_local struct Task *kaede_current_task = NULL;
 
-static void fail_runtime(const char *message) {
+_Noreturn void worker_fail(const char *message) {
     fprintf(stderr, "%s\n", message);
     abort();
 }
@@ -221,10 +221,6 @@ static bool enqueue_runnable_task_locked(struct Task *task) {
     task->scheduler.state = TASK_RUNNABLE;
     task->io_wait.fd = -1;
     task->io_wait.events = KAEDE_IO_EVENT_NONE;
-    task->channel_wait.obj = NULL;
-    task->channel_wait.kind = KAEDE_TASK_WAIT_NONE;
-    task->channel_wait.value_slot = NULL;
-    task->channel_wait.next = NULL;
     return task_queue_push(&runnable_tasks, task);
 }
 
@@ -257,7 +253,7 @@ static size_t wake_waiting_tasks_locked(int fd, uint32_t ready_events,
 
     const uint32_t new_events = io_wait_entry_events(entry);
     if (!update_poller_interest_locked(fd, old_events, new_events)) {
-        fail_runtime("Failed to update poller interest while waking task");
+        worker_fail("Failed to update poller interest while waking task");
     }
     if (new_events == KAEDE_IO_EVENT_NONE) {
         io_wait_table_remove_entry(&io_waits, entry);
@@ -266,7 +262,7 @@ static size_t wake_waiting_tasks_locked(int fd, uint32_t ready_events,
     for (size_t i = 0; i < wake_count; ++i) {
         tasks_to_wake[i]->io_wait.wake_success = wake_success;
         if (!enqueue_runnable_task_locked(tasks_to_wake[i])) {
-            fail_runtime("Failed to enqueue runnable task");
+            worker_fail("Failed to enqueue runnable task");
         }
     }
 
@@ -413,7 +409,7 @@ static void worker_loop_impl(int worker_id) {
     if (GC_get_stack_base(&sb) == GC_SUCCESS && !GC_thread_is_registered()) {
         int reg_result = GC_register_my_thread(&sb);
         if (reg_result != GC_SUCCESS && reg_result != GC_DUPLICATE) {
-            fail_runtime("Failed to register GC thread");
+            worker_fail("Failed to register GC thread");
         }
     }
     worker.gc_thread_handle = GC_get_my_stackbottom(&worker.gc_stack_base);
@@ -454,7 +450,7 @@ static void worker_loop_impl(int worker_id) {
 
                 if (ready < 0) {
                     pthread_mutex_unlock(&scheduler_mutex);
-                    fail_runtime("Poller wait failed");
+                    worker_fail("Poller wait failed");
                 }
 
                 for (int i = 0; i < ready; ++i) {
@@ -508,7 +504,7 @@ static void worker_loop_impl(int worker_id) {
             pthread_mutex_lock(&scheduler_mutex);
             if (!task_queue_push(&runnable_tasks, task)) {
                 pthread_mutex_unlock(&scheduler_mutex);
-                fail_runtime("Failed to requeue task");
+                worker_fail("Failed to requeue task");
             }
             pthread_cond_signal(&scheduler_cond);
             pthread_mutex_unlock(&scheduler_mutex);
@@ -521,7 +517,7 @@ static void worker_loop_impl(int worker_id) {
             free(task);
             break;
         default:
-            fail_runtime("Unknown task state");
+            worker_fail("Unknown task state");
         }
     }
 
@@ -623,10 +619,8 @@ struct Task *worker_current_task(void) {
     return kaede_current_task;
 }
 
-bool worker_park_current_on_channel_locked(void *obj, uint32_t wait_kind,
-                                           void *value_slot) {
-    if (!kaede_current_task || wait_kind == KAEDE_TASK_WAIT_NONE ||
-        shutdown_requested) {
+bool worker_park_current_on_channel_locked(void) {
+    if (!kaede_current_task || shutdown_requested) {
         pthread_mutex_unlock(&scheduler_mutex);
         return false;
     }
@@ -637,9 +631,6 @@ bool worker_park_current_on_channel_locked(void *obj, uint32_t wait_kind,
     struct GC_stack_base *gc_stack_base = &worker.gc_stack_base;
 
     task->scheduler.state = TASK_WAITING_CHANNEL;
-    task->channel_wait.obj = obj;
-    task->channel_wait.kind = wait_kind;
-    task->channel_wait.value_slot = value_slot;
     task->channel_wait.wake_success = false;
     worker.yielded_state = TASK_WAITING_CHANNEL;
     worker.returned_with_scheduler_lock = true;
@@ -704,11 +695,7 @@ bool worker_spawn(TaskFn fn, void *arg, size_t arg_size, bool is_main) {
     task->io_wait.fd = -1;
     task->io_wait.events = KAEDE_IO_EVENT_NONE;
     task->io_wait.wake_success = false;
-    task->channel_wait.obj = NULL;
-    task->channel_wait.kind = KAEDE_TASK_WAIT_NONE;
-    task->channel_wait.value_slot = NULL;
     task->channel_wait.wake_success = false;
-    task->channel_wait.next = NULL;
     create_context(&task->context, fn, arg_on_stack, stack_top);
     task_register_stack_roots(task);
 
