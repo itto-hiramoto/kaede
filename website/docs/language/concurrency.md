@@ -56,7 +56,7 @@ value := match <-ch {
 ## Selecting across multiple channels
 
 `select` blocks the current task until one of its channel operations can
-proceed, then runs the matching arm. It mirrors Go's `select`:
+proceed, then runs the matching arm. It follows Go's `select`:
 
 ```rust
 select {
@@ -87,6 +87,33 @@ Notes:
   avoid starvation (Go semantics).
 - Channel expressions and `send` value expressions are evaluated in source
   order on entry, exactly once per `select` evaluation.
+
+### Looping over a select
+
+A `select` handles exactly one operation and then completes, so serving a
+channel continuously means putting it in a loop:
+
+```rust
+loop {
+    select {
+        case value = results.recv() => {
+            match value {
+                Option::Some(v) => { total = total + v },
+                Option::None => break,
+            }
+        }
+        case _ = cancel.recv() => break
+    }
+}
+```
+
+Handling `None` is not optional here. A closed channel is always immediately
+ready, so a loop that ignores closure will spin at full CPU forever once the
+channel closes.
+
+`break` inside an arm leaves the enclosing loop, as it does anywhere else.
+Coming from Go this is worth noting: there, `break` leaves the `select` and a
+labelled `break` is needed to exit the surrounding `for`.
 
 ## Synchronization helpers
 
