@@ -76,6 +76,21 @@ static struct ChannelWaiter *wait_queue_pop_head(struct ChannelWaitQueue *q) {
     return w;
 }
 
+static void wait_queue_unlink(struct ChannelWaitQueue *q, struct ChannelWaiter *w) {
+    if (w->prev) {
+        w->prev->next = w->next;
+    } else if (q->head == w) {
+        q->head = w->next;
+    }
+    if (w->next) {
+        w->next->prev = w->prev;
+    } else if (q->tail == w) {
+        q->tail = w->prev;
+    }
+    w->prev = NULL;
+    w->next = NULL;
+    w->channel = NULL;
+}
 
 static uint8_t *buffer_slot(struct KaedeChannel *channel, size_t index) {
     if (!channel->buffer || channel->elem_size == 0) {
@@ -266,6 +281,13 @@ int32_t kaede_channel_send(struct KaedeChannel *channel, void *value) {
     wait_queue_push_tail(&channel->send_waiters, &waiter, channel);
 
     if (!worker_park_current_on_channel_locked()) {
+        // Parking failed, so nothing will ever wake this waiter. Take it back
+        // out of the queue before the stack frame holding it goes away.
+        worker_scheduler_lock();
+        if (waiter.channel) {
+            wait_queue_unlink(&channel->send_waiters, &waiter);
+        }
+        worker_scheduler_unlock();
         return KAEDE_CHANNEL_SEND_CLOSED;
     }
 
@@ -308,6 +330,11 @@ int32_t kaede_channel_recv(struct KaedeChannel *channel, void *out) {
     wait_queue_push_tail(&channel->recv_waiters, &waiter, channel);
 
     if (!worker_park_current_on_channel_locked()) {
+        worker_scheduler_lock();
+        if (waiter.channel) {
+            wait_queue_unlink(&channel->recv_waiters, &waiter);
+        }
+        worker_scheduler_unlock();
         return KAEDE_CHANNEL_RECV_CLOSED;
     }
 
