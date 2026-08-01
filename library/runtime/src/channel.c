@@ -556,29 +556,35 @@ int32_t kaede_select(struct KaedeSelectCase *cases, size_t n, bool has_default) 
         return KAEDE_SELECT_DEFAULT_INDEX;
     }
 
-    // Stack-allocated shuffled index order for fairness.
+    // Shuffling the try order is what keeps one case from starving the others.
+    // It needs scratch space: a stack array for the common case, a heap one
+    // beyond 32 cases. If that allocation fails, fall back to source order —
+    // biased, but every case is still tried, which beats abandoning a select
+    // whose cases may well be ready.
     uint32_t order_buf[32];
-    uint32_t *order = order_buf;
     uint32_t *order_heap = NULL;
-    if (n > sizeof(order_buf) / sizeof(order_buf[0])) {
+    uint32_t *order = NULL;
+    if (n <= sizeof(order_buf) / sizeof(order_buf[0])) {
+        order = order_buf;
+    } else {
         order_heap = malloc(n * sizeof(uint32_t));
-        if (!order_heap) {
-            return KAEDE_SELECT_DEFAULT_INDEX;
-        }
         order = order_heap;
     }
-    for (size_t i = 0; i < n; ++i) {
-        order[i] = (uint32_t)i;
+    if (order) {
+        for (size_t i = 0; i < n; ++i) {
+            order[i] = (uint32_t)i;
+        }
+        shuffle_indices(order, n);
     }
-    shuffle_indices(order, n);
 
     worker_scheduler_lock();
 
     // Phase A: try every case once in randomized order.
     for (size_t i = 0; i < n; ++i) {
-        struct KaedeSelectCase *cs = &cases[order[i]];
+        const uint32_t index = order ? order[i] : (uint32_t)i;
+        struct KaedeSelectCase *cs = &cases[index];
         if (try_select_case_locked(cs)) {
-            int32_t chosen = (int32_t)order[i];
+            int32_t chosen = (int32_t)index;
             worker_scheduler_unlock();
             free(order_heap);
             return chosen;
