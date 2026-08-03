@@ -5,7 +5,7 @@ use std::{
     rc::Rc,
 };
 
-use anyhow::Context as _;
+use anyhow::{bail, Context as _};
 use context::AnalysisContext;
 use kaede_common::{kaede_autoload_dir, kaede_lib_src_dir};
 use kaede_ir::{
@@ -318,20 +318,23 @@ impl SemanticAnalyzer {
         module_context
     }
 
-    pub fn new(file_path: FilePath, root_dir: PathBuf, rust_path: Option<PathBuf>) -> Self {
+    pub fn new(
+        file_path: FilePath,
+        root_dir: PathBuf,
+        rust_path: Option<PathBuf>,
+    ) -> anyhow::Result<Self> {
         if !root_dir.is_dir() {
-            panic!("Root directory is not a directory");
+            bail!("Root directory '{}' is not a directory", root_dir.display());
         }
 
         // Set the current module name in the context.
-        let module_path =
-            Self::create_module_path_from_file_path(root_dir.clone(), file_path).unwrap();
+        let module_path = Self::create_module_path_from_file_path(root_dir.clone(), file_path)?;
         let mut context = AnalysisContext::new(module_path.clone());
         context.set_current_module_path(module_path.clone());
 
         let module_context = ModuleContext::new(file_path);
 
-        Self {
+        Ok(Self {
             modules: HashMap::from([(module_path, module_context)]),
             context,
             generated_generics: Vec::new(),
@@ -348,7 +351,7 @@ impl SemanticAnalyzer {
             temp_symbol_counter: 0,
             generated_callable_substitutions: HashMap::new(),
             pending_generic_instance: None,
-        }
+        })
     }
 
     pub fn new_for_single_file_test() -> Self {
@@ -441,7 +444,12 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<ModulePath> {
         let mut diff_from_root = {
             // Get the canonical paths
-            let kaede_lib_src_dir = kaede_lib_src_dir().canonicalize()?;
+            let kaede_lib_src_dir = kaede_lib_src_dir().canonicalize().with_context(|| {
+                format!(
+                    "Failed to resolve standard library source directory '{}'",
+                    kaede_lib_src_dir().display()
+                )
+            })?;
             // Canonicalize the file itself first so that `parent()` always
             // returns a non-empty absolute path. Calling `parent()` directly
             // on a bare filename like "foo.kd" would yield an empty path,
@@ -454,8 +462,15 @@ impl SemanticAnalyzer {
             })?;
             let file_parent = canonical_file.parent().unwrap().to_path_buf();
 
+            let canonical_root = root_dir.canonicalize().with_context(|| {
+                format!(
+                    "Failed to resolve project root directory '{}'",
+                    root_dir.display()
+                )
+            })?;
+
             // Try to strip the project root first, if that fails try the standard library root
-            if let Ok(relative_path) = file_parent.strip_prefix(&root_dir.canonicalize()?) {
+            if let Ok(relative_path) = file_parent.strip_prefix(&canonical_root) {
                 relative_path
                     .components()
                     .map(|c| {

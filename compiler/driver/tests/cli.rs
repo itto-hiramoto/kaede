@@ -216,6 +216,35 @@ fun main() -> i32 {
     Ok(())
 }
 
+// Regression: a source file outside the root directory used to panic in
+// semantic analysis, discarding the error that had already been produced for
+// exactly this case. See issue #379.
+#[test]
+fn direct_compile_rejects_source_outside_root_dir() -> anyhow::Result<()> {
+    let root = assert_fs::TempDir::new()?;
+    let outside = assert_fs::TempDir::new()?;
+    let app = outside.child("app.kd");
+    let exe = outside.child("a.out");
+
+    app.write_str("fun main() -> i32 { return 0 }")?;
+
+    Command::cargo_bin(env!("CARGO_BIN_EXE_kaede"))?
+        .current_dir(root.path())
+        .args([
+            app.path().to_str().unwrap(),
+            "-o",
+            exe.path().to_str().unwrap(),
+        ])
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("is not within project root")
+                .and(predicate::str::contains("panicked").not()),
+        );
+
+    Ok(())
+}
+
 // Regression: passing a bare filename (no leading "./" or directory) used to
 // panic in semantic analysis because Path::parent() returns an empty path,
 // which fails to canonicalize. See issue #285.

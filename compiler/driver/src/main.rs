@@ -266,7 +266,7 @@ fn compile<'ctx>(
             file,
             root_dir.to_path_buf(),
             rust_path.map(Path::to_path_buf),
-        );
+        )?;
         let mut ir = analyzer.analyze(
             ast,
             AnalyzeOptions {

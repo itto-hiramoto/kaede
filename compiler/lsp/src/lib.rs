@@ -75,7 +75,10 @@ fn analyze_text(file_path: PathBuf, text: String, root_dir: PathBuf) -> Vec<Diag
 
     // The LSP does not parse Kaede.toml; default to the legacy "rust/" lookup
     // so rust-interop projects still get diagnostics for `import rust::<crate>`.
-    let mut analyzer = SemanticAnalyzer::new(file, root_dir, Some(PathBuf::from("rust")));
+    let mut analyzer = match SemanticAnalyzer::new(file, root_dir, Some(PathBuf::from("rust"))) {
+        Ok(analyzer) => analyzer,
+        Err(err) => return diagnostics_from_semantic_error(err),
+    };
     let is_entry_unit = ast_has_entry_candidate(&ast);
     match analyzer.analyze(
         ast,
@@ -312,7 +315,10 @@ fn diagnostics_from_semantic_error(err: anyhow::Error) -> Vec<Diagnostic> {
                 type_infer_error_span(&type_err),
                 type_err.to_string(),
             )],
-            Err(err) => vec![diagnostic_with_span(None, err.to_string())],
+            // `{:#}` so the `with_context` chain on plain anyhow errors (for
+            // example a source path that cannot be resolved) survives into the
+            // diagnostic instead of being cut down to its outermost message.
+            Err(err) => vec![diagnostic_with_span(None, format!("{err:#}"))],
         },
     }
 }
