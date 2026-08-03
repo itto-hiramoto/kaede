@@ -28,6 +28,7 @@ kaede_lsp = { path = "../lsp" }
 assert_fs = "1.0.12"
 assert_cmd = "2.0.10"
 predicates = "3.0.1"
+wait-timeout = "0.2"
 
 [[bin]]
 name = "kaede"
