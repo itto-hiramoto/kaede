@@ -39,8 +39,16 @@ struct ChannelWaitQueue {
 
 struct KaedeChannel {
     size_t elem_size;
+    // 0 means unbuffered: `buffer` stays NULL and every send has to hand off
+    // directly to a waiting receiver, so try_send_locked can only succeed
+    // through wake_waiting_receiver_locked.
     size_t capacity;
     bool closed;
+    // Ring buffer of `capacity` slots, NULL when unbuffered. `head` is the next
+    // slot to read and `tail` the next slot to write, both wrapping modulo
+    // `capacity`; `len` tells full from empty when the two meet. Note that
+    // `head`/`tail` here are ring positions, unlike the list endpoints of the
+    // same name in ChannelWaitQueue above.
     uint8_t *buffer;
     size_t len;
     size_t head;
