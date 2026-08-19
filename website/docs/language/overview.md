@@ -53,7 +53,8 @@ Kaede supports both the short declaration form and `let` bindings:
 vec := Vector<i32>::new()
 mut app := std.net.http.App::new()
 let count: i32 = 3
-const page_size: u64 = 4096
+const page_size = 4096
+const header_size: u64 = 64
 ```
 
 In practice, current Kaede code tends to use:
@@ -61,9 +62,9 @@ In practice, current Kaede code tends to use:
 - `:=` for local bindings when the type is obvious from the right-hand side
 - `mut ... :=` for mutable locals with inferred types
 - `let` when you want the explicit `let` form, especially with a type annotation such as `let count: i32 = 3`
-- `const` for typed local compile-time constants
+- `const` for local compile-time constants, with an optional type annotation
 
-`let x = 1` and `let mut x = 1` are also valid. `const` currently requires a type annotation and a compile-time constant initializer.
+`let x = 1` and `let mut x = 1` are also valid. A local `const` infers its type when the annotation is omitted and always requires a compile-time constant initializer. Top-level constants still require an explicit type annotation.
 
 ## Functions and return types
 

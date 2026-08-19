@@ -64,7 +64,7 @@ fn let_and_access() -> anyhow::Result<()> {
 fn local_const() -> anyhow::Result<()> {
     semantic_analyze(
         "fun f() -> i32 {
-            const base: i32 = 48
+            const base = 48
             const result: i32 = base + 10
             return result
         }
@@ -77,8 +77,8 @@ fn local_const() -> anyhow::Result<()> {
 fn local_const_array_repeat_count() -> anyhow::Result<()> {
     semantic_analyze(
         "fun f() {
-            const base: u32 = 2
-            const len: u32 = base + 2
+            const base = 2
+            const len = base + 2
             let _ = [0; len]
         }
     ",
@@ -94,7 +94,7 @@ fn local_const_rejects_runtime_initializer() -> anyhow::Result<()> {
         }
 
         fun f() {
-            const x: i32 = value()
+            const x = value()
         }
     ",
     )?;

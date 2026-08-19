@@ -392,13 +392,14 @@ fn top_level_const_statement() -> anyhow::Result<()> {
 #[test]
 fn local_const_statement() -> anyhow::Result<()> {
     let program = r"fun main() -> i32 {
-        const base: i32 = 48
-        const result: i32 = base + 10
+        const base = 48
+        const result = base + 10
         return result
     }";
 
     assert_eq!(exec(program)?, 58);
 
+    // An explicit annotation remains supported.
     let program = r"fun main() -> i32 {
         const len: u32 = 4
         let xs = [58; len]
