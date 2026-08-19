@@ -135,9 +135,25 @@ impl SemanticAnalyzer {
             .into());
         }
 
-        let annotated = self.analyze_type(&node.ty)?;
-        let init = self.analyze_expr_with_expected_type(&node.init, annotated.clone())?;
-        let const_ty = ir::ty::change_mutability_dup(annotated, ir::ty::Mutability::Not);
+        let (init, const_ty) = if node.ty.kind.is_inferred() {
+            let init = self.analyze_expr(&node.init)?;
+            let inferred = if matches!(init.ty.kind.as_ref(), ir::ty::TyKind::Var(_)) {
+                self.infer_context.fresh()
+            } else {
+                init.ty.clone()
+            };
+            (
+                init,
+                ir::ty::change_mutability_dup(inferred, ir::ty::Mutability::Not),
+            )
+        } else {
+            let annotated = self.analyze_type(&node.ty)?;
+            let init = self.analyze_expr_with_expected_type(&node.init, annotated.clone())?;
+            (
+                init,
+                ir::ty::change_mutability_dup(annotated, ir::ty::Mutability::Not),
+            )
+        };
         let const_value = self
             .evaluate_integer_const_expr(&node.init)
             .map(ConstValue::Integer);

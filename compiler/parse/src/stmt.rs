@@ -220,8 +220,11 @@ impl Parser {
         let start = self.consume(&TokenKind::Const).unwrap().start;
         let name = self.ident()?;
 
-        self.consume(&TokenKind::Colon)?;
-        let ty = self.ty()?;
+        let ty = if self.consume_b(&TokenKind::Colon) {
+            Some(self.ty()?)
+        } else {
+            None
+        };
 
         self.consume(&TokenKind::Eq)?;
         let init = self.expr()?;
@@ -230,7 +233,7 @@ impl Parser {
         Ok(Const {
             name,
             init: init.into(),
-            ty: ty.into(),
+            ty: ty.unwrap_or_else(|| Ty::new_var(span)).into(),
             span,
         })
     }

@@ -390,6 +390,20 @@ fn top_level_const_statement() -> anyhow::Result<()> {
 }
 
 #[test]
+fn inferred_top_level_const_statement() -> anyhow::Result<()> {
+    let program = r"const BASE = 48
+    const RESULT = BASE + 10
+
+    fun main() -> i32 {
+        return RESULT
+    }";
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
 fn local_const_statement() -> anyhow::Result<()> {
     let program = r"fun main() -> i32 {
         const base: i32 = 48
@@ -401,6 +415,27 @@ fn local_const_statement() -> anyhow::Result<()> {
 
     let program = r"fun main() -> i32 {
         const len: u32 = 4
+        let xs = [58; len]
+        return xs[3]
+    }";
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn inferred_local_const_statement() -> anyhow::Result<()> {
+    let program = r"fun main() -> i32 {
+        const base = 48
+        const result = base + 10
+        return result
+    }";
+
+    assert_eq!(exec(program)?, 58);
+
+    let program = r"fun main() -> i32 {
+        const len = 4
         let xs = [58; len]
         return xs[3]
     }";

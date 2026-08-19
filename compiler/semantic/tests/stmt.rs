@@ -74,11 +74,37 @@ fn local_const() -> anyhow::Result<()> {
 }
 
 #[test]
+fn inferred_local_const() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fun f() -> i32 {
+            const base = 48
+            const result = base + 10
+            return result
+        }
+    ",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn local_const_array_repeat_count() -> anyhow::Result<()> {
     semantic_analyze(
         "fun f() {
             const base: u32 = 2
             const len: u32 = base + 2
+            let _ = [0; len]
+        }
+    ",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn inferred_local_const_array_repeat_count() -> anyhow::Result<()> {
+    semantic_analyze(
+        "fun f() {
+            const base = 2
+            const len = base + 2
             let _ = [0; len]
         }
     ",
@@ -95,6 +121,21 @@ fn local_const_rejects_runtime_initializer() -> anyhow::Result<()> {
 
         fun f() {
             const x: i32 = value()
+        }
+    ",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn inferred_local_const_rejects_runtime_initializer() -> anyhow::Result<()> {
+    semantic_analyze_expect_error(
+        "fun value() -> i32 {
+            return 1
+        }
+
+        fun f() {
+            const x = value()
         }
     ",
     )?;
@@ -128,10 +169,37 @@ fn top_level_const() -> anyhow::Result<()> {
 }
 
 #[test]
+fn inferred_top_level_const() -> anyhow::Result<()> {
+    semantic_analyze(
+        "export const BNODE_LEAF = 2
+
+        fun main() -> i32 {
+            return BNODE_LEAF
+        }
+    ",
+    )?;
+    Ok(())
+}
+
+#[test]
 fn top_level_const_arithmetic() -> anyhow::Result<()> {
     semantic_analyze(
         "const BASE: u32 = 2
         const LEN: u32 = BASE + 2
+
+        fun f() {
+            let _ = [0; LEN]
+        }
+    ",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn inferred_top_level_const_arithmetic() -> anyhow::Result<()> {
+    semantic_analyze(
+        "const BASE = 2
+        const LEN = BASE + 2
 
         fun f() {
             let _ = [0; LEN]
@@ -149,6 +217,19 @@ fn top_level_const_rejects_runtime_initializer() -> anyhow::Result<()> {
         }
 
         const X: i32 = value()
+    ",
+    )?;
+    Ok(())
+}
+
+#[test]
+fn inferred_top_level_const_rejects_runtime_initializer() -> anyhow::Result<()> {
+    semantic_analyze_expect_error(
+        "fun value() -> i32 {
+            return 1
+        }
+
+        const X = value()
     ",
     )?;
     Ok(())
