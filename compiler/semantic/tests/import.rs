@@ -821,6 +821,24 @@ fn import_exported_top_level_const() -> anyhow::Result<()> {
 fn import_top_level_const_via_use() -> anyhow::Result<()> {
     ImportTestCase {
         name: "top_level_const_via_use",
+        modules: HashMap::from([("constants", "export const ANSWER: i32 = 42")]),
+        main_content: r#"
+            import constants
+            use constants.ANSWER
+            fun main() -> i32 {
+                return ANSWER
+            }
+        "#,
+        expected_min_top_levels: 2,
+        should_fail: false,
+    }
+    .run()
+}
+
+#[test]
+fn import_inferred_top_level_const_via_use() -> anyhow::Result<()> {
+    ImportTestCase {
+        name: "inferred_top_level_const_via_use",
         modules: HashMap::from([("constants", "export const ANSWER = 42")]),
         main_content: r#"
             import constants

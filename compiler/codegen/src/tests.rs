@@ -367,15 +367,15 @@ fn let_statement() -> anyhow::Result<()> {
 
 #[test]
 fn top_level_const_statement() -> anyhow::Result<()> {
-    let program = r"const BNODE_LEAF = 2
+    let program = r"const BNODE_LEAF: u16 = 2
 
     fun main() -> i32 {
-        return BNODE_LEAF
+        let kind: u16 = BNODE_LEAF
+        return kind as i32
     }";
 
     assert_eq!(exec(program)?, 2);
 
-    // Explicit annotations remain supported when the exported type is intentional.
     let program = r"const BASE: u32 = 2
     const LEN: u32 = BASE + 2
 
@@ -390,7 +390,42 @@ fn top_level_const_statement() -> anyhow::Result<()> {
 }
 
 #[test]
+fn inferred_top_level_const_statement() -> anyhow::Result<()> {
+    let program = r"const BASE = 48
+    const RESULT = BASE + 10
+
+    fun main() -> i32 {
+        return RESULT
+    }";
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
 fn local_const_statement() -> anyhow::Result<()> {
+    let program = r"fun main() -> i32 {
+        const base: i32 = 48
+        const result: i32 = base + 10
+        return result
+    }";
+
+    assert_eq!(exec(program)?, 58);
+
+    let program = r"fun main() -> i32 {
+        const len: u32 = 4
+        let xs = [58; len]
+        return xs[3]
+    }";
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn inferred_local_const_statement() -> anyhow::Result<()> {
     let program = r"fun main() -> i32 {
         const base = 48
         const result = base + 10
@@ -399,9 +434,8 @@ fn local_const_statement() -> anyhow::Result<()> {
 
     assert_eq!(exec(program)?, 58);
 
-    // An explicit annotation remains supported.
     let program = r"fun main() -> i32 {
-        const len: u32 = 4
+        const len = 4
         let xs = [58; len]
         return xs[3]
     }";
