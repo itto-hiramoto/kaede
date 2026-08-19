@@ -64,7 +64,7 @@ In practice, current Kaede code tends to use:
 - `let` when you want the explicit `let` form, especially with a type annotation such as `let count: i32 = 3`
 - `const` for local compile-time constants, with an optional type annotation
 
-`let x = 1` and `let mut x = 1` are also valid. A local `const` infers its type when the annotation is omitted and always requires a compile-time constant initializer. Top-level constants still require an explicit type annotation.
+`let x = 1` and `let mut x = 1` are also valid. A `const` infers its type when the annotation is omitted and always requires a compile-time constant initializer. An explicit annotation remains useful when the constant is part of a public API and its type should not change with its initializer.
 
 ## Functions and return types
 

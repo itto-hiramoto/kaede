@@ -8,7 +8,7 @@ use crate::{context::AnalyzeCommand, rust_import, SemanticAnalyzer, SemanticErro
 use kaede_symbol_table::{
     ConstValue, GenericBuiltinSliceInfo, GenericEnumInfo, GenericFuncInfo, GenericImplInfo,
     GenericInfo, GenericKind, GenericStructInfo, ResolvedGenericParam, ResolvedGenericParams,
-    SymbolTable, SymbolTableValue, SymbolTableValueKind, VariableInfo,
+    SymbolResolver, SymbolTable, SymbolTableValue, SymbolTableValueKind, VariableInfo,
 };
 
 use kaede_ast::{self as ast};
@@ -28,6 +28,32 @@ pub enum TopLevelAnalysisResult {
 }
 
 impl SemanticAnalyzer {
+    fn infer_top_const_initializer(
+        &mut self,
+        init: &mut ir::expr::Expr,
+    ) -> anyhow::Result<Rc<ir::ty::Ty>> {
+        use kaede_type_infer::TypeInferrer;
+
+        let module = &self.modules[self.current_module_path()];
+        let resolver = SymbolResolver::merge_for_inference(
+            module.get_symbol_tables(),
+            self.build_qualified_symbol_table(),
+        );
+        let mut inferrer = TypeInferrer::new(
+            resolver,
+            Rc::new(ir::ty::Ty::new_unit()),
+            self.infer_context.type_var_allocator.clone(),
+        );
+
+        inferrer.infer_expr(init)?;
+        inferrer.apply_expr(init)?;
+        self.merge_generated_callable_substitutions(
+            inferrer.into_generated_callable_substitutions(),
+        );
+
+        Ok(init.ty.clone())
+    }
+
     fn fn_decl_requires_delayed_inference(decl: &ir::top::FnDecl) -> bool {
         Self::fn_decl_has_unresolved_types(decl)
     }
@@ -1106,9 +1132,15 @@ impl SemanticAnalyzer {
             .into());
         }
 
-        let annotated = self.analyze_type(&node.ty)?;
-        let _init = self.analyze_expr_with_expected_type(&node.init, annotated.clone())?;
-        let const_ty = ir::ty::change_mutability_dup(annotated, ir::ty::Mutability::Not);
+        let const_ty = if node.ty.kind.is_inferred() {
+            let mut init = self.analyze_expr(&node.init)?;
+            let inferred = self.infer_top_const_initializer(&mut init)?;
+            ir::ty::change_mutability_dup(inferred, ir::ty::Mutability::Not)
+        } else {
+            let annotated = self.analyze_type(&node.ty)?;
+            let _init = self.analyze_expr_with_expected_type(&node.init, annotated.clone())?;
+            ir::ty::change_mutability_dup(annotated, ir::ty::Mutability::Not)
+        };
         let const_value = self
             .evaluate_integer_const_expr(&node.init)
             .map(ConstValue::Integer);

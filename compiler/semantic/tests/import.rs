@@ -821,7 +821,7 @@ fn import_exported_top_level_const() -> anyhow::Result<()> {
 fn import_top_level_const_via_use() -> anyhow::Result<()> {
     ImportTestCase {
         name: "top_level_const_via_use",
-        modules: HashMap::from([("constants", "export const ANSWER: i32 = 42")]),
+        modules: HashMap::from([("constants", "export const ANSWER = 42")]),
         main_content: r#"
             import constants
             use constants.ANSWER

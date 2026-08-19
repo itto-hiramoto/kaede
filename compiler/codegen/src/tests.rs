@@ -367,15 +367,15 @@ fn let_statement() -> anyhow::Result<()> {
 
 #[test]
 fn top_level_const_statement() -> anyhow::Result<()> {
-    let program = r"const BNODE_LEAF: u16 = 2
+    let program = r"const BNODE_LEAF = 2
 
     fun main() -> i32 {
-        let kind: u16 = BNODE_LEAF
-        return kind as i32
+        return BNODE_LEAF
     }";
 
     assert_eq!(exec(program)?, 2);
 
+    // Explicit annotations remain supported when the exported type is intentional.
     let program = r"const BASE: u32 = 2
     const LEN: u32 = BASE + 2
 

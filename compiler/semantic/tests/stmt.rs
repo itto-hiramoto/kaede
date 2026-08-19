@@ -116,11 +116,10 @@ fn local_const_rejects_assignment() -> anyhow::Result<()> {
 #[test]
 fn top_level_const() -> anyhow::Result<()> {
     semantic_analyze(
-        "const BNODE_LEAF: u16 = 2
+        "export const BNODE_LEAF = 2
 
         fun main() -> i32 {
-            let kind: u16 = BNODE_LEAF
-            return kind as i32
+            return BNODE_LEAF
         }
     ",
     )?;
@@ -130,8 +129,8 @@ fn top_level_const() -> anyhow::Result<()> {
 #[test]
 fn top_level_const_arithmetic() -> anyhow::Result<()> {
     semantic_analyze(
-        "const BASE: u32 = 2
-        const LEN: u32 = BASE + 2
+        "const BASE = 2
+        const LEN = BASE + 2
 
         fun f() {
             let _ = [0; LEN]
@@ -148,7 +147,7 @@ fn top_level_const_rejects_runtime_initializer() -> anyhow::Result<()> {
             return 1
         }
 
-        const X: i32 = value()
+        const X = value()
     ",
     )?;
     Ok(())
@@ -157,7 +156,7 @@ fn top_level_const_rejects_runtime_initializer() -> anyhow::Result<()> {
 #[test]
 fn top_level_const_rejects_assignment() -> anyhow::Result<()> {
     semantic_analyze_expect_error(
-        "const X: i32 = 1
+        "const X = 1
 
         fun f() {
             X = 2
