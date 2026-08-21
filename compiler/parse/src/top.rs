@@ -20,15 +20,6 @@ use crate::{
 
 impl Parser {
     pub fn module_item(&mut self) -> ParseResult<ModuleItem> {
-        if self.check(&TokenKind::OldPub) || self.check(&TokenKind::OldFn) {
-            return Err(ParseError::ExpectedError {
-                expected: "new syntax keyword".to_string(),
-                but: self.first().kind.to_string(),
-                span: self.first().span,
-            }
-            .into());
-        }
-
         if self.is_top_level_decl_start() {
             return Ok(ModuleItem::Decl(self.top_level()?));
         }
