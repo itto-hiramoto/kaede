@@ -1,0 +1,38 @@
+// SYNTAX TEST "source.kaede" "integer, float, hex and tuple-index disambiguation"
+
+let f = 0.5
+//      ^^^ constant.numeric.float.kaede
+let h = 0x1F
+//      ^^^^ constant.numeric.integer.kaede
+let h2 = 0X80
+//       ^^^^ constant.numeric.integer.kaede
+
+// hex literals never take a fractional part: 0x80.5 is three tokens, 0x80 . 5
+let hf = 0x80.5
+//       ^^^^ constant.numeric.integer.kaede
+//           ^ keyword.operator.kaede
+//            ^ constant.numeric.integer.kaede
+
+// tuple index chains are two integers, not a float
+let a = tup.0.1
+//          ^ constant.numeric.integer.kaede
+//            ^ constant.numeric.integer.kaede
+let b = tup. 0.1
+//           ^ constant.numeric.integer.kaede
+//             ^ constant.numeric.integer.kaede
+let c = self.0
+//      ^^^^ variable.language.self.kaede
+//           ^ constant.numeric.integer.kaede
+
+// a method call on an integer literal is not a float
+let d = 1.foo()
+//      ^ constant.numeric.integer.kaede
+
+// 0x with no hex digit is integer 0 followed by an identifier
+let e = 0x
+//      ^ constant.numeric.integer.kaede
+//       ^ - constant.numeric.integer.kaede
+
+// digits inside an identifier are not numbers
+let ab123 = 1
+//  ^^^^^ - constant.numeric.integer.kaede

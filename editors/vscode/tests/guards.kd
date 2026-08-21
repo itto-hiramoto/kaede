@@ -1,0 +1,28 @@
+// SYNTAX TEST "source.kaede" "negative guards that prevent over-matching"
+
+// a path segment named like a primitive is not a primitive
+import std.str.something
+//         ^^^ - support.type.primitive.kaede
+use autoload.char.Char
+//           ^^^^ - support.type.primitive.kaede
+
+// a comparison inside a call is not a named argument
+f(a == b)
+//^ - variable.parameter.kaede
+g(x, y == z)
+//   ^ - variable.parameter.kaede
+
+// a b glued to an identifier does not start a byte char
+let ab = ab'x'
+//       ^^ - string.quoted.single.byte.kaede
+//         ^^^ string.quoted.single.kaede
+
+// hex digits inside an identifier are not a hex literal
+let v0x10 = 1
+//  ^^^^^ - constant.numeric.integer.kaede
+
+// a tuple index after an identifier ending in a digit is not a float
+let t = tup1.0
+//      ^^^^ - constant.numeric.float.kaede
+//           ^ constant.numeric.integer.kaede
+

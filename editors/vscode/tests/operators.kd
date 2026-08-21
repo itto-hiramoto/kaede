@@ -1,0 +1,53 @@
+// SYNTAX TEST "source.kaede" "operator alternation branches"
+
+let a = x + y - z * w / v % u
+//        ^ keyword.operator.kaede
+//            ^ keyword.operator.kaede
+//                ^ keyword.operator.kaede
+//                    ^ keyword.operator.kaede
+//                        ^ keyword.operator.kaede
+
+let b = !p & q | r ^ ~s
+//      ^ keyword.operator.kaede
+//         ^ keyword.operator.kaede
+//             ^ keyword.operator.kaede
+//                 ^ keyword.operator.kaede
+//                   ^ keyword.operator.kaede
+
+fun probe(header: [u8]) -> Option<[u8]> {
+  upgrade := header_value(header, b"Upgrade")?
+//                                           ^ keyword.operator.kaede
+  return Option::Some(upgrade)
+}
+
+// Each multi-character operator carries its own sub-scope, so these assertions
+// fail if the shorter branch ever wins.
+n += 1
+//^^ keyword.operator.assignment.kaede
+n -= 1
+//^^ keyword.operator.assignment.kaede
+n *= 2
+//^^ keyword.operator.assignment.kaede
+n /= 2
+//^^ keyword.operator.assignment.kaede
+n %= 2
+//^^ keyword.operator.assignment.kaede
+
+let e = a == b != c <= d >= e && f || g
+//        ^^ keyword.operator.comparison.kaede
+//             ^^ keyword.operator.comparison.kaede
+//                  ^^ keyword.operator.comparison.kaede
+//                       ^^ keyword.operator.comparison.kaede
+//                            ^^ keyword.operator.logical.kaede
+//                                 ^^ keyword.operator.logical.kaede
+
+let f = a << 8 | b >> 2
+//        ^^ keyword.operator.bitwise.kaede
+//                 ^^ keyword.operator.bitwise.kaede
+
+mut app := App::new()
+//      ^^ keyword.operator.assignment.kaede
+//            ^^ keyword.operator.namespace.kaede
+
+ch <- v
+// ^^ keyword.operator.arrow.kaede

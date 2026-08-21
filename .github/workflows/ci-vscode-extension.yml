@@ -1,0 +1,48 @@
+name: CI (VS Code extension)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "editors/vscode/**"
+      - ".github/workflows/ci-vscode-extension.yml"
+  pull_request:
+    paths:
+      - "editors/vscode/**"
+      - ".github/workflows/ci-vscode-extension.yml"
+
+concurrency:
+  group: ci-vscode-extension-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  grammar-and-compile:
+    name: Grammar tests and TypeScript compile
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: editors/vscode
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check every test file carries assertions
+        run: |
+          shopt -s globstar nullglob
+          for f in tests/**/*.kd; do
+            grep -qE '^//\s*(\^+|<-+)' "$f" || { echo "::error file=editors/vscode/$f::no scope assertions"; exit 1; }
+          done
+
+      - name: Run grammar tests
+        run: npm test
+
+      - name: Compile extension
+        run: npm run compile

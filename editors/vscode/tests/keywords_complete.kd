@@ -1,0 +1,27 @@
+// SYNTAX TEST "source.kaede" "every keyword in the table"
+
+const MAX: i32 = 1
+// <- storage.modifier.kaede
+extern "C" fun ext() -> i32
+// <- storage.modifier.kaede
+struct S { a: i32 }
+// <- storage.type.kaede
+enum E { A }
+// <- storage.type.kaede
+interface I {}
+// <- storage.type.kaede
+impl<T> Channel<T> {}
+// <- storage.type.kaede
+type T = i32
+// <- storage.type.kaede
+let off = false
+//        ^^^^^ constant.language.boolean.kaede
+spawn worker(ch)
+// <- keyword.control.concurrency.kaede
+loop { break }
+// <- keyword.control.kaede
+//     ^^^^^ keyword.control.kaede
+while cond { f() }
+// <- keyword.control.kaede
+match v { _ => {} }
+// <- keyword.control.kaede

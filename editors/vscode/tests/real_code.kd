@@ -1,0 +1,69 @@
+// SYNTAX TEST "source.kaede" "constructs taken from library/src and example"
+
+export extern "C" fun kaede_io_write(fd: i32, buf: *u8, ...) -> i32
+// <- storage.modifier.kaede
+//     ^^^^^^ storage.modifier.kaede
+//            ^^^ string.quoted.double.kaede
+//                ^^^ storage.type.kaede
+//                    ^^^^^^^^^^^^^^ entity.name.function.kaede
+//                                       ^^^ support.type.primitive.kaede
+//                                                 ^ keyword.operator.kaede
+//                                                  ^^ support.type.primitive.kaede
+//                                                      ^^^ keyword.operator.variadic.kaede
+//                                                           ^^ keyword.operator.arrow.kaede
+//                                                              ^^^ support.type.primitive.kaede
+
+export type Handler = fun(mut Request, mut Response)
+//     ^^^^ storage.type.kaede
+//          ^^^^^^^ - entity.name.function.kaede
+//                    ^^^ storage.type.kaede
+//                    ^^^ - entity.name.function.kaede
+//                        ^^^ storage.modifier.kaede
+
+let mut buf = [0 as u8; 256]
+//            ^ punctuation.brackets.square.kaede
+//             ^ constant.numeric.integer.kaede
+//               ^^ keyword.control.as.kaede
+//                  ^^ support.type.primitive.kaede
+//                    ^ punctuation.terminator.kaede
+//                      ^^^ constant.numeric.integer.kaede
+//                         ^ punctuation.brackets.square.kaede
+
+let line = header[0:i]
+//               ^ punctuation.brackets.square.kaede
+//                 ^ keyword.operator.kaede
+//                   ^ punctuation.brackets.square.kaede
+
+app.get("/x", |req, res| { res.send("k") })
+//     ^ punctuation.brackets.round.kaede
+//          ^ punctuation.separator.kaede
+//            ^ keyword.operator.kaede
+//                     ^ keyword.operator.kaede
+//                       ^ punctuation.brackets.curly.kaede
+//                                       ^ punctuation.brackets.curly.kaede
+
+export fun assert(cond: bool, msg: str = "assertion failed") {}
+//                      ^^^^ support.type.primitive.kaede
+//                            ^^^ - variable.parameter.kaede
+//                                 ^^^ support.type.primitive.kaede
+//                                       ^^^^^^^^^^^^^^^^^^ string.quoted.double.kaede
+
+import rust::comment_app
+// <- keyword.control.import.kaede
+//         ^^ keyword.operator.namespace.kaede
+
+let s = String { bytes: Vector<u8>::from_slice(b) }
+//             ^ punctuation.brackets.curly.kaede
+//                             ^^ support.type.primitive.kaede
+//                                ^^ keyword.operator.namespace.kaede
+
+fun to_string(mut self) -> String { return self.0 }
+//            ^^^ storage.modifier.kaede
+//                ^^^^ variable.language.self.kaede
+//                                         ^^^^ variable.language.self.kaede
+//                                              ^ constant.numeric.integer.kaede
+
+let (found, idx) = search(k)
+//  ^ punctuation.brackets.round.kaede
+//        ^ punctuation.separator.kaede
+//             ^ punctuation.brackets.round.kaede

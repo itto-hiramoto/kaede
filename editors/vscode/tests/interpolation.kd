@@ -1,0 +1,64 @@
+// SYNTAX TEST "source.kaede" "interpolated strings and file recovery"
+
+println($"a {b + c} d")
+//      ^^ punctuation.definition.string.begin.kaede
+//        ^^ string.quoted.double.interpolated.kaede
+//          ^ punctuation.section.embedded.begin.kaede
+//           ^^^^^ meta.interpolation.kaede
+//                ^ punctuation.section.embedded.end.kaede
+//                 ^^ string.quoted.double.interpolated.kaede
+let after_simple = 1
+// <- storage.type.kaede
+
+// a nested string containing a brace must not close the interpolation
+println($"c {\"}\"} d")
+//           ^^ string.quoted.double.kaede
+//             ^ string.quoted.double.kaede
+let after_nested_string = 1
+// <- storage.type.kaede
+
+// balanced braces inside the interpolation
+println($"a{ if true { 1 } else { 2 } }b")
+//           ^^ keyword.control.kaede
+//                         ^^^^ keyword.control.kaede
+//                                     ^^ string.quoted.double.interpolated.kaede
+let after_braces = 1
+// <- storage.type.kaede
+
+// whitespace is allowed between the sigil and the quote
+println($ "hello {name}")
+//      ^^^ punctuation.definition.string.begin.kaede
+//                ^^^^ meta.interpolation.kaede
+let after_space = 1
+// <- storage.type.kaede
+
+// doubled braces are literal, not an interpolation
+println($"{{literal}}")
+//        ^^ constant.character.escape.kaede
+//                 ^^ constant.character.escape.kaede
+let after_literal_braces = 1
+// <- storage.type.kaede
+
+// an unclosed interpolation must not outlive its string
+println($"oops {x")
+//               ^ punctuation.definition.string.end.kaede
+let after_unclosed = 1
+// <- storage.type.kaede
+
+// a brace in a plain string is literal text
+let plain = "{not code}"
+//            ^^^^^^^^ string.quoted.double.kaede
+
+// an interpolation body gets the same rules as top-level code, including the
+// named-argument rule that keeps a primitive-spelled label from reading as a type
+println($"{g(u8=5)} {1.5} {i32}")
+//           ^^ variable.parameter.kaede
+//                   ^^^ constant.numeric.float.kaede
+//                         ^^^ support.type.primitive.kaede
+
+// an odd number of escaped quotes must not let the nested-string rule swallow the
+// closing quote of the interpolated string
+println($"c {\"} d")
+//                ^ punctuation.definition.string.end.kaede
+let after_odd_quote = 1
+// <- storage.type.kaede

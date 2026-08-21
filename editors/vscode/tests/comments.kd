@@ -1,0 +1,26 @@
+// SYNTAX TEST "source.kaede" "line and nested block comments"
+
+// a line comment
+// <- comment.line.double-slash.kaede
+/* /* nested */ still a comment */
+// <- comment.block.kaede
+//    ^^^^^^ comment.block.kaede
+//              ^^^^^^^^^^^^^^^ comment.block.kaede
+let after_nested = 1
+// <- storage.type.kaede
+
+// a // inside a block comment must not swallow the terminator
+/* x // */ let after_slashes = 1
+//         ^^^ storage.type.kaede
+//             ^^^^^^^^^^^^^ - comment.block.kaede
+
+// a quote inside a block comment must not open a string
+/* he said "no */ let after_quote = 1
+//                ^^^ storage.type.kaede
+
+// a block comment opener inside a line comment is inert: /*
+let after_line = 1
+// <- storage.type.kaede
+
+let s = "// not a comment"
+//       ^^^^^^^^^^^^^^^^ string.quoted.double.kaede

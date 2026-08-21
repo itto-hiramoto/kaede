@@ -1,0 +1,27 @@
+// SYNTAX TEST "source.kaede" "constructs spanning physical lines"
+
+let ml = "line one
+//        ^^^^^^^^ string.quoted.double.kaede
+line two"
+// <- string.quoted.double.kaede
+//      ^ punctuation.definition.string.end.kaede
+let after_ml = 1
+// <- storage.type.kaede
+
+let mi = $"interp
+//         ^^^^^^ string.quoted.double.interpolated.kaede
+{x} tail"
+// <- punctuation.section.embedded.begin.kaede
+//     ^^^^ string.quoted.double.interpolated.kaede
+let after_mi = 1
+// <- storage.type.kaede
+
+/* block
+// <- comment.block.kaede
+   still inside
+// <- comment.block.kaede
+   /* nested across lines
+   */ still inside outer
+//    ^^^^^^^^^^^^^ comment.block.kaede
+*/ let after_block = 1
+// ^^^ storage.type.kaede

@@ -1,0 +1,31 @@
+// SYNTAX TEST "source.kaede" "interpolation body sub-rules"
+
+println($"{1 + 2}")
+//         ^ constant.numeric.integer.kaede
+//           ^ keyword.operator.kaede
+//             ^ constant.numeric.integer.kaede
+
+println($"{n as u8}")
+//           ^^ keyword.control.as.kaede
+//              ^^ support.type.primitive.kaede
+
+// two levels of brace nesting inside one interpolation
+println($"{if a { if b { 1 } else { 2 } } else { 3 }}")
+//                       ^ constant.numeric.integer.kaede
+//                           ^^^^ keyword.control.kaede
+//                                  ^ constant.numeric.integer.kaede
+//                                               ^ constant.numeric.integer.kaede
+let after_deep = 1
+// <- storage.type.kaede
+
+// an escape inside a nested string inside an interpolation
+println($"{f(\"a\\nb\")}")
+//              ^^^ constant.character.escape.kaede
+let after_nested_escape = 1
+// <- storage.type.kaede
+
+// a struct literal inside an interpolation
+println($"{Foo { x: 1 }}")
+//                  ^ constant.numeric.integer.kaede
+let after_struct_lit = 1
+// <- storage.type.kaede
