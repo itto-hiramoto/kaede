@@ -339,3 +339,26 @@ fn byte_literal_escape_sequences() {
     lex_test(r#"b'\\'"#, vec![ByteLiteral(b'\\'), Semi, Eoi]);
     lex_test(r#"b'\''"#, vec![ByteLiteral(b'\''), Semi, Eoi]);
 }
+
+#[test]
+fn fn_and_pub_are_ordinary_identifiers() {
+    lex_test(
+        "fn pub",
+        vec![Ident("fn".to_string()), Ident("pub".to_string()), Semi, Eoi],
+    );
+}
+
+#[test]
+fn fn_and_pub_can_name_a_binding() {
+    lex_test(
+        "let fn = 1",
+        vec![
+            Let,
+            Ident("fn".to_string()),
+            Eq,
+            Int("1".to_string()),
+            Semi,
+            Eoi,
+        ],
+    );
+}

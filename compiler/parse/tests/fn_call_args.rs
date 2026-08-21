@@ -204,18 +204,6 @@ fn parse_fun_type() -> Result<()> {
 }
 
 #[test]
-fn parse_old_fn_type_is_rejected() -> Result<()> {
-    let mut parser = Parser::new("fn(i32) -> bool", FilePath::from(PathBuf::from("test.kd")));
-
-    let err = parser.ty().expect_err("old fn type must fail");
-    let parse_err = err.downcast::<ParseError>().expect("expected parse error");
-
-    assert!(matches!(parse_err, ParseError::ExpectedError { .. }));
-
-    Ok(())
-}
-
-#[test]
 fn parse_foreign_rust_import() -> Result<()> {
     let mut parser = Parser::new(
         "import rust::example_crate",
@@ -276,33 +264,6 @@ fn parse_export_let_is_rejected() -> Result<()> {
     let mut parser = Parser::new("export let x = 1", FilePath::from(PathBuf::from("test.kd")));
 
     let err = parser.run().expect_err("export let must fail");
-    let parse_err = err.downcast::<ParseError>().expect("expected parse error");
-
-    assert!(matches!(parse_err, ParseError::ExpectedError { .. }));
-
-    Ok(())
-}
-
-#[test]
-fn parse_old_fn_keyword_is_rejected() -> Result<()> {
-    let mut parser = Parser::new("fn legacy() {}", FilePath::from(PathBuf::from("test.kd")));
-
-    let err = parser.run().expect_err("old fn keyword must fail");
-    let parse_err = err.downcast::<ParseError>().expect("expected parse error");
-
-    assert!(matches!(parse_err, ParseError::ExpectedError { .. }));
-
-    Ok(())
-}
-
-#[test]
-fn parse_old_pub_keyword_is_rejected() -> Result<()> {
-    let mut parser = Parser::new(
-        "pub fun current() {}",
-        FilePath::from(PathBuf::from("test.kd")),
-    );
-
-    let err = parser.run().expect_err("old pub keyword must fail");
     let parse_err = err.downcast::<ParseError>().expect("expected parse error");
 
     assert!(matches!(parse_err, ParseError::ExpectedError { .. }));
