@@ -24,7 +24,9 @@ export function activate(context: vscode.ExtensionContext): void {
     transport: TransportKind.stdio
   };
 
-  const outputChannel = vscode.window.createOutputChannel("Kaede LSP");
+  const outputChannel = vscode.window.createOutputChannel("Kaede LSP", {
+    log: true
+  });
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ language: "kaede", scheme: "file" }],
     outputChannel,
