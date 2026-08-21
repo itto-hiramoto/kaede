@@ -1,10 +1,17 @@
 name: CI (macOS)
 
-on: [push]
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-macos-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   check-and-test:
-    name: Check and test (Nix)
+    name: Check and test (macOS)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v7
