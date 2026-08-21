@@ -1,0 +1,28 @@
+// SYNTAX TEST "source.kaede" "fundamental types and named arguments"
+
+let x: str = "a"
+//     ^^^ support.type.primitive.kaede
+let p: *u8 = q
+//      ^^ support.type.primitive.kaede
+let s: [u8] = t
+//      ^^ support.type.primitive.kaede
+let v: Vector<i64> = w
+//            ^^^ support.type.primitive.kaede
+
+// a named argument label is not a type, even when it is spelled like one
+g(u8=5)
+//^^ variable.parameter.kaede
+//  ^ keyword.operator.kaede
+h(a, bool=1)
+//   ^^^^ variable.parameter.kaede
+
+// a field access spelled like a type is not a type
+let y = s.bool
+//        ^^^^ - support.type.primitive.kaede
+
+// operators
+mut app := App::new()
+//      ^^ keyword.operator.assignment.kaede
+//            ^^ keyword.operator.namespace.kaede
+ch <- v
+// ^^ keyword.operator.arrow.kaede

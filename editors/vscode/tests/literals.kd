@@ -1,0 +1,39 @@
+// SYNTAX TEST "source.kaede" "strings, chars, byte literals and escapes"
+
+let s = "hi\n"
+//      ^ punctuation.definition.string.begin.kaede
+//       ^^ string.quoted.double.kaede
+//         ^^ constant.character.escape.kaede
+let bad = "a\qb"
+//          ^^ invalid.illegal.unknown-escape.kaede
+let c = 'a'
+//      ^^^ string.quoted.single.kaede
+let ce = '\t'
+//        ^^ constant.character.escape.kaede
+let bs = b"raw"
+//       ^^ string.quoted.double.byte.kaede
+let bc = b'x'
+//       ^^ string.quoted.single.byte.kaede
+
+// a trailing b on an identifier does not start a byte string
+let ab = ab"x"
+//       ^^ - string.quoted.double.byte.kaede
+//         ^^^ string.quoted.double.kaede
+
+// an escaped quote stays inside the string
+let q = "a\"b"
+//        ^^ constant.character.escape.kaede
+//          ^ string.quoted.double.kaede
+let after_escapes = 1
+// <- storage.type.kaede
+
+// a char literal holds exactly one character or escape, so an unterminated one
+// ends at the newline instead of scoping the rest of the file as a string
+let half = 'a
+//         ^ punctuation.definition.string.begin.kaede
+let after_half_char = 1
+// <- storage.type.kaede
+let halfb = b'a
+//          ^ string.quoted.single.byte.kaede
+let after_half_byte = 1
+// <- storage.type.kaede

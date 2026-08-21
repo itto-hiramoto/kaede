@@ -1,0 +1,74 @@
+// SYNTAX TEST "source.kaede" "type, function, constant and variable names"
+
+// a declaration name is taken positionally, with no casing requirement
+struct Point {
+//     ^^^^^ entity.name.type.kaede
+enum Colour { Red }
+//   ^^^^^^ entity.name.type.kaede
+interface Reader {}
+//        ^^^^^^ entity.name.type.kaede
+type Handler = fun(mut Request)
+//   ^^^^^^^ entity.name.type.kaede
+//             ^^^ storage.type.kaede
+//             ^^^ - entity.name.function.kaede
+//                     ^^^^^^^ entity.name.type.kaede
+
+// use sites are taken by capitalisation, so a type imported from another file
+// is coloured even though its declaration is not in view
+let p: Point = build()
+//     ^^^^^ entity.name.type.kaede
+//             ^^^^^ entity.name.function.kaede
+let v = Vector<u8>::new()
+//      ^^^^^^ entity.name.type.kaede
+//             ^^ support.type.primitive.kaede
+
+// a keyword followed directly by a paren is not a call
+if(x) { }
+// <- keyword.control.kaede
+// <- - entity.name.function.kaede
+while(x) { }
+// <- - entity.name.function.kaede
+match(x) { }
+// <- - entity.name.function.kaede
+
+// a call whose name is not ASCII must not be split
+日本語_x1()
+// <- entity.name.function.kaede
+__sys_read(fd)
+// <- entity.name.function.kaede
+
+// two or more leading capitals with no lowercase is a constant, not a type
+const BTREE_PAGE_SIZE: i32 = 4096
+//    ^^^^^^^^^^^^^^^ constant.other.caps.kaede
+//    ^^^^^^^^^^^^^^^ - entity.name.type.kaede
+let n = BTREE_PAGE_SIZE
+//      ^^^^^^^^^^^^^^^ constant.other.caps.kaede
+
+// a trailing lowercase letter makes it a type again
+let e = IoError
+//      ^^^^^^^ entity.name.type.kaede
+let f = ABc
+//      ^^^ entity.name.type.kaede
+
+// plain identifiers, including every segment of a dotted module path --
+// Kaede uses `.` for module paths, so excluding the position after a dot
+// would leave import tails uncoloured
+import std.net.http
+//     ^^^ variable.other.kaede
+//         ^^^ variable.other.kaede
+//             ^^^^ variable.other.kaede
+let dx = other.x
+//  ^^ variable.other.kaede
+//       ^^^^^ variable.other.kaede
+//             ^ variable.other.kaede
+
+// a named-argument label keeps its own scope rather than becoming a variable
+g(u8=5)
+//^^ variable.parameter.kaede
+
+// Kaede does not reserve casing, so a lowercase type name is legal. This is
+// what separates the positional declaration rule from the capitalisation one.
+struct point {
+//     ^^^^^ entity.name.type.kaede
+fun lower(p: point) -> i32 { return 0 }
+//           ^^^^^ - entity.name.type.kaede

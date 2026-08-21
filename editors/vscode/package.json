@@ -35,7 +35,8 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "test": "vscode-tmgrammar-test -g syntaxes/kaede.tmLanguage.json 'tests/**/*.kd'"
   },
   "dependencies": {
     "vscode-languageclient": "^10.1.0"
@@ -43,6 +44,7 @@
   "devDependencies": {
     "@types/node": "^26.2.0",
     "@types/vscode": "^1.125.0",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vscode-tmgrammar-test": "^0.1.3"
   }
 }

@@ -2,9 +2,352 @@
   "name": "Kaede",
   "scopeName": "source.kaede",
   "fileTypes": ["kd"],
-  "patterns": [
-    {
-      "include": "source.rust"
+  "patterns": [{ "include": "#main" }],
+  "repository": {
+    "main": {
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#byte-string" },
+        { "include": "#byte-char" },
+        { "include": "#interpolated-string" },
+        { "include": "#string" },
+        { "include": "#char" },
+        { "include": "#numbers" },
+        { "include": "#function-definition" },
+        { "include": "#type-definition" },
+        { "include": "#keywords" },
+        { "include": "#named-argument" },
+        { "include": "#function-call" },
+        { "include": "#fundamental-types" },
+        { "include": "#constant-caps" },
+        { "include": "#type-name" },
+        { "include": "#operators" },
+        { "include": "#punctuation" },
+        { "include": "#variable" }
+      ]
+    },
+
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.kaede",
+          "match": "//.*"
+        },
+        { "include": "#block-comment" }
+      ]
+    },
+
+    "block-comment": {
+      "name": "comment.block.kaede",
+      "begin": "/\\*",
+      "end": "\\*/",
+      "patterns": [{ "include": "#block-comment" }]
+    },
+
+    "string-escapes": {
+      "patterns": [
+        {
+          "name": "constant.character.escape.kaede",
+          "match": "\\\\[nrt0\\\\\"']"
+        },
+        {
+          "name": "invalid.illegal.unknown-escape.kaede",
+          "match": "\\\\."
+        }
+      ]
+    },
+
+    "string": {
+      "name": "string.quoted.double.kaede",
+      "begin": "\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.kaede" }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.kaede" }
+      },
+      "patterns": [{ "include": "#string-escapes" }]
+    },
+
+    "char": {
+      "name": "string.quoted.single.kaede",
+      "begin": "'",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.kaede" }
+      },
+      "end": "'|$",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.kaede" }
+      },
+      "patterns": [{ "include": "#string-escapes" }]
+    },
+
+    "byte-string": {
+      "name": "string.quoted.double.byte.kaede",
+      "begin": "(?<!\\p{XID_Continue})b\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.kaede" }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.kaede" }
+      },
+      "patterns": [{ "include": "#string-escapes" }]
+    },
+
+    "byte-char": {
+      "name": "string.quoted.single.byte.kaede",
+      "begin": "(?<!\\p{XID_Continue})b'",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.kaede" }
+      },
+      "end": "'|$",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.kaede" }
+      },
+      "patterns": [{ "include": "#string-escapes" }]
+    },
+
+    "interpolated-string": {
+      "name": "string.quoted.double.interpolated.kaede",
+      "begin": "\\$[ \\t]*\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.kaede" }
+      },
+      "end": "\"",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.kaede" }
+      },
+      "patterns": [
+        {
+          "name": "constant.character.escape.kaede",
+          "match": "\\{\\{|\\}\\}"
+        },
+        { "include": "#interpolation" },
+        { "include": "#string-escapes" }
+      ]
+    },
+
+    "interpolation": {
+      "name": "meta.interpolation.kaede",
+      "begin": "\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.section.embedded.begin.kaede" }
+      },
+      "end": "\\}|(?=\")",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.embedded.end.kaede" }
+      },
+      "patterns": [{ "include": "#interpolation-content" }]
+    },
+
+    "interpolation-content": {
+      "patterns": [
+        { "include": "#interpolation-nested-string" },
+        { "include": "#interpolation-braces" },
+        { "include": "#numbers" },
+        { "include": "#keywords" },
+        { "include": "#named-argument" },
+        { "include": "#function-call" },
+        { "include": "#fundamental-types" },
+        { "include": "#operators" },
+        { "include": "#punctuation" },
+        { "include": "#constant-caps" },
+        { "include": "#type-name" },
+        { "include": "#variable" }
+      ]
+    },
+
+    "interpolation-nested-string": {
+      "name": "string.quoted.double.kaede",
+      "begin": "\\\\\"",
+      "end": "\\\\\"|(?=\")",
+      "patterns": [
+        {
+          "name": "constant.character.escape.kaede",
+          "match": "\\\\\\\\."
+        }
+      ]
+    },
+
+    "interpolation-braces": {
+      "begin": "\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.brackets.curly.kaede" }
+      },
+      "end": "\\}|(?=\")",
+      "endCaptures": {
+        "0": { "name": "punctuation.brackets.curly.kaede" }
+      },
+      "patterns": [{ "include": "#interpolation-content" }]
+    },
+
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.integer.kaede",
+          "match": "(?<!\\p{XID_Continue})0[xX][0-9a-fA-F]+"
+        },
+        {
+          "name": "constant.numeric.float.kaede",
+          "match": "(?<!\\.\\s*)(?<!\\p{XID_Continue})[0-9]+\\.[0-9]+"
+        },
+        {
+          "name": "constant.numeric.integer.kaede",
+          "match": "(?<!\\p{XID_Continue})[0-9]+"
+        }
+      ]
+    },
+
+    "function-definition": {
+      "match": "((?<!\\p{XID_Continue})fun)[ \\t]+([\\p{XID_Start}_][\\p{XID_Continue}]*)",
+      "captures": {
+        "1": { "name": "storage.type.kaede" },
+        "2": { "name": "entity.name.function.kaede" }
+      }
+    },
+
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.kaede",
+          "match": "(?<!\\p{XID_Continue})(?:if|else|loop|while|break|return|match)(?!\\p{XID_Continue})"
+        },
+        {
+          "name": "keyword.control.concurrency.kaede",
+          "match": "(?<!\\p{XID_Continue})(?:spawn|select|case|default)(?!\\p{XID_Continue})"
+        },
+        {
+          "name": "keyword.control.import.kaede",
+          "match": "(?<!\\p{XID_Continue})(?:import|use)(?!\\p{XID_Continue})"
+        },
+        {
+          "name": "keyword.control.as.kaede",
+          "match": "(?<!\\p{XID_Continue})as(?!\\p{XID_Continue})"
+        },
+        {
+          "name": "storage.type.kaede",
+          "match": "(?<!\\p{XID_Continue})(?:fun|let|struct|enum|interface|impl|type)(?!\\p{XID_Continue})"
+        },
+        {
+          "name": "storage.modifier.kaede",
+          "match": "(?<!\\p{XID_Continue})(?:mut|export|const|extern)(?!\\p{XID_Continue})"
+        },
+        {
+          "name": "constant.language.boolean.kaede",
+          "match": "(?<!\\p{XID_Continue})(?:true|false)(?!\\p{XID_Continue})"
+        },
+        {
+          "name": "variable.language.self.kaede",
+          "match": "(?<!\\p{XID_Continue})self(?!\\p{XID_Continue})"
+        }
+      ]
+    },
+
+    "named-argument": {
+      "match": "(?<=[(,])[ \\t]*([\\p{XID_Start}_][\\p{XID_Continue}]*)[ \\t]*(=)(?!=)",
+      "captures": {
+        "1": { "name": "variable.parameter.kaede" },
+        "2": { "name": "keyword.operator.kaede" }
+      }
+    },
+
+    "fundamental-types": {
+      "name": "support.type.primitive.kaede",
+      "match": "(?<![.\\p{XID_Continue}])(?:i8|u8|i16|u16|i32|u32|i64|u64|f32|f64|char|bool|str)(?!\\p{XID_Continue})(?!\\.)"
+    },
+
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.arrow.kaede",
+          "match": "=>|->|<-"
+        },
+        {
+          "name": "keyword.operator.namespace.kaede",
+          "match": "::"
+        },
+        {
+          "name": "keyword.operator.variadic.kaede",
+          "match": "\\.\\.\\."
+        },
+        {
+          "name": "keyword.operator.bitwise.kaede",
+          "match": "<<|>>"
+        },
+        {
+          "name": "keyword.operator.comparison.kaede",
+          "match": "==|!=|<=|>="
+        },
+        {
+          "name": "keyword.operator.logical.kaede",
+          "match": "&&|\\|\\|"
+        },
+        {
+          "name": "keyword.operator.assignment.kaede",
+          "match": ":=|\\+=|-=|\\*=|/=|%=|="
+        },
+        {
+          "name": "keyword.operator.kaede",
+          "match": "\\.\\.|[+\\-*/%!&|^~?.:<>]"
+        }
+      ]
+    },
+
+    "punctuation": {
+      "patterns": [
+        {
+          "name": "punctuation.brackets.round.kaede",
+          "match": "[()]"
+        },
+        {
+          "name": "punctuation.brackets.curly.kaede",
+          "match": "[{}]"
+        },
+        {
+          "name": "punctuation.brackets.square.kaede",
+          "match": "[\\[\\]]"
+        },
+        {
+          "name": "punctuation.separator.kaede",
+          "match": ","
+        },
+        {
+          "name": "punctuation.terminator.kaede",
+          "match": ";"
+        }
+      ]
+    },
+
+    "type-definition": {
+      "match": "((?<!\\p{XID_Continue})(?:struct|enum|interface|type))(?!\\p{XID_Continue})[ \\t]+([\\p{XID_Start}_][\\p{XID_Continue}]*)",
+      "captures": {
+        "1": { "name": "storage.type.kaede" },
+        "2": { "name": "entity.name.type.kaede" }
+      }
+    },
+
+    "type-name": {
+      "name": "entity.name.type.kaede",
+      "match": "(?<!\\p{XID_Continue})\\p{Lu}[\\p{XID_Continue}]*(?!\\p{XID_Continue})"
+    },
+
+    "function-call": {
+      "match": "([\\p{XID_Start}_][\\p{XID_Continue}]*)(?=\\()",
+      "captures": {
+        "1": { "name": "entity.name.function.kaede" }
+      }
+    },
+
+    "variable": {
+      "name": "variable.other.kaede",
+      "match": "(?<!\\p{XID_Continue})[\\p{Ll}_][\\p{XID_Continue}]*(?!\\p{XID_Continue})"
+    },
+
+    "constant-caps": {
+      "name": "constant.other.caps.kaede",
+      "match": "(?<!\\p{XID_Continue})\\p{Lu}{2}[\\p{Lu}0-9_]*(?!\\p{XID_Continue})"
     }
-  ]
+  }
 }

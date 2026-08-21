@@ -1,0 +1,30 @@
+// SYNTAX TEST "source.kaede" "all thirteen fundamental types and the dotted-path guard"
+
+fun all(a: i8, b: u8, c: i16, d: u16, e: i32, f: u32, g: i64, h: u64) {}
+//         ^^ support.type.primitive.kaede
+//                ^^ support.type.primitive.kaede
+//                       ^^^ support.type.primitive.kaede
+//                               ^^^ support.type.primitive.kaede
+//                                       ^^^ support.type.primitive.kaede
+//                                               ^^^ support.type.primitive.kaede
+//                                                       ^^^ support.type.primitive.kaede
+//                                                               ^^^ support.type.primitive.kaede
+
+fun all2(a: f32, b: f64, c: char, d: bool, e: str) {}
+//          ^^^ support.type.primitive.kaede
+//                  ^^^ support.type.primitive.kaede
+//                          ^^^^ support.type.primitive.kaede
+//                                   ^^^^ support.type.primitive.kaede
+//                                            ^^^ support.type.primitive.kaede
+
+// a leading path segment named like a primitive is not a primitive
+import char.utils
+//     ^^^^ - support.type.primitive.kaede
+use str.helpers
+//  ^^^ - support.type.primitive.kaede
+
+// punctuation inside an interpolation body
+println($"{f(a, b)}")
+//          ^ punctuation.brackets.round.kaede
+//            ^ punctuation.separator.kaede
+//               ^ punctuation.brackets.round.kaede

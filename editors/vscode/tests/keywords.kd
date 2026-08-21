@@ -1,0 +1,38 @@
+// SYNTAX TEST "source.kaede" "keywords, storage and rejected old syntax"
+
+fun add(a: i32, b: i32) -> i32 {
+// <- storage.type.kaede
+//  ^^^ entity.name.function.kaede
+//         ^^^ support.type.primitive.kaede
+//                         ^^^ support.type.primitive.kaede
+  return a + b
+//^^^^^^ keyword.control.kaede
+}
+
+let mut flag = true
+// <- storage.type.kaede
+//  ^^^ storage.modifier.kaede
+//             ^^^^ constant.language.boolean.kaede
+export fun f() {}
+// <- storage.modifier.kaede
+import std.net.http
+// <- keyword.control.import.kaede
+use std.option.Option
+// <- keyword.control.import.kaede
+let n = 1 as i64
+//        ^^ keyword.control.as.kaede
+
+// funny is not a keyword, letter is not let
+let funny = 1
+//  ^^^^^ - storage.type.kaede
+let letter = 1
+//  ^^^^^^ - storage.type.kaede
+
+select {
+// <- keyword.control.concurrency.kaede
+  case v = ch.recv() => {}
+//^^^^ keyword.control.concurrency.kaede
+//                   ^^ keyword.operator.arrow.kaede
+  default => {}
+//^^^^^^^ keyword.control.concurrency.kaede
+}

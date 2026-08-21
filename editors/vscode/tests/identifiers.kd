@@ -1,0 +1,18 @@
+// SYNTAX TEST "source.kaede" "unicode XID identifiers"
+
+fun __sys_read(fd: i32) -> i32 { return 0 }
+//  ^^^^^^^^^^ entity.name.function.kaede
+fun 日本語_x1() -> i32 { return 0 }
+//  ^^^^^^ entity.name.function.kaede
+
+// keywords and type names must not match inside identifiers
+let iffy = 1
+//  ^^^^ - keyword.control.kaede
+let _self = 1
+//  ^^^^^ - variable.language.self.kaede
+let selfish = 1
+//  ^^^^^^^ - variable.language.self.kaede
+let strand = 1
+//  ^^^^^^ - support.type.primitive.kaede
+let funny = 1
+//  ^^^^^ - entity.name.function.kaede

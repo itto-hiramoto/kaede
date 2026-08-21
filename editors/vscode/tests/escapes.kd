@@ -1,0 +1,15 @@
+// SYNTAX TEST "source.kaede" "the full escape set"
+
+let s = "\r\0\\\'"
+//       ^^ constant.character.escape.kaede
+//         ^^ constant.character.escape.kaede
+//            ^^ constant.character.escape.kaede
+
+let c = '\0'
+//       ^^ constant.character.escape.kaede
+
+// a doubled backslash before the closing quote does not escape it
+let t = "a\\"
+//        ^^ constant.character.escape.kaede
+let after_backslash = 1
+// <- storage.type.kaede

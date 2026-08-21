@@ -33,6 +33,7 @@
             cmake
             pkg-config
             python3
+            nodejs
           ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
             valgrind
           ];
