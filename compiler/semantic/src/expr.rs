@@ -669,7 +669,7 @@ impl SemanticAnalyzer {
                 .into());
             }
 
-            if ir::ty::contains_type_var(&value.ty) || ir::ty::contains_type_var(&field_info.ty) {
+            if ir::ty::contains_infer(&value.ty) || ir::ty::contains_infer(&field_info.ty) {
                 // Defer the strict shape check to the type-inference pass; either side
                 // may still carry unresolved type variables (e.g. an `Option::Some(node)`
                 // value whose payload generic argument is not yet bound).
@@ -1247,7 +1247,7 @@ impl SemanticAnalyzer {
                 self.analyze_match_on_fundamental(node, value.clone(), fty)?
             }
 
-            ir_type::TyKind::Var(_) => {
+            ir_type::TyKind::Infer(_) => {
                 let fty = ir_type::FundamentalType {
                     kind: ir_type::FundamentalTypeKind::I32,
                 };
@@ -1565,16 +1565,7 @@ impl SemanticAnalyzer {
             analyzed_variadic.push(self.analyze_expr(&arg.value)?);
         }
 
-        let mut provided_args = Vec::new();
-        if let Some(this_arg) = this_arg.as_ref() {
-            provided_args.push(this_arg.clone());
-        }
-        for arg in ordered_args.iter().filter_map(|arg| arg.as_ref()) {
-            provided_args.push(arg.clone());
-        }
-        provided_args.extend(analyzed_variadic.iter().cloned());
-
-        let generic_args = if let Some(generic_args) = node.generic_args.as_ref() {
+        let mut generic_args = if let Some(generic_args) = node.generic_args.as_ref() {
             generic_args
                 .types
                 .iter()
@@ -1588,31 +1579,40 @@ impl SemanticAnalyzer {
                 .as_ref()
                 .map_or(0, |params| params.len());
 
-            let mut inferred_args = provided_args
-                .iter()
-                .skip(if has_this { 1 } else { 0 })
-                .take(param_len)
-                .map(|arg| -> anyhow::Result<Rc<ir_type::Ty>> {
-                    Ok(match arg.ty.kind.as_ref() {
-                        ir_type::TyKind::Var(_) => match arg.kind {
-                            ir::expr::ExprKind::Int(_) => Rc::new(ir_type::make_fundamental_type(
-                                ir_type::FundamentalTypeKind::I32,
-                                ir_type::Mutability::Not,
-                            )),
-                            _ => arg.ty.clone(),
-                        },
-                        _ => arg.ty.clone(),
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?;
-
-            if inferred_args.len() < param_len {
-                inferred_args.extend(
-                    (0..(param_len - inferred_args.len())).map(|_| self.infer_context.fresh()),
-                );
-            }
-            inferred_args
+            (0..param_len).map(|_| self.infer_context.fresh()).collect()
         };
+
+        let schema_params = func_info
+            .schema
+            .params
+            .iter()
+            .map(|param| ir_type::substitute_generic_params(&param.ty, &origin, &generic_args))
+            .collect::<Vec<_>>();
+        let schema_offset = usize::from(has_this);
+        if let (Some(this_arg), Some(schema_ty)) = (this_arg.as_ref(), schema_params.first()) {
+            self.infer_context
+                .unify(schema_ty, &this_arg.ty, this_arg.span)?;
+        }
+        for (arg, schema_ty) in ordered_args
+            .iter()
+            .zip(schema_params.iter().skip(schema_offset))
+        {
+            if let Some(arg) = arg {
+                self.infer_context.unify(schema_ty, &arg.ty, arg.span)?;
+            }
+        }
+        for arg in &mut generic_args {
+            *arg = self.infer_context.apply(arg);
+        }
+
+        if let Some(params) = func_info.resolved_generic_params.clone() {
+            self.pending_generic_bound_checks
+                .push(super::PendingGenericBoundCheck {
+                    params,
+                    args: generic_args.clone(),
+                    span,
+                });
+        }
 
         // Generate the generic function immediately; a later monomorphize pass rewrites
         // GenericFnCall into a regular FnCall for codegen.
@@ -2528,7 +2528,7 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<ir::expr::Expr> {
         match expr.ty.kind.as_ref() {
             ir_type::TyKind::Fundamental(fty) if fty.is_int_or_char_or_bool() => {}
-            ir_type::TyKind::Var(_) => {}
+            ir_type::TyKind::Infer(_) => {}
             _ => {
                 return Err(SemanticError::MismatchedTypes {
                     types: (expr.ty.kind.to_string(), "integer".to_string()),
@@ -2917,7 +2917,7 @@ impl SemanticAnalyzer {
         }
 
         // Type inference resolves unbound variables later; skip coercion until then.
-        if matches!(value_base.kind.as_ref(), ir_type::TyKind::Var(_)) {
+        if matches!(value_base.kind.as_ref(), ir_type::TyKind::Infer(_)) {
             return Ok(value);
         }
 
@@ -3630,7 +3630,7 @@ impl SemanticAnalyzer {
                 .into())
             }
         } else {
-            if matches!(left_ty.kind.as_ref(), ir_type::TyKind::Var(_)) {
+            if matches!(left_ty.kind.as_ref(), ir_type::TyKind::Infer(_)) {
                 if let ast::expr::ExprKind::Ident(field_name) = &node.rhs.kind {
                     let span = Span::new(left.span.start, node.rhs.span.finish, left.span.file);
                     return Ok(ir::expr::Expr {
@@ -3660,7 +3660,7 @@ impl SemanticAnalyzer {
 
             if let ir_type::TyKind::Fundamental(fty) = left_ty.kind.as_ref() {
                 self.analyze_fundamental_type_method_call(left, fty, call_node)
-            } else if matches!(left_ty.kind.as_ref(), ir_type::TyKind::Var(_)) {
+            } else if matches!(left_ty.kind.as_ref(), ir_type::TyKind::Infer(_)) {
                 // Fallback for type variable receiver (e.g. let n = 3; n.abs() before inference).
                 // Closure args are bound from expected type before body analysis, so they won't hit this.
                 let fty = ir_type::FundamentalType {
@@ -3716,7 +3716,7 @@ impl SemanticAnalyzer {
             ir_type::Mutability::Not,
         );
 
-        if !matches!(index_ty.kind.as_ref(), ir_type::TyKind::Var(_))
+        if !matches!(index_ty.kind.as_ref(), ir_type::TyKind::Infer(_))
             && !ir_type::is_same_type(&index_ty, &expected_index_ty)
         {
             return Err(SemanticError::MismatchedTypes {

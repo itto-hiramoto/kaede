@@ -22,8 +22,8 @@ use kaede_ir::{
     stmt::{Assign, Block, Let, Stmt, TupleUnpack},
     top::Enum as IrEnum,
     ty::{
-        FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind, UserDefinedTypeKind, VarId,
-        collect_type_var_ids_in_order, contains_type_var, make_fundamental_type,
+        FundamentalTypeKind, InferVarId, Mutability, ReferenceType, Ty, TyKind,
+        UserDefinedTypeKind, collect_infer_var_ids_in_order, contains_infer, make_fundamental_type,
     },
 };
 mod context;
@@ -37,7 +37,7 @@ pub struct TypeInferrer {
     function_return_ty: Rc<Ty>,
     specialized_enums: HashMap<QualifiedSymbol, Rc<IrEnum>>,
     generated_callable_substitutions:
-        HashMap<kaede_ir::qualified_symbol::QualifiedSymbol, HashMap<VarId, Rc<Ty>>>,
+        HashMap<kaede_ir::qualified_symbol::QualifiedSymbol, HashMap<InferVarId, Rc<Ty>>>,
 }
 
 /// True when `expr` is a direct unsuffixed integer literal — used to gate the
@@ -73,8 +73,12 @@ impl TypeInferrer {
 
     pub fn into_generated_callable_substitutions(
         self,
-    ) -> HashMap<kaede_ir::qualified_symbol::QualifiedSymbol, HashMap<VarId, Rc<Ty>>> {
+    ) -> HashMap<kaede_ir::qualified_symbol::QualifiedSymbol, HashMap<InferVarId, Rc<Ty>>> {
         self.generated_callable_substitutions
+    }
+
+    pub fn resolved_substitutions(&self) -> HashMap<InferVarId, Rc<Ty>> {
+        self.context.resolved_substitutions()
     }
 
     fn apply_fn_decl(
@@ -103,7 +107,7 @@ impl TypeInferrer {
         let mut seen = HashSet::new();
 
         if let Some(instance) = &callee.generic_instance {
-            for id in instance.collect_var_ids_in_order() {
+            for id in instance.collect_infer_var_ids_in_order() {
                 if seen.insert(id) {
                     var_ids.push(id);
                 }
@@ -111,13 +115,13 @@ impl TypeInferrer {
         }
 
         for param in &callee.params {
-            for id in collect_type_var_ids_in_order(&param.ty) {
+            for id in collect_infer_var_ids_in_order(&param.ty) {
                 if seen.insert(id) {
                     var_ids.push(id);
                 }
             }
         }
-        for id in collect_type_var_ids_in_order(&callee.return_ty) {
+        for id in collect_infer_var_ids_in_order(&callee.return_ty) {
             if seen.insert(id) {
                 var_ids.push(id);
             }
@@ -127,7 +131,7 @@ impl TypeInferrer {
             .into_iter()
             .filter_map(|id| {
                 let resolved = self.context.resolve_var(id);
-                if contains_type_var(&resolved) {
+                if contains_infer(&resolved) {
                     None
                 } else {
                     Some((id, resolved))
@@ -228,6 +232,11 @@ impl TypeInferrer {
                     .collect(),
             ));
         }
+        if let Some(instance) = &enum_mut.generic_instance
+            && let Some(symbol) = instance.concrete_symbol()
+        {
+            enum_mut.name = QualifiedSymbol::new(instance.origin.module_path().clone(), symbol);
+        }
 
         enum_info
     }
@@ -326,16 +335,16 @@ impl TypeInferrer {
         Ok(())
     }
 
-    fn enum_info_contains_type_var(enum_info: &IrEnum) -> bool {
+    fn enum_info_contains_infer(enum_info: &IrEnum) -> bool {
         enum_info
             .generic_instance
             .as_ref()
-            .is_some_and(kaede_ir::ty::GenericInstanceInfo::contains_type_var)
+            .is_some_and(kaede_ir::ty::GenericInstanceInfo::contains_infer)
             || enum_info
                 .variants
                 .iter()
                 .filter_map(|variant| variant.ty.as_ref())
-                .any(contains_type_var)
+                .any(contains_infer)
     }
 
     // Unit variants like `Option::None` carry no payload, so this helper does nothing for them.
@@ -854,7 +863,7 @@ impl TypeInferrer {
                     mutability: expected_ty.mutability,
                 }))
             }
-            TyKind::Var(_) => {
+            TyKind::Infer(_) => {
                 // Type variable - fall back to inference and unify
                 let inferred = self.infer_array_literal(arr_lit)?;
                 self.context.unify(&inferred, &expected_ty, span)?;
@@ -901,7 +910,7 @@ impl TypeInferrer {
                     mutability: expected_ty.mutability,
                 }))
             }
-            TyKind::Var(_) => {
+            TyKind::Infer(_) => {
                 let inferred = self.infer_array_repeat(arr_rep)?;
                 self.context.unify(&inferred, &expected_ty, span)?;
                 Ok(self.context.apply(&expected_ty))
@@ -962,7 +971,7 @@ impl TypeInferrer {
                     mutability: expected_ty.mutability,
                 }))
             }
-            TyKind::Var(_) => {
+            TyKind::Infer(_) => {
                 // Type variable - fall back to inference and unify
                 let inferred = self.infer_tuple_literal(tuple_lit)?;
                 self.context.unify(&inferred, &expected_ty, span)?;
@@ -1094,7 +1103,7 @@ impl TypeInferrer {
                 self.context.unify(&lhs_ty, &rhs_ty, bin.span)?;
 
                 let applied = self.context.apply(&lhs_ty);
-                if !matches!(applied.kind.as_ref(), TyKind::Var(_))
+                if !matches!(applied.kind.as_ref(), TyKind::Infer(_))
                     && !Self::is_integer_ty(&applied)
                 {
                     return Err(TypeInferError::ExpectedIntegerTypeForBitOp {
@@ -1122,7 +1131,7 @@ impl TypeInferrer {
         let operand_ty = self.infer_expr(&not.operand)?;
         let applied = self.context.apply(&operand_ty);
 
-        if !matches!(applied.kind.as_ref(), TyKind::Var(_)) && !Self::is_integer_ty(&applied) {
+        if !matches!(applied.kind.as_ref(), TyKind::Infer(_)) && !Self::is_integer_ty(&applied) {
             return Err(TypeInferError::ExpectedIntegerTypeForBitNot {
                 actual: applied.kind.to_string(),
                 span: not.span,
@@ -1160,7 +1169,7 @@ impl TypeInferrer {
         // would corrupt nested float literals).
         let matching_literal_cast = (target_is_int && expr_is_int_literal(&cast.operand))
             || (target_is_float && expr_is_float_literal(&cast.operand));
-        if matching_literal_cast && matches!(operand_ty.kind.as_ref(), TyKind::Var(_)) {
+        if matching_literal_cast && matches!(operand_ty.kind.as_ref(), TyKind::Infer(_)) {
             self.context.unify(&operand_ty, target_ty, cast.span)?;
         }
 
@@ -1287,7 +1296,7 @@ impl TypeInferrer {
                     }
                 }
             }
-            TyKind::Var(_) => {
+            TyKind::Infer(_) => {
                 // Use the provided element type
                 Ok(tuple_idx.element_ty.clone())
             }
@@ -1316,7 +1325,7 @@ impl TypeInferrer {
                     Mutability::Not,
                 )))
             }
-            TyKind::Var(_) => {
+            TyKind::Infer(_) => {
                 // Create a fresh type variable for element type
                 let elem_ty = self.context.fresh();
                 Ok(elem_ty)
@@ -1342,7 +1351,7 @@ impl TypeInferrer {
 
         let elem_ty = match unwrapped.kind.as_ref() {
             TyKind::Array((elem_ty, _)) | TyKind::Slice(elem_ty) => elem_ty.clone(),
-            TyKind::Var(_) => self.context.fresh(),
+            TyKind::Infer(_) => self.context.fresh(),
             _ => return Err(TypeInferError::NotIndexable { span: slicing.span }),
         };
 
@@ -1657,7 +1666,7 @@ impl TypeInferrer {
         if let Some(init_expr) = &let_stmt.init {
             // Check if the type is a type variable (needs inference) or concrete (can use checking)
             let init_ty = match let_stmt.ty.kind.as_ref() {
-                TyKind::Var(_) => {
+                TyKind::Infer(_) => {
                     // Type variable - use inference mode
                     let inferred = self.infer_expr(init_expr)?;
                     self.context
@@ -1705,7 +1714,7 @@ impl TypeInferrer {
                     }
                 }
             }
-            TyKind::Var(_) => {
+            TyKind::Infer(_) => {
                 // Type variable - create fresh type variables for each element
                 for name in tuple_unpack.names.iter().flatten() {
                     let elem_ty = self.context.fresh();
@@ -1744,7 +1753,7 @@ impl TypeInferrer {
 
         // If this is an integer literal with an unconstrained type, default to i32
         if matches!(expr.kind, ExprKind::Int(_))
-            && let TyKind::Var(id) = expr.ty.kind.as_ref()
+            && let TyKind::Infer(id) = expr.ty.kind.as_ref()
         {
             let default_ty = Rc::new(Ty {
                 kind: TyKind::Fundamental(kaede_ir::ty::FundamentalType {
@@ -1759,7 +1768,7 @@ impl TypeInferrer {
 
         // If this is a float literal with an unconstrained type, default to f64
         if matches!(expr.kind, ExprKind::Float(_))
-            && let TyKind::Var(id) = expr.ty.kind.as_ref()
+            && let TyKind::Infer(id) = expr.ty.kind.as_ref()
         {
             let default_ty = Rc::new(Ty {
                 kind: TyKind::Fundamental(kaede_ir::ty::FundamentalType {
@@ -1851,7 +1860,7 @@ impl TypeInferrer {
                     && let Some(first) = arr_lit.elements.first()
                 {
                     let first_ty = self.context.apply(&first.ty);
-                    if let TyKind::Var(id) = elem_ty.kind.as_ref() {
+                    if let TyKind::Infer(id) = elem_ty.kind.as_ref() {
                         self.context.bind_var(*id, first_ty);
                     }
                 }
@@ -1863,7 +1872,7 @@ impl TypeInferrer {
                     && let TyKind::Array((elem_ty, _)) = rty.get_base_type().kind.as_ref()
                 {
                     let value_ty = self.context.apply(&arr_rep.value.ty);
-                    if let TyKind::Var(id) = elem_ty.kind.as_ref() {
+                    if let TyKind::Infer(id) = elem_ty.kind.as_ref() {
                         self.context.bind_var(*id, value_ty.clone());
                     }
                     arr_rep.value.ty = value_ty;
@@ -1885,7 +1894,7 @@ impl TypeInferrer {
                 var.ty = self.context.apply(&var.ty);
 
                 // Error on unresolved type variables
-                if matches!(var.ty.kind.as_ref(), TyKind::Var(_)) {
+                if matches!(var.ty.kind.as_ref(), TyKind::Infer(_)) {
                     return Err(TypeInferError::CannotInferVariableType { span: expr.span });
                 }
             }
@@ -1945,7 +1954,7 @@ impl TypeInferrer {
             Indexing(idx) => {
                 self.apply_expr(std::rc::Rc::make_mut(&mut idx.operand))?;
                 self.apply_expr(&mut idx.index)?;
-                if matches!(expr.ty.kind.as_ref(), TyKind::Var(_)) {
+                if matches!(expr.ty.kind.as_ref(), TyKind::Infer(_)) {
                     let applied_operand_ty = self.context.apply(&idx.operand.ty);
                     let element_ty_opt = match applied_operand_ty.kind.as_ref() {
                         TyKind::Reference(rty) => match rty.get_base_type().kind.as_ref() {
@@ -1972,7 +1981,7 @@ impl TypeInferrer {
                 slicing.elem_ty = self.context.apply(&slicing.elem_ty);
                 expr.ty = self.context.apply(&expr.ty);
 
-                if matches!(expr.ty.kind.as_ref(), TyKind::Var(_)) {
+                if matches!(expr.ty.kind.as_ref(), TyKind::Infer(_)) {
                     let applied_operand_ty = self.context.apply(&slicing.operand.ty);
                     let elem_ty_opt = match applied_operand_ty.kind.as_ref() {
                         TyKind::Reference(rty) => match rty.get_base_type().kind.as_ref() {
@@ -2019,7 +2028,7 @@ impl TypeInferrer {
                 // passes do not keep seeing the stale generated name.
                 expr.ty = Self::rebuild_enum_variant_expr_ty(&expr.ty, specialized_enum);
 
-                if Self::enum_info_contains_type_var(enum_var.enum_info.as_ref()) {
+                if Self::enum_info_contains_infer(enum_var.enum_info.as_ref()) {
                     return Err(TypeInferError::CannotInferType { span: expr.span });
                 }
             }
@@ -2052,7 +2061,7 @@ impl TypeInferrer {
                 if fn_call
                     .generic_args
                     .iter()
-                    .any(kaede_ir::ty::contains_type_var)
+                    .any(kaede_ir::ty::contains_infer)
                 {
                     return Err(TypeInferError::CannotInferGenericArguments {
                         fn_name: fn_call.callee.name.clone(),
@@ -2102,6 +2111,15 @@ impl TypeInferrer {
                 }
                 if let Some(enum_unpack) = &mut if_expr.enum_unpack {
                     self.apply_expr(std::rc::Rc::make_mut(&mut enum_unpack.enum_value))?;
+                    if let UserDefinedTypeKind::Enum(enum_info) = &enum_unpack.enum_ty.kind {
+                        enum_unpack.enum_ty.kind =
+                            UserDefinedTypeKind::Enum(self.apply_enum_info(enum_info));
+                    }
+                    enum_unpack.enum_ty.generic_instance = enum_unpack
+                        .enum_ty
+                        .generic_instance
+                        .as_ref()
+                        .map(|instance| self.context.apply_generic_instance(instance));
                     enum_unpack.variant_ty = self.context.apply(&enum_unpack.variant_ty);
                 }
             }
@@ -2146,7 +2164,7 @@ impl TypeInferrer {
         // Re-apply after processing children to pick up new substitutions
         expr.ty = self.context.apply(&expr.ty);
 
-        if matches!(expr.ty.kind.as_ref(), TyKind::Var(_)) {
+        if contains_infer(&expr.ty) {
             return Err(TypeInferError::CannotInferType { span: expr.span });
         }
 
@@ -2167,7 +2185,7 @@ impl TypeInferrer {
                 let_stmt.ty = self.context.apply(&let_stmt.ty);
 
                 // Error on unresolved type variables
-                if matches!(let_stmt.ty.kind.as_ref(), TyKind::Var(_)) {
+                if contains_infer(&let_stmt.ty) {
                     return Err(TypeInferError::CannotInferVariableType {
                         span: let_stmt.span,
                     });
@@ -2239,8 +2257,8 @@ mod tests {
         qualified_symbol::QualifiedSymbol,
         top::{FnDecl, Param, Struct, StructField},
         ty::{
-            FundamentalTypeKind, GenericInstanceInfo, Mutability, ReferenceType, Ty, TyKind,
-            UserDefinedType, UserDefinedTypeKind, make_fundamental_type,
+            FundamentalTypeKind, GenericInstanceInfo, GenericParamId, Mutability, ReferenceType,
+            Ty, TyKind, UserDefinedType, UserDefinedTypeKind, make_fundamental_type,
         },
     };
     use kaede_span::Span;
@@ -2252,7 +2270,7 @@ mod tests {
 
     fn var_ty(id: usize) -> Rc<Ty> {
         Rc::new(Ty {
-            kind: TyKind::Var(id).into(),
+            kind: TyKind::Infer(id).into(),
             mutability: Mutability::Not,
         })
     }
@@ -2262,6 +2280,17 @@ mod tests {
             FundamentalTypeKind::I32,
             Mutability::Not,
         ))
+    }
+
+    fn generic_param_ty(index: usize) -> Rc<Ty> {
+        Rc::new(Ty {
+            kind: TyKind::GenericParam(GenericParamId::new(
+                QualifiedSymbol::new(ModulePath::root(), Symbol::from("id".to_owned())),
+                index,
+            ))
+            .into(),
+            mutability: Mutability::Not,
+        })
     }
 
     fn ptr_ty(pointee_ty: Rc<Ty>) -> Rc<Ty> {
@@ -2346,14 +2375,14 @@ mod tests {
         let ExprKind::GenericFnCall(call) = &expr.kind else {
             panic!("expected generic function call");
         };
-        assert!(!kaede_ir::ty::contains_type_var(&call.generic_args[0]));
+        assert!(!kaede_ir::ty::contains_infer(&call.generic_args[0]));
         assert!(
             !call
                 .callee
                 .generic_instance
                 .as_ref()
                 .unwrap()
-                .contains_type_var()
+                .contains_infer()
         );
     }
 
@@ -2368,6 +2397,73 @@ mod tests {
             err,
             TypeInferError::CannotInferGenericArguments { .. }
         ));
+    }
+
+    #[test]
+    fn generic_parameter_is_rigid_during_unification() {
+        let mut inferrer = make_inferrer();
+        let param = generic_param_ty(0);
+
+        let err = inferrer
+            .context
+            .unify(&param, &i32_ty(), Span::dummy())
+            .unwrap_err();
+
+        assert!(matches!(err, TypeInferError::CannotUnify { .. }));
+        assert!(matches!(param.kind.as_ref(), TyKind::GenericParam(_)));
+    }
+
+    #[test]
+    fn unification_descends_into_composite_types_with_inference_variables() {
+        let mut inferrer = make_inferrer();
+        let inferred_closure = Rc::new(Ty {
+            kind: TyKind::Closure(kaede_ir::ty::ClosureType {
+                param_tys: vec![var_ty(0)],
+                ret_ty: var_ty(1),
+                captures: vec![],
+            })
+            .into(),
+            mutability: Mutability::Not,
+        });
+        let concrete_closure = Rc::new(Ty {
+            kind: TyKind::Closure(kaede_ir::ty::ClosureType {
+                param_tys: vec![i32_ty()],
+                ret_ty: i32_ty(),
+                captures: vec![],
+            })
+            .into(),
+            mutability: Mutability::Not,
+        });
+
+        inferrer
+            .context
+            .unify(&inferred_closure, &concrete_closure, Span::dummy())
+            .unwrap();
+
+        assert!(!kaede_ir::ty::contains_infer(
+            &inferrer.context.apply(&inferred_closure)
+        ));
+    }
+
+    #[test]
+    fn apply_rejects_inference_variable_nested_in_composite_type() {
+        let mut inferrer = make_inferrer();
+        let unresolved_array = Rc::new(Ty {
+            kind: TyKind::Array((var_ty(0), 0)).into(),
+            mutability: Mutability::Not,
+        });
+        let mut expr = Expr {
+            kind: ExprKind::Variable(Variable {
+                name: Symbol::from("xs".to_owned()),
+                ty: unresolved_array.clone(),
+                span: Span::dummy(),
+            }),
+            ty: unresolved_array,
+            span: Span::dummy(),
+        };
+
+        let err = inferrer.apply_expr(&mut expr).unwrap_err();
+        assert!(matches!(err, TypeInferError::CannotInferType { .. }));
     }
 
     #[test]
@@ -2393,7 +2489,7 @@ mod tests {
             }),
         ]);
 
-        assert_eq!(instance.collect_var_ids_in_order(), vec![0, 1, 2]);
+        assert_eq!(instance.collect_infer_var_ids_in_order(), vec![0, 1, 2]);
     }
 
     #[test]

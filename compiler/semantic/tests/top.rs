@@ -5,7 +5,7 @@ use kaede_ir::{
     expr::{Expr, ExprKind},
     stmt::Stmt,
     top::TopLevel,
-    ty::contains_type_var,
+    ty::contains_infer,
     CompileUnit,
 };
 use kaede_symbol::Symbol;
@@ -364,7 +364,7 @@ fn generated_generic_function_has_concrete_types_after_inference() -> anyhow::Re
         .expect("expected generated generic function");
 
     assert!(
-        !contains_type_var(&generated_fn.decl.return_ty),
+        !contains_infer(&generated_fn.decl.return_ty),
         "generated function return type should be concrete after inference"
     );
     assert!(
@@ -372,7 +372,7 @@ fn generated_generic_function_has_concrete_types_after_inference() -> anyhow::Re
             .decl
             .generic_instance
             .as_ref()
-            .is_some_and(|instance| !instance.contains_type_var()),
+            .is_some_and(|instance| !instance.contains_infer()),
         "generated function should retain a concrete structural generic instance"
     );
 
@@ -418,11 +418,11 @@ fn generated_generic_impl_method_has_concrete_types_after_inference() -> anyhow:
             .decl
             .params
             .iter()
-            .all(|param| !contains_type_var(&param.ty)),
+            .all(|param| !contains_infer(&param.ty)),
         "generated method params should be concrete after inference"
     );
     assert!(
-        !contains_type_var(&generated_method.decl.return_ty),
+        !contains_infer(&generated_method.decl.return_ty),
         "generated method return type should be concrete after inference"
     );
     assert!(
@@ -430,7 +430,7 @@ fn generated_generic_impl_method_has_concrete_types_after_inference() -> anyhow:
             .decl
             .generic_instance
             .as_ref()
-            .is_some_and(|instance| !instance.contains_type_var()),
+            .is_some_and(|instance| !instance.contains_infer()),
         "generated method should retain a concrete structural generic instance"
     );
 

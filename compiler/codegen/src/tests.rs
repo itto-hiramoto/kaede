@@ -11,6 +11,8 @@ use inkwell::context::Context;
 use kaede_common::{
     kaede_gc_lib_path, kaede_lib_path, kaede_runtime_lib_path, kaede_runtime_linker_flags,
 };
+use kaede_ir::validate_compile_unit;
+use kaede_monomorphize::Monomorphizer;
 use kaede_parse::Parser;
 use kaede_semantic::{AnalyzeOptions, SemanticAnalyzer, SemanticError};
 use tempfile::tempdir;
@@ -99,7 +101,9 @@ fn compile_and_link_test(
 
     let file = PathBuf::from("test").into();
     let ast = Parser::new(program, file).run().unwrap();
-    let ir = SemanticAnalyzer::new_for_single_file_test().analyze(ast, options)?;
+    let mut ir = SemanticAnalyzer::new_for_single_file_test().analyze(ast, options)?;
+    Monomorphizer::new().run(&mut ir)?;
+    let ir = validate_compile_unit(ir)?;
 
     let module = CodeGenerator::new(&cgcx).unwrap().codegen(ir).unwrap();
     if let Some(main_fn) = module.get_function("main") {
@@ -2979,6 +2983,36 @@ fn generic_function_identity_param_inference() -> anyhow::Result<()> {
 
     fun main() -> i32 {
         return id(58)
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn generic_function_infers_parameter_from_later_argument() -> anyhow::Result<()> {
+    let program = r#"fun second<T>(ignored: i32, value: T) -> T {
+        return value
+    }
+
+    fun main() -> i32 {
+        return second(0, 58)
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn generic_function_infers_parameter_nested_in_array() -> anyhow::Result<()> {
+    let program = r#"fun first<T>(values: [T; 2]) -> T {
+        return values[0]
+    }
+
+    fun main() -> i32 {
+        return first([58, 10])
     }"#;
 
     assert_eq!(exec(program)?, 58);

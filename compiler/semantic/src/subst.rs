@@ -3,11 +3,11 @@ use std::{collections::HashMap, rc::Rc};
 use kaede_ir::{self as ir, ty as ir_type};
 
 pub(crate) struct GenericSubstituter<'a> {
-    subst: &'a HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
+    subst: &'a HashMap<ir_type::InferVarId, Rc<ir_type::Ty>>,
 }
 
 impl<'a> GenericSubstituter<'a> {
-    pub(crate) fn new(subst: &'a HashMap<ir_type::VarId, Rc<ir_type::Ty>>) -> Self {
+    pub(crate) fn new(subst: &'a HashMap<ir_type::InferVarId, Rc<ir_type::Ty>>) -> Self {
         Self { subst }
     }
 
@@ -37,6 +37,14 @@ impl<'a> GenericSubstituter<'a> {
             field.ty = self.apply_ty(&field.ty);
         }
         self.apply_generic_instance(&mut struct_.generic_instance);
+        if let Some(instance) = &struct_.generic_instance {
+            if let Some(symbol) = instance.concrete_symbol() {
+                struct_.name = ir::qualified_symbol::QualifiedSymbol::new(
+                    instance.origin.module_path().clone(),
+                    symbol,
+                );
+            }
+        }
     }
 
     pub(crate) fn apply_enum(&self, enum_: &mut ir::top::Enum) {
@@ -46,6 +54,14 @@ impl<'a> GenericSubstituter<'a> {
             }
         }
         self.apply_generic_instance(&mut enum_.generic_instance);
+        if let Some(instance) = &enum_.generic_instance {
+            if let Some(symbol) = instance.concrete_symbol() {
+                enum_.name = ir::qualified_symbol::QualifiedSymbol::new(
+                    instance.origin.module_path().clone(),
+                    symbol,
+                );
+            }
+        }
     }
 
     fn apply_stmt(&self, stmt: &mut ir::stmt::Stmt) {
@@ -220,6 +236,13 @@ impl<'a> GenericSubstituter<'a> {
                 }
                 if let Some(enum_unpack) = &mut if_expr.enum_unpack {
                     self.apply_expr(Rc::make_mut(&mut enum_unpack.enum_value));
+                    if let ir_type::UserDefinedTypeKind::Enum(enum_info) = &enum_unpack.enum_ty.kind
+                    {
+                        let mut applied = (**enum_info).clone();
+                        self.apply_enum(&mut applied);
+                        enum_unpack.enum_ty.kind =
+                            ir_type::UserDefinedTypeKind::Enum(Rc::new(applied));
+                    }
                     if let Some(instance) = &enum_unpack.enum_ty.generic_instance {
                         enum_unpack.enum_ty = ir_type::UserDefinedType {
                             kind: enum_unpack.enum_ty.kind.clone(),
