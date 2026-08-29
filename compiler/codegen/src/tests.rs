@@ -2991,6 +2991,43 @@ fn generic_function_identity_param_inference() -> anyhow::Result<()> {
 }
 
 #[test]
+fn generic_function_instantiates_nested_generic_call() -> anyhow::Result<()> {
+    let program = r#"fun inner<T>(value: T) -> T {
+        return value
+    }
+
+    fun outer<T>(value: T) -> T {
+        return inner(value)
+    }
+
+    fun main() -> i32 {
+        return outer(58)
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn generic_function_instantiates_recursive_call_once() -> anyhow::Result<()> {
+    let program = r#"fun descend<T>(value: T, depth: i32) -> T {
+        if depth == 0 {
+            return value
+        }
+        return descend(value, depth - 1)
+    }
+
+    fun main() -> i32 {
+        return descend(58, 2)
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
 fn generic_function_infers_parameter_from_later_argument() -> anyhow::Result<()> {
     let program = r#"fun second<T>(ignored: i32, value: T) -> T {
         return value

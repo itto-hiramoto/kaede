@@ -799,6 +799,7 @@ dependencies = [
  "kaede_ast_type",
  "kaede_common",
  "kaede_ir",
+ "kaede_monomorphize",
  "kaede_parse",
  "kaede_span",
  "kaede_symbol",

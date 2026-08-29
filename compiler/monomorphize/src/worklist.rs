@@ -6,7 +6,7 @@ use std::{
 use anyhow::{anyhow, Context};
 use kaede_ir::{
     qualified_symbol::QualifiedSymbol,
-    ty::{FundamentalTypeKind, Mutability, Ty, TyKind},
+    ty::{change_mutability_dup, FundamentalTypeKind, Mutability, Ty, TyKind},
 };
 use kaede_span::Span;
 
@@ -159,6 +159,10 @@ impl InstanceWorklist {
         args: Vec<Rc<Ty>>,
         span: Span,
     ) -> anyhow::Result<bool> {
+        let args = args
+            .into_iter()
+            .map(|arg| change_mutability_dup(arg, Mutability::Not))
+            .collect::<Vec<_>>();
         let key = InstanceKey::from_types(origin, &args, span)?;
         if self.entries.contains_key(&key) {
             return Ok(false);
@@ -270,6 +274,30 @@ mod tests {
         assert!(worklist
             .enqueue(symbol("f"), vec![pointer(Mutability::Mut)], Span::dummy())
             .unwrap());
+    }
+
+    #[test]
+    fn ignores_top_level_argument_mutability() {
+        let mut worklist = InstanceWorklist::default();
+
+        assert!(worklist
+            .enqueue(
+                symbol("identity"),
+                vec![i32_ty(Mutability::Mut)],
+                Span::dummy(),
+            )
+            .unwrap());
+        assert!(!worklist
+            .enqueue(
+                symbol("identity"),
+                vec![i32_ty(Mutability::Not)],
+                Span::dummy(),
+            )
+            .unwrap());
+        assert_eq!(
+            worklist.next_item().unwrap().args[0].mutability,
+            Mutability::Not,
+        );
     }
 
     #[test]

@@ -5,7 +5,7 @@ use std::{
 };
 
 use super::ClosureCapture;
-use crate::{context::AnalyzeCommand, error::SemanticError, SemanticAnalyzer};
+use crate::{error::SemanticError, subst::GenericSubstituter, SemanticAnalyzer};
 
 use kaede_ast as ast;
 use kaede_ast_type::{self as ast_type};
@@ -1439,69 +1439,23 @@ impl SemanticAnalyzer {
         })
     }
 
-    fn generate_generic_fn(
-        &mut self,
-        origin: QualifiedSymbol,
+    fn instantiate_generic_fn_decl(
+        &self,
+        origin: &QualifiedSymbol,
         info: &GenericFuncInfo,
         generic_args: &[Rc<ir_type::Ty>],
-    ) -> anyhow::Result<Rc<ir::top::FnDecl>> {
-        let generic_params = match info.ast.decl.generic_params.as_ref() {
-            Some(generic_params) => generic_params,
-            None => todo!("Error"),
-        };
-
+    ) -> Rc<ir::top::FnDecl> {
         let generated_generic_key =
             self.create_generated_generic_key(info.ast.decl.name.symbol(), generic_args);
-
-        // Search the defining module first so cross-module call sites reuse the cached
-        // instantiation, which lives in the defining module rather than the caller's.
-        let cached = self
-            .lookup_qualified_symbol(QualifiedSymbol::new(
-                origin.module_path().clone(),
-                generated_generic_key,
-            ))
-            .or_else(|| self.lookup_symbol(generated_generic_key));
-        if let Some(symbol_value) = cached {
-            if let SymbolTableValueKind::Function(fn_) = &symbol_value.borrow().kind {
-                return Ok(fn_.clone());
-            } else {
-                unreachable!()
-            }
-        }
-
-        self.verify_resolved_generic_bounds(
-            info.resolved_generic_params.as_ref(),
-            generic_args,
-            generic_params.span,
-        )?;
-
-        // Generic functions must always be generated regardless of the analyze command, so it is overwritten.
-        // Switch to the defining module so names in the signature/body resolve against
-        // the module where the generic was declared, not the call site's.
-        let defining_module = origin.module_path().clone();
-        let fn_ = self.with_analyze_command(AnalyzeCommand::NoCommand, |analyzer| {
-            analyzer.with_defining_module(defining_module, |analyzer| {
-                analyzer.with_generic_arguments(generic_params, generic_args, |analyzer| {
-                    let mut fn_ = info.ast.clone();
-                    fn_.decl.name = Ident::new(generated_generic_key, Span::dummy());
-                    // Because generic functions maybe generated multiple times (across multiple files),
-                    // we need to set link_once to true to avoid errors
-                    fn_.decl.link_once = true;
-                    analyzer.with_pending_generic_instance(
-                        Some(ir_type::GenericInstanceInfo::new(
-                            origin.clone(),
-                            generic_args.to_vec(),
-                        )),
-                        |analyzer| analyzer.analyze_fn_internal(fn_),
-                    )
-                })
-            })
-        })?;
-
-        self.generated_generics
-            .push(ir::top::TopLevel::Fn(fn_.clone()));
-
-        Ok(Rc::new(fn_.decl.clone()))
+        let mut decl = info.schema.clone();
+        GenericSubstituter::for_generic_params(origin, generic_args).apply_fn_decl(&mut decl);
+        decl.name = QualifiedSymbol::new(origin.module_path().clone(), generated_generic_key);
+        decl.link_once = true;
+        decl.generic_instance = Some(ir_type::GenericInstanceInfo::new(
+            origin.clone(),
+            generic_args.to_vec(),
+        ));
+        Rc::new(decl)
     }
 
     fn analyze_generic_fn_call(
@@ -1614,9 +1568,13 @@ impl SemanticAnalyzer {
                 });
         }
 
-        // Generate the generic function immediately; a later monomorphize pass rewrites
-        // GenericFnCall into a regular FnCall for codegen.
-        let callee_decl = self.generate_generic_fn(origin, func_info, &generic_args)?;
+        let callee_decl = self.instantiate_generic_fn_decl(&origin, func_info, &generic_args);
+        self.pending_generic_fn_requests
+            .push(super::PendingGenericFnRequest {
+                origin,
+                args: generic_args.clone(),
+                span,
+            });
 
         let params_without_self = if has_this {
             &callee_decl.params[1..]

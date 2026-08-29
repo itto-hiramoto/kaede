@@ -2068,6 +2068,21 @@ impl TypeInferrer {
                         span: fn_call.span,
                     });
                 }
+
+                let concrete_callee =
+                    fn_call
+                        .callee
+                        .generic_instance
+                        .as_ref()
+                        .and_then(|instance| {
+                            instance
+                                .concrete_symbol()
+                                .map(|symbol| (instance.origin.module_path().clone(), symbol))
+                        });
+                if let Some((module_path, symbol)) = concrete_callee {
+                    let callee = Rc::make_mut(&mut fn_call.callee);
+                    callee.name = QualifiedSymbol::new(module_path, symbol);
+                }
             }
             Spawn(spawn) => {
                 for arg in &mut spawn.args {

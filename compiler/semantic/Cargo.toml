@@ -21,6 +21,7 @@ kaede_parse = { path = "../parse" }
 kaede_common = { path = "../common" }
 kaede_symbol_table = { path = "../symbol_table" }
 kaede_type_infer = { path = "../type_infer" }
+kaede_monomorphize = { path = "../monomorphize" }
 
 [dev-dependencies]
 tempfile = "3.8.1"
