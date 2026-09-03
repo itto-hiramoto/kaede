@@ -5,11 +5,17 @@ use kaede_ir::{
     expr::{BuiltinFnCallKind, Else, Expr, ExprKind, FnCall, If},
     stmt::{Block, Stmt},
     top::TopLevel,
-    ty::contains_type_var,
+    ty::contains_infer,
     CompileUnit,
 };
 
-pub struct Monomorphizer;
+pub mod worklist;
+
+pub use worklist::{ConcreteTyKey, InstanceKey, InstanceState, InstanceWorklist, WorkItem};
+
+pub struct Monomorphizer {
+    worklist: InstanceWorklist,
+}
 
 impl Default for Monomorphizer {
     fn default() -> Self {
@@ -344,12 +350,18 @@ mod tests {
 
 impl Monomorphizer {
     pub fn new() -> Self {
-        Self
+        Self {
+            worklist: InstanceWorklist::default(),
+        }
     }
 
     pub fn run(&mut self, compile_unit: &mut CompileUnit) -> anyhow::Result<()> {
         for top in &mut compile_unit.top_levels {
             self.rewrite_top_level(top)?;
+        }
+
+        while let Some(item) = self.worklist.next_item() {
+            self.worklist.complete(&item.key);
         }
         Ok(())
     }
@@ -428,12 +440,24 @@ impl Monomorphizer {
                     self.rewrite_expr(arg)?;
                 }
 
-                if generic_call.generic_args.iter().any(contains_type_var) {
+                if generic_call.generic_args.iter().any(contains_infer) {
                     return Err(anyhow!(
                         "unresolved generic arguments at monomorphize: {:?}",
                         generic_call.callee.name
                     ));
                 }
+
+                let origin = generic_call
+                    .callee
+                    .generic_instance
+                    .as_ref()
+                    .map(|instance| instance.origin.clone())
+                    .unwrap_or_else(|| generic_call.callee.name.clone());
+                self.worklist.enqueue(
+                    origin,
+                    generic_call.generic_args.clone(),
+                    generic_call.span,
+                )?;
 
                 let lowered = FnCall {
                     callee: generic_call.callee.clone(),
@@ -512,7 +536,7 @@ impl Monomorphizer {
             ExprKind::Block(block) => self.rewrite_block(block)?,
             ExprKind::BuiltinFnCall(call) => {
                 if let BuiltinFnCallKind::TypeSize(ty) = &call.kind {
-                    if contains_type_var(ty) {
+                    if contains_infer(ty) {
                         return Err(anyhow!(
                             "unresolved generic arguments at monomorphize: __type_size"
                         ));

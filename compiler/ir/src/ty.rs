@@ -56,7 +56,8 @@ pub fn wrap_in_ref(ty: Rc<Ty>, mutability: Mutability) -> Ty {
 
 /// No mutability comparisons
 pub fn is_same_type(t1: &Ty, t2: &Ty) -> bool {
-    if matches!(t1.kind.as_ref(), TyKind::Var(_)) || matches!(t2.kind.as_ref(), TyKind::Var(_)) {
+    if matches!(t1.kind.as_ref(), TyKind::Infer(_)) || matches!(t2.kind.as_ref(), TyKind::Infer(_))
+    {
         return true;
     }
 
@@ -108,31 +109,57 @@ fn is_exact_same_type(t1: &Ty, t2: &Ty) -> bool {
                     .zip(rhs.iter())
                     .all(|(lhs, rhs)| is_exact_same_type(lhs, rhs))
         }
-        (TyKind::Var(lhs), TyKind::Var(rhs)) => lhs == rhs,
+        (TyKind::Infer(lhs), TyKind::Infer(rhs)) => lhs == rhs,
+        (TyKind::GenericParam(lhs), TyKind::GenericParam(rhs)) => lhs == rhs,
         (TyKind::Unit, TyKind::Unit) | (TyKind::Never, TyKind::Never) => true,
         _ => false,
     }
 }
 
-pub fn contains_type_var(ty: &Rc<Ty>) -> bool {
+pub fn contains_infer(ty: &Rc<Ty>) -> bool {
     match ty.kind.as_ref() {
-        TyKind::Var(_) => true,
-        TyKind::Pointer(pty) => contains_type_var(&pty.pointee_ty),
-        TyKind::Reference(rty) => contains_type_var(&rty.refee_ty),
-        TyKind::Slice(elem) => contains_type_var(elem),
-        TyKind::Array((elem, _)) => contains_type_var(elem),
-        TyKind::Tuple(elems) => elems.iter().any(contains_type_var),
+        TyKind::Infer(_) => true,
+        TyKind::Pointer(pty) => contains_infer(&pty.pointee_ty),
+        TyKind::Reference(rty) => contains_infer(&rty.refee_ty),
+        TyKind::Slice(elem) => contains_infer(elem),
+        TyKind::Array((elem, _)) => contains_infer(elem),
+        TyKind::Tuple(elems) => elems.iter().any(contains_infer),
         TyKind::Closure(closure) => {
-            closure.param_tys.iter().any(contains_type_var)
-                || contains_type_var(&closure.ret_ty)
-                || closure.captures.iter().any(contains_type_var)
+            closure.param_tys.iter().any(contains_infer)
+                || contains_infer(&closure.ret_ty)
+                || closure.captures.iter().any(contains_infer)
         }
         TyKind::UserDefined(udt) => udt
             .generic_instance
             .as_ref()
-            .is_some_and(GenericInstanceInfo::contains_type_var),
-        TyKind::Fundamental(_) | TyKind::Unit | TyKind::Never => false,
+            .is_some_and(GenericInstanceInfo::contains_infer),
+        TyKind::GenericParam(_) | TyKind::Fundamental(_) | TyKind::Unit | TyKind::Never => false,
     }
+}
+
+pub fn contains_generic_param(ty: &Rc<Ty>) -> bool {
+    match ty.kind.as_ref() {
+        TyKind::GenericParam(_) => true,
+        TyKind::Pointer(pty) => contains_generic_param(&pty.pointee_ty),
+        TyKind::Reference(rty) => contains_generic_param(&rty.refee_ty),
+        TyKind::Slice(elem) => contains_generic_param(elem),
+        TyKind::Array((elem, _)) => contains_generic_param(elem),
+        TyKind::Tuple(elems) => elems.iter().any(contains_generic_param),
+        TyKind::Closure(closure) => {
+            closure.param_tys.iter().any(contains_generic_param)
+                || contains_generic_param(&closure.ret_ty)
+                || closure.captures.iter().any(contains_generic_param)
+        }
+        TyKind::UserDefined(udt) => udt
+            .generic_instance
+            .as_ref()
+            .is_some_and(|instance| instance.args.iter().any(contains_generic_param)),
+        TyKind::Infer(_) | TyKind::Fundamental(_) | TyKind::Unit | TyKind::Never => false,
+    }
+}
+
+pub fn is_concrete(ty: &Rc<Ty>) -> bool {
+    !contains_infer(ty) && !contains_generic_param(ty)
 }
 
 /// True if `ty` mentions `interface_name` anywhere in its tree.
@@ -160,7 +187,11 @@ pub fn contains_interface(ty: &Rc<Ty>, interface_name: &QualifiedSymbol) -> bool
                     .iter()
                     .any(|t| contains_interface(t, interface_name))
         }
-        TyKind::Fundamental(_) | TyKind::Var(_) | TyKind::Unit | TyKind::Never => false,
+        TyKind::Fundamental(_)
+        | TyKind::Infer(_)
+        | TyKind::GenericParam(_)
+        | TyKind::Unit
+        | TyKind::Never => false,
     }
 }
 
@@ -265,43 +296,60 @@ pub fn substitute_interface(
             .into(),
             mutability: ty.mutability,
         }),
-        TyKind::Fundamental(_) | TyKind::Var(_) | TyKind::Unit | TyKind::Never => ty.clone(),
+        TyKind::Fundamental(_)
+        | TyKind::Infer(_)
+        | TyKind::GenericParam(_)
+        | TyKind::Unit
+        | TyKind::Never => ty.clone(),
     }
 }
 
-pub fn apply_type_var_bindings(ty: &Rc<Ty>, bindings: &HashMap<VarId, Rc<Ty>>) -> Rc<Ty> {
+pub fn apply_type_var_bindings(ty: &Rc<Ty>, bindings: &HashMap<InferVarId, Rc<Ty>>) -> Rc<Ty> {
+    transform_ty(ty, &|ty| match ty.kind.as_ref() {
+        TyKind::Infer(id) => bindings.get(id).cloned(),
+        _ => None,
+    })
+}
+
+pub fn substitute_generic_params(ty: &Rc<Ty>, origin: &QualifiedSymbol, args: &[Rc<Ty>]) -> Rc<Ty> {
+    transform_ty(ty, &|ty| match ty.kind.as_ref() {
+        TyKind::GenericParam(param) if &param.origin == origin => args
+            .get(param.index)
+            .map(|arg| change_mutability_dup(arg.clone(), ty.mutability)),
+        _ => None,
+    })
+}
+
+fn transform_ty(ty: &Rc<Ty>, replace: &impl Fn(&Rc<Ty>) -> Option<Rc<Ty>>) -> Rc<Ty> {
+    if let Some(replacement) = replace(ty) {
+        return replacement;
+    }
+
     match ty.kind.as_ref() {
-        TyKind::Var(id) => bindings.get(id).cloned().unwrap_or_else(|| ty.clone()),
         TyKind::Pointer(pty) => Rc::new(Ty {
             kind: TyKind::Pointer(PointerType {
-                pointee_ty: apply_type_var_bindings(&pty.pointee_ty, bindings),
+                pointee_ty: transform_ty(&pty.pointee_ty, replace),
             })
             .into(),
             mutability: ty.mutability,
         }),
         TyKind::Reference(rty) => Rc::new(Ty {
             kind: TyKind::Reference(ReferenceType {
-                refee_ty: apply_type_var_bindings(&rty.refee_ty, bindings),
+                refee_ty: transform_ty(&rty.refee_ty, replace),
             })
             .into(),
             mutability: ty.mutability,
         }),
         TyKind::Slice(elem) => Rc::new(Ty {
-            kind: TyKind::Slice(apply_type_var_bindings(elem, bindings)).into(),
+            kind: TyKind::Slice(transform_ty(elem, replace)).into(),
             mutability: ty.mutability,
         }),
         TyKind::Array((elem, size)) => Rc::new(Ty {
-            kind: TyKind::Array((apply_type_var_bindings(elem, bindings), *size)).into(),
+            kind: TyKind::Array((transform_ty(elem, replace), *size)).into(),
             mutability: ty.mutability,
         }),
         TyKind::Tuple(elems) => Rc::new(Ty {
-            kind: TyKind::Tuple(
-                elems
-                    .iter()
-                    .map(|t| apply_type_var_bindings(t, bindings))
-                    .collect(),
-            )
-            .into(),
+            kind: TyKind::Tuple(elems.iter().map(|t| transform_ty(t, replace)).collect()).into(),
             mutability: ty.mutability,
         }),
         TyKind::Closure(closure) => Rc::new(Ty {
@@ -309,36 +357,55 @@ pub fn apply_type_var_bindings(ty: &Rc<Ty>, bindings: &HashMap<VarId, Rc<Ty>>) -
                 param_tys: closure
                     .param_tys
                     .iter()
-                    .map(|t| apply_type_var_bindings(t, bindings))
+                    .map(|t| transform_ty(t, replace))
                     .collect(),
-                ret_ty: apply_type_var_bindings(&closure.ret_ty, bindings),
+                ret_ty: transform_ty(&closure.ret_ty, replace),
                 captures: closure
                     .captures
                     .iter()
-                    .map(|t| apply_type_var_bindings(t, bindings))
+                    .map(|t| transform_ty(t, replace))
                     .collect(),
             })
             .into(),
             mutability: ty.mutability,
         }),
         TyKind::UserDefined(udt) => Rc::new(Ty {
-            kind: TyKind::UserDefined(UserDefinedType {
-                kind: udt.kind.clone(),
-                generic_instance: udt.generic_instance.as_ref().map(|instance| {
+            kind: TyKind::UserDefined({
+                let generic_instance = udt.generic_instance.as_ref().map(|instance| {
                     GenericInstanceInfo::new(
                         instance.origin.clone(),
                         instance
                             .args
                             .iter()
-                            .map(|arg| apply_type_var_bindings(arg, bindings))
+                            .map(|arg| transform_ty(arg, replace))
                             .collect(),
                     )
-                }),
+                });
+                let kind = match (&udt.kind, &generic_instance) {
+                    (UserDefinedTypeKind::Placeholder(_), Some(instance)) => instance
+                        .concrete_symbol()
+                        .map(|symbol| {
+                            UserDefinedTypeKind::Placeholder(QualifiedSymbol::new(
+                                instance.origin.module_path().clone(),
+                                symbol,
+                            ))
+                        })
+                        .unwrap_or_else(|| udt.kind.clone()),
+                    _ => udt.kind.clone(),
+                };
+                UserDefinedType {
+                    kind,
+                    generic_instance,
+                }
             })
             .into(),
             mutability: ty.mutability,
         }),
-        TyKind::Fundamental(_) | TyKind::Unit | TyKind::Never => ty.clone(),
+        TyKind::Fundamental(_)
+        | TyKind::Infer(_)
+        | TyKind::GenericParam(_)
+        | TyKind::Unit
+        | TyKind::Never => ty.clone(),
     }
 }
 
@@ -548,7 +615,19 @@ pub fn make_fundamental_type(kind: FundamentalTypeKind, mutability: Mutability) 
     }
 }
 
-pub type VarId = usize;
+pub type InferVarId = usize;
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct GenericParamId {
+    pub origin: QualifiedSymbol,
+    pub index: usize,
+}
+
+impl GenericParamId {
+    pub fn new(origin: QualifiedSymbol, index: usize) -> Self {
+        Self { origin, index }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct GenericInstanceInfo {
@@ -561,62 +640,81 @@ impl GenericInstanceInfo {
         Self { origin, args }
     }
 
-    pub fn contains_type_var(&self) -> bool {
-        self.args.iter().any(contains_type_var)
+    pub fn contains_infer(&self) -> bool {
+        self.args.iter().any(contains_infer)
     }
 
-    pub fn collect_var_ids_in_order(&self) -> Vec<VarId> {
+    pub fn concrete_symbol(&self) -> Option<Symbol> {
+        if !self.args.iter().all(is_concrete) {
+            return None;
+        }
+
+        Some(
+            format!(
+                "{}_{}",
+                self.origin.symbol(),
+                self.args
+                    .iter()
+                    .map(|ty| ty.kind.to_string())
+                    .collect::<Vec<_>>()
+                    .join("_")
+            )
+            .into(),
+        )
+    }
+
+    pub fn collect_infer_var_ids_in_order(&self) -> Vec<InferVarId> {
         let mut out = Vec::new();
         let mut seen = HashSet::new();
 
         for arg in &self.args {
-            collect_type_var_ids(arg, &mut out, &mut seen);
+            collect_infer_var_ids(arg, &mut out, &mut seen);
         }
 
         out
     }
 }
 
-pub fn collect_type_var_ids_in_order(ty: &Rc<Ty>) -> Vec<VarId> {
+pub fn collect_infer_var_ids_in_order(ty: &Rc<Ty>) -> Vec<InferVarId> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    collect_type_var_ids(ty, &mut out, &mut seen);
+    collect_infer_var_ids(ty, &mut out, &mut seen);
     out
 }
 
-fn collect_type_var_ids(ty: &Rc<Ty>, out: &mut Vec<VarId>, seen: &mut HashSet<VarId>) {
+fn collect_infer_var_ids(ty: &Rc<Ty>, out: &mut Vec<InferVarId>, seen: &mut HashSet<InferVarId>) {
     match ty.kind.as_ref() {
-        TyKind::Var(id) => {
+        TyKind::Infer(id) => {
             if seen.insert(*id) {
                 out.push(*id);
             }
         }
-        TyKind::Pointer(pty) => collect_type_var_ids(&pty.pointee_ty, out, seen),
-        TyKind::Reference(rty) => collect_type_var_ids(&rty.refee_ty, out, seen),
-        TyKind::Slice(elem) => collect_type_var_ids(elem, out, seen),
-        TyKind::Array((elem, _)) => collect_type_var_ids(elem, out, seen),
+        TyKind::Pointer(pty) => collect_infer_var_ids(&pty.pointee_ty, out, seen),
+        TyKind::Reference(rty) => collect_infer_var_ids(&rty.refee_ty, out, seen),
+        TyKind::Slice(elem) => collect_infer_var_ids(elem, out, seen),
+        TyKind::Array((elem, _)) => collect_infer_var_ids(elem, out, seen),
         TyKind::Tuple(elems) => {
             for elem in elems {
-                collect_type_var_ids(elem, out, seen);
+                collect_infer_var_ids(elem, out, seen);
             }
         }
         TyKind::Closure(closure) => {
             for param in &closure.param_tys {
-                collect_type_var_ids(param, out, seen);
+                collect_infer_var_ids(param, out, seen);
             }
-            collect_type_var_ids(&closure.ret_ty, out, seen);
+            collect_infer_var_ids(&closure.ret_ty, out, seen);
             for capture in &closure.captures {
-                collect_type_var_ids(capture, out, seen);
+                collect_infer_var_ids(capture, out, seen);
             }
         }
         TyKind::UserDefined(udt) => {
             if let Some(instance) = &udt.generic_instance {
                 for arg in &instance.args {
-                    collect_type_var_ids(arg, out, seen);
+                    collect_infer_var_ids(arg, out, seen);
                 }
             }
         }
-        TyKind::Fundamental(_) | TyKind::Unit | TyKind::Never => {}
+        TyKind::GenericParam(_) | TyKind::Fundamental(_) | TyKind::Unit | TyKind::Never => {}
     }
 }
 
@@ -652,8 +750,11 @@ pub enum TyKind {
 
     Tuple(Vec<Rc<Ty>> /* Element types */),
 
-    // Inferred type
-    Var(VarId),
+    // Flexible metavariable owned by one inference session.
+    Infer(InferVarId),
+
+    // Rigid parameter used only by a generic declaration schema.
+    GenericParam(GenericParamId),
 
     Unit,
 
@@ -696,7 +797,9 @@ impl std::fmt::Display for TyKind {
                     .join(", ")
             ),
 
-            Self::Var(_) => write!(f, "_"),
+            Self::Infer(_) => write!(f, "_"),
+
+            Self::GenericParam(param) => write!(f, "{}#{}", param.origin.symbol(), param.index),
 
             Self::Unit => write!(f, "()"),
 
@@ -720,7 +823,7 @@ impl TyKind {
             Self::Unit => panic!("Cannot get sign information of unit type!"),
             Self::Never => panic!("Cannot get sign information of never type!"),
 
-            Self::Var(_) => unreachable!(),
+            Self::Infer(_) | Self::GenericParam(_) => unreachable!(),
         }
     }
 
@@ -738,7 +841,7 @@ impl TyKind {
             | Self::Unit
             | Self::Never => false,
 
-            Self::Var(_) => unreachable!(),
+            Self::Infer(_) | Self::GenericParam(_) => unreachable!(),
         }
     }
 
@@ -756,7 +859,7 @@ impl TyKind {
             | Self::Unit
             | Self::Never => false,
 
-            Self::Var(_) => unreachable!(),
+            Self::Infer(_) | Self::GenericParam(_) => unreachable!(),
         }
     }
 
@@ -774,7 +877,7 @@ impl TyKind {
             | Self::Unit
             | Self::Never => false,
 
-            Self::Var(_) => false,
+            Self::Infer(_) | Self::GenericParam(_) => false,
         }
     }
 

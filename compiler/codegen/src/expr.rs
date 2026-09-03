@@ -767,12 +767,12 @@ impl<'ctx> CodeGenerator<'ctx> {
                     )),
                     _ => Err(CodegenError::UnresolvedInferInt.into()),
                 },
-                TyKind::Var(_) => Ok(Some(
-                    self.context()
-                        .i32_type()
-                        .const_int(n as i32 as u64, true)
-                        .into(),
-                )),
+                TyKind::Infer(id) => {
+                    unreachable!("inference variable ?{id} reached integer codegen")
+                }
+                TyKind::GenericParam(param) => {
+                    unreachable!("generic parameter {param:?} reached integer codegen")
+                }
                 _ => Err(CodegenError::UnresolvedInferInt.into()),
             },
         }
@@ -794,7 +794,12 @@ impl<'ctx> CodeGenerator<'ctx> {
                     }
                     _ => Err(CodegenError::UnresolvedInferFloat.into()),
                 },
-                TyKind::Var(_) => Ok(Some(self.context().f64_type().const_float(n).into())),
+                TyKind::Infer(id) => {
+                    unreachable!("inference variable ?{id} reached float codegen")
+                }
+                TyKind::GenericParam(param) => {
+                    unreachable!("generic parameter {param:?} reached float codegen")
+                }
                 _ => Err(CodegenError::UnresolvedInferFloat.into()),
             },
         }

@@ -22,7 +22,7 @@ use kaede_ir::{
         make_fundamental_type, FundamentalTypeKind, Mutability, ReferenceType, Ty, TyKind,
         UserDefinedTypeKind,
     },
-    CompileUnit,
+    ResolvedCompileUnit,
 };
 use kaede_symbol::Symbol;
 use tcx::{SymbolTable, TypeCtx};
@@ -419,7 +419,10 @@ impl<'ctx> CodeGenerator<'ctx> {
                 context.struct_type(llvm_types.as_slice(), false).into()
             }
 
-            TyKind::Var(_) => self.context().i32_type().as_basic_type_enum(),
+            TyKind::Infer(id) => unreachable!("inference variable ?{id} reached codegen"),
+            TyKind::GenericParam(param) => {
+                unreachable!("generic parameter {param:?} reached codegen")
+            }
 
             TyKind::Unit => panic!("Cannot get LLVM type of unit type!"),
             TyKind::Never => panic!("Cannot get LLVM type of never type!"),
@@ -442,10 +445,11 @@ impl<'ctx> CodeGenerator<'ctx> {
 
     // This function doesn't optimize modules.
     // Please execute 'opt' command to optimize the module.
-    pub fn codegen(mut self, compile_unit: CompileUnit) -> anyhow::Result<Module<'ctx>> {
+    pub fn codegen(mut self, compile_unit: ResolvedCompileUnit) -> anyhow::Result<Module<'ctx>> {
         self.gc_init()?;
 
         let (types, others): (Vec<_>, Vec<_>) = compile_unit
+            .into_compile_unit()
             .top_levels
             .into_iter()
             .partition(|top| matches!(top, TopLevel::Struct(_) | TopLevel::Enum(_)));
