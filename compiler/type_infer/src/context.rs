@@ -1,7 +1,8 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use kaede_ir::ty::{
-    GenericInstanceInfo, Mutability, PointerType, ReferenceType, Ty, TyKind, UserDefinedType, VarId,
+    GenericInstanceInfo, InferVarId, Mutability, PointerType, ReferenceType, Ty, TyKind,
+    UserDefinedType, is_concrete,
 };
 use kaede_span::Span;
 
@@ -9,19 +10,19 @@ use crate::error::TypeInferError;
 
 #[derive(Default)]
 pub struct TypeVarAllocator {
-    next_var: VarId,
+    next_var: InferVarId,
 }
 
 impl TypeVarAllocator {
-    pub fn next_var(&self) -> VarId {
+    pub fn next_var(&self) -> InferVarId {
         self.next_var
     }
 
-    pub fn set_next_var(&mut self, next_var: VarId) {
+    pub fn set_next_var(&mut self, next_var: InferVarId) {
         self.next_var = next_var;
     }
 
-    pub fn fresh_var_id(&mut self) -> VarId {
+    pub fn fresh_var_id(&mut self) -> InferVarId {
         let id = self.next_var;
         self.next_var += 1;
         id
@@ -36,7 +37,7 @@ fn new_shared_type_var_allocator() -> SharedTypeVarAllocator {
 
 pub struct InferContext {
     pub type_var_allocator: SharedTypeVarAllocator,
-    subst: HashMap<VarId, Rc<Ty>>,
+    subst: HashMap<InferVarId, Rc<Ty>>,
 }
 
 impl InferContext {
@@ -64,21 +65,28 @@ impl InferContext {
 
     fn new_var(&self, id: usize) -> Rc<Ty> {
         Rc::new(Ty {
-            kind: TyKind::Var(id).into(),
+            kind: TyKind::Infer(id).into(),
             mutability: Mutability::Not,
         })
     }
 
-    pub fn resolve_var(&self, id: VarId) -> Rc<Ty> {
+    pub fn resolve_var(&self, id: InferVarId) -> Rc<Ty> {
         self.apply(&self.new_var(id))
+    }
+
+    pub fn resolved_substitutions(&self) -> HashMap<InferVarId, Rc<Ty>> {
+        self.subst
+            .keys()
+            .map(|id| (*id, self.resolve_var(*id)))
+            .collect()
     }
 
     pub fn bindings_for_generic_instance(
         &self,
         instance: &GenericInstanceInfo,
-    ) -> HashMap<VarId, Rc<Ty>> {
+    ) -> HashMap<InferVarId, Rc<Ty>> {
         instance
-            .collect_var_ids_in_order()
+            .collect_infer_var_ids_in_order()
             .into_iter()
             .map(|id| (id, self.resolve_var(id)))
             .collect()
@@ -87,7 +95,7 @@ impl InferContext {
     /// Recursively substitute type variables using current bindings, rebuilding composite types.
     pub fn apply(&self, t: &Rc<Ty>) -> Rc<Ty> {
         match t.kind.as_ref() {
-            TyKind::Var(id) => {
+            TyKind::Infer(id) => {
                 if let Some(tt) = self.subst.get(id) {
                     self.apply(tt)
                 } else {
@@ -143,12 +151,31 @@ impl InferContext {
             .into(),
 
             TyKind::UserDefined(udt) => Ty {
-                kind: TyKind::UserDefined(UserDefinedType {
-                    kind: udt.kind.clone(),
-                    generic_instance: udt
+                kind: TyKind::UserDefined({
+                    let generic_instance = udt
                         .generic_instance
                         .as_ref()
-                        .map(|instance| self.apply_generic_instance(instance)),
+                        .map(|instance| self.apply_generic_instance(instance));
+                    let kind = match (&udt.kind, &generic_instance) {
+                        (kaede_ir::ty::UserDefinedTypeKind::Placeholder(_), Some(instance)) => {
+                            instance
+                                .concrete_symbol()
+                                .map(|symbol| {
+                                    kaede_ir::ty::UserDefinedTypeKind::Placeholder(
+                                        kaede_ir::qualified_symbol::QualifiedSymbol::new(
+                                            instance.origin.module_path().clone(),
+                                            symbol,
+                                        ),
+                                    )
+                                })
+                                .unwrap_or_else(|| udt.kind.clone())
+                        }
+                        _ => udt.kind.clone(),
+                    };
+                    UserDefinedType {
+                        kind,
+                        generic_instance,
+                    }
                 })
                 .into(),
                 mutability: t.mutability,
@@ -162,7 +189,7 @@ impl InferContext {
     /// Occurs check to prevent constructing infinite types (e.g., α = [α]).
     fn occurs(&self, var_id: usize, t: &Rc<Ty>) -> bool {
         match self.apply(t).kind.as_ref() {
-            TyKind::Var(id) => *id == var_id,
+            TyKind::Infer(id) => *id == var_id,
             TyKind::Pointer(pty) => self.occurs(var_id, &pty.pointee_ty),
             TyKind::Reference(rty) => self.occurs(var_id, &rty.refee_ty),
             TyKind::Slice(elem_ty) => self.occurs(var_id, elem_ty),
@@ -209,18 +236,18 @@ impl InferContext {
     /// Pick which side of a unification is the type variable.
     /// The pure `Var`/`Var` case is handled earlier, so this keeps the mixed
     /// `Var` vs. concrete type logic in one place without duplicating matches.
-    fn pick_var_case<'t>(a: &'t Rc<Ty>, b: &'t Rc<Ty>) -> Option<(VarId, &'t Rc<Ty>)> {
+    fn pick_var_case<'t>(a: &'t Rc<Ty>, b: &'t Rc<Ty>) -> Option<(InferVarId, &'t Rc<Ty>)> {
         match (a.kind.as_ref(), b.kind.as_ref()) {
-            (TyKind::Var(id), _) => Some((*id, b)),
-            (_, TyKind::Var(id)) => Some((*id, a)),
+            (TyKind::Infer(id), _) => Some((*id, b)),
+            (_, TyKind::Infer(id)) => Some((*id, a)),
             _ => None,
         }
     }
 
-    pub fn bind_var(&mut self, id: VarId, ty: Rc<Ty>) {
+    pub fn bind_var(&mut self, id: InferVarId, ty: Rc<Ty>) {
         // Find the ultimate representative for this var (follow Var->Var chains)
         let mut root = id;
-        while let Some(TyKind::Var(next)) = self.subst.get(&root).map(|t| t.kind.as_ref()) {
+        while let Some(TyKind::Infer(next)) = self.subst.get(&root).map(|t| t.kind.as_ref()) {
             root = *next;
         }
         self.subst.insert(root, ty);
@@ -231,7 +258,7 @@ impl InferContext {
         let a = self.apply(a);
         let b = self.apply(b);
 
-        if let (TyKind::Var(a_id), TyKind::Var(b_id)) = (a.kind.as_ref(), b.kind.as_ref()) {
+        if let (TyKind::Infer(a_id), TyKind::Infer(b_id)) = (a.kind.as_ref(), b.kind.as_ref()) {
             if a_id == b_id {
                 return Ok(());
             }
@@ -240,10 +267,14 @@ impl InferContext {
             return Ok(());
         }
 
-        if !matches!(a.kind.as_ref(), TyKind::Var(_))
-            && !matches!(b.kind.as_ref(), TyKind::Var(_))
-            && a == b
-        {
+        if is_concrete(&a) && is_concrete(&b) && a == b {
+            return Ok(());
+        }
+
+        if matches!(
+            (a.kind.as_ref(), b.kind.as_ref()),
+            (TyKind::GenericParam(lhs), TyKind::GenericParam(rhs)) if lhs == rhs
+        ) {
             return Ok(());
         }
 
@@ -287,6 +318,7 @@ impl InferContext {
             (TyKind::Reference(rty1), TyKind::Reference(rty2)) => {
                 self.unify(&rty1.refee_ty, &rty2.refee_ty, span)
             }
+            (TyKind::Slice(elem1), TyKind::Slice(elem2)) => self.unify(elem1, elem2, span),
             (TyKind::Array(aty1), TyKind::Array(aty2)) => self.unify(&aty1.0, &aty2.0, span),
             (TyKind::Array((elem_ty, _)), TyKind::Slice(slice_elem))
             | (TyKind::Slice(slice_elem), TyKind::Array((elem_ty, _))) => {
@@ -334,6 +366,8 @@ impl InferContext {
             (TyKind::UserDefined(lhs), TyKind::UserDefined(rhs)) => {
                 self.unify_user_defined(lhs, rhs, span)
             }
+
+            (TyKind::Unit, TyKind::Unit) => Ok(()),
 
             // Handle unifying non-reference with reference by unwrapping
             (_, TyKind::Reference(rty)) => self.unify(&a, &rty.refee_ty, span),

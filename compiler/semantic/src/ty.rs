@@ -88,7 +88,7 @@ impl SemanticAnalyzer {
                 continue;
             };
 
-            if matches!(arg.kind.as_ref(), ir_type::TyKind::Var(_)) {
+            if ir_type::contains_infer(arg) {
                 continue;
             }
 
@@ -669,14 +669,34 @@ impl SemanticAnalyzer {
                 _ => unreachable!(),
             };
 
+            generic_info.module_path.clone()
+        };
+
+        if generic_args.iter().any(ir_type::contains_generic_param) {
+            let origin = QualifiedSymbol::new(module_path.clone(), name.symbol());
+            return Ok(Rc::new(ir_type::Ty {
+                kind: ir_type::TyKind::UserDefined(
+                    ir_type::UserDefinedType::with_generic_instance(
+                        ir_type::UserDefinedTypeKind::Placeholder(origin.clone()),
+                        ir_type::GenericInstanceInfo::new(origin, generic_args),
+                    ),
+                )
+                .into(),
+                mutability: ir_type::Mutability::Not,
+            }));
+        }
+
+        {
+            let borrowed_symbol = symbol.borrow();
+            let SymbolTableValueKind::Generic(generic_info) = &borrowed_symbol.kind else {
+                unreachable!()
+            };
             self.verify_resolved_generic_bounds(
                 generic_info.resolved_generic_params(),
                 &generic_args,
                 name.span(),
             )?;
-
-            generic_info.module_path.clone()
-        };
+        }
 
         self.with_module(module_path.clone(), |analyzer| {
             analyzer.ensure_generic_impl_method_declarations(
@@ -875,6 +895,33 @@ impl SemanticAnalyzer {
             }
 
             SymbolTableValueKind::Generic(generic_info) => {
+                let origin =
+                    QualifiedSymbol::new(borrowed_symbol.module_path.clone(), udt.name.symbol());
+                if let Some(instance) = self
+                    .pending_generic_instance()
+                    .filter(|instance| instance.origin == origin)
+                {
+                    let kind = instance
+                        .concrete_symbol()
+                        .map(|symbol| {
+                            ir_type::UserDefinedTypeKind::Placeholder(QualifiedSymbol::new(
+                                origin.module_path().clone(),
+                                symbol,
+                            ))
+                        })
+                        .unwrap_or_else(|| {
+                            ir_type::UserDefinedTypeKind::Placeholder(origin.clone())
+                        });
+                    return Ok(Rc::new(ir_type::Ty {
+                        kind: ir_type::TyKind::UserDefined(ir_type::UserDefinedType {
+                            kind,
+                            generic_instance: Some(instance),
+                        })
+                        .into(),
+                        mutability,
+                    }));
+                }
+
                 // Generic arguments are not provided.
                 return Err(SemanticError::GenericArgumentLengthMismatch {
                     expected: generic_info.get_generic_argument_length(),

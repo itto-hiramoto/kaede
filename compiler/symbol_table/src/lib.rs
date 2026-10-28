@@ -18,6 +18,7 @@ pub struct GenericImplInfo {
     pub impl_: ast::top::Impl,
     pub resolved_generic_params: Option<ResolvedGenericParams>,
     pub span: Span,
+    pub method_schemas: Vec<ir::top::FnDecl>,
     // Generic arguments whose impl method declarations have been registered.
     pub method_decl_instantiations: Vec<Vec<Rc<ir_type::Ty>>>,
 }
@@ -32,6 +33,7 @@ impl GenericImplInfo {
             impl_,
             resolved_generic_params,
             span,
+            method_schemas: Vec::new(),
             method_decl_instantiations: Vec::new(),
         }
     }
@@ -62,6 +64,7 @@ impl ResolvedGenericParams {
 #[derive(Debug)]
 pub struct GenericStructInfo {
     pub ast: ast::top::Struct,
+    pub schema: Option<ir::top::Struct>,
     pub resolved_generic_params: Option<ResolvedGenericParams>,
     pub impl_info: Option<GenericImplInfo>,
 }
@@ -73,6 +76,7 @@ impl GenericStructInfo {
     ) -> Self {
         Self {
             ast,
+            schema: None,
             resolved_generic_params,
             impl_info: None,
         }
@@ -82,6 +86,7 @@ impl GenericStructInfo {
 #[derive(Debug)]
 pub struct GenericEnumInfo {
     pub ast: ast::top::Enum,
+    pub schema: Option<ir::top::Enum>,
     pub resolved_generic_params: Option<ResolvedGenericParams>,
     pub impl_info: Option<GenericImplInfo>,
 }
@@ -93,6 +98,7 @@ impl GenericEnumInfo {
     ) -> Self {
         Self {
             ast,
+            schema: None,
             resolved_generic_params,
             impl_info: None,
         }
@@ -102,6 +108,7 @@ impl GenericEnumInfo {
 #[derive(Debug)]
 pub struct GenericFuncInfo {
     pub ast: ast::top::Fn,
+    pub schema: ir::top::FnDecl,
     pub resolved_generic_params: Option<ResolvedGenericParams>,
 }
 

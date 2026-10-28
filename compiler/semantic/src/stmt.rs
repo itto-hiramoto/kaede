@@ -99,7 +99,7 @@ impl SemanticAnalyzer {
             // Determine the variable type
             let var_ty = if let Some(annotated) = annotated_ty {
                 ir::ty::change_mutability_dup(annotated, mutability.into())
-            } else if matches!(init.ty.kind.as_ref(), ir::ty::TyKind::Var(_)) {
+            } else if matches!(init.ty.kind.as_ref(), ir::ty::TyKind::Infer(_)) {
                 // No type annotation and init is a type variable: defer to type inference.
                 ir::ty::change_mutability_dup(self.infer_context.fresh(), mutability.into())
             } else {
@@ -137,7 +137,7 @@ impl SemanticAnalyzer {
 
         let (init, const_ty) = if node.ty.kind.is_inferred() {
             let init = self.analyze_expr(&node.init)?;
-            let inferred = if matches!(init.ty.kind.as_ref(), ir::ty::TyKind::Var(_)) {
+            let inferred = if matches!(init.ty.kind.as_ref(), ir::ty::TyKind::Infer(_)) {
                 self.infer_context.fresh()
             } else {
                 init.ty.clone()
