@@ -1091,6 +1091,18 @@ impl Parser {
     fn array_literal(&mut self) -> ParseResult<Expr> {
         let start = self.consume(&TokenKind::OpenBracket).unwrap().start;
 
+        if self.check(&TokenKind::CloseBracket) {
+            let finish = self.consume(&TokenKind::CloseBracket)?.finish;
+            let span = self.new_span(start, finish);
+            return Ok(Expr {
+                kind: ExprKind::ArrayLiteral(ArrayLiteral {
+                    elements: Vec::new(),
+                    span,
+                }),
+                span,
+            });
+        }
+
         let first_elem = self.expr()?;
 
         if self.consume_b(&TokenKind::Semi) {
