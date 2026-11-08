@@ -722,7 +722,60 @@ impl SemanticAnalyzer {
         &mut self,
         mut compile_unit: ir::CompileUnit,
     ) -> anyhow::Result<ir::CompileUnit> {
+        let mut emitted_type_instances = compile_unit
+            .top_levels
+            .iter()
+            .filter_map(|top_level| match top_level {
+                ir::top::TopLevel::Struct(struct_) => struct_.generic_instance.clone(),
+                ir::top::TopLevel::Enum(enum_) => enum_.generic_instance.clone(),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
         for top_level in self.generated_generics.iter() {
+            let unresolved_type_instance = match top_level {
+                ir::top::TopLevel::Struct(struct_) => {
+                    struct_
+                        .fields
+                        .iter()
+                        .any(|field| ir_type::contains_infer(&field.ty))
+                        || struct_
+                            .generic_instance
+                            .as_ref()
+                            .is_some_and(ir_type::GenericInstanceInfo::contains_infer)
+                }
+                ir::top::TopLevel::Enum(enum_) => {
+                    enum_
+                        .variants
+                        .iter()
+                        .filter_map(|variant| variant.ty.as_ref())
+                        .any(ir_type::contains_infer)
+                        || enum_
+                            .generic_instance
+                            .as_ref()
+                            .is_some_and(ir_type::GenericInstanceInfo::contains_infer)
+                }
+                _ => false,
+            };
+            if unresolved_type_instance {
+                continue;
+            }
+
+            let type_instance = match top_level {
+                ir::top::TopLevel::Struct(struct_) => struct_.generic_instance.as_ref(),
+                ir::top::TopLevel::Enum(enum_) => enum_.generic_instance.as_ref(),
+                _ => None,
+            };
+            if let Some(instance) = type_instance {
+                if emitted_type_instances
+                    .iter()
+                    .any(|emitted| emitted == instance)
+                {
+                    continue;
+                }
+                emitted_type_instances.push(instance.clone());
+            }
+
             if let Some(name) = Self::unresolved_generated_callable_name(top_level) {
                 let name = name.mangle();
                 anyhow::bail!(

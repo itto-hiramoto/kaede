@@ -11,6 +11,8 @@ use inkwell::context::Context;
 use kaede_common::{
     kaede_gc_lib_path, kaede_lib_path, kaede_runtime_lib_path, kaede_runtime_linker_flags,
 };
+use kaede_ir::validate_compile_unit;
+use kaede_monomorphize::Monomorphizer;
 use kaede_parse::Parser;
 use kaede_semantic::{AnalyzeOptions, SemanticAnalyzer, SemanticError};
 use tempfile::tempdir;
@@ -99,7 +101,9 @@ fn compile_and_link_test(
 
     let file = PathBuf::from("test").into();
     let ast = Parser::new(program, file).run().unwrap();
-    let ir = SemanticAnalyzer::new_for_single_file_test().analyze(ast, options)?;
+    let mut ir = SemanticAnalyzer::new_for_single_file_test().analyze(ast, options)?;
+    Monomorphizer::new().run(&mut ir)?;
+    let ir = validate_compile_unit(ir)?;
 
     let module = CodeGenerator::new(&cgcx).unwrap().codegen(ir).unwrap();
     if let Some(main_fn) = module.get_function("main") {
