@@ -1,8 +1,7 @@
 use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use kaede_ir::ty::{
-    GenericInstanceInfo, InferVarId, Mutability, PointerType, ReferenceType, Ty, TyKind,
-    UserDefinedType, is_concrete,
+    InferVarId, Mutability, PointerType, ReferenceType, Ty, TyKind, UserDefinedType, is_concrete,
 };
 use kaede_span::Span;
 
@@ -41,16 +40,6 @@ pub struct InferContext {
 }
 
 impl InferContext {
-    pub(crate) fn apply_generic_instance(
-        &self,
-        instance: &GenericInstanceInfo,
-    ) -> GenericInstanceInfo {
-        GenericInstanceInfo::new(
-            instance.origin.clone(),
-            instance.args.iter().map(|arg| self.apply(arg)).collect(),
-        )
-    }
-
     pub fn new(type_var_allocator: SharedTypeVarAllocator) -> Self {
         Self {
             type_var_allocator,
