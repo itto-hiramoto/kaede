@@ -11,6 +11,8 @@ struct Context {
     uint64_t r13;
     uint64_t r14;
     uint64_t r15;
+    uint32_t mxcsr;
+    uint16_t x87_cw;
 };
 
 void create_context(struct Context *context, void (*fn)(void *), void *arg,

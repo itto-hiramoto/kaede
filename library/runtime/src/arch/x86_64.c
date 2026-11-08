@@ -20,6 +20,8 @@ __attribute__((naked)) void context_switch(struct Context *old
         "movq %r13, 32(%rdi)\n\t"
         "movq %r14, 40(%rdi)\n\t"
         "movq %r15, 48(%rdi)\n\t"
+        "stmxcsr 56(%rdi)\n\t"
+        "fnstcw 60(%rdi)\n\t"
 
         // Restore callee-saved registers from new
         "movq 0(%rsi), %rsp\n\t"
@@ -29,6 +31,8 @@ __attribute__((naked)) void context_switch(struct Context *old
         "movq 32(%rsi), %r13\n\t"
         "movq 40(%rsi), %r14\n\t"
         "movq 48(%rsi), %r15\n\t"
+        "ldmxcsr 56(%rsi)\n\t"
+        "fldcw 60(%rsi)\n\t"
 
         // Continue execution at the return address on the new stack
         "ret\n\t");
@@ -65,4 +69,6 @@ void create_context(struct Context *context, void (*task_body)(void *), void *ar
     context->r13 = 0;
     context->r14 = (uint64_t)arg;
     context->r15 = (uint64_t)task_body;
+    __asm__ volatile("stmxcsr %0\n\t" : "=m"(context->mxcsr));
+    __asm__ volatile("fnstcw %0\n\t" : "=m"(context->x87_cw));
 }
