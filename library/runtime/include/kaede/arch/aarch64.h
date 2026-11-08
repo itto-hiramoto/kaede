@@ -25,6 +25,7 @@ struct Context {
     uint64_t d13;
     uint64_t d14;
     uint64_t d15;
+    uint64_t fpcr;
 };
 
 void create_context(struct Context *context, void (*fn)(void *), void *arg,

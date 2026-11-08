@@ -1,5 +1,9 @@
 #include <kaede/arch/aarch64.h>
+#include <stddef.h>
 #include <string.h>
+
+_Static_assert(offsetof(struct Context, fpcr) == 0xA8,
+               "context_switch hardcodes this offset");
 
 extern void task_entrypoint(void);
 
@@ -30,6 +34,8 @@ __attribute__((naked)) void context_switch(struct Context *old
         "str d13, [x0, #0x90]\n\t"
         "str d14, [x0, #0x98]\n\t"
         "str d15, [x0, #0xA0]\n\t"
+        "mrs x9, fpcr\n\t"
+        "str x9,  [x0, #0xA8]\n\t"
 
         "ldr x9,  [x1, #0x00]\n\t"
         "mov sp, x9\n\t"
@@ -53,6 +59,8 @@ __attribute__((naked)) void context_switch(struct Context *old
         "ldr d13, [x1, #0x90]\n\t"
         "ldr d14, [x1, #0x98]\n\t"
         "ldr d15, [x1, #0xA0]\n\t"
+        "ldr x9,  [x1, #0xA8]\n\t"
+        "msr fpcr, x9\n\t"
         "ret\n\t");
 }
 
@@ -76,4 +84,5 @@ void create_context(struct Context *context, void (*task_body)(void *), void *ar
     context->lr = (uint64_t)task_entrypoint;
     context->x19 = (uint64_t)task_body;
     context->x20 = (uint64_t)arg;
+    __asm__ volatile("mrs %0, fpcr\n\t" : "=r"(context->fpcr));
 }
