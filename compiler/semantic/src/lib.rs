@@ -18,7 +18,7 @@ use kaede_parse::Parser;
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::{Ident, Symbol};
 use kaede_symbol_table::{
-    QualifiedSymbolTable, ResolvedGenericParams, SymbolResolver, SymbolTable, SymbolTableValue,
+    GenericKind, QualifiedSymbolTable, SymbolResolver, SymbolTable, SymbolTableValue,
     SymbolTableValueKind,
 };
 
@@ -32,6 +32,7 @@ mod subst;
 mod symbol_table;
 mod top;
 mod ty;
+mod worklist;
 
 pub use error::SemanticError;
 use kaede_ast::{self as ast, top::Visibility};
@@ -40,6 +41,7 @@ use kaede_ir as ir;
 use kaede_type_infer::InferContext;
 use subst::GenericSubstituter;
 pub use top::TopLevelAnalysisResult;
+use worklist::InstanceWorklist;
 
 use crate::context::{AnalyzeCommand, LookupMode, ModuleContext};
 
@@ -49,8 +51,8 @@ struct ClosureCapture {
     captured: HashSet<Symbol>,
 }
 
-struct PendingGenericBoundCheck {
-    params: ResolvedGenericParams,
+struct PendingGenericFnRequest {
+    origin: QualifiedSymbol,
     args: Vec<Rc<ir_type::Ty>>,
     span: Span,
 }
@@ -81,7 +83,8 @@ pub struct SemanticAnalyzer {
     generated_callable_substitutions:
         HashMap<QualifiedSymbol, HashMap<ir_type::InferVarId, Rc<ir_type::Ty>>>,
     inference_substitutions: HashMap<ir_type::InferVarId, Rc<ir_type::Ty>>,
-    pending_generic_bound_checks: Vec<PendingGenericBoundCheck>,
+    pending_generic_fn_requests: Vec<PendingGenericFnRequest>,
+    generic_fn_worklist: InstanceWorklist,
     pending_generic_instance: Option<ir_type::GenericInstanceInfo>,
 }
 
@@ -360,7 +363,8 @@ impl SemanticAnalyzer {
             temp_symbol_counter: 0,
             generated_callable_substitutions: HashMap::new(),
             inference_substitutions: HashMap::new(),
-            pending_generic_bound_checks: Vec::new(),
+            pending_generic_fn_requests: Vec::new(),
+            generic_fn_worklist: InstanceWorklist::default(),
             pending_generic_instance: None,
         })
     }
@@ -389,7 +393,8 @@ impl SemanticAnalyzer {
             temp_symbol_counter: 0,
             generated_callable_substitutions: HashMap::new(),
             inference_substitutions: HashMap::new(),
-            pending_generic_bound_checks: Vec::new(),
+            pending_generic_fn_requests: Vec::new(),
+            generic_fn_worklist: InstanceWorklist::default(),
             pending_generic_instance: None,
         }
     }
@@ -807,15 +812,88 @@ impl SemanticAnalyzer {
         self.inference_substitutions.extend(substitutions);
     }
 
-    fn verify_pending_generic_bounds(&self) -> anyhow::Result<()> {
-        for check in &self.pending_generic_bound_checks {
-            let args = check
+    fn enqueue_pending_generic_fn_requests(&mut self) -> anyhow::Result<()> {
+        for request in std::mem::take(&mut self.pending_generic_fn_requests) {
+            let args = request
                 .args
                 .iter()
                 .map(|arg| ir_type::apply_type_var_bindings(arg, &self.inference_substitutions))
-                .collect::<Vec<_>>();
-            self.verify_resolved_generic_bounds(Some(&check.params), &args, check.span)?;
+                .collect();
+            self.generic_fn_worklist
+                .enqueue(request.origin, args, request.span)?;
         }
+
+        Ok(())
+    }
+
+    fn generate_generic_fn_specialization(
+        &mut self,
+        origin: QualifiedSymbol,
+        generic_args: Vec<Rc<ir_type::Ty>>,
+        span: Span,
+    ) -> anyhow::Result<()> {
+        let symbol = self
+            .lookup_qualified_symbol(origin.clone())
+            .ok_or_else(|| anyhow::anyhow!("generic function not found: {origin:?}"))?;
+        let (mut ast, resolved_generic_params) = {
+            let symbol = symbol.borrow();
+            let SymbolTableValueKind::Generic(info) = &symbol.kind else {
+                bail!("generic function expected: {origin:?}");
+            };
+            let GenericKind::Func(info) = &info.kind else {
+                bail!("generic function expected: {origin:?}");
+            };
+            (info.ast.clone(), info.resolved_generic_params.clone())
+        };
+
+        self.verify_resolved_generic_bounds(resolved_generic_params.as_ref(), &generic_args, span)?;
+
+        let generic_params = ast
+            .decl
+            .generic_params
+            .clone()
+            .expect("generic function must have generic parameters");
+        let generic_instance =
+            ir_type::GenericInstanceInfo::new(origin.clone(), generic_args.clone());
+        let generated_symbol = generic_instance
+            .concrete_symbol()
+            .expect("worklist accepts only concrete generic instances");
+        ast.decl.name = Ident::new(generated_symbol, Span::dummy());
+        ast.decl.link_once = true;
+
+        let defining_module = origin.module_path().clone();
+        let fn_ = self.with_defining_module(defining_module, |analyzer| {
+            analyzer.with_generic_arguments(&generic_params, &generic_args, |analyzer| {
+                analyzer.with_pending_generic_instance(
+                    Some(generic_instance),
+                    |analyzer| -> anyhow::Result<Rc<ir::top::Fn>> {
+                        analyzer
+                            .with_analyze_command(AnalyzeCommand::OnlyFnDeclare, |analyzer| {
+                                analyzer.analyze_fn_internal(ast.clone())
+                            })?;
+                        analyzer
+                            .with_analyze_command(AnalyzeCommand::WithoutFnDeclare, |analyzer| {
+                                analyzer.analyze_fn_internal(ast)
+                            })
+                    },
+                )
+            })
+        })?;
+
+        self.generated_generics.push(ir::top::TopLevel::Fn(fn_));
+        Ok(())
+    }
+
+    fn process_generic_fn_specializations(&mut self) -> anyhow::Result<()> {
+        self.enqueue_pending_generic_fn_requests()?;
+
+        while let Some(item) = self.generic_fn_worklist.next_item() {
+            let key = item.key.clone();
+            self.generate_generic_fn_specialization(item.key.origin, item.args, item.span)?;
+            self.enqueue_pending_generic_fn_requests()?;
+            self.generic_fn_worklist.complete(&key);
+        }
+
         Ok(())
     }
 
@@ -1513,8 +1591,9 @@ impl SemanticAnalyzer {
         }
 
         self.apply_substitutions_to_generated_generics();
+        self.process_generic_fn_specializations()?;
+        self.apply_substitutions_to_generated_generics();
         self.infer_generated_generic_bodies_after_substitution()?;
-        self.verify_pending_generic_bounds()?;
 
         self.inject_generated_generics_to_compile_unit(ir::CompileUnit {
             top_levels: top_level_irs,

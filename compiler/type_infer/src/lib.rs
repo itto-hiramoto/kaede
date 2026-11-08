@@ -2070,6 +2070,15 @@ impl TypeInferrer {
                         span: fn_call.span,
                     });
                 }
+
+                if let Some(name) = fn_call
+                    .callee
+                    .generic_instance
+                    .as_ref()
+                    .and_then(|instance| instance.concrete_qualified_symbol())
+                {
+                    Rc::make_mut(&mut fn_call.callee).name = name;
+                }
             }
             Spawn(spawn) => {
                 for arg in &mut spawn.args {
