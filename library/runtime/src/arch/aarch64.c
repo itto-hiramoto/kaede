@@ -1,5 +1,36 @@
 #include <kaede/arch/aarch64.h>
+#include <stddef.h>
 #include <string.h>
+
+#define ASSERT_CONTEXT_FIELD(field, offset, size)                              \
+    _Static_assert(offsetof(struct Context, field) == (offset) &&              \
+                       sizeof(((struct Context *)0)->field) == (size),         \
+                   "context_switch hardcodes the layout of " #field)
+
+ASSERT_CONTEXT_FIELD(sp, 0x00, 8);
+ASSERT_CONTEXT_FIELD(lr, 0x08, 8);
+ASSERT_CONTEXT_FIELD(fp, 0x10, 8);
+ASSERT_CONTEXT_FIELD(x19, 0x18, 8);
+ASSERT_CONTEXT_FIELD(x20, 0x20, 8);
+ASSERT_CONTEXT_FIELD(x21, 0x28, 8);
+ASSERT_CONTEXT_FIELD(x22, 0x30, 8);
+ASSERT_CONTEXT_FIELD(x23, 0x38, 8);
+ASSERT_CONTEXT_FIELD(x24, 0x40, 8);
+ASSERT_CONTEXT_FIELD(x25, 0x48, 8);
+ASSERT_CONTEXT_FIELD(x26, 0x50, 8);
+ASSERT_CONTEXT_FIELD(x27, 0x58, 8);
+ASSERT_CONTEXT_FIELD(x28, 0x60, 8);
+ASSERT_CONTEXT_FIELD(d8, 0x68, 8);
+ASSERT_CONTEXT_FIELD(d9, 0x70, 8);
+ASSERT_CONTEXT_FIELD(d10, 0x78, 8);
+ASSERT_CONTEXT_FIELD(d11, 0x80, 8);
+ASSERT_CONTEXT_FIELD(d12, 0x88, 8);
+ASSERT_CONTEXT_FIELD(d13, 0x90, 8);
+ASSERT_CONTEXT_FIELD(d14, 0x98, 8);
+ASSERT_CONTEXT_FIELD(d15, 0xA0, 8);
+ASSERT_CONTEXT_FIELD(fpcr, 0xA8, 8);
+
+#undef ASSERT_CONTEXT_FIELD
 
 extern void task_entrypoint(void);
 
