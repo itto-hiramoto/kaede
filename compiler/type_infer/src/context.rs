@@ -74,6 +74,13 @@ impl InferContext {
         self.apply(&self.new_var(id))
     }
 
+    pub fn resolved_substitutions(&self) -> HashMap<InferVarId, Rc<Ty>> {
+        self.subst
+            .keys()
+            .map(|id| (*id, self.resolve_var(*id)))
+            .collect()
+    }
+
     pub fn bindings_for_generic_instance(
         &self,
         instance: &GenericInstanceInfo,
@@ -144,12 +151,24 @@ impl InferContext {
             .into(),
 
             TyKind::UserDefined(udt) => Ty {
-                kind: TyKind::UserDefined(UserDefinedType {
-                    kind: udt.kind.clone(),
-                    generic_instance: udt
+                kind: TyKind::UserDefined({
+                    let generic_instance = udt
                         .generic_instance
                         .as_ref()
-                        .map(|instance| self.apply_generic_instance(instance)),
+                        .map(|instance| self.apply_generic_instance(instance));
+                    let kind = match (&udt.kind, &generic_instance) {
+                        (kaede_ir::ty::UserDefinedTypeKind::Placeholder(_), Some(instance)) => {
+                            instance
+                                .concrete_qualified_symbol()
+                                .map(kaede_ir::ty::UserDefinedTypeKind::Placeholder)
+                                .unwrap_or_else(|| udt.kind.clone())
+                        }
+                        _ => udt.kind.clone(),
+                    };
+                    UserDefinedType {
+                        kind,
+                        generic_instance,
+                    }
                 })
                 .into(),
                 mutability: t.mutability,
