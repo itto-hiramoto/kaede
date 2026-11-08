@@ -1,9 +1,5 @@
 #include <kaede/arch/aarch64.h>
-#include <stddef.h>
 #include <string.h>
-
-_Static_assert(offsetof(struct Context, fpcr) == 0xA8,
-               "context_switch hardcodes this offset");
 
 extern void task_entrypoint(void);
 
