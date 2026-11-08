@@ -2166,7 +2166,7 @@ impl TypeInferrer {
         // Re-apply after processing children to pick up new substitutions
         expr.ty = self.context.apply(&expr.ty);
 
-        if matches!(expr.ty.kind.as_ref(), TyKind::Infer(_)) {
+        if contains_infer(&expr.ty) {
             return Err(TypeInferError::CannotInferType { span: expr.span });
         }
 
@@ -2187,7 +2187,7 @@ impl TypeInferrer {
                 let_stmt.ty = self.context.apply(&let_stmt.ty);
 
                 // Error on unresolved type variables
-                if matches!(let_stmt.ty.kind.as_ref(), TyKind::Infer(_)) {
+                if contains_infer(&let_stmt.ty) {
                     return Err(TypeInferError::CannotInferVariableType {
                         span: let_stmt.span,
                     });
@@ -2445,6 +2445,27 @@ mod tests {
         assert!(!kaede_ir::ty::contains_infer(
             &inferrer.context.apply(&inferred_closure)
         ));
+    }
+
+    #[test]
+    fn apply_rejects_inference_variable_nested_in_composite_type() {
+        let mut inferrer = make_inferrer();
+        let unresolved_array = Rc::new(Ty {
+            kind: TyKind::Array((var_ty(0), 0)).into(),
+            mutability: Mutability::Not,
+        });
+        let mut expr = Expr {
+            kind: ExprKind::Variable(Variable {
+                name: Symbol::from("xs".to_owned()),
+                ty: unresolved_array.clone(),
+                span: Span::dummy(),
+            }),
+            ty: unresolved_array,
+            span: Span::dummy(),
+        };
+
+        let err = inferrer.apply_expr(&mut expr).unwrap_err();
+        assert!(matches!(err, TypeInferError::CannotInferType { .. }));
     }
 
     #[test]
