@@ -176,15 +176,8 @@ impl SemanticAnalyzer {
         inferrer.infer_expr(init)?;
         inferrer.apply_expr(init)?;
         self.merge_inference_substitutions(inferrer.resolved_substitutions());
-        self.merge_generated_callable_substitutions(
-            inferrer.into_generated_callable_substitutions(),
-        );
 
         Ok(init.ty.clone())
-    }
-
-    fn fn_decl_requires_delayed_inference(decl: &ir::top::FnDecl) -> bool {
-        Self::fn_decl_has_unresolved_types(decl)
     }
 
     pub fn analyze_top_level(
@@ -1032,12 +1025,7 @@ impl SemanticAnalyzer {
 
         let mut fn_body = self.analyze_block(&node.body)?;
 
-        // Delay inference for generated generic functions that still carry unresolved
-        // type variables in their signatures. These are resolved from call-site
-        // constraints later in type inference.
-        if !Self::fn_decl_requires_delayed_inference(&fn_decl) {
-            self.infer_function_body_inline(&mut fn_body, &fn_decl)?;
-        }
+        self.infer_function_body_inline(&mut fn_body, &fn_decl)?;
 
         let fn_ = Rc::new(ir::top::Fn {
             decl: fn_decl,

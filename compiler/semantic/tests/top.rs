@@ -1229,3 +1229,147 @@ fun take(r: Reader) -> i32 {
 
     Ok(())
 }
+
+#[test]
+fn receivers_inferred_to_the_same_type_share_one_method_instance() -> anyhow::Result<()> {
+    let ir = semantic_analyze(
+        r#"
+        fun main() -> i32 {
+            let mut a = Vector::new()
+            a.push(40)
+            let mut b = Vector::new()
+            b.push(18)
+            return a.at(0).unwrap() + b.at(0).unwrap()
+        }
+        "#,
+    )?;
+
+    let push_instances = ir
+        .top_levels
+        .iter()
+        .filter_map(|top_level| match top_level {
+            TopLevel::Impl(impl_) => Some(impl_),
+            _ => None,
+        })
+        .flat_map(|impl_| impl_.methods.iter())
+        .filter(|method| method.decl.name.symbol().as_str() == "Vector_i32.push")
+        .count();
+    assert_eq!(push_instances, 1);
+
+    for top_level in &ir.top_levels {
+        let instance = match top_level {
+            TopLevel::Struct(struct_) => struct_.generic_instance.as_ref(),
+            TopLevel::Enum(enum_) => enum_.generic_instance.as_ref(),
+            _ => None,
+        };
+        assert!(
+            instance.is_none_or(|instance| !instance.contains_infer()),
+            "{top_level:?}"
+        );
+    }
+
+    Ok(())
+}
+
+#[test]
+fn generic_recursion_that_keeps_wrapping_its_argument_is_an_error() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error(
+        r#"
+        fun grow<T>(value: T, depth: i32) -> i32 {
+            if depth == 0 {
+                return 0
+            }
+            let next: Option<T> = Option::Some(value)
+            return grow(next, depth - 1)
+        }
+
+        fun main() -> i32 {
+            return grow(1, 3)
+        }
+        "#,
+    )?;
+
+    assert!(
+        err.to_string()
+            .contains("instantiating `grow` nests its type arguments more than"),
+        "{err}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn generic_method_on_an_uninferred_receiver_is_an_error() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error(
+        r#"
+        struct Cell<T> {
+            value: T,
+        }
+
+        impl<T> Cell<T> {
+            fun empty() -> mut Cell<T> {
+                return Cell<T> { value: 0 as T }
+            }
+
+            fun pick<U>(self, other: U) -> U {
+                return other
+            }
+        }
+
+        fun main() -> i32 {
+            let c = Cell::empty()
+            return c.pick(58)
+        }
+        "#,
+    )?;
+
+    assert!(
+        err.to_string().contains(
+            "the type arguments of `Cell` must be known before calling its generic method `pick`"
+        ),
+        "{err}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn generic_method_without_its_parameter_in_the_signature_on_an_uninferred_receiver_is_an_error(
+) -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error(
+        r#"
+        struct Cell<T> {
+            value: T,
+        }
+
+        impl<T> Cell<T> {
+            fun empty() -> mut Cell<T> {
+                return Cell<T> { value: 0 as T }
+            }
+
+            fun put(mut self, value: T) {
+                self.value = value
+            }
+
+            fun tag<U>(self) -> i32 {
+                return 58
+            }
+        }
+
+        fun main() -> i32 {
+            let mut c = Cell::empty()
+            c.put(1)
+            return c.tag()
+        }
+        "#,
+    )?;
+
+    assert!(
+        err.to_string().contains(
+            "the type arguments of `Cell` must be known before calling its generic method `tag`"
+        ),
+        "{err}"
+    );
+
+    Ok(())
+}

@@ -8,7 +8,9 @@ use kaede_span::Span;
 use kaede_symbol::{Ident, Symbol};
 
 use crate::context::AnalyzeCommand;
-use crate::{error::SemanticError, SemanticAnalyzer, TopLevelAnalysisResult};
+use crate::{
+    error::SemanticError, subst::GenericSubstituter, SemanticAnalyzer, TopLevelAnalysisResult,
+};
 use kaede_symbol_table::{
     GenericImplInfo, GenericKind, ResolvedGenericParams, SymbolTableValueKind,
 };
@@ -686,6 +688,11 @@ impl SemanticAnalyzer {
             }));
         }
 
+        if generic_args.iter().any(ir_type::contains_infer) {
+            let origin = QualifiedSymbol::new(module_path, name.symbol());
+            return self.instantiate_type_schema(origin, generic_args, name.span());
+        }
+
         {
             let borrowed_symbol = symbol.borrow();
             let SymbolTableValueKind::Generic(generic_info) = &borrowed_symbol.kind else {
@@ -731,6 +738,232 @@ impl SemanticAnalyzer {
         })
     }
 
+    /// The type of a generic struct or enum instance whose arguments inference has yet to
+    /// resolve. It carries the declaration schema instantiated with those arguments; the instance
+    /// itself is generated from the worklist once they are concrete.
+    fn instantiate_type_schema(
+        &mut self,
+        origin: QualifiedSymbol,
+        generic_args: Vec<Rc<ir_type::Ty>>,
+        span: Span,
+    ) -> anyhow::Result<Rc<ir_type::Ty>> {
+        let symbol =
+            self.lookup_qualified_symbol(origin.clone())
+                .ok_or(SemanticError::Undeclared {
+                    name: origin.symbol(),
+                    span,
+                })?;
+        let instance = ir_type::GenericInstanceInfo::new(origin.clone(), generic_args.clone());
+        let substitute =
+            |ty: &Rc<ir_type::Ty>| ir_type::substitute_generic_params(ty, &origin, &generic_args);
+
+        let kind = {
+            let borrowed = symbol.borrow();
+            let SymbolTableValueKind::Generic(generic_info) = &borrowed.kind else {
+                unreachable!()
+            };
+            let expected = generic_info.get_generic_argument_length();
+            if expected != generic_args.len() {
+                return Err(SemanticError::GenericArgumentLengthMismatch {
+                    expected,
+                    actual: generic_args.len(),
+                    span,
+                }
+                .into());
+            }
+            match &generic_info.kind {
+                GenericKind::Struct(info) => ir_type::UserDefinedTypeKind::Struct(Rc::new(
+                    info.schema
+                        .as_ref()
+                        .expect("generic struct schema is registered with its declaration")
+                        .instantiate(instance.clone(), &substitute),
+                )),
+                GenericKind::Enum(info) => ir_type::UserDefinedTypeKind::Enum(Rc::new(
+                    info.schema
+                        .as_ref()
+                        .expect("generic enum schema is registered with its declaration")
+                        .instantiate(instance.clone(), &substitute),
+                )),
+                GenericKind::Func(_) | GenericKind::BuiltinSlice(_) => unreachable!(),
+            }
+        };
+
+        self.pending_instance_requests
+            .push(crate::PendingInstanceRequest {
+                kind: crate::InstanceKind::Type,
+                origin,
+                args: generic_args,
+                span,
+            });
+
+        Ok(Rc::new(ir_type::Ty {
+            kind: ir_type::TyKind::UserDefined(ir_type::UserDefinedType::with_generic_instance(
+                kind, instance,
+            ))
+            .into(),
+            mutability: ir_type::Mutability::Not,
+        }))
+    }
+
+    /// The declaration behind `udt`, following a placeholder to the declaration it names. A
+    /// placeholder for an instance whose arguments inference has yet to resolve yields the
+    /// instantiated schema.
+    pub(crate) fn user_defined_declaration(
+        &mut self,
+        udt: &ir_type::UserDefinedType,
+        span: Span,
+    ) -> anyhow::Result<Option<ir_type::UserDefinedTypeKind>> {
+        let ir_type::UserDefinedTypeKind::Placeholder(qsym) = &udt.kind else {
+            return Ok(Some(udt.kind.clone()));
+        };
+
+        if let Some(instance) = udt
+            .generic_instance
+            .as_ref()
+            .filter(|instance| instance.contains_infer())
+        {
+            let ty =
+                self.instantiate_type_schema(instance.origin.clone(), instance.args.clone(), span)?;
+            let ir_type::TyKind::UserDefined(udt) = ty.kind.as_ref() else {
+                unreachable!()
+            };
+            return Ok(Some(udt.kind.clone()));
+        }
+
+        Ok(self
+            .lookup_qualified_symbol(qsym.clone())
+            .and_then(|value| match &value.borrow().kind {
+                SymbolTableValueKind::Struct(info) => {
+                    Some(ir_type::UserDefinedTypeKind::Struct(info.clone()))
+                }
+                SymbolTableValueKind::Enum(info) => {
+                    Some(ir_type::UserDefinedTypeKind::Enum(info.clone()))
+                }
+                _ => None,
+            }))
+    }
+
+    pub(crate) fn generate_generic_type_instance(
+        &mut self,
+        origin: QualifiedSymbol,
+        generic_args: Vec<Rc<ir_type::Ty>>,
+        span: Span,
+    ) -> anyhow::Result<()> {
+        let name = Ident::new(origin.symbol(), span);
+        self.with_module(origin.module_path().clone(), |analyzer| {
+            analyzer.with_analyze_command(AnalyzeCommand::NoCommand, |analyzer| {
+                analyzer.create_generic_type_with_args(name, generic_args)
+            })
+        })?;
+        Ok(())
+    }
+
+    /// The declaration of method `method_name` of a generic impl, for an instance whose
+    /// arguments inference has yet to resolve. The method itself is generated from the worklist
+    /// once they are concrete.
+    pub(crate) fn instantiate_method_schema(
+        &mut self,
+        instance: &ir_type::GenericInstanceInfo,
+        method_name: Symbol,
+        is_static: bool,
+        span: Span,
+    ) -> anyhow::Result<Rc<ir::top::FnDecl>> {
+        let origin = &instance.origin;
+        let no_method = || SemanticError::NoMethod {
+            method_name,
+            parent_name: origin.symbol(),
+            span,
+        };
+
+        let symbol = self
+            .lookup_qualified_symbol(origin.clone())
+            .ok_or_else(no_method)?;
+        let (mut decl, is_generic_method) = {
+            let borrowed = symbol.borrow();
+            let SymbolTableValueKind::Generic(generic_info) = &borrowed.kind else {
+                return Err(no_method().into());
+            };
+            let impl_info = Self::generic_impl_info(&generic_info.kind).ok_or_else(no_method)?;
+            let methods = impl_info
+                .impl_
+                .items
+                .iter()
+                .filter_map(|item| match &item.kind {
+                    ast::top::TopLevelKind::Fn(fn_) => Some(fn_),
+                    _ => None,
+                });
+            methods
+                .zip(&impl_info.method_schemas)
+                .find(|(method, _)| {
+                    method.decl.name.symbol() == method_name
+                        && method.decl.self_.is_none() == is_static
+                })
+                .map(|(method, schema)| (schema.clone(), method.decl.generic_params.is_some()))
+                .ok_or_else(no_method)?
+        };
+
+        if is_generic_method {
+            return Err(SemanticError::GenericMethodOnUninferredInstance {
+                method_name,
+                parent_name: origin.symbol(),
+                span,
+            }
+            .into());
+        }
+
+        GenericSubstituter::for_generic_params(origin, &instance.args).apply_fn_decl(&mut decl);
+
+        decl.name = QualifiedSymbol::new(
+            origin.module_path().clone(),
+            self.create_method_key(origin.symbol(), method_name, is_static),
+        );
+        decl.link_once = true;
+        decl.generic_instance = Some(instance.clone());
+
+        self.pending_instance_requests
+            .push(crate::PendingInstanceRequest {
+                kind: crate::InstanceKind::Method {
+                    name: method_name,
+                    is_static,
+                },
+                origin: origin.clone(),
+                args: instance.args.clone(),
+                span,
+            });
+
+        Ok(Rc::new(decl))
+    }
+
+    pub(crate) fn generate_generic_method_instance(
+        &mut self,
+        origin: QualifiedSymbol,
+        generic_args: Vec<Rc<ir_type::Ty>>,
+        method_name: Symbol,
+        is_static: bool,
+    ) -> anyhow::Result<()> {
+        self.ensure_generic_impl_method_declarations(origin.clone(), &generic_args)?;
+
+        let parent_name = self.impl_method_parent_name(&origin, &generic_args);
+        let name = QualifiedSymbol::new(
+            origin.module_path().clone(),
+            self.create_method_key(parent_name, method_name, is_static),
+        );
+        let decl = self
+            .lookup_qualified_symbol(name.clone())
+            .and_then(|symbol| match &symbol.borrow().kind {
+                SymbolTableValueKind::Function(decl) => Some(decl.clone()),
+                _ => None,
+            })
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "internal compiler error: generated method `{}` was not declared",
+                    name.mangle()
+                )
+            })?;
+
+        self.ensure_generated_impl_method_body(&decl)
+    }
+
     pub(crate) fn ensure_generated_impl_method_body(
         &mut self,
         decl: &ir::top::FnDecl,
@@ -740,6 +973,10 @@ impl SemanticAnalyzer {
         let Some(instance) = &decl.generic_instance else {
             return Ok(());
         };
+
+        if !instance.args.iter().all(ir_type::is_concrete) {
+            return Ok(());
+        }
 
         let origin = instance.origin.clone();
         let generic_args = instance.args.clone();

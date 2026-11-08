@@ -123,6 +123,20 @@ pub enum SemanticError {
         span: Span,
     },
 
+    #[error("{}:{}:{} instantiating `{}` nests its type arguments more than {} levels deep", span.file, span.start.line, span.start.column, name, limit)]
+    GenericInstantiationTooDeep {
+        name: Symbol,
+        limit: usize,
+        span: Span,
+    },
+
+    #[error("{}:{}:{} the type arguments of `{}` must be known before calling its generic method `{}`", span.file, span.start.line, span.start.column, parent_name, method_name)]
+    GenericMethodOnUninferredInstance {
+        method_name: Symbol,
+        parent_name: Symbol,
+        span: Span,
+    },
+
     #[error("{}:{}:{} no method named `{}` in `{}`", span.file, span.start.line, span.start.column, method_name, parent_name)]
     NoMethod {
         method_name: Symbol,
