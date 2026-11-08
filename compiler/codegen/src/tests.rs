@@ -2991,6 +2991,43 @@ fn generic_function_identity_param_inference() -> anyhow::Result<()> {
 }
 
 #[test]
+fn generic_function_instantiates_nested_generic_call() -> anyhow::Result<()> {
+    let program = r#"fun inner<T>(value: T) -> T {
+        return value
+    }
+
+    fun outer<T>(value: T) -> T {
+        return inner(value)
+    }
+
+    fun main() -> i32 {
+        return outer(58)
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn generic_function_instantiates_recursive_call_once() -> anyhow::Result<()> {
+    let program = r#"fun descend<T>(value: T, depth: i32) -> T {
+        if depth == 0 {
+            return value
+        }
+        return descend(value, depth - 1)
+    }
+
+    fun main() -> i32 {
+        return descend(58, 2)
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
 fn generic_function_infers_parameter_from_later_argument() -> anyhow::Result<()> {
     let program = r#"fun second<T>(ignored: i32, value: T) -> T {
         return value
@@ -3013,6 +3050,28 @@ fn generic_function_infers_parameter_nested_in_array() -> anyhow::Result<()> {
 
     fun main() -> i32 {
         return first([58, 10])
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn generic_function_shares_instance_across_pointer_mutability() -> anyhow::Result<()> {
+    let program = r#"extern "C" fun malloc(n: u64) -> *mut u8
+    extern "C" fun free(p: *mut u8)
+    extern "C" fun getenv(name: *u8) -> *u8
+
+    fun id<T>(value: T) -> T {
+        return value
+    }
+
+    fun main() -> i32 {
+        let p = id(malloc(8))
+        let q = id(getenv("HOME" as *str as *u8))
+        free(p)
+        return 58
     }"#;
 
     assert_eq!(exec(program)?, 58);
