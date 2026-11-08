@@ -2987,6 +2987,36 @@ fn generic_function_identity_param_inference() -> anyhow::Result<()> {
 }
 
 #[test]
+fn generic_function_infers_parameter_from_later_argument() -> anyhow::Result<()> {
+    let program = r#"fun second<T>(ignored: i32, value: T) -> T {
+        return value
+    }
+
+    fun main() -> i32 {
+        return second(0, 58)
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
+fn generic_function_infers_parameter_nested_in_array() -> anyhow::Result<()> {
+    let program = r#"fun first<T>(values: [T; 2]) -> T {
+        return values[0]
+    }
+
+    fun main() -> i32 {
+        return first([58, 10])
+    }"#;
+
+    assert_eq!(exec(program)?, 58);
+
+    Ok(())
+}
+
+#[test]
 fn generic_function_with_struct_type() -> anyhow::Result<()> {
     let program = r#"struct Sample {
         n: i32,

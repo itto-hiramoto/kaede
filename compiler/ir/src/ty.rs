@@ -308,6 +308,15 @@ pub fn apply_type_var_bindings(ty: &Rc<Ty>, bindings: &HashMap<InferVarId, Rc<Ty
     })
 }
 
+pub fn substitute_generic_params(ty: &Rc<Ty>, origin: &QualifiedSymbol, args: &[Rc<Ty>]) -> Rc<Ty> {
+    transform_ty(ty, &|ty| match ty.kind.as_ref() {
+        TyKind::GenericParam(param) if &param.origin == origin => args
+            .get(param.index)
+            .map(|arg| change_mutability_dup(arg.clone(), ty.mutability)),
+        _ => None,
+    })
+}
+
 fn transform_ty(ty: &Rc<Ty>, replace: &impl Fn(&Rc<Ty>) -> Option<Rc<Ty>>) -> Rc<Ty> {
     if let Some(replacement) = replace(ty) {
         return replacement;
@@ -358,9 +367,8 @@ fn transform_ty(ty: &Rc<Ty>, replace: &impl Fn(&Rc<Ty>) -> Option<Rc<Ty>>) -> Rc
             mutability: ty.mutability,
         }),
         TyKind::UserDefined(udt) => Rc::new(Ty {
-            kind: TyKind::UserDefined(UserDefinedType {
-                kind: udt.kind.clone(),
-                generic_instance: udt.generic_instance.as_ref().map(|instance| {
+            kind: TyKind::UserDefined({
+                let generic_instance = udt.generic_instance.as_ref().map(|instance| {
                     GenericInstanceInfo::new(
                         instance.origin.clone(),
                         instance
@@ -369,7 +377,18 @@ fn transform_ty(ty: &Rc<Ty>, replace: &impl Fn(&Rc<Ty>) -> Option<Rc<Ty>>) -> Rc
                             .map(|arg| transform_ty(arg, replace))
                             .collect(),
                     )
-                }),
+                });
+                let kind = match (&udt.kind, &generic_instance) {
+                    (UserDefinedTypeKind::Placeholder(_), Some(instance)) => instance
+                        .concrete_qualified_symbol()
+                        .map(UserDefinedTypeKind::Placeholder)
+                        .unwrap_or_else(|| udt.kind.clone()),
+                    _ => udt.kind.clone(),
+                };
+                UserDefinedType {
+                    kind,
+                    generic_instance,
+                }
             })
             .into(),
             mutability: ty.mutability,
@@ -615,6 +634,30 @@ impl GenericInstanceInfo {
 
     pub fn contains_infer(&self) -> bool {
         self.args.iter().any(contains_infer)
+    }
+
+    pub fn concrete_symbol(&self) -> Option<Symbol> {
+        if !self.args.iter().all(is_concrete) {
+            return None;
+        }
+
+        Some(
+            format!(
+                "{}_{}",
+                self.origin.symbol(),
+                self.args
+                    .iter()
+                    .map(|ty| ty.kind.to_string())
+                    .collect::<Vec<_>>()
+                    .join("_")
+            )
+            .into(),
+        )
+    }
+
+    pub fn concrete_qualified_symbol(&self) -> Option<QualifiedSymbol> {
+        self.concrete_symbol()
+            .map(|symbol| QualifiedSymbol::new(self.origin.module_path().clone(), symbol))
     }
 
     pub fn collect_infer_var_ids_in_order(&self) -> Vec<InferVarId> {
