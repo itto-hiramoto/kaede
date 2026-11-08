@@ -14,6 +14,7 @@ use kaede_codegen::{error::CodegenError, CodeGenerator, CodegenCtx};
 use kaede_common::{
     kaede_gc_lib_path, kaede_lib_path, kaede_runtime_lib_path, kaede_runtime_linker_flags,
 };
+use kaede_ir::validate_compile_unit;
 use kaede_monomorphize::Monomorphizer;
 use kaede_parse::Parser;
 use kaede_semantic::{AnalyzeOptions, SemanticAnalyzer};
@@ -281,6 +282,7 @@ fn compile<'ctx>(
             }
         }
         Monomorphizer::new().run(&mut ir)?;
+        let ir = validate_compile_unit(ir)?;
 
         let code_generator = CodeGenerator::new(cgcx)?;
 
