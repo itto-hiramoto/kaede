@@ -81,17 +81,6 @@ impl InferContext {
             .collect()
     }
 
-    pub fn bindings_for_generic_instance(
-        &self,
-        instance: &GenericInstanceInfo,
-    ) -> HashMap<InferVarId, Rc<Ty>> {
-        instance
-            .collect_infer_var_ids_in_order()
-            .into_iter()
-            .map(|id| (id, self.resolve_var(id)))
-            .collect()
-    }
-
     /// Recursively substitute type variables using current bindings, rebuilding composite types.
     pub fn apply(&self, t: &Rc<Ty>) -> Rc<Ty> {
         match t.kind.as_ref() {
@@ -151,26 +140,7 @@ impl InferContext {
             .into(),
 
             TyKind::UserDefined(udt) => Ty {
-                kind: TyKind::UserDefined({
-                    let generic_instance = udt
-                        .generic_instance
-                        .as_ref()
-                        .map(|instance| self.apply_generic_instance(instance));
-                    let kind = match (&udt.kind, &generic_instance) {
-                        (kaede_ir::ty::UserDefinedTypeKind::Placeholder(_), Some(instance)) => {
-                            instance
-                                .concrete_qualified_symbol()
-                                .map(kaede_ir::ty::UserDefinedTypeKind::Placeholder)
-                                .unwrap_or_else(|| udt.kind.clone())
-                        }
-                        _ => udt.kind.clone(),
-                    };
-                    UserDefinedType {
-                        kind,
-                        generic_instance,
-                    }
-                })
-                .into(),
+                kind: TyKind::UserDefined(udt.map_generic_args(&|arg| self.apply(arg))).into(),
                 mutability: t.mutability,
             }
             .into(),

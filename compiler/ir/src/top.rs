@@ -24,6 +24,31 @@ pub struct Struct {
     pub generic_instance: Option<GenericInstanceInfo>,
 }
 
+impl Struct {
+    /// This declaration as `instance`, with `map` applied to every field type. The name becomes
+    /// the instance's symbol once its arguments are concrete.
+    pub fn instantiate(
+        &self,
+        instance: GenericInstanceInfo,
+        map: &impl std::ops::Fn(&Rc<Ty>) -> Rc<Ty>,
+    ) -> Self {
+        Self {
+            name: instance
+                .concrete_qualified_symbol()
+                .unwrap_or_else(|| self.name.clone()),
+            fields: self
+                .fields
+                .iter()
+                .map(|field| StructField {
+                    ty: map(&field.ty),
+                    ..field.clone()
+                })
+                .collect(),
+            generic_instance: Some(instance),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Param {
     pub name: Symbol,
@@ -84,6 +109,31 @@ pub struct Enum {
     pub name: QualifiedSymbol,
     pub variants: Vec<EnumVariant>,
     pub generic_instance: Option<GenericInstanceInfo>,
+}
+
+impl Enum {
+    /// This declaration as `instance`, with `map` applied to every variant type. The name becomes
+    /// the instance's symbol once its arguments are concrete.
+    pub fn instantiate(
+        &self,
+        instance: GenericInstanceInfo,
+        map: &impl std::ops::Fn(&Rc<Ty>) -> Rc<Ty>,
+    ) -> Self {
+        Self {
+            name: instance
+                .concrete_qualified_symbol()
+                .unwrap_or_else(|| self.name.clone()),
+            variants: self
+                .variants
+                .iter()
+                .map(|variant| EnumVariant {
+                    ty: variant.ty.as_ref().map(map),
+                    ..variant.clone()
+                })
+                .collect(),
+            generic_instance: Some(instance),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

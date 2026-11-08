@@ -39,9 +39,8 @@ use kaede_ast::{self as ast, top::Visibility};
 use kaede_ast_type::{self as ast_type, FundamentalTypeKind};
 use kaede_ir as ir;
 use kaede_type_infer::InferContext;
-use subst::GenericSubstituter;
 pub use top::TopLevelAnalysisResult;
-use worklist::InstanceWorklist;
+use worklist::{InstanceKind, InstanceWorklist};
 
 use crate::context::{AnalyzeCommand, LookupMode, ModuleContext};
 
@@ -51,7 +50,9 @@ struct ClosureCapture {
     captured: HashSet<Symbol>,
 }
 
-struct PendingGenericFnRequest {
+/// A generic instance requested while its arguments may still contain inference variables.
+struct PendingInstanceRequest {
+    kind: InstanceKind,
     origin: QualifiedSymbol,
     args: Vec<Rc<ir_type::Ty>>,
     span: Span,
@@ -80,11 +81,9 @@ pub struct SemanticAnalyzer {
     infer_context: InferContext,
     closure_capture_stack: Vec<ClosureCapture>,
     temp_symbol_counter: usize,
-    generated_callable_substitutions:
-        HashMap<QualifiedSymbol, HashMap<ir_type::InferVarId, Rc<ir_type::Ty>>>,
     inference_substitutions: HashMap<ir_type::InferVarId, Rc<ir_type::Ty>>,
-    pending_generic_fn_requests: Vec<PendingGenericFnRequest>,
-    generic_fn_worklist: InstanceWorklist,
+    pending_instance_requests: Vec<PendingInstanceRequest>,
+    instance_worklist: InstanceWorklist,
     pending_generic_instance: Option<ir_type::GenericInstanceInfo>,
 }
 
@@ -361,10 +360,9 @@ impl SemanticAnalyzer {
             infer_context: InferContext::default(),
             closure_capture_stack: Vec::new(),
             temp_symbol_counter: 0,
-            generated_callable_substitutions: HashMap::new(),
             inference_substitutions: HashMap::new(),
-            pending_generic_fn_requests: Vec::new(),
-            generic_fn_worklist: InstanceWorklist::default(),
+            pending_instance_requests: Vec::new(),
+            instance_worklist: InstanceWorklist::default(),
             pending_generic_instance: None,
         })
     }
@@ -391,10 +389,9 @@ impl SemanticAnalyzer {
             infer_context: InferContext::default(),
             closure_capture_stack: Vec::new(),
             temp_symbol_counter: 0,
-            generated_callable_substitutions: HashMap::new(),
             inference_substitutions: HashMap::new(),
-            pending_generic_fn_requests: Vec::new(),
-            generic_fn_worklist: InstanceWorklist::default(),
+            pending_instance_requests: Vec::new(),
+            instance_worklist: InstanceWorklist::default(),
             pending_generic_instance: None,
         }
     }
@@ -595,10 +592,7 @@ impl SemanticAnalyzer {
             "{}_{}",
             name,
             args.iter()
-                .map(|ty| match ty.kind.as_ref() {
-                    ir_type::TyKind::Infer(id) => format!("var{id}"),
-                    _ => ty.kind.to_string(),
-                })
+                .map(|ty| ty.kind.to_string())
                 .collect::<Vec<_>>()
                 .join("_")
         )
@@ -738,34 +732,6 @@ impl SemanticAnalyzer {
             .collect::<Vec<_>>();
 
         for top_level in self.generated_generics.iter() {
-            let unresolved_type_instance = match top_level {
-                ir::top::TopLevel::Struct(struct_) => {
-                    struct_
-                        .fields
-                        .iter()
-                        .any(|field| ir_type::contains_infer(&field.ty))
-                        || struct_
-                            .generic_instance
-                            .as_ref()
-                            .is_some_and(ir_type::GenericInstanceInfo::contains_infer)
-                }
-                ir::top::TopLevel::Enum(enum_) => {
-                    enum_
-                        .variants
-                        .iter()
-                        .filter_map(|variant| variant.ty.as_ref())
-                        .any(ir_type::contains_infer)
-                        || enum_
-                            .generic_instance
-                            .as_ref()
-                            .is_some_and(ir_type::GenericInstanceInfo::contains_infer)
-                }
-                _ => false,
-            };
-            if unresolved_type_instance {
-                continue;
-            }
-
             let type_instance = match top_level {
                 ir::top::TopLevel::Struct(struct_) => struct_.generic_instance.as_ref(),
                 ir::top::TopLevel::Enum(enum_) => enum_.generic_instance.as_ref(),
@@ -781,28 +747,10 @@ impl SemanticAnalyzer {
                 emitted_type_instances.push(instance.clone());
             }
 
-            if let Some(name) = Self::unresolved_generated_callable_name(top_level) {
-                let name = name.mangle();
-                anyhow::bail!(
-                    "internal compiler error: generated callable `{name}` still has unresolved type variables after inference",
-                );
-            }
             compile_unit.top_levels.push(top_level.clone());
         }
 
         Ok(compile_unit)
-    }
-
-    fn merge_generated_callable_substitutions(
-        &mut self,
-        substitutions: HashMap<QualifiedSymbol, HashMap<ir_type::InferVarId, Rc<ir_type::Ty>>>,
-    ) {
-        for (name, subst) in substitutions {
-            self.generated_callable_substitutions
-                .entry(name)
-                .or_default()
-                .extend(subst);
-        }
     }
 
     fn merge_inference_substitutions(
@@ -812,15 +760,20 @@ impl SemanticAnalyzer {
         self.inference_substitutions.extend(substitutions);
     }
 
-    fn enqueue_pending_generic_fn_requests(&mut self) -> anyhow::Result<()> {
-        for request in std::mem::take(&mut self.pending_generic_fn_requests) {
+    /// Enqueues every pending request whose arguments inference has made concrete and drops the
+    /// rest.
+    fn enqueue_pending_instance_requests(&mut self) -> anyhow::Result<()> {
+        for request in std::mem::take(&mut self.pending_instance_requests) {
             let args = request
                 .args
                 .iter()
                 .map(|arg| ir_type::apply_type_var_bindings(arg, &self.inference_substitutions))
-                .collect();
-            self.generic_fn_worklist
-                .enqueue(request.origin, args, request.span)?;
+                .collect::<Vec<_>>();
+            if !args.iter().all(ir_type::is_concrete) {
+                continue;
+            }
+            self.instance_worklist
+                .enqueue(request.kind, request.origin, args, request.span)?;
         }
 
         Ok(())
@@ -884,14 +837,27 @@ impl SemanticAnalyzer {
         Ok(())
     }
 
-    fn process_generic_fn_specializations(&mut self) -> anyhow::Result<()> {
-        self.enqueue_pending_generic_fn_requests()?;
+    fn process_instance_worklist(&mut self) -> anyhow::Result<()> {
+        self.enqueue_pending_instance_requests()?;
 
-        while let Some(item) = self.generic_fn_worklist.next_item() {
+        while let Some(item) = self.instance_worklist.next_item() {
             let key = item.key.clone();
-            self.generate_generic_fn_specialization(item.key.origin, item.args, item.span)?;
-            self.enqueue_pending_generic_fn_requests()?;
-            self.generic_fn_worklist.complete(&key);
+            match item.key.kind {
+                InstanceKind::Fn => {
+                    self.generate_generic_fn_specialization(item.key.origin, item.args, item.span)?
+                }
+                InstanceKind::Type => {
+                    self.generate_generic_type_instance(item.key.origin, item.args, item.span)?
+                }
+                InstanceKind::Method { name, is_static } => self.generate_generic_method_instance(
+                    item.key.origin,
+                    item.args,
+                    name,
+                    is_static,
+                )?,
+            }
+            self.enqueue_pending_instance_requests()?;
+            self.instance_worklist.complete(&key);
         }
 
         Ok(())
@@ -912,107 +878,14 @@ impl SemanticAnalyzer {
         self.pending_generic_instance.clone()
     }
 
-    fn instantiation_already_registered(
-        instantiations: &[Vec<Rc<ir_type::Ty>>],
-        generic_args: &[Rc<ir_type::Ty>],
-        matches: impl Fn(&[Rc<ir_type::Ty>], &[Rc<ir_type::Ty>]) -> bool,
-    ) -> bool {
-        instantiations
-            .iter()
-            .any(|args| matches(args, generic_args))
-    }
-
     fn generic_instantiation_already_registered(
         instantiations: &[Vec<Rc<ir_type::Ty>>],
         generic_args: &[Rc<ir_type::Ty>],
     ) -> bool {
-        Self::instantiation_already_registered(
-            instantiations,
-            generic_args,
-            Self::generic_args_match_exactly,
-        )
-    }
-
-    fn generic_args_match_exactly(left: &[Rc<ir_type::Ty>], right: &[Rc<ir_type::Ty>]) -> bool {
-        left.len() == right.len()
-            && left
-                .iter()
-                .zip(right)
-                .all(|(a, b)| match (a.kind.as_ref(), b.kind.as_ref()) {
-                    (ir_type::TyKind::Infer(aid), ir_type::TyKind::Infer(bid)) => aid == bid,
-                    (ir_type::TyKind::Infer(_), _) | (_, ir_type::TyKind::Infer(_)) => false,
-                    _ => a.kind == b.kind,
-                })
-    }
-
-    fn apply_substitutions_to_generated_generics(&mut self) {
-        if self.generated_callable_substitutions.is_empty()
-            && self.inference_substitutions.is_empty()
-        {
-            return;
-        }
-
-        let global_subst = self.inference_substitutions.clone();
-
-        for top_level in &mut self.generated_generics {
-            match top_level {
-                ir::top::TopLevel::Fn(fn_) => {
-                    let fn_ = Rc::get_mut(fn_).expect("generated function must be uniquely owned");
-                    if !global_subst.is_empty() {
-                        let substituter = GenericSubstituter::new(&global_subst);
-                        substituter.apply_fn_decl(&mut fn_.decl);
-                        if let Some(body) = &mut fn_.body {
-                            substituter.apply_block(body);
-                        }
-                    }
-                    if let Some(subst) = self.generated_callable_substitutions.get(&fn_.decl.name) {
-                        let substituter = GenericSubstituter::new(subst);
-                        substituter.apply_fn_decl(&mut fn_.decl);
-                        if let Some(body) = &mut fn_.body {
-                            substituter.apply_block(body);
-                        }
-                    }
-                }
-                ir::top::TopLevel::Struct(struct_) => {
-                    if !global_subst.is_empty() {
-                        let mut new_struct = (**struct_).clone();
-                        GenericSubstituter::new(&global_subst).apply_struct(&mut new_struct);
-                        *struct_ = Rc::new(new_struct);
-                    }
-                }
-                ir::top::TopLevel::Enum(enum_) => {
-                    if !global_subst.is_empty() {
-                        let mut new_enum = (**enum_).clone();
-                        GenericSubstituter::new(&global_subst).apply_enum(&mut new_enum);
-                        *enum_ = Rc::new(new_enum);
-                    }
-                }
-                ir::top::TopLevel::Impl(impl_) => {
-                    let impl_ = Rc::get_mut(impl_).expect("generated impl must be uniquely owned");
-                    for method in &mut impl_.methods {
-                        let method = Rc::get_mut(method)
-                            .expect("generated impl method must be uniquely owned");
-                        if !global_subst.is_empty() {
-                            let substituter = GenericSubstituter::new(&global_subst);
-                            substituter.apply_fn_decl(&mut method.decl);
-                            if let Some(body) = &mut method.body {
-                                substituter.apply_block(body);
-                            }
-                        }
-                        if let Some(subst) =
-                            self.generated_callable_substitutions.get(&method.decl.name)
-                        {
-                            let substituter = GenericSubstituter::new(subst);
-                            substituter.apply_fn_decl(&mut method.decl);
-                            if let Some(body) = &mut method.body {
-                                substituter.apply_block(body);
-                            }
-                        }
-                    }
-                }
-                ir::top::TopLevel::Interface(_) => {}
-            }
-        }
+        instantiations.iter().any(|args| {
+            args.len() == generic_args.len()
+                && args.iter().zip(generic_args).all(|(a, b)| a.kind == b.kind)
+        })
     }
 
     fn analyze_prelude(
@@ -1450,110 +1323,6 @@ impl SemanticAnalyzer {
         // Apply inferred types back to the IR
         inferrer.apply_block(body)?;
         self.merge_inference_substitutions(inferrer.resolved_substitutions());
-        self.merge_generated_callable_substitutions(
-            inferrer.into_generated_callable_substitutions(),
-        );
-
-        Ok(())
-    }
-
-    fn fn_decl_has_unresolved_types(decl: &ir::top::FnDecl) -> bool {
-        decl.params.iter().any(|p| ir::ty::contains_infer(&p.ty))
-            || ir::ty::contains_infer(&decl.return_ty)
-            || decl
-                .generic_instance
-                .as_ref()
-                .is_some_and(ir_type::GenericInstanceInfo::contains_infer)
-    }
-
-    fn unresolved_generated_callable_name(
-        top_level: &ir::top::TopLevel,
-    ) -> Option<QualifiedSymbol> {
-        match top_level {
-            ir::top::TopLevel::Fn(fn_) if Self::fn_decl_has_unresolved_types(&fn_.decl) => {
-                Some(fn_.decl.name.clone())
-            }
-            ir::top::TopLevel::Impl(impl_) => impl_
-                .methods
-                .iter()
-                .find(|method| Self::fn_decl_has_unresolved_types(&method.decl))
-                .map(|method| method.decl.name.clone()),
-            ir::top::TopLevel::Fn(_)
-            | ir::top::TopLevel::Struct(_)
-            | ir::top::TopLevel::Enum(_)
-            | ir::top::TopLevel::Interface(_) => None,
-        }
-    }
-
-    fn infer_function_body_with_decl(
-        &mut self,
-        body: &mut kaede_ir::stmt::Block,
-        decl: &ir::top::FnDecl,
-    ) -> anyhow::Result<()> {
-        use kaede_type_infer::TypeInferrer;
-
-        let tables = vec![SymbolTable::new()];
-        let resolver =
-            SymbolResolver::merge_for_inference(&tables, self.build_qualified_symbol_table());
-
-        let mut inferrer = TypeInferrer::new(
-            resolver,
-            decl.return_ty.clone(),
-            self.infer_context.type_var_allocator.clone(),
-        );
-
-        for param in &decl.params {
-            inferrer.register_variable(param.name, param.ty.clone());
-        }
-
-        for stmt in &body.body {
-            inferrer.infer_stmt(stmt)?;
-        }
-
-        if let Some(last_expr) = &body.last_expr {
-            inferrer.infer_expr(last_expr)?;
-        }
-
-        inferrer.apply_block(body)?;
-        self.merge_inference_substitutions(inferrer.resolved_substitutions());
-        self.merge_generated_callable_substitutions(
-            inferrer.into_generated_callable_substitutions(),
-        );
-
-        Ok(())
-    }
-
-    fn infer_generated_generic_bodies_after_substitution(&mut self) -> anyhow::Result<()> {
-        for i in 0..self.generated_generics.len() {
-            let mut top_level = self.generated_generics[i].clone();
-
-            match &mut top_level {
-                ir::top::TopLevel::Fn(fn_) => {
-                    let fn_ = Rc::make_mut(fn_);
-                    if !Self::fn_decl_has_unresolved_types(&fn_.decl) {
-                        if let Some(body) = &mut fn_.body {
-                            self.infer_function_body_with_decl(body, &fn_.decl)?;
-                        }
-                    }
-                }
-                ir::top::TopLevel::Impl(impl_) => {
-                    let impl_ = Rc::make_mut(impl_);
-                    for method in &mut impl_.methods {
-                        let method = Rc::make_mut(method);
-                        if !Self::fn_decl_has_unresolved_types(&method.decl) {
-                            if let Some(body) = &mut method.body {
-                                self.infer_function_body_with_decl(body, &method.decl)?;
-                            }
-                        }
-                    }
-                }
-                ir::top::TopLevel::Struct(_)
-                | ir::top::TopLevel::Enum(_)
-                | ir::top::TopLevel::Interface(_) => {}
-            }
-
-            self.generated_generics[i] = top_level;
-        }
 
         Ok(())
     }
@@ -1590,10 +1359,7 @@ impl SemanticAnalyzer {
             self.build_main_function(&mut top_level_irs)?;
         }
 
-        self.apply_substitutions_to_generated_generics();
-        self.process_generic_fn_specializations()?;
-        self.apply_substitutions_to_generated_generics();
-        self.infer_generated_generic_bodies_after_substitution()?;
+        self.process_instance_worklist()?;
 
         self.inject_generated_generics_to_compile_unit(ir::CompileUnit {
             top_levels: top_level_irs,

@@ -443,16 +443,13 @@ impl SemanticAnalyzer {
                             ir_type::TyKind::UserDefined(u) => Some(u.clone()),
                             _ => None,
                         };
-                        opt_udt.and_then(|u| match &u.kind {
-                            ir_type::UserDefinedTypeKind::Enum(e) => Some(e.clone()),
-                            ir_type::UserDefinedTypeKind::Placeholder(qsym) => self
-                                .lookup_qualified_symbol(qsym.clone())
-                                .and_then(|v| match &v.borrow().kind {
-                                    SymbolTableValueKind::Enum(e) => Some(e.clone()),
-                                    _ => None,
-                                }),
-                            _ => None,
-                        })
+                        match opt_udt {
+                            Some(u) => match self.user_defined_declaration(&u, arm.span)? {
+                                Some(ir_type::UserDefinedTypeKind::Enum(e)) => Some(e),
+                                _ => None,
+                            },
+                            None => None,
+                        }
                     };
 
                     self.push_scope(SymbolTable::new());
@@ -600,19 +597,8 @@ impl SemanticAnalyzer {
             _ => unreachable!("{:?}", struct_ty.kind),
         };
 
-        let struct_ir = match &udt_ir.kind {
-            ir_type::UserDefinedTypeKind::Struct(struct_ir) => struct_ir.clone(),
-            ir_type::UserDefinedTypeKind::Placeholder(qsym) => {
-                match &self
-                    .lookup_qualified_symbol(qsym.clone())
-                    .unwrap()
-                    .borrow()
-                    .kind
-                {
-                    SymbolTableValueKind::Struct(struct_ir) => struct_ir.clone(),
-                    _ => unreachable!(),
-                }
-            }
+        let struct_ir = match self.user_defined_declaration(udt_ir, node.span)? {
+            Some(ir_type::UserDefinedTypeKind::Struct(struct_ir)) => struct_ir,
             _ => unreachable!(),
         };
 
@@ -1090,19 +1076,8 @@ impl SemanticAnalyzer {
         };
 
         let enum_ir = if let ir_type::TyKind::UserDefined(udt) = base_ty.kind.as_ref() {
-            match &udt.kind {
-                ir_type::UserDefinedTypeKind::Enum(enum_ir) => enum_ir.clone(),
-                ir_type::UserDefinedTypeKind::Placeholder(qsym) => {
-                    match &self
-                        .lookup_qualified_symbol(qsym.clone())
-                        .unwrap()
-                        .borrow()
-                        .kind
-                    {
-                        SymbolTableValueKind::Enum(enum_ir) => enum_ir.clone(),
-                        _ => unreachable!(),
-                    }
-                }
+            match self.user_defined_declaration(udt, node.span)? {
+                Some(ir_type::UserDefinedTypeKind::Enum(enum_ir)) => enum_ir,
                 _ => return err(),
             }
         } else {
@@ -1560,8 +1535,9 @@ impl SemanticAnalyzer {
         }
 
         let callee_decl = self.instantiate_generic_fn_decl(&origin, func_info, &generic_args);
-        self.pending_generic_fn_requests
-            .push(super::PendingGenericFnRequest {
+        self.pending_instance_requests
+            .push(super::PendingInstanceRequest {
+                kind: super::InstanceKind::Fn,
                 origin,
                 args: generic_args.clone(),
                 span,
@@ -3307,24 +3283,9 @@ impl SemanticAnalyzer {
             span: left_ident.span(),
         };
 
-        let enum_ir = match &udt.kind {
-            ir_type::UserDefinedTypeKind::Enum(em) => em.clone(),
-            ir_type::UserDefinedTypeKind::Placeholder(qsym) => {
-                match &self
-                    .lookup_qualified_symbol(qsym.clone())
-                    .unwrap()
-                    .borrow()
-                    .kind
-                {
-                    SymbolTableValueKind::Enum(enum_ir) => enum_ir.clone(),
-                    _ => {
-                        return Err(not_an_enum_error().into());
-                    }
-                }
-            }
-            _ => {
-                return Err(not_an_enum_error().into());
-            }
+        let enum_ir = match self.user_defined_declaration(udt, left_span)? {
+            Some(ir_type::UserDefinedTypeKind::Enum(enum_ir)) => enum_ir,
+            _ => return Err(not_an_enum_error().into()),
         };
 
         let variant_index = enum_ir
@@ -3382,6 +3343,11 @@ impl SemanticAnalyzer {
         call_node: &ast::expr::FnCall,
     ) -> anyhow::Result<ir::expr::Expr> {
         let method_symbol = self.callee_symbol(call_node)?;
+        if let Some(instance) = Self::uninferred_instance(udt.generic_instance.as_ref()) {
+            let callee =
+                self.instantiate_method_schema(instance, method_symbol, true, call_node.span)?;
+            return self.build_static_method_call_ir(callee, call_node);
+        }
         self.analyze_static_method_call_by_name(
             udt.name(),
             udt.qualified_symbol().module_path().clone(),
@@ -3469,7 +3435,14 @@ impl SemanticAnalyzer {
         drop(borrowed);
 
         self.ensure_generated_impl_method_body(&method_decl)?;
+        self.build_static_method_call_ir(method_decl, call_node)
+    }
 
+    fn build_static_method_call_ir(
+        &mut self,
+        method_decl: Rc<ir::top::FnDecl>,
+        call_node: &ast::expr::FnCall,
+    ) -> anyhow::Result<ir::expr::Expr> {
         let (ordered_args, variadic_args) = self.resolve_call_arguments(
             &method_decl
                 .params
@@ -3762,6 +3735,13 @@ impl SemanticAnalyzer {
         let origin = Self::slice_generic_origin();
         let generic_args = std::slice::from_ref(elem_ty);
 
+        if ir_type::contains_infer(elem_ty) {
+            let instance = ir_type::GenericInstanceInfo::new(origin, generic_args.to_vec());
+            let callee =
+                self.instantiate_method_schema(&instance, callee_symbol, false, call_node.span)?;
+            return self.build_method_call_ir(callee, call_node, lhs, span);
+        }
+
         self.ensure_generic_impl_method_declarations(origin.clone(), generic_args)?;
 
         self.create_method_call_ir(
@@ -3912,6 +3892,11 @@ impl SemanticAnalyzer {
             return self.analyze_interface_method_call(lhs, interface.clone(), call_node, span);
         }
         let callee_symbol = self.callee_symbol(call_node)?;
+        if let Some(instance) = Self::uninferred_instance(udt.generic_instance.as_ref()) {
+            let callee =
+                self.instantiate_method_schema(instance, callee_symbol, false, call_node.span)?;
+            return self.build_method_call_ir(callee, call_node, lhs, span);
+        }
         self.create_method_call_ir(
             callee_symbol,
             udt.module_path().clone(),
@@ -4150,6 +4135,24 @@ impl SemanticAnalyzer {
                 }
             };
 
+        self.ensure_generated_impl_method_body(&callee)?;
+        self.build_method_call_ir(callee, call_node, this, span)
+    }
+
+    /// The generic instance of a receiver type whose arguments inference has yet to resolve.
+    fn uninferred_instance(
+        instance: Option<&ir_type::GenericInstanceInfo>,
+    ) -> Option<&ir_type::GenericInstanceInfo> {
+        instance.filter(|instance| instance.contains_infer())
+    }
+
+    fn build_method_call_ir(
+        &mut self,
+        callee: Rc<ir::top::FnDecl>,
+        call_node: &ast::expr::FnCall,
+        this: ir::expr::Expr,
+        span: Span,
+    ) -> anyhow::Result<ir::expr::Expr> {
         if let Some(self_param) = callee.params.first() {
             if self_param.name.as_str() == "self"
                 && self_param.ty.mutability.is_mut()
@@ -4158,8 +4161,6 @@ impl SemanticAnalyzer {
                 return Err(SemanticError::CannotCallMutableMethodOnImmutableValue { span }.into());
             }
         }
-
-        self.ensure_generated_impl_method_body(&callee)?;
 
         let params_without_self = if callee.params.is_empty() {
             &[][..]

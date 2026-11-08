@@ -9,15 +9,36 @@ use kaede_ir::{
     ty::{change_mutability_dup, FundamentalTypeKind, Mutability, Ty, TyKind},
 };
 use kaede_span::Span;
+use kaede_symbol::Symbol;
+
+use crate::error::SemanticError;
+
+/// What a generic origin is instantiated into.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum InstanceKind {
+    Fn,
+    /// A generic struct or enum.
+    Type,
+    /// One method of a generic struct, enum, or slice impl.
+    Method {
+        name: Symbol,
+        is_static: bool,
+    },
+}
+
+/// How deeply types may nest inside one generic argument.
+pub const MAX_INSTANCE_ARG_DEPTH: usize = 64;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct InstanceKey {
+    pub kind: InstanceKind,
     pub origin: QualifiedSymbol,
     pub args: Vec<ConcreteTyKey>,
 }
 
 impl InstanceKey {
     pub fn from_types(
+        kind: InstanceKind,
         origin: QualifiedSymbol,
         args: &[Rc<Ty>],
         span: Span,
@@ -35,7 +56,7 @@ impl InstanceKey {
             })
             .collect::<anyhow::Result<_>>()?;
 
-        Ok(Self { origin, args })
+        Ok(Self { kind, origin, args })
     }
 }
 
@@ -68,6 +89,19 @@ enum ConcreteTyKind {
 }
 
 impl ConcreteTyKey {
+    fn depth(&self) -> usize {
+        let max = |keys: &[ConcreteTyKey]| keys.iter().map(Self::depth).max().unwrap_or(0);
+        1 + match &self.0 {
+            ConcreteTyKind::Fundamental(_) | ConcreteTyKind::Unit | ConcreteTyKind::Never => 0,
+            ConcreteTyKind::UserDefined { args, .. } | ConcreteTyKind::Tuple(args) => max(args),
+            ConcreteTyKind::Closure { params, return_ty } => max(params).max(return_ty.depth()),
+            ConcreteTyKind::Reference(inner)
+            | ConcreteTyKind::Pointer(inner)
+            | ConcreteTyKind::Slice(inner) => inner.depth(),
+            ConcreteTyKind::Array { element, .. } => element.depth(),
+        }
+    }
+
     fn try_from_ty(ty: &Ty) -> anyhow::Result<Self> {
         let key = Self;
         let convert_all = |tys: &[Rc<Ty>]| {
@@ -149,6 +183,7 @@ pub struct InstanceWorklist {
 impl InstanceWorklist {
     pub fn enqueue(
         &mut self,
+        kind: InstanceKind,
         origin: QualifiedSymbol,
         args: Vec<Rc<Ty>>,
         span: Span,
@@ -157,7 +192,15 @@ impl InstanceWorklist {
             .into_iter()
             .map(|arg| change_mutability_dup(arg, Mutability::Not))
             .collect::<Vec<_>>();
-        let key = InstanceKey::from_types(origin, &args, span)?;
+        let key = InstanceKey::from_types(kind, origin, &args, span)?;
+        if key.args.iter().map(ConcreteTyKey::depth).max().unwrap_or(0) > MAX_INSTANCE_ARG_DEPTH {
+            return Err(SemanticError::GenericInstantiationTooDeep {
+                name: key.origin.symbol(),
+                limit: MAX_INSTANCE_ARG_DEPTH,
+                span,
+            }
+            .into());
+        }
         if self.entries.contains_key(&key) {
             return Ok(false);
         }
@@ -220,7 +263,7 @@ mod tests {
     use kaede_span::{Location, Span};
     use kaede_symbol::Symbol;
 
-    use super::{InstanceState, InstanceWorklist};
+    use super::{InstanceKind, InstanceState, InstanceWorklist, MAX_INSTANCE_ARG_DEPTH};
 
     fn symbol(name: &str) -> QualifiedSymbol {
         QualifiedSymbol::new(ModulePath::root(), Symbol::from(name.to_owned()))
@@ -236,10 +279,20 @@ mod tests {
         let origin = symbol("identity");
 
         assert!(worklist
-            .enqueue(origin.clone(), vec![i32_ty(Mutability::Not)], Span::dummy())
+            .enqueue(
+                InstanceKind::Fn,
+                origin.clone(),
+                vec![i32_ty(Mutability::Not)],
+                Span::dummy()
+            )
             .unwrap());
         assert!(!worklist
-            .enqueue(origin, vec![i32_ty(Mutability::Not)], Span::dummy())
+            .enqueue(
+                InstanceKind::Fn,
+                origin,
+                vec![i32_ty(Mutability::Not)],
+                Span::dummy()
+            )
             .unwrap());
 
         let item = worklist.next_item().expect("queued item");
@@ -256,6 +309,7 @@ mod tests {
 
         assert!(worklist
             .enqueue(
+                InstanceKind::Fn,
                 symbol("identity"),
                 vec![i32_ty(Mutability::Mut)],
                 Span::dummy(),
@@ -263,6 +317,7 @@ mod tests {
             .unwrap());
         assert!(!worklist
             .enqueue(
+                InstanceKind::Fn,
                 symbol("identity"),
                 vec![i32_ty(Mutability::Not)],
                 Span::dummy(),
@@ -289,6 +344,7 @@ mod tests {
 
         assert!(worklist
             .enqueue(
+                InstanceKind::Fn,
                 symbol("identity"),
                 vec![ptr(Mutability::Mut)],
                 Span::dummy()
@@ -296,6 +352,7 @@ mod tests {
             .unwrap());
         assert!(!worklist
             .enqueue(
+                InstanceKind::Fn,
                 symbol("identity"),
                 vec![ptr(Mutability::Not)],
                 Span::dummy()
@@ -319,15 +376,71 @@ mod tests {
         let mut worklist = InstanceWorklist::default();
 
         assert!(worklist
-            .enqueue(symbol("consume"), vec![instance("Box_i32")], Span::dummy())
+            .enqueue(
+                InstanceKind::Fn,
+                symbol("consume"),
+                vec![instance("Box_i32")],
+                Span::dummy()
+            )
             .unwrap());
         assert!(!worklist
             .enqueue(
+                InstanceKind::Fn,
                 symbol("consume"),
                 vec![instance("another_generated_name")],
                 Span::dummy(),
             )
             .unwrap());
+    }
+
+    #[test]
+    fn distinguishes_instance_kinds_of_one_origin() {
+        let mut worklist = InstanceWorklist::default();
+        let origin = symbol("Vector");
+        let method = |name: &str| InstanceKind::Method {
+            name: Symbol::from(name.to_owned()),
+            is_static: false,
+        };
+
+        for kind in [InstanceKind::Type, method("push"), method("pop")] {
+            assert!(worklist
+                .enqueue(
+                    kind,
+                    origin.clone(),
+                    vec![i32_ty(Mutability::Not)],
+                    Span::dummy()
+                )
+                .unwrap());
+        }
+    }
+
+    #[test]
+    fn rejects_arguments_nested_beyond_the_depth_limit() {
+        let wrap = |inner: Rc<Ty>| {
+            Rc::new(Ty {
+                kind: TyKind::Pointer(PointerType { pointee_ty: inner }).into(),
+                mutability: Mutability::Not,
+            })
+        };
+        let nested = |depth: usize| (1..depth).fold(i32_ty(Mutability::Not), |ty, _| wrap(ty));
+        let mut worklist = InstanceWorklist::default();
+
+        assert!(worklist
+            .enqueue(
+                InstanceKind::Fn,
+                symbol("f"),
+                vec![nested(MAX_INSTANCE_ARG_DEPTH)],
+                Span::dummy()
+            )
+            .is_ok());
+        assert!(worklist
+            .enqueue(
+                InstanceKind::Fn,
+                symbol("f"),
+                vec![nested(MAX_INSTANCE_ARG_DEPTH + 1)],
+                Span::dummy()
+            )
+            .is_err());
     }
 
     #[test]
@@ -346,7 +459,7 @@ mod tests {
         let mut worklist = InstanceWorklist::default();
 
         let error = worklist
-            .enqueue(symbol("f"), vec![inferred], span)
+            .enqueue(InstanceKind::Fn, symbol("f"), vec![inferred], span)
             .unwrap_err()
             .to_string();
         assert!(error.contains("12:7"), "{error}");
@@ -363,7 +476,12 @@ mod tests {
         let mut worklist = InstanceWorklist::default();
 
         let error = worklist
-            .enqueue(symbol("f"), vec![parameter], Span::dummy())
+            .enqueue(
+                InstanceKind::Fn,
+                symbol("f"),
+                vec![parameter],
+                Span::dummy(),
+            )
             .unwrap_err();
         assert!(format!("{error:#}").contains("generic parameter"));
         assert!(worklist.next_item().is_none());

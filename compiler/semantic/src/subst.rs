@@ -1,33 +1,19 @@
-use std::{collections::HashMap, rc::Rc};
+use std::rc::Rc;
 
 use kaede_ir::{self as ir, ty as ir_type};
 
+/// Substitutes the generic parameters of `origin` with `args` throughout a declaration.
 pub(crate) struct GenericSubstituter<'a> {
-    subst: TypeSubstitution<'a>,
-}
-
-enum TypeSubstitution<'a> {
-    Infer(&'a HashMap<ir_type::InferVarId, Rc<ir_type::Ty>>),
-    GenericParams {
-        origin: &'a ir::qualified_symbol::QualifiedSymbol,
-        args: &'a [Rc<ir_type::Ty>],
-    },
+    origin: &'a ir::qualified_symbol::QualifiedSymbol,
+    args: &'a [Rc<ir_type::Ty>],
 }
 
 impl<'a> GenericSubstituter<'a> {
-    pub(crate) fn new(subst: &'a HashMap<ir_type::InferVarId, Rc<ir_type::Ty>>) -> Self {
-        Self {
-            subst: TypeSubstitution::Infer(subst),
-        }
-    }
-
     pub(crate) fn for_generic_params(
         origin: &'a ir::qualified_symbol::QualifiedSymbol,
         args: &'a [Rc<ir_type::Ty>],
     ) -> Self {
-        Self {
-            subst: TypeSubstitution::GenericParams { origin, args },
-        }
+        Self { origin, args }
     }
 
     fn apply_generic_instance(&self, generic_instance: &mut Option<ir_type::GenericInstanceInfo>) {
@@ -37,12 +23,7 @@ impl<'a> GenericSubstituter<'a> {
     }
 
     fn apply_ty(&self, ty: &Rc<ir_type::Ty>) -> Rc<ir_type::Ty> {
-        match &self.subst {
-            TypeSubstitution::Infer(subst) => ir_type::apply_type_var_bindings(ty, subst),
-            TypeSubstitution::GenericParams { origin, args } => {
-                ir_type::substitute_generic_params(ty, origin, args)
-            }
-        }
+        ir_type::substitute_generic_params(ty, self.origin, self.args)
     }
 
     pub(crate) fn apply_fn_decl(&self, decl: &mut ir::top::FnDecl) {
