@@ -419,7 +419,10 @@ impl<'ctx> CodeGenerator<'ctx> {
                 context.struct_type(llvm_types.as_slice(), false).into()
             }
 
-            TyKind::Var(_) => self.context().i32_type().as_basic_type_enum(),
+            TyKind::Infer(_) => self.context().i32_type().as_basic_type_enum(),
+            TyKind::GenericParam(param) => {
+                unreachable!("generic parameter {param:?} reached codegen")
+            }
 
             TyKind::Unit => panic!("Cannot get LLVM type of unit type!"),
             TyKind::Never => panic!("Cannot get LLVM type of never type!"),

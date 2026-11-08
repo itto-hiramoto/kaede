@@ -5,7 +5,7 @@ use kaede_ir::{
     expr::{BuiltinFnCallKind, Else, Expr, ExprKind, FnCall, If},
     stmt::{Block, Stmt},
     top::TopLevel,
-    ty::contains_type_var,
+    ty::contains_infer,
     CompileUnit,
 };
 
@@ -428,7 +428,7 @@ impl Monomorphizer {
                     self.rewrite_expr(arg)?;
                 }
 
-                if generic_call.generic_args.iter().any(contains_type_var) {
+                if generic_call.generic_args.iter().any(contains_infer) {
                     return Err(anyhow!(
                         "unresolved generic arguments at monomorphize: {:?}",
                         generic_call.callee.name
@@ -512,7 +512,7 @@ impl Monomorphizer {
             ExprKind::Block(block) => self.rewrite_block(block)?,
             ExprKind::BuiltinFnCall(call) => {
                 if let BuiltinFnCallKind::TypeSize(ty) = &call.kind {
-                    if contains_type_var(ty) {
+                    if contains_infer(ty) {
                         return Err(anyhow!(
                             "unresolved generic arguments at monomorphize: __type_size"
                         ));
