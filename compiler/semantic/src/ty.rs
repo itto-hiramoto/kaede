@@ -88,7 +88,7 @@ impl SemanticAnalyzer {
                 continue;
             };
 
-            if matches!(arg.kind.as_ref(), ir_type::TyKind::Var(_)) {
+            if matches!(arg.kind.as_ref(), ir_type::TyKind::Infer(_)) {
                 continue;
             }
 

@@ -72,7 +72,7 @@ pub struct SemanticAnalyzer {
     closure_capture_stack: Vec<ClosureCapture>,
     temp_symbol_counter: usize,
     generated_callable_substitutions:
-        HashMap<QualifiedSymbol, HashMap<ir_type::VarId, Rc<ir_type::Ty>>>,
+        HashMap<QualifiedSymbol, HashMap<ir_type::InferVarId, Rc<ir_type::Ty>>>,
     pending_generic_instance: Option<ir_type::GenericInstanceInfo>,
 }
 
@@ -578,7 +578,7 @@ impl SemanticAnalyzer {
             name,
             args.iter()
                 .map(|ty| match ty.kind.as_ref() {
-                    ir_type::TyKind::Var(id) => format!("var{id}"),
+                    ir_type::TyKind::Infer(id) => format!("var{id}"),
                     _ => ty.kind.to_string(),
                 })
                 .collect::<Vec<_>>()
@@ -724,7 +724,7 @@ impl SemanticAnalyzer {
 
     fn merge_generated_callable_substitutions(
         &mut self,
-        substitutions: HashMap<QualifiedSymbol, HashMap<ir_type::VarId, Rc<ir_type::Ty>>>,
+        substitutions: HashMap<QualifiedSymbol, HashMap<ir_type::InferVarId, Rc<ir_type::Ty>>>,
     ) {
         for (name, subst) in substitutions {
             self.generated_callable_substitutions
@@ -776,8 +776,8 @@ impl SemanticAnalyzer {
                 .iter()
                 .zip(right)
                 .all(|(a, b)| match (a.kind.as_ref(), b.kind.as_ref()) {
-                    (ir_type::TyKind::Var(aid), ir_type::TyKind::Var(bid)) => aid == bid,
-                    (ir_type::TyKind::Var(_), _) | (_, ir_type::TyKind::Var(_)) => false,
+                    (ir_type::TyKind::Infer(aid), ir_type::TyKind::Infer(bid)) => aid == bid,
+                    (ir_type::TyKind::Infer(_), _) | (_, ir_type::TyKind::Infer(_)) => false,
                     _ => a.kind == b.kind,
                 })
     }
@@ -1297,12 +1297,12 @@ impl SemanticAnalyzer {
     }
 
     fn fn_decl_has_unresolved_types(decl: &ir::top::FnDecl) -> bool {
-        decl.params.iter().any(|p| ir::ty::contains_type_var(&p.ty))
-            || ir::ty::contains_type_var(&decl.return_ty)
+        decl.params.iter().any(|p| ir::ty::contains_infer(&p.ty))
+            || ir::ty::contains_infer(&decl.return_ty)
             || decl
                 .generic_instance
                 .as_ref()
-                .is_some_and(ir_type::GenericInstanceInfo::contains_type_var)
+                .is_some_and(ir_type::GenericInstanceInfo::contains_infer)
     }
 
     fn unresolved_generated_callable_name(

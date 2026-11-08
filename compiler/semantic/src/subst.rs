@@ -3,11 +3,11 @@ use std::{collections::HashMap, rc::Rc};
 use kaede_ir::{self as ir, ty as ir_type};
 
 pub(crate) struct GenericSubstituter<'a> {
-    subst: &'a HashMap<ir_type::VarId, Rc<ir_type::Ty>>,
+    subst: &'a HashMap<ir_type::InferVarId, Rc<ir_type::Ty>>,
 }
 
 impl<'a> GenericSubstituter<'a> {
-    pub(crate) fn new(subst: &'a HashMap<ir_type::VarId, Rc<ir_type::Ty>>) -> Self {
+    pub(crate) fn new(subst: &'a HashMap<ir_type::InferVarId, Rc<ir_type::Ty>>) -> Self {
         Self { subst }
     }
 
