@@ -49,6 +49,32 @@ fn let_mismatched_types() -> anyhow::Result<()> {
 }
 
 #[test]
+fn empty_array_without_expected_element_type_is_an_error() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error(
+        "fun f() {
+            let xs = []
+        }
+    ",
+    )?;
+
+    assert!(err.to_string().contains("cannot infer type"));
+    Ok(())
+}
+
+#[test]
+fn closure_parameter_without_expected_type_is_an_error() -> anyhow::Result<()> {
+    let err = semantic_analyze_expect_error(
+        "fun f() {
+            let identity = |value| value
+        }
+    ",
+    )?;
+
+    assert!(err.to_string().contains("cannot infer type"));
+    Ok(())
+}
+
+#[test]
 fn let_and_access() -> anyhow::Result<()> {
     semantic_analyze(
         "fun f() -> i32 {
