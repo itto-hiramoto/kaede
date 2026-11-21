@@ -18,7 +18,8 @@ use kaede_parse::Parser;
 use kaede_span::{file::FilePath, Span};
 use kaede_symbol::{Ident, Symbol};
 use kaede_symbol_table::{
-    QualifiedSymbolTable, SymbolResolver, SymbolTable, SymbolTableValue, SymbolTableValueKind,
+    QualifiedSymbolTable, ResolvedGenericParams, SymbolResolver, SymbolTable, SymbolTableValue,
+    SymbolTableValueKind,
 };
 
 mod const_eval;
@@ -48,6 +49,12 @@ struct ClosureCapture {
     captured: HashSet<Symbol>,
 }
 
+struct PendingGenericBoundCheck {
+    params: ResolvedGenericParams,
+    args: Vec<Rc<ir_type::Ty>>,
+    span: Span,
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct AnalyzeOptions {
     pub no_autoload: bool,
@@ -73,6 +80,8 @@ pub struct SemanticAnalyzer {
     temp_symbol_counter: usize,
     generated_callable_substitutions:
         HashMap<QualifiedSymbol, HashMap<ir_type::InferVarId, Rc<ir_type::Ty>>>,
+    inference_substitutions: HashMap<ir_type::InferVarId, Rc<ir_type::Ty>>,
+    pending_generic_bound_checks: Vec<PendingGenericBoundCheck>,
     pending_generic_instance: Option<ir_type::GenericInstanceInfo>,
 }
 
@@ -350,6 +359,8 @@ impl SemanticAnalyzer {
             closure_capture_stack: Vec::new(),
             temp_symbol_counter: 0,
             generated_callable_substitutions: HashMap::new(),
+            inference_substitutions: HashMap::new(),
+            pending_generic_bound_checks: Vec::new(),
             pending_generic_instance: None,
         })
     }
@@ -377,6 +388,8 @@ impl SemanticAnalyzer {
             closure_capture_stack: Vec::new(),
             temp_symbol_counter: 0,
             generated_callable_substitutions: HashMap::new(),
+            inference_substitutions: HashMap::new(),
+            pending_generic_bound_checks: Vec::new(),
             pending_generic_instance: None,
         }
     }
@@ -734,6 +747,25 @@ impl SemanticAnalyzer {
         }
     }
 
+    fn merge_inference_substitutions(
+        &mut self,
+        substitutions: HashMap<ir_type::InferVarId, Rc<ir_type::Ty>>,
+    ) {
+        self.inference_substitutions.extend(substitutions);
+    }
+
+    fn verify_pending_generic_bounds(&self) -> anyhow::Result<()> {
+        for check in &self.pending_generic_bound_checks {
+            let args = check
+                .args
+                .iter()
+                .map(|arg| ir_type::apply_type_var_bindings(arg, &self.inference_substitutions))
+                .collect::<Vec<_>>();
+            self.verify_resolved_generic_bounds(Some(&check.params), &args, check.span)?;
+        }
+        Ok(())
+    }
+
     fn with_pending_generic_instance<R>(
         &mut self,
         generic_instance: Option<ir_type::GenericInstanceInfo>,
@@ -783,16 +815,13 @@ impl SemanticAnalyzer {
     }
 
     fn apply_substitutions_to_generated_generics(&mut self) {
-        if self.generated_callable_substitutions.is_empty() {
+        if self.generated_callable_substitutions.is_empty()
+            && self.inference_substitutions.is_empty()
+        {
             return;
         }
 
-        let global_subst = self
-            .generated_callable_substitutions
-            .values()
-            .flat_map(|m| m.iter())
-            .map(|(k, v)| (*k, v.clone()))
-            .collect::<HashMap<_, _>>();
+        let global_subst = self.inference_substitutions.clone();
 
         for top_level in &mut self.generated_generics {
             match top_level {
@@ -1289,6 +1318,7 @@ impl SemanticAnalyzer {
 
         // Apply inferred types back to the IR
         inferrer.apply_block(body)?;
+        self.merge_inference_substitutions(inferrer.resolved_substitutions());
         self.merge_generated_callable_substitutions(
             inferrer.into_generated_callable_substitutions(),
         );
@@ -1354,6 +1384,7 @@ impl SemanticAnalyzer {
         }
 
         inferrer.apply_block(body)?;
+        self.merge_inference_substitutions(inferrer.resolved_substitutions());
         self.merge_generated_callable_substitutions(
             inferrer.into_generated_callable_substitutions(),
         );
@@ -1430,6 +1461,7 @@ impl SemanticAnalyzer {
 
         self.apply_substitutions_to_generated_generics();
         self.infer_generated_generic_bodies_after_substitution()?;
+        self.verify_pending_generic_bounds()?;
 
         self.inject_generated_generics_to_compile_unit(ir::CompileUnit {
             top_levels: top_level_irs,

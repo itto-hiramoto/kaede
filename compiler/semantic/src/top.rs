@@ -27,6 +27,134 @@ pub enum TopLevelAnalysisResult {
     TopLevel(ir::top::TopLevel),
 }
 
+#[cfg(test)]
+mod generic_schema_tests {
+    use super::*;
+    use crate::AnalyzeOptions;
+    use std::path::PathBuf;
+
+    fn analyze(source: &str) -> anyhow::Result<SemanticAnalyzer> {
+        let ast = Parser::new(
+            source,
+            FilePath::from(PathBuf::from("generic_schema_test.kd")),
+        )
+        .run()?;
+        let mut analyzer = SemanticAnalyzer::new_for_single_file_test();
+        analyzer.analyze(
+            ast,
+            AnalyzeOptions {
+                no_autoload: true,
+                no_prelude: true,
+                is_entry_unit: true,
+            },
+        )?;
+        Ok(analyzer)
+    }
+
+    fn assert_param(ty: &Rc<ir::ty::Ty>, origin: &QualifiedSymbol, index: usize) {
+        let ir::ty::TyKind::GenericParam(param) = ty.kind.as_ref() else {
+            panic!("expected generic schema parameter, got {ty:?}");
+        };
+        assert_eq!(&param.origin, origin);
+        assert_eq!(param.index, index);
+    }
+
+    #[test]
+    fn stores_typed_generic_declaration_schemas() -> anyhow::Result<()> {
+        let analyzer = analyze(
+            "struct Pair<T, U> { first: T, second: U }
+             impl<T, U> Pair<T, U> { fun first(self) -> T { return self.first } }
+             enum Maybe<T> { None, Some(T) }
+             fun choose<T>(value: T) -> T { return value }",
+        )?;
+
+        let pair = analyzer
+            .lookup_symbol(Symbol::from("Pair".to_owned()))
+            .unwrap();
+        let pair = pair.borrow();
+        let SymbolTableValueKind::Generic(pair) = &pair.kind else {
+            panic!("expected generic Pair");
+        };
+        let GenericKind::Struct(pair) = &pair.kind else {
+            panic!("expected generic struct");
+        };
+        let pair_schema = pair.schema.as_ref().unwrap();
+        assert_param(&pair_schema.fields[0].ty, &pair_schema.name, 0);
+        assert_param(&pair_schema.fields[1].ty, &pair_schema.name, 1);
+        let first_schema = &pair.impl_info.as_ref().unwrap().method_schemas[0];
+        assert_param(&first_schema.return_ty, &pair_schema.name, 0);
+
+        let maybe = analyzer
+            .lookup_symbol(Symbol::from("Maybe".to_owned()))
+            .unwrap();
+        let maybe = maybe.borrow();
+        let SymbolTableValueKind::Generic(maybe) = &maybe.kind else {
+            panic!("expected generic Maybe");
+        };
+        let GenericKind::Enum(maybe) = &maybe.kind else {
+            panic!("expected generic enum");
+        };
+        let maybe_schema = maybe.schema.as_ref().unwrap();
+        assert_param(
+            maybe_schema.variants[1].ty.as_ref().unwrap(),
+            &maybe_schema.name,
+            0,
+        );
+
+        let choose = analyzer
+            .lookup_symbol(Symbol::from("choose".to_owned()))
+            .unwrap();
+        let choose = choose.borrow();
+        let SymbolTableValueKind::Generic(choose) = &choose.kind else {
+            panic!("expected generic choose");
+        };
+        let GenericKind::Func(choose) = &choose.kind else {
+            panic!("expected generic function");
+        };
+        assert_param(&choose.schema.params[0].ty, &choose.schema.name, 0);
+        assert_param(&choose.schema.return_ty, &choose.schema.name, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn recursive_generic_schema_uses_an_unmaterialized_placeholder() -> anyhow::Result<()> {
+        let analyzer = analyze("struct Node<T> { value: T, next: *Node<T> }")?;
+        let node = analyzer
+            .lookup_symbol(Symbol::from("Node".to_owned()))
+            .unwrap();
+        let node = node.borrow();
+        let SymbolTableValueKind::Generic(node) = &node.kind else {
+            panic!("expected generic Node");
+        };
+        let GenericKind::Struct(node) = &node.kind else {
+            panic!("expected generic struct");
+        };
+        let schema = node.schema.as_ref().unwrap();
+        let ir::ty::TyKind::Pointer(pointer) = schema.fields[1].ty.kind.as_ref() else {
+            panic!("expected pointer field");
+        };
+        let recursive_ty = match pointer.pointee_ty.kind.as_ref() {
+            ir::ty::TyKind::Reference(reference) => &reference.refee_ty,
+            _ => &pointer.pointee_ty,
+        };
+        let ir::ty::TyKind::UserDefined(recursive) = recursive_ty.kind.as_ref() else {
+            panic!(
+                "expected recursive user-defined type, got {:?}",
+                recursive_ty
+            );
+        };
+        assert!(matches!(
+            recursive.kind,
+            ir::ty::UserDefinedTypeKind::Placeholder(_)
+        ));
+        assert_eq!(
+            recursive.generic_instance.as_ref().unwrap().origin,
+            schema.name
+        );
+        Ok(())
+    }
+}
+
 impl SemanticAnalyzer {
     fn infer_top_const_initializer(
         &mut self,
@@ -47,6 +175,7 @@ impl SemanticAnalyzer {
 
         inferrer.infer_expr(init)?;
         inferrer.apply_expr(init)?;
+        self.merge_inference_substitutions(inferrer.resolved_substitutions());
         self.merge_generated_callable_substitutions(
             inferrer.into_generated_callable_substitutions(),
         );
@@ -504,6 +633,9 @@ impl SemanticAnalyzer {
 
             match base_ty.kind.as_ref() {
                 ast_type::TyKind::UserDefined(udt) => {
+                    let origin =
+                        QualifiedSymbol::new(self.current_module_path().clone(), udt.name.symbol());
+                    let method_schemas = self.analyze_generic_impl_method_schemas(&node, origin)?;
                     let symbol_kind = self.lookup_symbol(udt.name.symbol()).ok_or_else(|| {
                         SemanticError::Undeclared {
                             name: udt.name.symbol(),
@@ -515,18 +647,16 @@ impl SemanticAnalyzer {
                         SymbolTableValueKind::Generic(ref mut generic_info) => {
                             match &mut generic_info.kind {
                                 GenericKind::Struct(info) => {
-                                    info.impl_info = Some(GenericImplInfo::new(
-                                        node,
-                                        resolved_generic_params,
-                                        span,
-                                    ));
+                                    let mut impl_info =
+                                        GenericImplInfo::new(node, resolved_generic_params, span);
+                                    impl_info.method_schemas = method_schemas;
+                                    info.impl_info = Some(impl_info);
                                 }
                                 GenericKind::Enum(info) => {
-                                    info.impl_info = Some(GenericImplInfo::new(
-                                        node,
-                                        resolved_generic_params,
-                                        span,
-                                    ));
+                                    let mut impl_info =
+                                        GenericImplInfo::new(node, resolved_generic_params, span);
+                                    impl_info.method_schemas = method_schemas;
+                                    info.impl_info = Some(impl_info);
                                 }
                                 _ => todo!("Error"),
                             }
@@ -541,7 +671,10 @@ impl SemanticAnalyzer {
 
                 ast_type::TyKind::Slice(_) => {
                     let defining_module = self.current_module_path().clone();
-                    let impl_info = GenericImplInfo::new(node, resolved_generic_params, span);
+                    let method_schemas = self
+                        .analyze_generic_impl_method_schemas(&node, Self::slice_generic_origin())?;
+                    let mut impl_info = GenericImplInfo::new(node, resolved_generic_params, span);
+                    impl_info.method_schemas = method_schemas;
                     let slice_symbol = Symbol::from("slice".to_owned());
                     let root_module = self
                         .modules
@@ -605,6 +738,54 @@ impl SemanticAnalyzer {
         Ok(TopLevelAnalysisResult::TopLevel(ir::top::TopLevel::Impl(
             Rc::new(ir::top::Impl { methods }),
         )))
+    }
+
+    fn analyze_generic_impl_method_schemas(
+        &mut self,
+        impl_: &ast::top::Impl,
+        origin: QualifiedSymbol,
+    ) -> anyhow::Result<Vec<ir::top::FnDecl>> {
+        let params = impl_.generic_params.as_ref().unwrap();
+        let args = Self::generic_schema_arguments(params, origin.clone());
+        self.with_pending_generic_instance(
+            Some(ir::ty::GenericInstanceInfo::new(origin, args.clone())),
+            |analyzer| {
+                analyzer.with_generic_arguments(params, &args, |analyzer| {
+                    impl_
+                        .items
+                        .iter()
+                        .filter_map(|item| match &item.kind {
+                            ast::top::TopLevelKind::Fn(fn_) => Some(fn_),
+                            _ => None,
+                        })
+                        .map(|fn_| {
+                            let mut decl = fn_.decl.clone();
+                            if let Some(mutability) = decl.self_ {
+                                decl.params.v.push_front(ast::top::Param {
+                                    name: Ident::new("self".to_owned().into(), fn_.span),
+                                    ty: ast_type::change_mutability_dup(
+                                        Rc::new(impl_.ty.clone()),
+                                        mutability,
+                                    ),
+                                    default: None,
+                                });
+                            }
+                            decl.self_ = None;
+
+                            if decl.generic_params.is_some() {
+                                let method_origin = QualifiedSymbol::new(
+                                    analyzer.current_module_path().clone(),
+                                    decl.name.symbol(),
+                                );
+                                analyzer.analyze_generic_fn_schema(&decl, method_origin)
+                            } else {
+                                analyzer.lower_fn_decl(decl, false)
+                            }
+                        })
+                        .collect()
+                })
+            },
+        )
     }
 
     // Returns `None` for generic methods: their IR is materialized lazily at each
@@ -732,11 +913,14 @@ impl SemanticAnalyzer {
         span: Span,
     ) -> anyhow::Result<()> {
         let module_path = self.current_module_path().clone();
+        let origin = QualifiedSymbol::new(module_path.clone(), name);
+        let schema = self.analyze_generic_fn_schema(&node.decl, origin)?;
         let symbol_table_value = SymbolTableValue::new(
             SymbolTableValueKind::Generic(
                 GenericInfo::new(
                     GenericKind::Func(GenericFuncInfo {
                         ast: node,
+                        schema,
                         resolved_generic_params,
                     }),
                     module_path.clone(),
@@ -766,12 +950,15 @@ impl SemanticAnalyzer {
             let span = node.span;
             let resolved_generic_params =
                 self.resolve_generic_params(node.decl.generic_params.as_ref())?;
+            let origin = QualifiedSymbol::new(self.current_module_path().clone(), name);
+            let schema = self.analyze_generic_fn_schema(&node.decl, origin)?;
 
             let symbol_table_value = SymbolTableValue::new(
                 SymbolTableValueKind::Generic(
                     GenericInfo::new(
                         GenericKind::Func(GenericFuncInfo {
                             ast: node,
+                            schema,
                             resolved_generic_params,
                         }),
                         self.current_module_path().clone(),
@@ -866,6 +1053,14 @@ impl SemanticAnalyzer {
     }
 
     fn analyze_fn_decl(&mut self, node: ast::top::FnDecl) -> anyhow::Result<ir::top::FnDecl> {
+        self.lower_fn_decl(node, true)
+    }
+
+    fn lower_fn_decl(
+        &mut self,
+        node: ast::top::FnDecl,
+        register: bool,
+    ) -> anyhow::Result<ir::top::FnDecl> {
         let name = node.name.symbol();
 
         let qualified_name = if name.as_str() == "main" {
@@ -915,14 +1110,49 @@ impl SemanticAnalyzer {
             generic_instance: self.pending_generic_instance(),
         };
 
-        let symbol_table_value = SymbolTableValue::new(
-            SymbolTableValueKind::Function(Rc::new(fn_decl.clone())),
-            self.current_module_path().clone(),
-        );
+        if register {
+            let symbol_table_value = SymbolTableValue::new(
+                SymbolTableValueKind::Function(Rc::new(fn_decl.clone())),
+                self.current_module_path().clone(),
+            );
 
-        self.insert_symbol_to_root_scope(name, symbol_table_value, node.vis, node.span)?;
+            self.insert_symbol_to_root_scope(name, symbol_table_value, node.vis, node.span)?;
+        }
 
         Ok(fn_decl)
+    }
+
+    fn analyze_generic_fn_schema(
+        &mut self,
+        decl: &ast::top::FnDecl,
+        origin: QualifiedSymbol,
+    ) -> anyhow::Result<ir::top::FnDecl> {
+        let params = decl.generic_params.as_ref().unwrap();
+        let args = Self::generic_schema_arguments(params, origin);
+        self.with_generic_arguments(params, &args, |analyzer| {
+            analyzer.lower_fn_decl(decl.clone(), false)
+        })
+    }
+
+    fn generic_schema_arguments(
+        params: &ast::top::GenericParams,
+        origin: QualifiedSymbol,
+    ) -> Vec<Rc<ir::ty::Ty>> {
+        params
+            .params
+            .iter()
+            .enumerate()
+            .map(|(index, _)| {
+                Rc::new(ir::ty::Ty {
+                    kind: ir::ty::TyKind::GenericParam(ir::ty::GenericParamId::new(
+                        origin.clone(),
+                        index,
+                    ))
+                    .into(),
+                    mutability: ir::ty::Mutability::Not,
+                })
+            })
+            .collect()
     }
 
     pub fn analyze_struct(
@@ -934,13 +1164,16 @@ impl SemanticAnalyzer {
         let span = node.span;
 
         // For generic
-        if node.generic_params.is_some() {
-            let resolved_generic_params =
-                self.resolve_generic_params(node.generic_params.as_ref())?;
+        if let Some(params) = node.generic_params.as_ref() {
+            let resolved_generic_params = self.resolve_generic_params(Some(params))?;
+            let origin = QualifiedSymbol::new(self.current_module_path().clone(), name);
             let symbol_table_value = SymbolTableValue::new(
                 SymbolTableValueKind::Generic(
                     GenericInfo::new(
-                        GenericKind::Struct(GenericStructInfo::new(node, resolved_generic_params)),
+                        GenericKind::Struct(GenericStructInfo::new(
+                            node.clone(),
+                            resolved_generic_params,
+                        )),
                         self.current_module_path().clone(),
                     )
                     .into(),
@@ -949,6 +1182,34 @@ impl SemanticAnalyzer {
             );
 
             self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)?;
+
+            let args = Self::generic_schema_arguments(params, origin.clone());
+            let fields = self.with_generic_arguments(params, &args, |analyzer| {
+                node.fields
+                    .iter()
+                    .map(|field| -> anyhow::Result<ir::top::StructField> {
+                        Ok(ir::top::StructField {
+                            name: field.name.symbol(),
+                            ty: analyzer.analyze_type(&field.ty)?,
+                            offset: field.offset,
+                        })
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()
+            })?;
+
+            let symbol = self.lookup_symbol(name).unwrap();
+            let mut borrowed = symbol.borrow_mut();
+            let SymbolTableValueKind::Generic(info) = &mut borrowed.kind else {
+                unreachable!()
+            };
+            let GenericKind::Struct(info) = &mut info.kind else {
+                unreachable!()
+            };
+            info.schema = Some(ir::top::Struct {
+                name: origin,
+                fields,
+                generic_instance: None,
+            });
 
             // Generic structs are not created immediately, but are created when they are used.
             return Ok(TopLevelAnalysisResult::GenericTopLevel);
@@ -999,13 +1260,16 @@ impl SemanticAnalyzer {
         let span = node.span;
 
         // For generic
-        if node.generic_params.is_some() {
-            let resolved_generic_params =
-                self.resolve_generic_params(node.generic_params.as_ref())?;
+        if let Some(params) = node.generic_params.as_ref() {
+            let resolved_generic_params = self.resolve_generic_params(Some(params))?;
+            let origin = QualifiedSymbol::new(self.current_module_path().clone(), name);
             let symbol_table_value = SymbolTableValue::new(
                 SymbolTableValueKind::Generic(
                     GenericInfo::new(
-                        GenericKind::Enum(GenericEnumInfo::new(node, resolved_generic_params)),
+                        GenericKind::Enum(GenericEnumInfo::new(
+                            node.clone(),
+                            resolved_generic_params,
+                        )),
                         self.current_module_path().clone(),
                     )
                     .into(),
@@ -1014,6 +1278,38 @@ impl SemanticAnalyzer {
             );
 
             self.insert_symbol_to_root_scope(name, symbol_table_value, vis, span)?;
+
+            let args = Self::generic_schema_arguments(params, origin.clone());
+            let variants = self.with_generic_arguments(params, &args, |analyzer| {
+                node.variants
+                    .iter()
+                    .map(|variant| -> anyhow::Result<ir::top::EnumVariant> {
+                        Ok(ir::top::EnumVariant {
+                            name: variant.name.symbol(),
+                            ty: variant
+                                .ty
+                                .as_ref()
+                                .map(|ty| analyzer.analyze_type(ty))
+                                .transpose()?,
+                            offset: variant.offset,
+                        })
+                    })
+                    .collect::<anyhow::Result<Vec<_>>>()
+            })?;
+
+            let symbol = self.lookup_symbol(name).unwrap();
+            let mut borrowed = symbol.borrow_mut();
+            let SymbolTableValueKind::Generic(info) = &mut borrowed.kind else {
+                unreachable!()
+            };
+            let GenericKind::Enum(info) = &mut info.kind else {
+                unreachable!()
+            };
+            info.schema = Some(ir::top::Enum {
+                name: origin,
+                variants,
+                generic_instance: None,
+            });
 
             // Generics are not created immediately, but are created when they are used.
             return Ok(TopLevelAnalysisResult::GenericTopLevel);

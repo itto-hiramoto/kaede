@@ -77,6 +77,10 @@ impl TypeInferrer {
         self.generated_callable_substitutions
     }
 
+    pub fn resolved_substitutions(&self) -> HashMap<InferVarId, Rc<Ty>> {
+        self.context.resolved_substitutions()
+    }
+
     fn apply_fn_decl(
         &mut self,
         decl: &kaede_ir::top::FnDecl,
@@ -227,6 +231,13 @@ impl TypeInferrer {
                     .map(|arg| self.context.apply(arg))
                     .collect(),
             ));
+        }
+        if let Some(name) = enum_mut
+            .generic_instance
+            .as_ref()
+            .and_then(|instance| instance.concrete_qualified_symbol())
+        {
+            enum_mut.name = name;
         }
 
         enum_info
@@ -2102,6 +2113,15 @@ impl TypeInferrer {
                 }
                 if let Some(enum_unpack) = &mut if_expr.enum_unpack {
                     self.apply_expr(std::rc::Rc::make_mut(&mut enum_unpack.enum_value))?;
+                    if let UserDefinedTypeKind::Enum(enum_info) = &enum_unpack.enum_ty.kind {
+                        enum_unpack.enum_ty.kind =
+                            UserDefinedTypeKind::Enum(self.apply_enum_info(enum_info));
+                    }
+                    enum_unpack.enum_ty.generic_instance = enum_unpack
+                        .enum_ty
+                        .generic_instance
+                        .as_ref()
+                        .map(|instance| self.context.apply_generic_instance(instance));
                     enum_unpack.variant_ty = self.context.apply(&enum_unpack.variant_ty);
                 }
             }

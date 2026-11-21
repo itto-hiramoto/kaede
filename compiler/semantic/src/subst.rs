@@ -37,6 +37,13 @@ impl<'a> GenericSubstituter<'a> {
             field.ty = self.apply_ty(&field.ty);
         }
         self.apply_generic_instance(&mut struct_.generic_instance);
+        if let Some(name) = struct_
+            .generic_instance
+            .as_ref()
+            .and_then(|instance| instance.concrete_qualified_symbol())
+        {
+            struct_.name = name;
+        }
     }
 
     pub(crate) fn apply_enum(&self, enum_: &mut ir::top::Enum) {
@@ -46,6 +53,13 @@ impl<'a> GenericSubstituter<'a> {
             }
         }
         self.apply_generic_instance(&mut enum_.generic_instance);
+        if let Some(name) = enum_
+            .generic_instance
+            .as_ref()
+            .and_then(|instance| instance.concrete_qualified_symbol())
+        {
+            enum_.name = name;
+        }
     }
 
     fn apply_stmt(&self, stmt: &mut ir::stmt::Stmt) {
@@ -220,6 +234,13 @@ impl<'a> GenericSubstituter<'a> {
                 }
                 if let Some(enum_unpack) = &mut if_expr.enum_unpack {
                     self.apply_expr(Rc::make_mut(&mut enum_unpack.enum_value));
+                    if let ir_type::UserDefinedTypeKind::Enum(enum_info) = &enum_unpack.enum_ty.kind
+                    {
+                        let mut applied = (**enum_info).clone();
+                        self.apply_enum(&mut applied);
+                        enum_unpack.enum_ty.kind =
+                            ir_type::UserDefinedTypeKind::Enum(Rc::new(applied));
+                    }
                     if let Some(instance) = &enum_unpack.enum_ty.generic_instance {
                         enum_unpack.enum_ty = ir_type::UserDefinedType {
                             kind: enum_unpack.enum_ty.kind.clone(),

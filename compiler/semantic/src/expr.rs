@@ -1565,16 +1565,7 @@ impl SemanticAnalyzer {
             analyzed_variadic.push(self.analyze_expr(&arg.value)?);
         }
 
-        let mut provided_args = Vec::new();
-        if let Some(this_arg) = this_arg.as_ref() {
-            provided_args.push(this_arg.clone());
-        }
-        for arg in ordered_args.iter().filter_map(|arg| arg.as_ref()) {
-            provided_args.push(arg.clone());
-        }
-        provided_args.extend(analyzed_variadic.iter().cloned());
-
-        let generic_args = if let Some(generic_args) = node.generic_args.as_ref() {
+        let mut generic_args = if let Some(generic_args) = node.generic_args.as_ref() {
             generic_args
                 .types
                 .iter()
@@ -1588,31 +1579,40 @@ impl SemanticAnalyzer {
                 .as_ref()
                 .map_or(0, |params| params.len());
 
-            let mut inferred_args = provided_args
-                .iter()
-                .skip(if has_this { 1 } else { 0 })
-                .take(param_len)
-                .map(|arg| -> anyhow::Result<Rc<ir_type::Ty>> {
-                    Ok(match arg.ty.kind.as_ref() {
-                        ir_type::TyKind::Infer(_) => match arg.kind {
-                            ir::expr::ExprKind::Int(_) => Rc::new(ir_type::make_fundamental_type(
-                                ir_type::FundamentalTypeKind::I32,
-                                ir_type::Mutability::Not,
-                            )),
-                            _ => arg.ty.clone(),
-                        },
-                        _ => arg.ty.clone(),
-                    })
-                })
-                .collect::<anyhow::Result<Vec<_>>>()?;
-
-            if inferred_args.len() < param_len {
-                inferred_args.extend(
-                    (0..(param_len - inferred_args.len())).map(|_| self.infer_context.fresh()),
-                );
-            }
-            inferred_args
+            (0..param_len).map(|_| self.infer_context.fresh()).collect()
         };
+
+        let schema_params = func_info
+            .schema
+            .params
+            .iter()
+            .map(|param| ir_type::substitute_generic_params(&param.ty, &origin, &generic_args))
+            .collect::<Vec<_>>();
+        let schema_offset = usize::from(has_this);
+        if let (Some(this_arg), Some(schema_ty)) = (this_arg.as_ref(), schema_params.first()) {
+            self.infer_context
+                .unify(schema_ty, &this_arg.ty, this_arg.span)?;
+        }
+        for (arg, schema_ty) in ordered_args
+            .iter()
+            .zip(schema_params.iter().skip(schema_offset))
+        {
+            if let Some(arg) = arg {
+                self.infer_context.unify(schema_ty, &arg.ty, arg.span)?;
+            }
+        }
+        for arg in &mut generic_args {
+            *arg = self.infer_context.apply(arg);
+        }
+
+        if let Some(params) = func_info.resolved_generic_params.clone() {
+            self.pending_generic_bound_checks
+                .push(super::PendingGenericBoundCheck {
+                    params,
+                    args: generic_args.clone(),
+                    span,
+                });
+        }
 
         // Generate the generic function immediately; a later monomorphize pass rewrites
         // GenericFnCall into a regular FnCall for codegen.
