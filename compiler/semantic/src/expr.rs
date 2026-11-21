@@ -669,7 +669,7 @@ impl SemanticAnalyzer {
                 .into());
             }
 
-            if ir::ty::contains_type_var(&value.ty) || ir::ty::contains_type_var(&field_info.ty) {
+            if ir::ty::contains_infer(&value.ty) || ir::ty::contains_infer(&field_info.ty) {
                 // Defer the strict shape check to the type-inference pass; either side
                 // may still carry unresolved type variables (e.g. an `Option::Some(node)`
                 // value whose payload generic argument is not yet bound).
@@ -1247,7 +1247,7 @@ impl SemanticAnalyzer {
                 self.analyze_match_on_fundamental(node, value.clone(), fty)?
             }
 
-            ir_type::TyKind::Var(_) => {
+            ir_type::TyKind::Infer(_) => {
                 let fty = ir_type::FundamentalType {
                     kind: ir_type::FundamentalTypeKind::I32,
                 };
@@ -1594,7 +1594,7 @@ impl SemanticAnalyzer {
                 .take(param_len)
                 .map(|arg| -> anyhow::Result<Rc<ir_type::Ty>> {
                     Ok(match arg.ty.kind.as_ref() {
-                        ir_type::TyKind::Var(_) => match arg.kind {
+                        ir_type::TyKind::Infer(_) => match arg.kind {
                             ir::expr::ExprKind::Int(_) => Rc::new(ir_type::make_fundamental_type(
                                 ir_type::FundamentalTypeKind::I32,
                                 ir_type::Mutability::Not,
@@ -2528,7 +2528,7 @@ impl SemanticAnalyzer {
     ) -> anyhow::Result<ir::expr::Expr> {
         match expr.ty.kind.as_ref() {
             ir_type::TyKind::Fundamental(fty) if fty.is_int_or_char_or_bool() => {}
-            ir_type::TyKind::Var(_) => {}
+            ir_type::TyKind::Infer(_) => {}
             _ => {
                 return Err(SemanticError::MismatchedTypes {
                     types: (expr.ty.kind.to_string(), "integer".to_string()),
@@ -2917,7 +2917,7 @@ impl SemanticAnalyzer {
         }
 
         // Type inference resolves unbound variables later; skip coercion until then.
-        if matches!(value_base.kind.as_ref(), ir_type::TyKind::Var(_)) {
+        if matches!(value_base.kind.as_ref(), ir_type::TyKind::Infer(_)) {
             return Ok(value);
         }
 
@@ -3630,7 +3630,7 @@ impl SemanticAnalyzer {
                 .into())
             }
         } else {
-            if matches!(left_ty.kind.as_ref(), ir_type::TyKind::Var(_)) {
+            if matches!(left_ty.kind.as_ref(), ir_type::TyKind::Infer(_)) {
                 if let ast::expr::ExprKind::Ident(field_name) = &node.rhs.kind {
                     let span = Span::new(left.span.start, node.rhs.span.finish, left.span.file);
                     return Ok(ir::expr::Expr {
@@ -3660,7 +3660,7 @@ impl SemanticAnalyzer {
 
             if let ir_type::TyKind::Fundamental(fty) = left_ty.kind.as_ref() {
                 self.analyze_fundamental_type_method_call(left, fty, call_node)
-            } else if matches!(left_ty.kind.as_ref(), ir_type::TyKind::Var(_)) {
+            } else if matches!(left_ty.kind.as_ref(), ir_type::TyKind::Infer(_)) {
                 // Fallback for type variable receiver (e.g. let n = 3; n.abs() before inference).
                 // Closure args are bound from expected type before body analysis, so they won't hit this.
                 let fty = ir_type::FundamentalType {
@@ -3716,7 +3716,7 @@ impl SemanticAnalyzer {
             ir_type::Mutability::Not,
         );
 
-        if !matches!(index_ty.kind.as_ref(), ir_type::TyKind::Var(_))
+        if !matches!(index_ty.kind.as_ref(), ir_type::TyKind::Infer(_))
             && !ir_type::is_same_type(&index_ty, &expected_index_ty)
         {
             return Err(SemanticError::MismatchedTypes {
