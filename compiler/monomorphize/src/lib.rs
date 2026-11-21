@@ -2,10 +2,10 @@ use std::rc::Rc;
 
 use anyhow::anyhow;
 use kaede_ir::{
-    expr::{BuiltinFnCallKind, Else, Expr, ExprKind, FnCall, If},
-    stmt::{Block, Stmt},
-    top::TopLevel,
-    ty::contains_infer,
+    expr::{BuiltinFnCallKind, Expr, ExprKind, FnCall, ITable},
+    top::{FnDecl, TopLevel},
+    ty::{contains_infer, UserDefinedType},
+    visit::{walk_expr, MutVisitor},
     CompileUnit,
 };
 
@@ -349,85 +349,47 @@ impl Monomorphizer {
 
     pub fn run(&mut self, compile_unit: &mut CompileUnit) -> anyhow::Result<()> {
         for top in &mut compile_unit.top_levels {
-            self.rewrite_top_level(top)?;
-        }
-        Ok(())
-    }
-
-    fn rewrite_top_level(&mut self, top: &mut TopLevel) -> anyhow::Result<()> {
-        match top {
-            TopLevel::Fn(fn_) => {
-                let fn_ = Rc::make_mut(fn_);
-                if let Some(body) = &mut fn_.body {
-                    self.rewrite_block(body)?;
-                }
-            }
-            TopLevel::Impl(impl_) => {
-                let impl_ = Rc::make_mut(impl_);
-                for method in &mut impl_.methods {
-                    let method = Rc::make_mut(method);
-                    if let Some(body) = &mut method.body {
-                        self.rewrite_block(body)?;
+            match top {
+                TopLevel::Fn(fn_) => {
+                    if let Some(body) = &mut Rc::make_mut(fn_).body {
+                        self.visit_block(body)?;
                     }
                 }
-            }
-            TopLevel::Struct(_) | TopLevel::Enum(_) | TopLevel::Interface(_) => {}
-        }
-        Ok(())
-    }
-
-    fn rewrite_block(&mut self, block: &mut Block) -> anyhow::Result<()> {
-        for stmt in &mut block.body {
-            self.rewrite_stmt(stmt)?;
-        }
-
-        if let Some(last) = &mut block.last_expr {
-            self.rewrite_expr(last)?;
-        }
-        Ok(())
-    }
-
-    fn rewrite_stmt(&mut self, stmt: &mut Stmt) -> anyhow::Result<()> {
-        match stmt {
-            Stmt::Expr(expr) => self.rewrite_expr(Rc::make_mut(expr))?,
-            Stmt::Let(let_stmt) => {
-                if let Some(init) = &mut let_stmt.init {
-                    self.rewrite_expr(init)?;
+                TopLevel::Impl(impl_) => {
+                    for method in &mut Rc::make_mut(impl_).methods {
+                        if let Some(body) = &mut Rc::make_mut(method).body {
+                            self.visit_block(body)?;
+                        }
+                    }
                 }
-            }
-            Stmt::TupleUnpack(tuple_unpack) => self.rewrite_expr(&mut tuple_unpack.init)?,
-            Stmt::Assign(assign) => {
-                self.rewrite_expr(&mut assign.assignee)?;
-                self.rewrite_expr(&mut assign.value)?;
+                TopLevel::Struct(_) | TopLevel::Enum(_) | TopLevel::Interface(_) => {}
             }
         }
         Ok(())
     }
+}
 
-    fn rewrite_if(&mut self, if_expr: &mut If) -> anyhow::Result<()> {
-        self.rewrite_expr(&mut if_expr.cond)?;
-        self.rewrite_expr(&mut if_expr.then)?;
+/// Only function bodies are lowered; the declarations they reference are left as they are.
+impl MutVisitor for Monomorphizer {
+    type Error = anyhow::Error;
 
-        if let Some(else_) = &mut if_expr.else_ {
-            match else_.as_mut() {
-                Else::If(inner) => self.rewrite_if(inner)?,
-                Else::Block(block) => self.rewrite_expr(block)?,
-            }
-        }
-
-        if let Some(enum_unpack) = &mut if_expr.enum_unpack {
-            self.rewrite_expr(Rc::make_mut(&mut enum_unpack.enum_value))?;
-        }
+    fn visit_fn_decl(&mut self, _decl: &mut Rc<FnDecl>) -> anyhow::Result<()> {
         Ok(())
     }
 
-    fn rewrite_expr(&mut self, expr: &mut Expr) -> anyhow::Result<()> {
+    fn visit_itable(&mut self, _itable: &mut Rc<ITable>) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn visit_user_defined_type(&mut self, _udt: &mut UserDefinedType) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expr) -> anyhow::Result<()> {
+        walk_expr(self, expr)?;
+
         match &mut expr.kind {
             ExprKind::GenericFnCall(generic_call) => {
-                for arg in &mut generic_call.args.0 {
-                    self.rewrite_expr(arg)?;
-                }
-
                 if generic_call.generic_args.iter().any(contains_infer) {
                     return Err(anyhow!(
                         "unresolved generic arguments at monomorphize: {:?}",
@@ -435,81 +397,18 @@ impl Monomorphizer {
                     ));
                 }
 
-                let lowered = FnCall {
+                expr.kind = ExprKind::FnCall(FnCall {
                     callee: generic_call.callee.clone(),
                     args: generic_call.args.clone(),
                     span: generic_call.span,
-                };
-
-                expr.kind = ExprKind::FnCall(lowered);
+                });
             }
-            ExprKind::FnCall(call) => {
-                for arg in &mut call.args.0 {
-                    self.rewrite_expr(arg)?;
-                }
-            }
-            ExprKind::Spawn(spawn) => {
-                for arg in &mut spawn.args {
-                    self.rewrite_expr(arg)?;
-                }
-            }
-            ExprKind::ArrayLiteral(arr) => {
-                for elem in &mut arr.elements {
-                    self.rewrite_expr(elem)?;
-                }
-            }
-            ExprKind::ArrayRepeat(rep) => self.rewrite_expr(&mut rep.value)?,
-            ExprKind::TupleLiteral(tuple) => {
-                for elem in &mut tuple.elements {
-                    self.rewrite_expr(elem)?;
-                }
-            }
-            ExprKind::Binary(bin) => {
-                self.rewrite_expr(Rc::make_mut(&mut bin.lhs))?;
-                self.rewrite_expr(Rc::make_mut(&mut bin.rhs))?;
-            }
-            ExprKind::Cast(cast) => self.rewrite_expr(&mut cast.operand)?,
-            ExprKind::FieldAccess(field) => self.rewrite_expr(&mut field.operand)?,
             ExprKind::UnresolvedFieldAccess(field) => {
-                self.rewrite_expr(&mut field.operand)?;
                 return Err(anyhow!(
                     "unresolved field access reached monomorphize: {}",
                     field.field_name
                 ));
             }
-            ExprKind::TupleIndexing(tuple_idx) => {
-                self.rewrite_expr(Rc::make_mut(&mut tuple_idx.tuple))?;
-            }
-            ExprKind::EnumVariant(enum_var) => {
-                if let Some(value) = &mut enum_var.value {
-                    self.rewrite_expr(value)?;
-                }
-            }
-            ExprKind::Indexing(idx) => {
-                self.rewrite_expr(Rc::make_mut(&mut idx.operand))?;
-                self.rewrite_expr(&mut idx.index)?;
-            }
-            ExprKind::Slicing(slicing) => {
-                self.rewrite_expr(Rc::make_mut(&mut slicing.operand))?;
-                self.rewrite_expr(&mut slicing.start)?;
-                self.rewrite_expr(&mut slicing.end)?;
-            }
-            ExprKind::LogicalNot(not) => self.rewrite_expr(&mut not.operand)?,
-            ExprKind::BitNot(not) => self.rewrite_expr(&mut not.operand)?,
-            ExprKind::Closure(closure) => {
-                for capture in &mut closure.captures {
-                    self.rewrite_expr(capture)?;
-                }
-                self.rewrite_expr(&mut closure.body)?;
-            }
-            ExprKind::Return(ret) => {
-                if let Some(value) = ret {
-                    self.rewrite_expr(value)?;
-                }
-            }
-            ExprKind::If(if_expr) => self.rewrite_if(if_expr)?,
-            ExprKind::Loop(loop_expr) => self.rewrite_block(&mut loop_expr.body)?,
-            ExprKind::Block(block) => self.rewrite_block(block)?,
             ExprKind::BuiltinFnCall(call) => {
                 if let BuiltinFnCallKind::TypeSize(ty) = &call.kind {
                     if contains_infer(ty) {
@@ -518,47 +417,10 @@ impl Monomorphizer {
                         ));
                     }
                 }
-                for arg in &mut call.args.0 {
-                    self.rewrite_expr(arg)?;
-                }
             }
-            ExprKind::StructLiteral(lit) => {
-                for (_, value) in &mut lit.values {
-                    self.rewrite_expr(value)?;
-                }
-            }
-            ExprKind::InterfaceBox(boxed) => {
-                self.rewrite_expr(&mut boxed.value)?;
-            }
-            ExprKind::InterfaceMethodCall(call) => {
-                self.rewrite_expr(&mut call.receiver)?;
-                for arg in &mut call.args.0 {
-                    self.rewrite_expr(arg)?;
-                }
-            }
-            ExprKind::Select(select) => {
-                for arm in &mut select.arms {
-                    self.rewrite_expr(&mut arm.channel)?;
-                    if let Some(value) = &mut arm.value {
-                        self.rewrite_expr(value)?;
-                    }
-                    self.rewrite_expr(&mut arm.body)?;
-                }
-                if let Some(default) = &mut select.default {
-                    self.rewrite_expr(default)?;
-                }
-            }
-            ExprKind::Int(_)
-            | ExprKind::Float(_)
-            | ExprKind::StringLiteral(_)
-            | ExprKind::ByteStringLiteral(_)
-            | ExprKind::ByteLiteral(_)
-            | ExprKind::CharLiteral(_)
-            | ExprKind::Variable(_)
-            | ExprKind::BooleanLiteral(_)
-            | ExprKind::FnPointer(_)
-            | ExprKind::Break => {}
+            _ => {}
         }
+
         Ok(())
     }
 }

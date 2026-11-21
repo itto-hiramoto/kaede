@@ -7,6 +7,7 @@ pub mod stmt;
 pub mod top;
 pub mod ty;
 pub mod validate;
+pub mod visit;
 
 pub use validate::{validate_compile_unit, ResolvedCompileUnit, ValidationError, ValidationIssue};
 

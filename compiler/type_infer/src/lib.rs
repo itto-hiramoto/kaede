@@ -24,6 +24,7 @@ use kaede_ir::{
         FundamentalTypeKind, InferVarId, Mutability, ReferenceType, Ty, TyKind,
         UserDefinedTypeKind, contains_infer, make_fundamental_type,
     },
+    visit::{MutVisitor, walk_expr, walk_stmt},
 };
 mod context;
 mod env;
@@ -67,25 +68,6 @@ impl TypeInferrer {
 
     pub fn resolved_substitutions(&self) -> HashMap<InferVarId, Rc<Ty>> {
         self.context.resolved_substitutions()
-    }
-
-    fn apply_fn_decl(
-        &mut self,
-        decl: &kaede_ir::top::FnDecl,
-    ) -> Result<kaede_ir::top::FnDecl, TypeInferError> {
-        let mut applied = decl.clone();
-        for param in applied.params.iter_mut() {
-            if let Some(default) = &mut param.default {
-                self.apply_expr(std::rc::Rc::make_mut(default))?;
-            }
-            param.ty = self.context.apply(&param.ty);
-        }
-        applied.return_ty = self.context.apply(&applied.return_ty);
-        applied.generic_instance = applied
-            .generic_instance
-            .as_ref()
-            .map(|instance| self.context.apply_generic_instance(instance));
-        Ok(applied)
     }
 
     fn with_new_scope<R>(
@@ -154,32 +136,16 @@ impl TypeInferrer {
     }
 
     fn apply_enum_info(&self, enum_info: &Rc<IrEnum>) -> Rc<IrEnum> {
-        let mut enum_info = enum_info.clone();
-        let enum_mut = Rc::make_mut(&mut enum_info);
-        for variant in &mut enum_mut.variants {
-            if let Some(ty) = &variant.ty {
-                variant.ty = Some(self.context.apply(ty));
-            }
+        let applied = self
+            .context
+            .apply(&Self::enum_ty_from_info(enum_info.clone()));
+        match applied.kind.as_ref() {
+            TyKind::UserDefined(udt) => match &udt.kind {
+                UserDefinedTypeKind::Enum(info) => info.clone(),
+                _ => unreachable!(),
+            },
+            _ => unreachable!(),
         }
-        if let Some(instance) = &enum_mut.generic_instance {
-            enum_mut.generic_instance = Some(kaede_ir::ty::GenericInstanceInfo::new(
-                instance.origin.clone(),
-                instance
-                    .args
-                    .iter()
-                    .map(|arg| self.context.apply(arg))
-                    .collect(),
-            ));
-        }
-        if let Some(name) = enum_mut
-            .generic_instance
-            .as_ref()
-            .and_then(|instance| instance.concrete_qualified_symbol())
-        {
-            enum_mut.name = name;
-        }
-
-        enum_info
     }
 
     fn enum_ty_from_info(enum_info: Rc<IrEnum>) -> Rc<Ty> {
@@ -1680,44 +1646,74 @@ impl TypeInferrer {
 
     /// Apply the inferred types to an expression, replacing all type variables
     pub fn apply_expr(&mut self, expr: &mut Expr) -> Result<(), TypeInferError> {
+        self.visit_expr(expr)
+    }
+
+    pub fn apply_stmt(&mut self, stmt: &mut Stmt) -> Result<(), TypeInferError> {
+        self.visit_stmt(stmt)
+    }
+
+    pub fn apply_block(&mut self, block: &mut Block) -> Result<(), TypeInferError> {
+        self.visit_block(block)
+    }
+
+    /// Binds the type of an integer or float literal that nothing constrained to its default.
+    fn default_literal_ty(&mut self, expr: &mut Expr) {
+        let default_kind = match expr.kind {
+            ExprKind::Int(_) => FundamentalTypeKind::I32,
+            ExprKind::Float(_) => FundamentalTypeKind::F64,
+            _ => return,
+        };
+        if let TyKind::Infer(id) = self.context.apply(&expr.ty).kind.as_ref() {
+            let default_ty = Rc::new(Ty {
+                kind: TyKind::Fundamental(kaede_ir::ty::FundamentalType { kind: default_kind })
+                    .into(),
+                mutability: kaede_ir::ty::Mutability::Not,
+            });
+            self.context.bind_var(*id, default_ty.clone());
+            expr.ty = default_ty;
+        }
+    }
+}
+
+/// Writes the inferred types back into the IR, resolving the nodes whose final form depends on
+/// them and rejecting types that inference left unresolved.
+impl MutVisitor for TypeInferrer {
+    type Error = TypeInferError;
+
+    fn visit_ty(&mut self, ty: &mut Rc<Ty>) -> Result<(), TypeInferError> {
+        *ty = self.context.apply(ty);
+        Ok(())
+    }
+
+    fn visit_stmt(&mut self, stmt: &mut Stmt) -> Result<(), TypeInferError> {
+        walk_stmt(self, stmt)?;
+
+        if let Stmt::Let(let_stmt) = stmt {
+            if contains_infer(&let_stmt.ty) {
+                return Err(TypeInferError::CannotInferVariableType {
+                    span: let_stmt.span,
+                });
+            }
+
+            if let Some(symbol) = self.resolver.lookup(&let_stmt.name)
+                && let SymbolTableValueKind::Variable(var_info) = &mut symbol.borrow_mut().kind
+            {
+                var_info.ty = let_stmt.ty.clone();
+            }
+        }
+
+        Ok(())
+    }
+
+    fn visit_expr(&mut self, expr: &mut Expr) -> Result<(), TypeInferError> {
         use ExprKind::*;
 
-        // Apply to this expression's type
-        expr.ty = self.context.apply(&expr.ty);
+        self.default_literal_ty(expr);
 
-        // If this is an integer literal with an unconstrained type, default to i32
-        if matches!(expr.kind, ExprKind::Int(_))
-            && let TyKind::Infer(id) = expr.ty.kind.as_ref()
-        {
-            let default_ty = Rc::new(Ty {
-                kind: TyKind::Fundamental(kaede_ir::ty::FundamentalType {
-                    kind: FundamentalTypeKind::I32,
-                })
-                .into(),
-                mutability: kaede_ir::ty::Mutability::Not,
-            });
-            self.context.bind_var(*id, default_ty.clone());
-            expr.ty = default_ty;
-        }
+        walk_expr(self, expr)?;
 
-        // If this is a float literal with an unconstrained type, default to f64
-        if matches!(expr.kind, ExprKind::Float(_))
-            && let TyKind::Infer(id) = expr.ty.kind.as_ref()
-        {
-            let default_ty = Rc::new(Ty {
-                kind: TyKind::Fundamental(kaede_ir::ty::FundamentalType {
-                    kind: FundamentalTypeKind::F64,
-                })
-                .into(),
-                mutability: kaede_ir::ty::Mutability::Not,
-            });
-            self.context.bind_var(*id, default_ty.clone());
-            expr.ty = default_ty;
-        }
-
-        // Recursively apply to child expressions
         match &mut expr.kind {
-            // Integer literals need type conversion based on inferred type
             Int(int) => {
                 if let IntKind::Infer(value) = int.kind {
                     int.kind = match expr.ty.kind.as_ref() {
@@ -1751,7 +1747,6 @@ impl TypeInferrer {
                 }
             }
 
-            // Float literals need type conversion based on inferred type
             Float(float) => {
                 if let FloatKind::Infer(value) = float.kind {
                     float.kind = match expr.ty.kind.as_ref() {
@@ -1779,15 +1774,7 @@ impl TypeInferrer {
                 }
             }
 
-            // Other literals have no child expressions
-            StringLiteral(_) | ByteStringLiteral(_) | ByteLiteral(_) | CharLiteral(_)
-            | BooleanLiteral(_) | Break | FnPointer(_) => {}
-
-            // Structured literals with child expressions
             ArrayLiteral(arr_lit) => {
-                for elem in &mut arr_lit.elements {
-                    self.apply_expr(elem)?;
-                }
                 // Propagate element type into the array if it is still a type variable.
                 if let TyKind::Reference(rty) = expr.ty.kind.as_ref()
                     && let TyKind::Array((elem_ty, _)) = rty.get_base_type().kind.as_ref()
@@ -1800,8 +1787,6 @@ impl TypeInferrer {
                 }
             }
             ArrayRepeat(arr_rep) => {
-                self.apply_expr(&mut arr_rep.value)?;
-
                 if let TyKind::Reference(rty) = expr.ty.kind.as_ref()
                     && let TyKind::Array((elem_ty, _)) = rty.get_base_type().kind.as_ref()
                 {
@@ -1812,51 +1797,12 @@ impl TypeInferrer {
                     arr_rep.value.ty = value_ty;
                 }
             }
-            TupleLiteral(tuple_lit) => {
-                for elem in &mut tuple_lit.elements {
-                    self.apply_expr(elem)?;
-                }
-            }
-            StructLiteral(struct_lit) => {
-                for (_field_name, field_expr) in &mut struct_lit.values {
-                    self.apply_expr(field_expr)?;
-                }
-            }
-
-            // Variable has type field that needs updating
             Variable(var) => {
-                var.ty = self.context.apply(&var.ty);
-
-                // Error on unresolved type variables
                 if matches!(var.ty.kind.as_ref(), TyKind::Infer(_)) {
                     return Err(TypeInferError::CannotInferVariableType { span: expr.span });
                 }
             }
-
-            // Binary operations
-            Binary(bin) => {
-                self.apply_expr(std::rc::Rc::make_mut(&mut bin.lhs))?;
-                self.apply_expr(std::rc::Rc::make_mut(&mut bin.rhs))?;
-            }
-
-            // Unary operations
-            LogicalNot(not) => {
-                self.apply_expr(&mut not.operand)?;
-            }
-            BitNot(not) => {
-                self.apply_expr(&mut not.operand)?;
-            }
-            Cast(cast) => {
-                self.apply_expr(&mut cast.operand)?;
-                cast.target_ty = self.context.apply(&cast.target_ty);
-            }
-
-            // Field and index access
-            FieldAccess(field) => {
-                self.apply_expr(&mut field.operand)?;
-            }
             UnresolvedFieldAccess(field) => {
-                self.apply_expr(&mut field.operand)?;
                 // Late-bind field access once operand type variables are solved.
                 let operand_ty = self.context.apply(&field.operand.ty);
                 let struct_info = self.resolve_struct_info_from_ty(&operand_ty, field.span)?;
@@ -1881,13 +1827,7 @@ impl TypeInferrer {
                     span: field.span,
                 });
             }
-            TupleIndexing(tuple_idx) => {
-                self.apply_expr(std::rc::Rc::make_mut(&mut tuple_idx.tuple))?;
-                tuple_idx.element_ty = self.context.apply(&tuple_idx.element_ty);
-            }
             Indexing(idx) => {
-                self.apply_expr(std::rc::Rc::make_mut(&mut idx.operand))?;
-                self.apply_expr(&mut idx.index)?;
                 if matches!(expr.ty.kind.as_ref(), TyKind::Infer(_)) {
                     let applied_operand_ty = self.context.apply(&idx.operand.ty);
                     let element_ty_opt = match applied_operand_ty.kind.as_ref() {
@@ -1909,12 +1849,6 @@ impl TypeInferrer {
                 }
             }
             Slicing(slicing) => {
-                self.apply_expr(std::rc::Rc::make_mut(&mut slicing.operand))?;
-                self.apply_expr(&mut slicing.start)?;
-                self.apply_expr(&mut slicing.end)?;
-                slicing.elem_ty = self.context.apply(&slicing.elem_ty);
-                expr.ty = self.context.apply(&expr.ty);
-
                 if matches!(expr.ty.kind.as_ref(), TyKind::Infer(_)) {
                     let applied_operand_ty = self.context.apply(&slicing.operand.ty);
                     let elem_ty_opt = match applied_operand_ty.kind.as_ref() {
@@ -1944,29 +1878,14 @@ impl TypeInferrer {
                     }
                 }
             }
-            // Enum
             EnumVariant(enum_var) => {
-                if let Some(value_expr) = &mut enum_var.value {
-                    self.apply_expr(value_expr)?;
-                }
-
-                let specialized_enum = self.apply_enum_info(&enum_var.enum_info);
-                enum_var.enum_info = specialized_enum.clone();
-                expr.ty = Self::rebuild_enum_variant_expr_ty(&expr.ty, specialized_enum);
+                expr.ty = Self::rebuild_enum_variant_expr_ty(&expr.ty, enum_var.enum_info.clone());
 
                 if Self::enum_info_contains_infer(enum_var.enum_info.as_ref()) {
                     return Err(TypeInferError::CannotInferType { span: expr.span });
                 }
             }
-
-            // Function calls
             FnCall(fn_call) => {
-                for arg in &mut fn_call.args.0 {
-                    self.apply_expr(arg)?;
-                }
-
-                fn_call.callee = Rc::new(self.apply_fn_decl(&fn_call.callee)?);
-
                 if let Some(name) = fn_call
                     .callee
                     .generic_instance
@@ -1977,18 +1896,6 @@ impl TypeInferrer {
                 }
             }
             GenericFnCall(fn_call) => {
-                for arg in &mut fn_call.args.0 {
-                    self.apply_expr(arg)?;
-                }
-
-                fn_call.callee = Rc::new(self.apply_fn_decl(&fn_call.callee)?);
-
-                fn_call.generic_args = fn_call
-                    .generic_args
-                    .iter()
-                    .map(|ty| self.context.apply(ty))
-                    .collect();
-
                 if fn_call
                     .generic_args
                     .iter()
@@ -2009,179 +1916,16 @@ impl TypeInferrer {
                     Rc::make_mut(&mut fn_call.callee).name = name;
                 }
             }
-            Spawn(spawn) => {
-                for arg in &mut spawn.args {
-                    self.apply_expr(arg)?;
-                }
-
-                let mut applied_callee = (*spawn.callee).clone();
-                for param in applied_callee.params.iter_mut() {
-                    if let Some(default) = &mut param.default {
-                        self.apply_expr(std::rc::Rc::make_mut(default))?;
-                    }
-                    param.ty = self.context.apply(&param.ty);
-                }
-                applied_callee.return_ty = self.context.apply(&applied_callee.return_ty);
-                spawn.callee = applied_callee.into();
-
-                spawn.arg_types = spawn
-                    .arg_types
-                    .iter()
-                    .map(|ty| self.context.apply(ty))
-                    .collect();
-            }
-            Closure(closure) => {
-                for capture in &mut closure.captures {
-                    self.apply_expr(capture)?;
-                }
-                self.apply_expr(&mut closure.body)?;
-            }
-            BuiltinFnCall(builtin_call) => {
-                for arg in &mut builtin_call.args.0 {
-                    self.apply_expr(arg)?;
-                }
-            }
-
-            // Control flow
-            If(if_expr) => {
-                self.apply_expr(&mut if_expr.cond)?;
-                self.apply_expr(&mut if_expr.then)?;
-                if let Some(else_branch) = &mut if_expr.else_ {
-                    self.apply_else(else_branch)?;
-                }
-                if let Some(enum_unpack) = &mut if_expr.enum_unpack {
-                    self.apply_expr(std::rc::Rc::make_mut(&mut enum_unpack.enum_value))?;
-                    if let UserDefinedTypeKind::Enum(enum_info) = &enum_unpack.enum_ty.kind {
-                        enum_unpack.enum_ty.kind =
-                            UserDefinedTypeKind::Enum(self.apply_enum_info(enum_info));
-                    }
-                    enum_unpack.enum_ty.generic_instance = enum_unpack
-                        .enum_ty
-                        .generic_instance
-                        .as_ref()
-                        .map(|instance| self.context.apply_generic_instance(instance));
-                    enum_unpack.variant_ty = self.context.apply(&enum_unpack.variant_ty);
-                }
-            }
-            Loop(loop_expr) => {
-                self.apply_block(&mut loop_expr.body)?;
-            }
-            Block(block) => {
-                self.apply_block(block)?;
-            }
-            Return(ret) => {
-                if let Some(expr) = ret {
-                    self.apply_expr(expr)?;
-                }
-            }
-            InterfaceBox(boxed) => {
-                self.apply_expr(&mut boxed.value)?;
-            }
-            InterfaceMethodCall(call) => {
-                self.apply_expr(&mut call.receiver)?;
-                for arg in &mut call.args.0 {
-                    self.apply_expr(arg)?;
-                }
-            }
-            Select(select) => {
-                for arm in &mut select.arms {
-                    self.apply_expr(&mut arm.channel)?;
-                    arm.elem_ty = self.context.apply(&arm.elem_ty);
-                    if let Some(opt_ty) = &mut arm.option_ty {
-                        *opt_ty = self.context.apply(opt_ty);
-                    }
-                    if let Some(value) = &mut arm.value {
-                        self.apply_expr(value)?;
-                    }
-                    self.apply_expr(&mut arm.body)?;
-                }
-                if let Some(default) = &mut select.default {
-                    self.apply_expr(default)?;
-                }
-            }
+            _ => {}
         }
 
-        // Re-apply after processing children to pick up new substitutions
+        // Re-apply to pick up bindings made while resolving the children.
         expr.ty = self.context.apply(&expr.ty);
 
         if contains_infer(&expr.ty) {
             return Err(TypeInferError::CannotInferType { span: expr.span });
         }
 
-        Ok(())
-    }
-
-    /// Apply the inferred types to a statement
-    pub fn apply_stmt(&mut self, stmt: &mut Stmt) -> Result<(), TypeInferError> {
-        match stmt {
-            Stmt::Expr(expr_rc) => {
-                let expr = std::rc::Rc::make_mut(expr_rc);
-                self.apply_expr(expr)?;
-            }
-            Stmt::Let(let_stmt) => {
-                if let Some(init_expr) = &mut let_stmt.init {
-                    self.apply_expr(init_expr)?;
-                }
-                let_stmt.ty = self.context.apply(&let_stmt.ty);
-
-                // Error on unresolved type variables
-                if contains_infer(&let_stmt.ty) {
-                    return Err(TypeInferError::CannotInferVariableType {
-                        span: let_stmt.span,
-                    });
-                }
-
-                if let Some(symbol) = self.resolver.lookup(&let_stmt.name)
-                    && let SymbolTableValueKind::Variable(var_info) = &mut symbol.borrow_mut().kind
-                {
-                    var_info.ty = let_stmt.ty.clone();
-                }
-            }
-            Stmt::TupleUnpack(tuple_unpack) => {
-                self.apply_expr(&mut tuple_unpack.init)?;
-            }
-            Stmt::Assign(assign) => {
-                self.apply_expr(&mut assign.assignee)?;
-                self.apply_expr(&mut assign.value)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Apply the inferred types to an else branch
-    fn apply_else(
-        &mut self,
-        else_branch: &mut Box<kaede_ir::expr::Else>,
-    ) -> Result<(), TypeInferError> {
-        match else_branch.as_mut() {
-            kaede_ir::expr::Else::If(nested_if) => {
-                self.apply_expr(&mut nested_if.cond)?;
-                self.apply_expr(&mut nested_if.then)?;
-                if let Some(nested_else) = &mut nested_if.else_ {
-                    self.apply_else(nested_else)?;
-                }
-                if let Some(enum_unpack) = &mut nested_if.enum_unpack {
-                    if let Some(enum_value) = std::rc::Rc::get_mut(&mut enum_unpack.enum_value) {
-                        self.apply_expr(enum_value)?;
-                    }
-                    enum_unpack.variant_ty = self.context.apply(&enum_unpack.variant_ty);
-                }
-            }
-            kaede_ir::expr::Else::Block(block_expr) => {
-                self.apply_expr(block_expr)?;
-            }
-        }
-        Ok(())
-    }
-
-    /// Apply the inferred types to a block
-    pub fn apply_block(&mut self, block: &mut Block) -> Result<(), TypeInferError> {
-        for stmt in &mut block.body {
-            self.apply_stmt(stmt)?;
-        }
-        if let Some(last_expr) = &mut block.last_expr {
-            self.apply_expr(last_expr)?;
-        }
         Ok(())
     }
 }
