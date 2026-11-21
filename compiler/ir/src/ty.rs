@@ -1,8 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::Display,
-    rc::Rc,
-};
+use std::{collections::HashMap, fmt::Display, rc::Rc};
 
 use inkwell::{
     context::Context,
@@ -367,30 +363,8 @@ fn transform_ty(ty: &Rc<Ty>, replace: &impl Fn(&Rc<Ty>) -> Option<Rc<Ty>>) -> Rc
             mutability: ty.mutability,
         }),
         TyKind::UserDefined(udt) => Rc::new(Ty {
-            kind: TyKind::UserDefined({
-                let generic_instance = udt.generic_instance.as_ref().map(|instance| {
-                    GenericInstanceInfo::new(
-                        instance.origin.clone(),
-                        instance
-                            .args
-                            .iter()
-                            .map(|arg| transform_ty(arg, replace))
-                            .collect(),
-                    )
-                });
-                let kind = match (&udt.kind, &generic_instance) {
-                    (UserDefinedTypeKind::Placeholder(_), Some(instance)) => instance
-                        .concrete_qualified_symbol()
-                        .map(UserDefinedTypeKind::Placeholder)
-                        .unwrap_or_else(|| udt.kind.clone()),
-                    _ => udt.kind.clone(),
-                };
-                UserDefinedType {
-                    kind,
-                    generic_instance,
-                }
-            })
-            .into(),
+            kind: TyKind::UserDefined(udt.map_generic_args(&|arg| transform_ty(arg, replace)))
+                .into(),
             mutability: ty.mutability,
         }),
         TyKind::Fundamental(_)
@@ -660,58 +634,21 @@ impl GenericInstanceInfo {
             .map(|symbol| QualifiedSymbol::new(self.origin.module_path().clone(), symbol))
     }
 
-    pub fn collect_infer_var_ids_in_order(&self) -> Vec<InferVarId> {
-        let mut out = Vec::new();
-        let mut seen = HashSet::new();
-
-        for arg in &self.args {
-            collect_infer_var_ids(arg, &mut out, &mut seen);
+    /// `member` (a method named `<origin>.m` or `<origin>::m`) renamed to the member of this
+    /// instance, once its arguments are concrete. Other names are left to the caller.
+    pub fn concrete_member_symbol(&self, member: &QualifiedSymbol) -> Option<QualifiedSymbol> {
+        let member_symbol = member.symbol();
+        let suffix = member_symbol
+            .as_str()
+            .strip_prefix(self.origin.symbol().as_str())?;
+        if !(suffix.starts_with('.') || suffix.starts_with("::")) {
+            return None;
         }
-
-        out
-    }
-}
-
-pub fn collect_infer_var_ids_in_order(ty: &Rc<Ty>) -> Vec<InferVarId> {
-    let mut out = Vec::new();
-    let mut seen = HashSet::new();
-    collect_infer_var_ids(ty, &mut out, &mut seen);
-    out
-}
-
-fn collect_infer_var_ids(ty: &Rc<Ty>, out: &mut Vec<InferVarId>, seen: &mut HashSet<InferVarId>) {
-    match ty.kind.as_ref() {
-        TyKind::Infer(id) => {
-            if seen.insert(*id) {
-                out.push(*id);
-            }
-        }
-        TyKind::Pointer(pty) => collect_infer_var_ids(&pty.pointee_ty, out, seen),
-        TyKind::Reference(rty) => collect_infer_var_ids(&rty.refee_ty, out, seen),
-        TyKind::Slice(elem) => collect_infer_var_ids(elem, out, seen),
-        TyKind::Array((elem, _)) => collect_infer_var_ids(elem, out, seen),
-        TyKind::Tuple(elems) => {
-            for elem in elems {
-                collect_infer_var_ids(elem, out, seen);
-            }
-        }
-        TyKind::Closure(closure) => {
-            for param in &closure.param_tys {
-                collect_infer_var_ids(param, out, seen);
-            }
-            collect_infer_var_ids(&closure.ret_ty, out, seen);
-            for capture in &closure.captures {
-                collect_infer_var_ids(capture, out, seen);
-            }
-        }
-        TyKind::UserDefined(udt) => {
-            if let Some(instance) = &udt.generic_instance {
-                for arg in &instance.args {
-                    collect_infer_var_ids(arg, out, seen);
-                }
-            }
-        }
-        TyKind::GenericParam(_) | TyKind::Fundamental(_) | TyKind::Unit | TyKind::Never => {}
+        let concrete = self.concrete_symbol()?;
+        Some(QualifiedSymbol::new(
+            member.module_path().clone(),
+            format!("{concrete}{suffix}").into(),
+        ))
     }
 }
 
@@ -1035,6 +972,38 @@ impl UserDefinedType {
         Self {
             kind,
             generic_instance: Some(generic_instance),
+        }
+    }
+
+    /// Applies `map` to the generic arguments. A struct or enum instance whose arguments were not
+    /// all concrete carries a declaration built from them, so `map` is applied to it as well.
+    pub fn map_generic_args(&self, map: &impl Fn(&Rc<Ty>) -> Rc<Ty>) -> Self {
+        let Some(instance) = &self.generic_instance else {
+            return self.clone();
+        };
+
+        let was_concrete = instance.args.iter().all(is_concrete);
+        let instance = GenericInstanceInfo::new(
+            instance.origin.clone(),
+            instance.args.iter().map(map).collect(),
+        );
+        let kind = match &self.kind {
+            UserDefinedTypeKind::Placeholder(_) => instance
+                .concrete_qualified_symbol()
+                .map(UserDefinedTypeKind::Placeholder)
+                .unwrap_or_else(|| self.kind.clone()),
+            UserDefinedTypeKind::Struct(info) if !was_concrete => {
+                UserDefinedTypeKind::Struct(Rc::new(info.instantiate(instance.clone(), map)))
+            }
+            UserDefinedTypeKind::Enum(info) if !was_concrete => {
+                UserDefinedTypeKind::Enum(Rc::new(info.instantiate(instance.clone(), map)))
+            }
+            _ => self.kind.clone(),
+        };
+
+        Self {
+            kind,
+            generic_instance: Some(instance),
         }
     }
 

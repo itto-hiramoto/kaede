@@ -369,6 +369,8 @@ fn semantic_error_span(err: &SemanticError) -> Option<Span> {
         | SemanticError::CannotAssignImmutableToMutable { span }
         | SemanticError::NoMember { span, .. }
         | SemanticError::NoMethod { span, .. }
+        | SemanticError::GenericMethodOnUninferredInstance { span, .. }
+        | SemanticError::GenericInstantiationTooDeep { span, .. }
         | SemanticError::NoVariant { span, .. }
         | SemanticError::NotAnEnum { span, .. }
         | SemanticError::CannotAssignValueToVariant { span, .. }
